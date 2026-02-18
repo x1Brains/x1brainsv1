@@ -24,4 +24,13 @@ export default defineConfig({
       transformMixedEsModules: true,
     },
   },
+  server: {
+    proxy: {
+      '/api/xdex-price': {
+        target: 'https://api.xdex.xyz',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/xdex-price/, ''),
+      },
+    },
+  },
 });

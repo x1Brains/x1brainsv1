@@ -17,7 +17,7 @@ import {
   TopBar, PageBackground, Spinner,
   SectionHeader, PipelineBar, Footer, AddressBar, SideNav,
 } from '../components/UI';
-import { TokenCard, TokenData, XenBlocksPanel, WalletTokenSnapshot } from '../components/TokenComponents';
+import { TokenCard, TokenData, XenBlocksPanel, WalletTokenSnapshot, useTokenPrices } from '../components/TokenComponents';
 import { BurnedBrainsBar, injectBurnStyles } from '../components/BurnedBrainsBar';
 
 // ─────────────────────────────────────────────
@@ -679,6 +679,16 @@ const Portfolio: FC = () => {
   const t22Count    = token2022s.length + (brainsToken ? 1 : 0);
   const totalTokens = 1 + splTokens.length + t22Count + lpTokens.length;
 
+  // USD price lookup
+  const allMints = Array.from(new Set([
+    XNT_WRAPPED,
+    ...(brainsToken ? [brainsToken.mint] : []),
+    ...splTokens.map(t => t.mint),
+    ...token2022s.map(t => t.mint),
+    ...lpTokens.map(t => t.mint),
+  ]));
+  const tokenPrices = useTokenPrices(allMints);
+
   const xenBlocksWalletTokens: WalletTokenSnapshot[] = [
     ...(xntBalance !== null ? [{ mint: 'native-xnt', symbol: 'XNT', name: 'X1 Native Token', balance: xntBalance, logoUri: XNT_INFO.logoUri } as WalletTokenSnapshot] : []),
     ...splTokens.map(t => ({ mint: t.mint, symbol: t.symbol, name: t.name, balance: t.balance, logoUri: t.logoUri } as WalletTokenSnapshot)),
@@ -751,14 +761,14 @@ const Portfolio: FC = () => {
                 <TokenCard
                   token={{ mint: XNT_WRAPPED, name: 'X1 Native Token', symbol: 'XNT', balance: xntBalance ?? 0,
                     decimals: 9, isToken2022: false, metaSource: undefined, logoUri: XNT_INFO.logoUri }}
-                  highlight="native" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.05}
+                  highlight="native" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.05} usdPrice={tokenPrices.get(XNT_WRAPPED) ?? null}
                 />
 
                 {/* 2. BRAINS + burn */}
                 {brainsToken && (
                   <div ref={burnRef}>
                     <SectionHeader label="BRAINS Token" color="#ff8c00" />
-                    <TokenCard token={brainsToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.1} />
+                    <TokenCard token={brainsToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.1} usdPrice={tokenPrices.get(brainsToken.mint) ?? null} />
 
                     <div style={{
                       background: 'linear-gradient(135deg,rgba(255,30,30,.12),rgba(200,0,0,.08),rgba(255,30,30,.04))',
@@ -899,7 +909,7 @@ const Portfolio: FC = () => {
                           <span style={{ position: 'absolute', top: 2, left: hideZeroBalance ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left 0.25s', boxShadow: '0 1px 4px rgba(0,0,0,.4)' }} />
                         </button>
                       </div>
-                      {visible.map((t, i) => <TokenCard key={t.mint} token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * i} />)}
+                      {visible.map((t, i) => <TokenCard key={t.mint} token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * i} usdPrice={tokenPrices.get(t.mint) ?? null} />)}
                     </div>
                   ) : null;
                 })()}
@@ -911,8 +921,8 @@ const Portfolio: FC = () => {
                   return (brainsToken || token2022s.length > 0) ? (
                     <div ref={t22Ref}>
                       <SectionHeader label="Token-2022 Extensions" count={(brainsToken ? 1 : 0) + visible.length} color="#ffb700" hiddenCount={hideZeroBalance ? hidden : 0} />
-                      {brainsToken && <TokenCard token={brainsToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.05} />}
-                      {visible.map((t, i) => <TokenCard key={t.mint} token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * (i + 1)} />)}
+                      {brainsToken && <TokenCard token={brainsToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.05} usdPrice={tokenPrices.get(brainsToken.mint) ?? null} />}
+                      {visible.map((t, i) => <TokenCard key={t.mint} token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * (i + 1)} usdPrice={tokenPrices.get(t.mint) ?? null} />)}
                     </div>
                   ) : null;
                 })()}
@@ -921,7 +931,7 @@ const Portfolio: FC = () => {
                 {showLP && lpTokens.length > 0 && (
                   <div ref={lpRef}>
                     <SectionHeader label="LP Tokens" count={lpTokens.length} color="#00c98d" />
-                    {lpTokens.map((t, i) => <TokenCard key={t.mint} token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * i} isLP={true} />)}
+                    {lpTokens.map((t, i) => <TokenCard key={t.mint} token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * i} isLP={true} usdPrice={tokenPrices.get(t.mint) ?? null} />)}
                   </div>
                 )}
 
