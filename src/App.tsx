@@ -31,4 +31,5 @@ const App: FC = () => {
     </ConnectionProvider>
   );
 };
+
 export default App;

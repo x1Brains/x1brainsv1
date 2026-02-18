@@ -19,11 +19,12 @@ const FeatureCard: FC<{
   locked?: boolean;
   isNew?: boolean;
   badge?: string;
-}> = ({ icon, title, description, route, color, accentColor, delay = 0, locked = false, isNew = false, badge }) => {
+  comingSoon?: boolean;
+}> = ({ icon, title, description, route, color, accentColor, delay = 0, locked = false, isNew = false, badge, comingSoon = false }) => {
   const navigate = useNavigate();
   const { connected } = useWallet();
 
-  const canNavigate = !locked || connected;
+  const canNavigate = !comingSoon && (!locked || connected);
 
   return (
     <div
@@ -38,7 +39,7 @@ const FeatureCard: FC<{
         transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         animation: `fadeUp 0.5s ease ${delay}s both`,
         overflow: 'hidden',
-        opacity: locked && !connected ? 0.7 : 1,
+        opacity: comingSoon ? 0.55 : (locked && !connected ? 0.7 : 1),
       }}
       onMouseEnter={e => {
         if (!canNavigate) return;
@@ -55,13 +56,22 @@ const FeatureCard: FC<{
       }}
     >
       {/* Top accent line */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${color}, transparent)`, opacity: 0.6 }} />
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${color}, transparent)`, opacity: comingSoon ? 0.2 : 0.6 }} />
 
       {/* Ambient glow */}
       <div style={{ position: 'absolute', top: -40, right: -40, width: 120, height: 120, borderRadius: '50%', background: `radial-gradient(circle, ${color}12 0%, transparent 70%)`, pointerEvents: 'none' }} />
 
-      {/* NEW badge */}
-      {isNew && (
+      {/* COMING SOON badge — takes priority over NEW */}
+      {comingSoon ? (
+        <div style={{
+          position: 'absolute', top: 14, right: 14,
+          background: 'rgba(92,122,144,0.15)',
+          border: '1px solid rgba(92,122,144,0.3)',
+          color: '#5c7a90', fontFamily: 'Orbitron, monospace',
+          fontSize: 7, fontWeight: 900, letterSpacing: 2,
+          padding: '3px 10px', borderRadius: 6,
+        }}>SOON</div>
+      ) : isNew && (
         <div style={{
           position: 'absolute', top: 14, right: 14,
           background: `linear-gradient(135deg, ${color}, ${color}bb)`,
@@ -72,22 +82,22 @@ const FeatureCard: FC<{
       )}
 
       {/* Icon */}
-      <div style={{ fontSize: 40, marginBottom: 18, display: 'block', filter: `drop-shadow(0 0 12px ${color}60)` }}>
+      <div style={{ fontSize: 40, marginBottom: 18, display: 'block', filter: comingSoon ? 'grayscale(80%)' : `drop-shadow(0 0 12px ${color}60)` }}>
         {icon}
       </div>
 
       {/* Title */}
-      <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 16, fontWeight: 900, letterSpacing: 3, color: accentColor, marginBottom: 10, textTransform: 'uppercase' }}>
+      <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 16, fontWeight: 900, letterSpacing: 3, color: comingSoon ? '#4a6070' : accentColor, marginBottom: 10, textTransform: 'uppercase' }}>
         {title}
       </div>
 
       {/* Description */}
-      <p style={{ fontSize: 13, color: '#7a9ab8', lineHeight: 1.7, marginBottom: 16 }}>
+      <p style={{ fontSize: 13, color: comingSoon ? '#3a5060' : '#7a9ab8', lineHeight: 1.7, marginBottom: 16 }}>
         {description}
       </p>
 
       {/* Optional info badge */}
-      {badge && (
+      {badge && !comingSoon && (
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 6,
           background: `${color}10`, border: `1px solid ${color}30`,
@@ -99,7 +109,9 @@ const FeatureCard: FC<{
 
       {/* CTA */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {locked && !connected ? (
+        {comingSoon ? (
+          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#3a5060', letterSpacing: 2 }}>🔧 UNDER DEVELOPMENT</span>
+        ) : locked && !connected ? (
           <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#4a6070', letterSpacing: 2 }}>🔒 CONNECT WALLET TO ACCESS</span>
         ) : (
           <>
@@ -225,7 +237,8 @@ const Home: FC = () => {
             color="#ff8c00"
             accentColor="#ffb700"
             delay={0.2}
-            locked={true}
+            locked={false}
+            comingSoon={true}
           />
           <FeatureCard
             icon="🔬"
@@ -236,43 +249,43 @@ const Home: FC = () => {
             accentColor="#bf5af2"
             delay={0.3}
             locked={false}
-            isNew={true}
+            comingSoon={true}
             badge="88 TOTAL · 0.88 XNT"
           />
         </div>
 
-        {/* ── RARITY PREVIEW STRIP ── */}
+        {/* ── RARITY PREVIEW STRIP — COMING SOON ── */}
         <div style={{
           background: 'linear-gradient(135deg, #0d1520, #0a1018)',
-          border: '1px solid rgba(191,90,242,0.2)', borderRadius: 14,
-          padding: '18px 24px', marginBottom: 20,
+          border: '1px solid rgba(92,122,144,0.15)',
+          borderRadius: 14, padding: '18px 24px', marginBottom: 20,
           animation: 'fadeUp 0.5s ease 0.35s both',
-          cursor: 'pointer',
-        }}
-          onClick={() => window.location.assign('/mint')}
-          onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(191,90,242,0.5)'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(191,90,242,0.2)'; }}
-        >
+          opacity: 0.5,
+          cursor: 'not-allowed',
+        }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#bf5af2', letterSpacing: 3, textTransform: 'uppercase', fontWeight: 700 }}>🔬 Collection Rarity</span>
+              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#5c7a90', letterSpacing: 3, textTransform: 'uppercase', fontWeight: 700 }}>🔬 Collection Rarity</span>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               {[
-                { label: 'LEGENDARY', color: '#ff4444', count: 4  },
-                { label: 'EPIC',      color: '#bf5af2', count: 12 },
-                { label: 'RARE',      color: '#00d4ff', count: 24 },
-                { label: 'UNCOMMON',  color: '#00c98d', count: 28 },
-                { label: 'COMMON',    color: '#ff8c00', count: 20 },
+                { label: 'LEGENDARY', count: 4  },
+                { label: 'EPIC',      count: 12 },
+                { label: 'RARE',      count: 24 },
+                { label: 'UNCOMMON',  count: 28 },
+                { label: 'COMMON',    count: 20 },
               ].map(tier => (
                 <div key={tier.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: tier.color, boxShadow: `0 0 6px ${tier.color}` }} />
-                  <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 7, color: tier.color, letterSpacing: 1 }}>{tier.count}</span>
-                  <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 7, color: '#4a6070', letterSpacing: 1 }}>{tier.label}</span>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#3a5060' }} />
+                  <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 7, color: '#3a5060', letterSpacing: 1 }}>{tier.count}</span>
+                  <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 7, color: '#2a4050', letterSpacing: 1 }}>{tier.label}</span>
                 </div>
               ))}
             </div>
-            <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#bf5af2', letterSpacing: 1 }}>MINT NOW →</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#4a6070' }} />
+              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#4a6070', letterSpacing: 2 }}>COMING SOON</span>
+            </div>
           </div>
         </div>
 
@@ -286,7 +299,7 @@ const Home: FC = () => {
           <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#5c7a90', letterSpacing: 3, marginBottom: 16, textTransform: 'uppercase' }}>
             X1 Ecosystem
           </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
             {NAV_LINKS.map(link => (
               <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer"
                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(255,140,0,0.04)', border: '1px solid rgba(255,140,0,0.1)', borderRadius: 8, textDecoration: 'none', transition: 'all 0.2s' }}
