@@ -1,11 +1,5 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
-}
-
-{
-  "rewrites": [
     {
       "source": "/api/xdex-price/(.*)",
       "destination": "https://api.xdex.xyz/$1"
