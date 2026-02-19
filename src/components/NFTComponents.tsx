@@ -192,11 +192,29 @@ const NFTModal: FC<{
   }, [metaUri]);
 
   useEffect(() => {
-    document.body.style.overflow = 'hidden';
+    // Save scroll position and lock — restore on unmount
+    const scrollY = window.scrollY;
+    const body = document.body;
+    body.style.position = 'fixed';
+    body.style.top = `-${scrollY}px`;
+    body.style.left = '0';
+    body.style.right = '0';
+    body.style.overflow = 'hidden';
+
     const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', fn);
-    return () => { document.body.style.overflow = ''; window.removeEventListener('keydown', fn); };
-  }, [onClose]);
+
+    return () => {
+      // Always restore — even if closed unexpectedly
+      body.style.position = '';
+      body.style.top = '';
+      body.style.left = '';
+      body.style.right = '';
+      body.style.overflow = '';
+      window.scrollTo(0, scrollY);
+      window.removeEventListener('keydown', fn);
+    };
+  }, []); // empty deps — only run on mount/unmount, not on every onClose change
 
   const attrs: { trait_type: string; value: string }[] = meta?.attributes ?? [];
   const description = (meta?.description ?? '');
