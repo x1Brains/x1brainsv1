@@ -18,6 +18,7 @@ import {
   SectionHeader, PipelineBar, Footer, AddressBar, SideNav,
 } from '../components/UI';
 import { TokenCard, TokenData, XenBlocksPanel, WalletTokenSnapshot, useTokenPrices, priceCache } from '../components/TokenComponents';
+import { NFTGrid } from '../components/NFTComponents';
 import { BurnedBrainsBar, injectBurnStyles } from '../components/BurnedBrainsBar';
 
 // ─────────────────────────────────────────────
@@ -43,7 +44,7 @@ const TOKEN_NAME_OVERRIDES: Record<string, { name: string; symbol: string }> = {
 };
 
 interface XDexMintInfo { token_address: string; name: string; symbol: string; decimals: number; logo?: string; }
-interface ResolvedMeta { name: string; symbol: string; logoUri?: string; metaSource: TokenData['metaSource']; }
+interface ResolvedMeta { name: string; symbol: string; logoUri?: string; metaUri?: string; metaSource: TokenData['metaSource']; }
 
 const METADATA_PROGRAM_ID = new PublicKey(METADATA_PROGRAM_ID_STRING);
 const HARDCODED_LP_MINTS  = new Set(['FSFjPXo9vAvVsjh6YuuNTjetZ6oZBgfYA6TLcWTYmwq3']);
@@ -237,7 +238,7 @@ async function tryToken2022Extension(connection: any, mint: string): Promise<Res
     const uri    = (ext.state.uri    ?? '').replace(/\0/g, '').trim();
     if (!name && !symbol) return null;
     const logoUri = uri ? await fetchOffChainLogo(uri) : undefined;
-    return { name: name || symbol || 'Unknown', symbol: symbol || name.slice(0, 6).toUpperCase() || '???', logoUri, metaSource: 'token2022ext' };
+    return { name: name || symbol || 'Unknown', symbol: symbol || name.slice(0, 6).toUpperCase() || '???', logoUri, metaUri: uri || undefined, metaSource: 'token2022ext' };
   } catch { return null; }
 }
 
@@ -268,7 +269,7 @@ async function tryMetaplexPDA(connection: any, mint: string): Promise<ResolvedMe
     if (!name && !symbol) return null;
     if (name && !/^[\x20-\x7E\u00A0-\uFFFF]{1,60}$/.test(name)) return null;
     const logoUri = uri ? await fetchOffChainLogo(uri) : undefined;
-    return { name: name || 'Unknown', symbol: symbol || '???', logoUri, metaSource: 'metaplex' };
+    return { name: name || 'Unknown', symbol: symbol || '???', logoUri, metaUri: uri || undefined, metaSource: 'metaplex' };
   } catch { return null; }
 }
 
@@ -344,7 +345,7 @@ async function resolveTokenMeta(
       logoUri = fetched ?? m.uri;
       logoCache?.set(mint, logoUri);
     }
-    const base: ResolvedMeta = { name: m.name || 'Unknown', symbol: m.symbol || '???', logoUri, metaSource: 'metaplex' };
+    const base: ResolvedMeta = { name: m.name || 'Unknown', symbol: m.symbol || '???', logoUri, metaUri: m.uri || undefined, metaSource: 'metaplex' };
     return override ? { ...base, ...override } : base;
   }
   const xdex = tryXdexRegistry(xdexRegistry, mint);
@@ -641,111 +642,6 @@ const PortfolioStatsBar: FC<{
 
 
 // ─────────────────────────────────────────────
-// NFT IMAGE — fetches off-chain metadata JSON
-// and extracts the image field
-// ─────────────────────────────────────────────
-const nftImageCache = new Map<string, string | null>();
-
-const NFTImage: FC<{ metaUri?: string; name: string; isMobile: boolean }> = ({ metaUri, name, isMobile }) => {
-  const [imgSrc, setImgSrc] = useState<string | null | undefined>(
-    metaUri ? (nftImageCache.has(metaUri) ? nftImageCache.get(metaUri)! : undefined) : null
-  );
-
-  useEffect(() => {
-    if (!metaUri) { setImgSrc(null); return; }
-    if (nftImageCache.has(metaUri)) { setImgSrc(nftImageCache.get(metaUri)!); return; }
-    let cancelled = false;
-    (async () => {
-      try {
-        const resolveGateway = (u: string) => u
-          .replace('ipfs://', 'https://cloudflare-ipfs.com/ipfs/')
-          .replace('ar://', 'https://arweave.net/');
-
-        const url = resolveGateway(metaUri);
-        console.log('[NFTImage] URI:', url);
-
-        // If it looks like a direct image URL, use it straight away
-        const isDirectImage = /\.(png|jpg|jpeg|gif|webp|svg)(\?|$)/i.test(url);
-        if (isDirectImage) {
-          console.log('[NFTImage] direct image URL detected');
-          nftImageCache.set(metaUri, url);
-          if (!cancelled) setImgSrc(url);
-          return;
-        }
-
-        // Otherwise fetch as JSON metadata
-        const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-        // Check content-type — might actually be an image
-        const ct = res.headers.get('content-type') ?? '';
-        if (ct.startsWith('image/')) {
-          console.log('[NFTImage] content-type is image:', ct);
-          nftImageCache.set(metaUri, url);
-          if (!cancelled) setImgSrc(url);
-          return;
-        }
-
-        const json = await res.json();
-        console.log('[NFTImage] metadata JSON:', JSON.stringify(json).slice(0, 400));
-
-        const image = json?.image ?? json?.image_url ?? json?.imageUrl
-                   ?? json?.properties?.image ?? json?.properties?.files?.[0]?.uri
-                   ?? json?.properties?.files?.[0] ?? null;
-
-        if (image && typeof image === 'string') {
-          const resolved = resolveGateway(image);
-          console.log('[NFTImage] image resolved to:', resolved);
-          nftImageCache.set(metaUri, resolved);
-          if (!cancelled) setImgSrc(resolved);
-        } else {
-          console.warn('[NFTImage] no image field in:', JSON.stringify(json).slice(0, 200));
-          nftImageCache.set(metaUri, null);
-          if (!cancelled) setImgSrc(null);
-        }
-      } catch (err) {
-        console.error('[NFTImage] failed for', metaUri, err);
-        nftImageCache.set(metaUri, null);
-        if (!cancelled) setImgSrc(null);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [metaUri]);
-
-  // Loading state
-  if (imgSrc === undefined) {
-    return (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'linear-gradient(135deg,rgba(191,90,242,.1),rgba(191,90,242,.03))',
-        animation: 'nft-shimmer 1.5s ease infinite' }}>
-        <div style={{ width: 32, height: 32, borderRadius: '50%', border: '3px solid rgba(191,90,242,.3)',
-          borderTop: '3px solid #bf5af2', animation: 'spin 0.8s linear infinite' }} />
-        <style>{`@keyframes nft-shimmer{0%,100%{opacity:.5}50%{opacity:1}}`}</style>
-      </div>
-    );
-  }
-
-  // No image found
-  if (!imgSrc) {
-    return (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
-        background: 'linear-gradient(135deg,rgba(191,90,242,.1),rgba(191,90,242,.03))' }}>
-        <span style={{ fontSize: isMobile ? 32 : 42 }}>🖼️</span>
-        <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#4a5a70', marginTop: 6, letterSpacing: 1 }}>NO IMAGE</span>
-      </div>
-    );
-  }
-
-  return (
-    <img src={imgSrc} alt={name}
-      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-      onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-    />
-  );
-};
-
-// ─────────────────────────────────────────────
 // PORTFOLIO PAGE
 // ─────────────────────────────────────────────
 const Portfolio: FC = () => {
@@ -898,19 +794,19 @@ const Portfolio: FC = () => {
         const mint = info.mint as string;
         const isLP = checkIsLP(mint, globalLPMints, walletLP);
         const meta = await resolveTokenMeta(connection, mint, xdexRegistry, metaplexCache, logoCache);
-        return { mint, balance, decimals: info.tokenAmount.decimals, isToken2022: acc.is2022, isLP, name: meta.name, symbol: meta.symbol, logoUri: meta.logoUri, metaSource: meta.metaSource };
+        return { mint, balance, decimals: info.tokenAmount.decimals, isToken2022: acc.is2022, isLP, name: meta.name, symbol: meta.symbol, logoUri: meta.logoUri, metaUri: meta.metaUri, metaSource: meta.metaSource };
       }));
       const nfts: TokenData[] = [];
       for (const r of results) {
         if (r.status !== 'fulfilled' || !r.value) continue;
         const t  = r.value;
-        const td: TokenData = { mint: t.mint, balance: t.balance, decimals: t.decimals, isToken2022: t.isToken2022, name: t.name, symbol: t.symbol, logoUri: t.logoUri, metaSource: t.metaSource };
+        const td: TokenData = { mint: t.mint, balance: t.balance, decimals: t.decimals, isToken2022: t.isToken2022, name: t.name, symbol: t.symbol, logoUri: t.logoUri, metaUri: (t as any).metaUri, metaSource: t.metaSource };
         // Detect NFTs early — before any metaSource filtering
         // decimals=0 + balance=1 is the canonical NFT fingerprint on Solana
         if (!t.isLP && t.mint !== BRAINS_MINT && t.decimals === 0 && t.balance === 1) {
           console.log('[Portfolio] NFT detected:', t.mint, '| name:', t.name, '| src:', t.metaSource, '| logoUri:', t.logoUri);
-          // If we don't have a logoUri yet, try fetching Metaplex PDA directly
-          if (!td.logoUri) {
+          // If no metaUri yet, fetch Metaplex PDA directly to get the raw metadata URI
+          if (!td.metaUri && !td.logoUri) {
             try {
               const [pda] = PublicKey.findProgramAddressSync(
                 [new TextEncoder().encode('metadata'), METADATA_PROGRAM_ID.toBytes(), new PublicKey(t.mint).toBytes()],
@@ -920,19 +816,26 @@ const Portfolio: FC = () => {
               if (acctInfo?.data) {
                 const raw = typeof acctInfo.data === 'string'
                   ? Uint8Array.from(atob(acctInfo.data), c => c.charCodeAt(0))
-                  : acctInfo.data instanceof Array
+                  : Array.isArray(acctInfo.data)
                     ? Uint8Array.from(atob(acctInfo.data[0]), c => c.charCodeAt(0))
                     : new Uint8Array(acctInfo.data);
                 if (raw.length >= 69) {
                   const view = new DataView(raw.buffer, raw.byteOffset);
                   let o = 65;
-                  const nL = view.getUint32(o, true); o += 4 + nL;
-                  const sL = view.getUint32(o, true); o += 4 + sL;
+                  // name
+                  const nL = view.getUint32(o, true); o += 4;
+                  if (nL > 0 && nL <= 200 && o + nL <= raw.length) o += nL; else throw new Error('bad nL');
+                  // symbol
+                  const sL = view.getUint32(o, true); o += 4;
+                  if (sL <= 50 && o + sL <= raw.length) o += sL; else throw new Error('bad sL');
+                  // uri
                   const uL = view.getUint32(o, true); o += 4;
-                  if (uL > 0 && uL < 500 && o + uL <= raw.length) {
+                  if (uL > 0 && uL <= 500 && o + uL <= raw.length) {
                     const uri = new TextDecoder().decode(raw.slice(o, o + uL)).split('\x00').join('').trim();
-                    console.log('[Portfolio] NFT raw URI for', t.mint.slice(0,8), ':', uri);
-                    if (uri) td.logoUri = uri;
+                    console.log('[Portfolio] NFT PDA URI for', t.mint.slice(0,8), ':', uri);
+                    if (uri.startsWith('http') || uri.startsWith('ipfs://') || uri.startsWith('ar://')) {
+                      td.metaUri = uri;
+                    }
                   }
                 }
               }
@@ -1257,65 +1160,12 @@ const Portfolio: FC = () => {
                 {showNFT && nftTokens.length > 0 && (
                   <div ref={nftRef}>
                     <SectionHeader label="NFT Collection" count={nftTokens.length} color="#bf5af2" />
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)',
-                      gap: isMobile ? 10 : 14,
-                      marginBottom: 24,
-                    }}>
-                      {nftTokens.map((nft, i) => (
-                        <div key={nft.mint}
-                          style={{
-                            background: 'linear-gradient(135deg,rgba(191,90,242,.08),rgba(191,90,242,.02))',
-                            border: '1px solid rgba(191,90,242,.25)',
-                            borderRadius: 14,
-                            overflow: 'hidden',
-                            animation: `fadeUp 0.4s ease ${0.04 * i}s both`,
-                            transition: 'transform 0.15s, box-shadow 0.2s',
-                            cursor: 'pointer',
-                          }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-3px)'; (e.currentTarget as HTMLDivElement).style.boxShadow = '0 8px 24px rgba(191,90,242,.25)'; }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'; (e.currentTarget as HTMLDivElement).style.boxShadow = 'none'; }}
-                        >
-                          {/* NFT Image */}
-                          <div style={{ position: 'relative', width: '100%', paddingBottom: '100%', background: '#0a0e14' }}>
-                            <NFTImage metaUri={nft.logoUri} name={nft.name} isMobile={isMobile} />
-                            {/* Top-right badge */}
-                            <div style={{ position: 'absolute', top: 7, right: 7,
-                              background: 'rgba(0,0,0,.7)', backdropFilter: 'blur(4px)',
-                              border: '1px solid rgba(191,90,242,.4)',
-                              borderRadius: 6, padding: '2px 6px',
-                              fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#bf5af2', fontWeight: 700, letterSpacing: 1 }}>
-                              NFT
-                            </div>
-                          </div>
-                          {/* NFT Info */}
-                          <div style={{ padding: isMobile ? '8px 10px' : '10px 12px' }}>
-                            <div style={{ fontFamily: 'Orbitron, monospace', fontSize: isMobile ? 10 : 11, fontWeight: 700,
-                              color: '#bf5af2', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {nft.name}
-                            </div>
-                            <div style={{ fontFamily: 'Sora, sans-serif', fontSize: 9, color: '#5a7a94',
-                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 6 }}>
-                              {nft.symbol}
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
-                              <span style={{ fontFamily: 'Sora, monospace', fontSize: 9, color: '#3a5070' }}>
-                                {nft.mint.slice(0,6)}…{nft.mint.slice(-4)}
-                              </span>
-                              <button onClick={() => copyAddress(nft.mint)}
-                                style={{ background: copiedAddress === nft.mint ? 'rgba(0,201,141,.2)' : 'rgba(191,90,242,.1)',
-                                  border: `1px solid ${copiedAddress === nft.mint ? 'rgba(0,201,141,.4)' : 'rgba(191,90,242,.3)'}`,
-                                  color: copiedAddress === nft.mint ? '#00c98d' : '#bf5af2',
-                                  padding: '2px 6px', borderRadius: 4, cursor: 'pointer',
-                                  fontSize: 8, fontFamily: 'Orbitron, monospace', flexShrink: 0 }}>
-                                {copiedAddress === nft.mint ? '✓' : 'COPY'}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <NFTGrid
+                      nfts={nftTokens}
+                      isMobile={isMobile}
+                      copiedAddress={copiedAddress}
+                      onCopy={copyAddress}
+                    />
                   </div>
                 )}
 

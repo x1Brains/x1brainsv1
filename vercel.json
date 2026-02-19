@@ -5,6 +5,10 @@
       "destination": "https://api.xdex.xyz/$1"
     },
     {
+      "source": "/api/nft-meta/(.*)",
+      "destination": "https://$1"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

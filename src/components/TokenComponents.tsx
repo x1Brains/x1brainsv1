@@ -10,7 +10,8 @@ export interface TokenData {
   symbol: string;
   balance: number;
   decimals: number;
-  logoUri?: string;
+  logoUri?: string;   // resolved image URL (or metadata JSON URL as fallback)
+  metaUri?: string;   // raw off-chain metadata JSON URI — used by NFTImage to fetch image
   isToken2022: boolean;
   metaSource?: 'token2022ext' | 'metaplex' | 'xdex' | 'fallback';
 }
@@ -45,9 +46,6 @@ async function fetchSinglePrice(mint: string): Promise<void> {
   // Start fetch
   priceWaiters.set(mint, []);
   try {
-    // Use /api/xdex-price proxy to avoid CORS (configured in vite.config.ts + vercel.json)
-    // In dev: Vite proxies /api/xdex-price → https://api.xdex.xyz
-    // In prod: Vercel rewrites /api/xdex-price → https://api.xdex.xyz
     const url = `/api/xdex-price/api/token-price/prices?network=X1%20Mainnet&token_addresses=${mint}`;
     const res = await fetch(url, {
       headers: { Accept: 'application/json' },
@@ -61,25 +59,21 @@ async function fetchSinglePrice(mint: string): Promise<void> {
 
     let price: number | null = null;
 
-    // ACTUAL API shape: { success: true, data: [{ token_address, price, price_currency }] }
     if (data?.success === true && Array.isArray(data?.data)) {
       const item = data.data.find((i: any) => i?.token_address === mint);
       if (item?.price != null && Number.isFinite(Number(item.price)) && Number(item.price) > 0) {
         price = Number(item.price);
       }
     }
-    // Flat array: [{ token_address, price }]
     else if (Array.isArray(data)) {
       const item = data.find((i: any) => (i?.token_address ?? i?.mint ?? i?.address) === mint);
       if (item?.price != null && Number.isFinite(Number(item.price)) && Number(item.price) > 0) {
         price = Number(item.price);
       }
     }
-    // Keyed by mint: { [mint]: number }
     else if (typeof data?.[mint] === 'number') {
       price = data[mint] > 0 ? data[mint] : null;
     }
-    // Keyed by mint: { [mint]: { price: number } }
     else if (data?.[mint] && typeof data[mint] === 'object') {
       const raw = data[mint]?.price ?? data[mint]?.usd ?? data[mint]?.value ?? null;
       price = raw != null && Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
@@ -91,7 +85,6 @@ async function fetchSinglePrice(mint: string): Promise<void> {
     console.warn('[XDex Price] fetch failed for', mint.slice(0,8), err);
     priceCache.set(mint, null);
   } finally {
-    // Wake all waiting callers
     const waiters = priceWaiters.get(mint) ?? [];
     priceWaiters.delete(mint);
     waiters.forEach(fn => fn());
@@ -100,7 +93,6 @@ async function fetchSinglePrice(mint: string): Promise<void> {
 
 // ─────────────────────────────────────────────
 // usePrice — self-contained hook per card
-// Returns: undefined=loading, null=no price, number=price
 // ─────────────────────────────────────────────
 function usePrice(mint: string): number | null | undefined {
   const [price, setPrice] = useState<number | null | undefined>(() =>
@@ -141,15 +133,13 @@ function fmtPrice(p: number): string {
 }
 
 // ─────────────────────────────────────────────
-// USD ROW — self-contained, fetches its own price
+// USD ROW
 // ─────────────────────────────────────────────
 const USDRow: FC<{ mint: string; balance: number }> = ({ mint, balance }) => {
-  // Native XNT: use wrapped mint for price lookup
   const priceMint = mint === 'native-xnt' ? XNT_WRAPPED : mint;
   const price     = usePrice(priceMint);
   const usd       = price != null && balance > 0 ? price * balance : null;
 
-  // Loading skeleton
   if (price === undefined) {
     return (
       <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3, marginTop:2 }}>
@@ -159,12 +149,10 @@ const USDRow: FC<{ mint: string; balance: number }> = ({ mint, balance }) => {
     );
   }
 
-  // No price available
   if (price === null || usd === null) return null;
 
   return (
     <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:2, marginTop:2 }}>
-      {/* Total USD value */}
       <div style={{
         fontFamily:'Orbitron, monospace', fontSize:13, fontWeight:700,
         color:'#00c98d', letterSpacing:0.5,
@@ -172,7 +160,6 @@ const USDRow: FC<{ mint: string; balance: number }> = ({ mint, balance }) => {
       }}>
         {fmtUSD(usd)}
       </div>
-      {/* Per-token price */}
       <div style={{ fontFamily:'Sora, sans-serif', fontSize:9, color:'#3a6050', letterSpacing:0.3 }}>
         {fmtPrice(price)} / token
       </div>
@@ -298,7 +285,7 @@ export const TokenCard: FC<{
   onCopy: (addr: string) => void;
   animDelay?: number;
   isLP?: boolean;
-  usdPrice?: number | null; // kept for backwards compat but ignored — card fetches its own
+  usdPrice?: number | null;
 }> = ({ token, highlight, copiedAddress, onCopy, animDelay = 0, isLP = false }) => {
   const [lpInfo, setLpInfo] = useState<LPPoolInfo | null>(null);
   const mounted = useRef(true);
@@ -335,7 +322,6 @@ export const TokenCard: FC<{
   const cardSymbol = isLP ? (lpInfo ? `${lpInfo.token1Symbol} / ${lpInfo.token2Symbol}` : displayedSymbol) : displayedSymbol;
   const cardName   = isLP ? (lpInfo ? `${lpInfo.pairName} Liquidity Pool` : displayedName) : displayedName;
 
-  // For native XNT pass 'native-xnt' so USDRow maps it to wrapped mint
   const priceMint = token.mint === XNT_WRAPPED && highlight === 'native' ? 'native-xnt' : token.mint;
 
   return (
@@ -376,7 +362,6 @@ export const TokenCard: FC<{
         {/* CENTER INFO */}
         <div style={{ flex:1, minWidth:0 }}>
 
-          {/* Symbol + badges */}
           <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:3, flexWrap:'wrap' }}>
             <span style={{ fontFamily:'Orbitron, monospace', fontSize:17, fontWeight:700, color:accentColor }}>
               {cardSymbol}
@@ -399,13 +384,11 @@ export const TokenCard: FC<{
             {!isLP && <MetaBadge source={token.metaSource} />}
           </div>
 
-          {/* Token name */}
           <div style={{ fontSize:13, color:'#6a8ea8', marginBottom:6,
             overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
             {cardName}
           </div>
 
-          {/* LP pool stats */}
           {isLP && (
             <div style={{ display:'flex', flexWrap:'wrap', gap:10, alignItems:'center', marginBottom:6 }}>
               {lpInfo?.tvl !== undefined && !isNaN(lpInfo.tvl) && lpInfo.tvl > 0 && (
@@ -438,7 +421,6 @@ export const TokenCard: FC<{
             </div>
           )}
 
-          {/* Mint address */}
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
             <span style={{ fontFamily:'Sora, monospace', fontSize:11, color:'#3a5070' }}>
               {token.mint.slice(0,8)}…{token.mint.slice(-4)}
@@ -459,7 +441,6 @@ export const TokenCard: FC<{
           display:'flex', flexDirection:'column', alignItems:'flex-end',
           gap:4, minWidth:110 }}>
 
-          {/* Token balance */}
           <div style={{ fontFamily:'Orbitron, monospace', fontWeight:700, color:accentColor, lineHeight:1.1,
             fontSize:token.balance >= 10_000_000 ? 14 : token.balance >= 10_000 ? 18 : 22 }}>
             {token.balance.toLocaleString(undefined, {
@@ -468,12 +449,10 @@ export const TokenCard: FC<{
             })}
           </div>
 
-          {/* Decimals */}
           <div style={{ fontSize:10, color:'#3a5070', fontFamily:'Orbitron, monospace', letterSpacing:1 }}>
             {token.decimals} DEC
           </div>
 
-          {/* USD value — self-fetching, skipped for LP */}
           {!isLP && <USDRow mint={priceMint} balance={token.balance} />}
 
         </div>
