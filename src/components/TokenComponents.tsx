@@ -30,7 +30,7 @@ export const KNOWN_TOKENS: Record<string, { name: string; symbol: string }> = {}
 // Shared across all card instances so we don't
 // fire duplicate requests for the same mint.
 // ─────────────────────────────────────────────
-const priceCache  = new Map<string, number | null>(); // null = confirmed no price
+export const priceCache  = new Map<string, number | null>(); // null = confirmed no price
 const priceWaiters = new Map<string, Array<() => void>>(); // callbacks waiting on a fetch
 
 async function fetchSinglePrice(mint: string): Promise<void> {
@@ -61,41 +61,28 @@ async function fetchSinglePrice(mint: string): Promise<void> {
 
     let price: number | null = null;
 
-    // Shape A: { [mint]: number }
-    if (typeof data?.[mint] === 'number') {
+    // ACTUAL API shape: { success: true, data: [{ token_address, price, price_currency }] }
+    if (data?.success === true && Array.isArray(data?.data)) {
+      const item = data.data.find((i: any) => i?.token_address === mint);
+      if (item?.price != null && Number.isFinite(Number(item.price)) && Number(item.price) > 0) {
+        price = Number(item.price);
+      }
+    }
+    // Flat array: [{ token_address, price }]
+    else if (Array.isArray(data)) {
+      const item = data.find((i: any) => (i?.token_address ?? i?.mint ?? i?.address) === mint);
+      if (item?.price != null && Number.isFinite(Number(item.price)) && Number(item.price) > 0) {
+        price = Number(item.price);
+      }
+    }
+    // Keyed by mint: { [mint]: number }
+    else if (typeof data?.[mint] === 'number') {
       price = data[mint] > 0 ? data[mint] : null;
     }
-    // Shape B: { [mint]: { price/usd/value/... } }
+    // Keyed by mint: { [mint]: { price: number } }
     else if (data?.[mint] && typeof data[mint] === 'object') {
-      const v = data[mint];
-      const raw = v?.price ?? v?.usd ?? v?.value ?? v?.token_price
-               ?? v?.current_price ?? v?.last_price ?? v?.priceUsd ?? v?.price_usd;
-      price = raw !== undefined && Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
-    }
-    // Shape C: array [ { token_address, price } ]
-    else if (Array.isArray(data)) {
-      const item = data.find((i: any) =>
-        (i?.token_address ?? i?.mint ?? i?.address ?? i?.tokenAddress) === mint
-      );
-      if (item) {
-        const raw = item?.price ?? item?.usd ?? item?.value ?? item?.token_price ?? item?.current_price;
-        price = raw !== undefined && Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
-      }
-    }
-    // Shape D: { data: [...] } or { prices: {...} }
-    else {
-      const inner = data?.data ?? data?.prices ?? data?.result;
-      if (Array.isArray(inner)) {
-        const item = inner.find((i: any) =>
-          (i?.token_address ?? i?.mint ?? i?.address) === mint
-        );
-        const raw = item?.price ?? item?.usd ?? item?.value ?? item?.token_price;
-        price = raw !== undefined && Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
-      } else if (inner && typeof inner === 'object') {
-        const v = inner[mint];
-        const raw = typeof v === 'number' ? v : (v?.price ?? v?.usd ?? v?.value ?? null);
-        price = raw !== null && Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
-      }
+      const raw = data[mint]?.price ?? data[mint]?.usd ?? data[mint]?.value ?? null;
+      price = raw != null && Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
     }
 
     console.log('[XDex Price] parsed for', mint.slice(0,8), price);

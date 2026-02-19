@@ -17,7 +17,7 @@ import {
   TopBar, PageBackground, Spinner,
   SectionHeader, PipelineBar, Footer, AddressBar, SideNav,
 } from '../components/UI';
-import { TokenCard, TokenData, XenBlocksPanel, WalletTokenSnapshot, useTokenPrices } from '../components/TokenComponents';
+import { TokenCard, TokenData, XenBlocksPanel, WalletTokenSnapshot, useTokenPrices, priceCache } from '../components/TokenComponents';
 import { BurnedBrainsBar, injectBurnStyles } from '../components/BurnedBrainsBar';
 
 // ─────────────────────────────────────────────
@@ -336,7 +336,14 @@ async function resolveTokenMeta(
   if (metaplexCache?.has(mint)) {
     const m       = metaplexCache.get(mint)!;
     let logoUri   = logoCache?.get(mint);
-    if (logoUri === undefined && m.uri) { logoUri = await fetchOffChainLogo(m.uri); logoCache?.set(mint, logoUri); }
+    if (logoUri === undefined && m.uri) {
+      const fetched = await fetchOffChainLogo(m.uri);
+      // If fetchOffChainLogo succeeds it returns the image URL directly.
+      // If it fails/returns undefined, fall back to the raw metadata URI so
+      // NFTImage can fetch the JSON itself and extract the image field.
+      logoUri = fetched ?? m.uri;
+      logoCache?.set(mint, logoUri);
+    }
     const base: ResolvedMeta = { name: m.name || 'Unknown', symbol: m.symbol || '???', logoUri, metaSource: 'metaplex' };
     return override ? { ...base, ...override } : base;
   }
@@ -413,8 +420,11 @@ const PortfolioStatsBar: FC<{
   showSPL: boolean; onToggleSPL: () => void;
   showT22: boolean; onToggleT22: () => void;
   showLP:  boolean; onToggleLP:  () => void;
+  showNFT: boolean; onToggleNFT: () => void;
+  nftCount: number;
+  totalUSD: number | null;
   burnKey: number; isMobile: boolean;
-}> = ({ totalTokens, splCount, t22Count, lpCount, xntBalance, minerStatus, showSPL, onToggleSPL, showT22, onToggleT22, showLP, onToggleLP, burnKey, isMobile }) => (
+}> = ({ totalTokens, splCount, t22Count, lpCount, xntBalance, minerStatus, showSPL, onToggleSPL, showT22, onToggleT22, showLP, onToggleLP, showNFT, onToggleNFT, nftCount, totalUSD, burnKey, isMobile }) => (
   <div style={{ marginBottom: 32 }}>
 
     {/* Stats grid — 2×2 on mobile, 4-col on desktop */}
@@ -450,6 +460,132 @@ const PortfolioStatsBar: FC<{
           </div>
         </div>
       ))}
+    </div>
+
+    {/* Portfolio Total USD Value — styled banner row */}
+    <div style={{
+      background: 'linear-gradient(135deg,rgba(0,201,141,.12),rgba(0,201,141,.04))',
+      border: '1px solid rgba(0,201,141,.28)',
+      borderTop: 'none',
+      padding: isMobile ? '12px 16px' : '16px 24px',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      position: 'relative', overflow: 'hidden',
+      boxShadow: '0 4px 20px rgba(0,201,141,.08)',
+    }}>
+      {/* Animated top glow line */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2,
+        background: 'linear-gradient(90deg,transparent,rgba(0,201,141,.7),transparent)' }} />
+      {/* Left: label */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {/* Yellow orb — styled like the green connected-wallet orb but yellow */}
+        <div style={{ position: 'relative', flexShrink: 0, width: isMobile ? 32 : 40, height: isMobile ? 32 : 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {/* Outer ring pulse */}
+          <div style={{
+            position: 'absolute', inset: -5, borderRadius: '50%',
+            border: '1.5px solid rgba(255,210,0,.25)',
+            animation: 'yellow-orb-ring 2.2s ease-in-out infinite',
+          }} />
+          {/* Inner glow fill */}
+          <div style={{
+            position: 'absolute', inset: 0, borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(255,210,0,.18) 0%, rgba(255,170,0,.08) 55%, transparent 80%)',
+            animation: 'yellow-orb-glow 2.2s ease-in-out infinite',
+          }} />
+          {/* Core dot */}
+          <div style={{
+            width: isMobile ? 13 : 16, height: isMobile ? 13 : 16, borderRadius: '50%',
+            background: 'radial-gradient(circle, #ffe066 0%, #ffb700 60%, #cc8800 100%)',
+            boxShadow: '0 0 6px rgba(255,200,0,.7), 0 0 14px rgba(255,180,0,.35)',
+            animation: 'yellow-orb-core 2.2s ease-in-out infinite',
+            position: 'relative', zIndex: 1,
+          }} />
+        </div>
+        <div>
+          <div style={{
+            fontFamily: 'Orbitron, monospace',
+            fontSize: isMobile ? 11 : 14,
+            fontWeight: 700, color: '#d4f0e0',
+            letterSpacing: isMobile ? 1 : 2,
+            textTransform: 'uppercase',
+            marginBottom: 3,
+            textShadow: '0 0 10px rgba(0,255,153,.2)',
+          }}>
+            Total Portfolio Value
+          </div>
+          <div style={{ fontFamily: 'Sora, sans-serif', fontSize: isMobile ? 10 : 11, color: '#4a8a68', letterSpacing: 0.5 }}>
+            All tokens combined
+          </div>
+        </div>
+      </div>
+      <style>{`
+        @keyframes yellow-orb-ring {
+          0%,100% { transform: scale(1);    opacity: .3; }
+          50%      { transform: scale(1.12); opacity: .55; }
+        }
+        @keyframes yellow-orb-glow {
+          0%,100% { opacity: .35; }
+          50%      { opacity: .65; }
+        }
+        @keyframes yellow-orb-core {
+          0%,100% { box-shadow: 0 0 4px rgba(255,200,0,.5), 0 0 8px rgba(255,180,0,.2); }
+          50%      { box-shadow: 0 0 6px rgba(255,220,0,.7), 0 0 12px rgba(255,200,0,.35); }
+        }
+      `}</style>
+      {/* Right: value */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+        {totalUSD !== null && totalUSD > 0 ? (
+          <>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+              <span style={{
+                fontFamily: 'Orbitron, monospace',
+                fontSize: isMobile ? 20 : 28,
+                fontWeight: 700,
+                color: '#00ff99',
+                letterSpacing: 1,
+                animation: 'usd-matrix-flicker 7s ease-in-out infinite',
+              }}>
+                {totalUSD >= 1_000_000
+                  ? `$${(totalUSD / 1_000_000).toFixed(2)}M`
+                  : totalUSD >= 1_000
+                  ? `$${(totalUSD / 1_000).toFixed(2)}K`
+                  : `$${totalUSD.toFixed(2)}`}
+              </span>
+              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#3a7055', letterSpacing: 1 }}>USD</span>
+            </div>
+            <style>{`
+              @keyframes usd-matrix-flicker {
+                0%   { color:#00ff99; text-shadow:0 0 6px #00ff99, 0 0 14px rgba(0,255,153,.4); }
+                15%  { color:#00cc77; text-shadow:0 0 3px #00cc77, 0 0 8px rgba(0,204,119,.25); }
+                16%  { color:#00ff99; text-shadow:0 0 6px #00ff99, 0 0 14px rgba(0,255,153,.4); }
+                50%  { color:#39ff8f; text-shadow:0 0 8px #39ff8f, 0 0 18px rgba(57,255,143,.45); }
+                85%  { color:#00ee88; text-shadow:0 0 4px #00ee88, 0 0 10px rgba(0,238,136,.3); }
+                86%  { color:#00ff99; text-shadow:0 0 6px #00ff99, 0 0 14px rgba(0,255,153,.4); }
+                100% { color:#00ff99; text-shadow:0 0 6px #00ff99, 0 0 14px rgba(0,255,153,.4); }
+              }
+            `}</style>
+          </>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              {[0, 0.2, 0.4].map((delay, i) => (
+                <div key={i} style={{
+                  width: 7, height: 7, borderRadius: '50%',
+                  background: '#00c98d',
+                  boxShadow: '0 0 6px rgba(0,201,141,.8)',
+                  animation: `portfolio-dot-pulse 1.1s ease ${delay}s infinite`,
+                }} />
+              ))}
+            </div>
+            <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#2a6a50', letterSpacing: 1.5 }}>LOADING</span>
+          </div>
+        )}
+        <style>{`
+          @keyframes portfolio-dot-pulse {
+            0%,100%{ opacity:.15; transform:scale(.7); box-shadow:0 0 3px rgba(0,201,141,.3); }
+            50%    { opacity:1;   transform:scale(1.1); box-shadow:0 0 10px rgba(0,201,141,.9); }
+          }
+        `}</style>
+      </div>
     </div>
 
     {/* BurnedBrainsBar — handles its own mobile layout internally */}
@@ -496,11 +632,118 @@ const PortfolioStatsBar: FC<{
     </div>
 
     {/* Section toggles */}
-    <ToggleRow icon="🪙" label="SPL Tokens"   count={splCount} countLabel="TOKENS" active={showSPL} color="#ff8c00" colorRgb="255,140,0"   onToggle={onToggleSPL} />
-    <ToggleRow icon="⚡" label="Token-2022"   count={t22Count} countLabel="TOKENS" active={showT22} color="#ffb700" colorRgb="255,183,0"   onToggle={onToggleT22} />
-    <ToggleRow icon="💧" label="LP Tokens"    count={lpCount}  countLabel="FOUND"  active={showLP}  color="#00c98d" colorRgb="0,201,141"   noneLabel="NONE DETECTED" onToggle={onToggleLP} isLast />
+    <ToggleRow icon="🪙" label="SPL Tokens"   count={splCount}  countLabel="TOKENS" active={showSPL}  color="#ff8c00" colorRgb="255,140,0"   onToggle={onToggleSPL} />
+    <ToggleRow icon="⚡" label="Token-2022"   count={t22Count}  countLabel="TOKENS" active={showT22}  color="#ffb700" colorRgb="255,183,0"   onToggle={onToggleT22} />
+    <ToggleRow icon="🖼️" label="NFTs"         count={nftCount}  countLabel="FOUND"  active={showNFT}  color="#bf5af2" colorRgb="191,90,242"  noneLabel="NONE FOUND"    onToggle={onToggleNFT} />
+    <ToggleRow icon="💧" label="LP Tokens"    count={lpCount}   countLabel="FOUND"  active={showLP}   color="#00c98d" colorRgb="0,201,141"   noneLabel="NONE DETECTED" onToggle={onToggleLP}  isLast />
   </div>
 );
+
+
+// ─────────────────────────────────────────────
+// NFT IMAGE — fetches off-chain metadata JSON
+// and extracts the image field
+// ─────────────────────────────────────────────
+const nftImageCache = new Map<string, string | null>();
+
+const NFTImage: FC<{ metaUri?: string; name: string; isMobile: boolean }> = ({ metaUri, name, isMobile }) => {
+  const [imgSrc, setImgSrc] = useState<string | null | undefined>(
+    metaUri ? (nftImageCache.has(metaUri) ? nftImageCache.get(metaUri)! : undefined) : null
+  );
+
+  useEffect(() => {
+    if (!metaUri) { setImgSrc(null); return; }
+    if (nftImageCache.has(metaUri)) { setImgSrc(nftImageCache.get(metaUri)!); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const resolveGateway = (u: string) => u
+          .replace('ipfs://', 'https://cloudflare-ipfs.com/ipfs/')
+          .replace('ar://', 'https://arweave.net/');
+
+        const url = resolveGateway(metaUri);
+        console.log('[NFTImage] URI:', url);
+
+        // If it looks like a direct image URL, use it straight away
+        const isDirectImage = /\.(png|jpg|jpeg|gif|webp|svg)(\?|$)/i.test(url);
+        if (isDirectImage) {
+          console.log('[NFTImage] direct image URL detected');
+          nftImageCache.set(metaUri, url);
+          if (!cancelled) setImgSrc(url);
+          return;
+        }
+
+        // Otherwise fetch as JSON metadata
+        const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        // Check content-type — might actually be an image
+        const ct = res.headers.get('content-type') ?? '';
+        if (ct.startsWith('image/')) {
+          console.log('[NFTImage] content-type is image:', ct);
+          nftImageCache.set(metaUri, url);
+          if (!cancelled) setImgSrc(url);
+          return;
+        }
+
+        const json = await res.json();
+        console.log('[NFTImage] metadata JSON:', JSON.stringify(json).slice(0, 400));
+
+        const image = json?.image ?? json?.image_url ?? json?.imageUrl
+                   ?? json?.properties?.image ?? json?.properties?.files?.[0]?.uri
+                   ?? json?.properties?.files?.[0] ?? null;
+
+        if (image && typeof image === 'string') {
+          const resolved = resolveGateway(image);
+          console.log('[NFTImage] image resolved to:', resolved);
+          nftImageCache.set(metaUri, resolved);
+          if (!cancelled) setImgSrc(resolved);
+        } else {
+          console.warn('[NFTImage] no image field in:', JSON.stringify(json).slice(0, 200));
+          nftImageCache.set(metaUri, null);
+          if (!cancelled) setImgSrc(null);
+        }
+      } catch (err) {
+        console.error('[NFTImage] failed for', metaUri, err);
+        nftImageCache.set(metaUri, null);
+        if (!cancelled) setImgSrc(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [metaUri]);
+
+  // Loading state
+  if (imgSrc === undefined) {
+    return (
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'linear-gradient(135deg,rgba(191,90,242,.1),rgba(191,90,242,.03))',
+        animation: 'nft-shimmer 1.5s ease infinite' }}>
+        <div style={{ width: 32, height: 32, borderRadius: '50%', border: '3px solid rgba(191,90,242,.3)',
+          borderTop: '3px solid #bf5af2', animation: 'spin 0.8s linear infinite' }} />
+        <style>{`@keyframes nft-shimmer{0%,100%{opacity:.5}50%{opacity:1}}`}</style>
+      </div>
+    );
+  }
+
+  // No image found
+  if (!imgSrc) {
+    return (
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        background: 'linear-gradient(135deg,rgba(191,90,242,.1),rgba(191,90,242,.03))' }}>
+        <span style={{ fontSize: isMobile ? 32 : 42 }}>🖼️</span>
+        <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#4a5a70', marginTop: 6, letterSpacing: 1 }}>NO IMAGE</span>
+      </div>
+    );
+  }
+
+  return (
+    <img src={imgSrc} alt={name}
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+      onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+    />
+  );
+};
 
 // ─────────────────────────────────────────────
 // PORTFOLIO PAGE
@@ -515,6 +758,7 @@ const Portfolio: FC = () => {
   const [splTokens, setSplTokens]             = useState<TokenData[]>([]);
   const [token2022s, setToken2022s]           = useState<TokenData[]>([]);
   const [lpTokens, setLpTokens]               = useState<TokenData[]>([]);
+  const [nftTokens, setNftTokens]             = useState<TokenData[]>([]);
   const [loading, setLoading]                 = useState(false);
   const [loadingLabel, setLoadingLabel]       = useState('Scanning X1 chain...');
   const [copiedAddress, setCopiedAddress]     = useState<string | null>(null);
@@ -522,6 +766,7 @@ const Portfolio: FC = () => {
   const [showSPL, setShowSPL]                 = useState(true);
   const [showT22, setShowT22]                 = useState(true);
   const [showLP, setShowLP]                   = useState(false);
+  const [showNFT, setShowNFT]                 = useState(true);
   const [activeSection, setActiveSection]     = useState('top');
   const [xdexRegistry, setXdexRegistry]       = useState<Map<string, XDexMintInfo>>(new Map());
   const [globalLPMints, setGlobalLPMints]     = useState<Set<string>>(new Set(HARDCODED_LP_MINTS));
@@ -539,6 +784,7 @@ const Portfolio: FC = () => {
   const splRef       = useRef<HTMLDivElement>(null);
   const t22Ref       = useRef<HTMLDivElement>(null);
   const lpRef        = useRef<HTMLDivElement>(null);
+  const nftRef       = useRef<HTMLDivElement>(null);
   const xenBlocksRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { loadXdexData(); }, []);
@@ -551,7 +797,7 @@ const Portfolio: FC = () => {
       if (scrollY < 100) { setActiveSection('top'); return; }
       const sections = [
         { id: 'xenblocks', ref: xenBlocksRef }, { id: 'lp', ref: lpRef },
-        { id: 't22', ref: t22Ref }, { id: 'spl', ref: splRef }, { id: 'burn', ref: burnRef },
+        { id: 'nft', ref: nftRef }, { id: 't22', ref: t22Ref }, { id: 'spl', ref: splRef }, { id: 'burn', ref: burnRef },
       ];
       for (const s of sections) {
         if (s.ref.current) {
@@ -566,7 +812,7 @@ const Portfolio: FC = () => {
   }, []);
 
   const reset = () => {
-    setXntBalance(null); setBrainsToken(null); setSplTokens([]); setToken2022s([]); setLpTokens([]);
+    setXntBalance(null); setBrainsToken(null); setSplTokens([]); setToken2022s([]); setLpTokens([]); setNftTokens([]);
     setMinerStatus({ isMiner: false, blocks: 0, rank: null, isActive: false, loading: false });
     setUserEvmAddress('');
   };
@@ -595,7 +841,7 @@ const Portfolio: FC = () => {
 
   const handleNavigate = (section: string) => {
     if (section === 'top') { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveSection('top'); return; }
-    const refs: Record<string, React.RefObject<HTMLDivElement>> = { spl: splRef, t22: t22Ref, lp: lpRef, xenblocks: xenBlocksRef, burn: burnRef };
+    const refs: Record<string, React.RefObject<HTMLDivElement>> = { spl: splRef, t22: t22Ref, lp: lpRef, nft: nftRef, xenblocks: xenBlocksRef, burn: burnRef };
     const target = refs[section];
     if (target?.current) {
       window.scrollTo({ top: target.current.getBoundingClientRect().top + window.pageYOffset - 100, behavior: 'smooth' });
@@ -606,6 +852,7 @@ const Portfolio: FC = () => {
   const loadTokens = async () => {
     if (!publicKey) return;
     setLoading(true);
+    console.warn("🔥 LOAD TOKENS RUNNING v" + Date.now());
     try {
       setLoadingLabel('Loading wallet data...');
       const [lamR, wlpR, splR] = await Promise.allSettled([
@@ -625,35 +872,83 @@ const Portfolio: FC = () => {
         ...splAccs.map((a: any) => ({ ...a, is2022: false })),
         ...t22Accs.map((a: any) => ({ ...a, is2022: true })),
       ];
-      const nonZero  = allAccounts.filter(acc => (acc.account.data.parsed.info.tokenAmount.uiAmount ?? 0) > 0);
-      const splMints = Array.from(new Set(nonZero.filter((a: any) => !a.is2022).map((a: any) => a.account.data.parsed.info.mint as string)));
+      const nonZero  = allAccounts.filter(acc => {
+        const ta = acc.account.data.parsed.info.tokenAmount;
+        const amt = ta.uiAmount ?? (ta.uiAmountString ? parseFloat(ta.uiAmountString) : 0);
+        return amt > 0;
+      });
+      // Include BOTH spl and token-2022 mints in metaplex batch — NFTs can be either
+      const allNonZeroMints = Array.from(new Set(nonZero.map((a: any) => a.account.data.parsed.info.mint as string)));
+      const splMints = allNonZeroMints; // keep splMints name for compat
       setLoadingLabel(`Resolving metadata for ${allAccounts.length} tokens...`);
-      const metaplexCache = await batchFetchMetaplexPDAs(connection, splMints);
+      const metaplexCache = await batchFetchMetaplexPDAs(connection, allNonZeroMints);
       const logoCache     = new Map<string, string | undefined>();
       const spl: TokenData[] = [], t2022: TokenData[] = [], lp: TokenData[] = [];
       let brains: TokenData | null = null;
+      console.log('[Portfolio] Total accounts to process:', allAccounts.length);
       const results = await Promise.allSettled(allAccounts.map(async acc => {
         const info    = acc.account.data.parsed.info;
-        const balance = info.tokenAmount.uiAmount ?? 0;
+        // NFTs with decimals=0 sometimes return uiAmount=null — use uiAmountString fallback
+        const rawAmount = info.tokenAmount.uiAmount;
+        const balance = rawAmount !== null && rawAmount !== undefined
+          ? rawAmount
+          : (info.tokenAmount.uiAmountString ? parseFloat(info.tokenAmount.uiAmountString) : 0);
+        console.log('[Portfolio] raw account:', info.mint?.slice(0,8), '| uiAmount:', info.tokenAmount.uiAmount, '| uiAmountString:', info.tokenAmount.uiAmountString, '| balance:', balance, '| decimals:', info.tokenAmount.decimals);
         if (balance < 0) return null;
         const mint = info.mint as string;
         const isLP = checkIsLP(mint, globalLPMints, walletLP);
         const meta = await resolveTokenMeta(connection, mint, xdexRegistry, metaplexCache, logoCache);
         return { mint, balance, decimals: info.tokenAmount.decimals, isToken2022: acc.is2022, isLP, name: meta.name, symbol: meta.symbol, logoUri: meta.logoUri, metaSource: meta.metaSource };
       }));
+      const nfts: TokenData[] = [];
       for (const r of results) {
         if (r.status !== 'fulfilled' || !r.value) continue;
         const t  = r.value;
         const td: TokenData = { mint: t.mint, balance: t.balance, decimals: t.decimals, isToken2022: t.isToken2022, name: t.name, symbol: t.symbol, logoUri: t.logoUri, metaSource: t.metaSource };
-        if (t.isLP)                      lp.push(td);
-        else if (t.mint === BRAINS_MINT) brains = td;
-        else if (t.isToken2022)          t2022.push(td);
-        else                             spl.push(td);
+        // Detect NFTs early — before any metaSource filtering
+        // decimals=0 + balance=1 is the canonical NFT fingerprint on Solana
+        if (!t.isLP && t.mint !== BRAINS_MINT && t.decimals === 0 && t.balance === 1) {
+          console.log('[Portfolio] NFT detected:', t.mint, '| name:', t.name, '| src:', t.metaSource, '| logoUri:', t.logoUri);
+          // If we don't have a logoUri yet, try fetching Metaplex PDA directly
+          if (!td.logoUri) {
+            try {
+              const [pda] = PublicKey.findProgramAddressSync(
+                [new TextEncoder().encode('metadata'), METADATA_PROGRAM_ID.toBytes(), new PublicKey(t.mint).toBytes()],
+                METADATA_PROGRAM_ID,
+              );
+              const acctInfo = await connection.getAccountInfo(pda, { encoding: 'base64' });
+              if (acctInfo?.data) {
+                const raw = typeof acctInfo.data === 'string'
+                  ? Uint8Array.from(atob(acctInfo.data), c => c.charCodeAt(0))
+                  : acctInfo.data instanceof Array
+                    ? Uint8Array.from(atob(acctInfo.data[0]), c => c.charCodeAt(0))
+                    : new Uint8Array(acctInfo.data);
+                if (raw.length >= 69) {
+                  const view = new DataView(raw.buffer, raw.byteOffset);
+                  let o = 65;
+                  const nL = view.getUint32(o, true); o += 4 + nL;
+                  const sL = view.getUint32(o, true); o += 4 + sL;
+                  const uL = view.getUint32(o, true); o += 4;
+                  if (uL > 0 && uL < 500 && o + uL <= raw.length) {
+                    const uri = new TextDecoder().decode(raw.slice(o, o + uL)).split('\x00').join('').trim();
+                    console.log('[Portfolio] NFT raw URI for', t.mint.slice(0,8), ':', uri);
+                    if (uri) td.logoUri = uri;
+                  }
+                }
+              }
+            } catch(e) { console.warn('[Portfolio] NFT PDA fetch failed:', e); }
+          }
+          nfts.push(td);
+        } else if (t.isLP)                      lp.push(td);
+        else if (t.mint === BRAINS_MINT)         brains = td;
+        else if (t.isToken2022)                  t2022.push(td);
+        else                                     spl.push(td);
       }
       spl.sort((a, b) => b.balance - a.balance);
       t2022.sort((a, b) => b.balance - a.balance);
       lp.sort((a, b) => b.balance - a.balance);
-      setBrainsToken(brains); setSplTokens(spl); setToken2022s(t2022); setLpTokens(lp);
+      nfts.sort((a, b) => a.name.localeCompare(b.name));
+      setBrainsToken(brains); setSplTokens(spl); setToken2022s(t2022); setLpTokens(lp); setNftTokens(nfts);
     } catch (err) { console.error('[Portfolio]', err); }
     finally { setLoading(false); }
   };
@@ -677,17 +972,37 @@ const Portfolio: FC = () => {
   };
 
   const t22Count    = token2022s.length + (brainsToken ? 1 : 0);
-  const totalTokens = 1 + splTokens.length + t22Count + lpTokens.length;
+  const totalTokens = 1 + splTokens.length + t22Count + lpTokens.length + nftTokens.length;
 
-  // USD price lookup
-  const allMints = Array.from(new Set([
-    XNT_WRAPPED,
-    ...(brainsToken ? [brainsToken.mint] : []),
-    ...splTokens.map(t => t.mint),
-    ...token2022s.map(t => t.mint),
-    ...lpTokens.map(t => t.mint),
-  ]));
+  // USD price lookup — kept for TokenCard usdPrice prop (no-op, cards fetch own prices)
+  const allMints: string[] = [];
   const tokenPrices = useTokenPrices(allMints);
+
+  // Compute total portfolio USD — reads from global priceCache populated by TokenCard hooks
+  // Re-evaluates every 3s to pick up prices as they load
+  const [priceTick, setPriceTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setPriceTick(t => t + 1), 800);
+    return () => clearInterval(id);
+  }, []);
+
+  const totalUSD: number | null = (() => {
+    if (priceCache.size === 0) return null;
+    let total = 0;
+    let hasAny = false;
+    const allTokens = [
+      ...(xntBalance !== null ? [{ mint: XNT_WRAPPED, balance: xntBalance }] : []),
+      ...splTokens.map(t => ({ mint: t.mint, balance: t.balance })),
+      ...token2022s.map(t => ({ mint: t.mint, balance: t.balance })),
+      ...(brainsToken ? [{ mint: brainsToken.mint, balance: brainsToken.balance }] : []),
+    ];
+    for (const t of allTokens) {
+      const p = priceCache.get(t.mint);
+      if (p && p > 0) { total += p * t.balance; hasAny = true; }
+    }
+    return hasAny ? total : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  })();
 
   const xenBlocksWalletTokens: WalletTokenSnapshot[] = [
     ...(xntBalance !== null ? [{ mint: 'native-xnt', symbol: 'XNT', name: 'X1 Native Token', balance: xntBalance, logoUri: XNT_INFO.logoUri } as WalletTokenSnapshot] : []),
@@ -753,6 +1068,9 @@ const Portfolio: FC = () => {
                   showSPL={showSPL} onToggleSPL={() => setShowSPL(v => !v)}
                   showT22={showT22} onToggleT22={() => setShowT22(v => !v)}
                   showLP={showLP}   onToggleLP={() => setShowLP(v => !v)}
+                  showNFT={showNFT} onToggleNFT={() => setShowNFT(v => !v)}
+                  nftCount={nftTokens.length}
+                  totalUSD={totalUSD}
                   burnKey={burnKey} isMobile={isMobile}
                 />
 
@@ -932,6 +1250,72 @@ const Portfolio: FC = () => {
                   <div ref={lpRef}>
                     <SectionHeader label="LP Tokens" count={lpTokens.length} color="#00c98d" />
                     {lpTokens.map((t, i) => <TokenCard key={t.mint} token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * i} isLP={true} usdPrice={tokenPrices.get(t.mint) ?? null} />)}
+                  </div>
+                )}
+
+                {/* 5b. NFT Section */}
+                {showNFT && nftTokens.length > 0 && (
+                  <div ref={nftRef}>
+                    <SectionHeader label="NFT Collection" count={nftTokens.length} color="#bf5af2" />
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)',
+                      gap: isMobile ? 10 : 14,
+                      marginBottom: 24,
+                    }}>
+                      {nftTokens.map((nft, i) => (
+                        <div key={nft.mint}
+                          style={{
+                            background: 'linear-gradient(135deg,rgba(191,90,242,.08),rgba(191,90,242,.02))',
+                            border: '1px solid rgba(191,90,242,.25)',
+                            borderRadius: 14,
+                            overflow: 'hidden',
+                            animation: `fadeUp 0.4s ease ${0.04 * i}s both`,
+                            transition: 'transform 0.15s, box-shadow 0.2s',
+                            cursor: 'pointer',
+                          }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-3px)'; (e.currentTarget as HTMLDivElement).style.boxShadow = '0 8px 24px rgba(191,90,242,.25)'; }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'; (e.currentTarget as HTMLDivElement).style.boxShadow = 'none'; }}
+                        >
+                          {/* NFT Image */}
+                          <div style={{ position: 'relative', width: '100%', paddingBottom: '100%', background: '#0a0e14' }}>
+                            <NFTImage metaUri={nft.logoUri} name={nft.name} isMobile={isMobile} />
+                            {/* Top-right badge */}
+                            <div style={{ position: 'absolute', top: 7, right: 7,
+                              background: 'rgba(0,0,0,.7)', backdropFilter: 'blur(4px)',
+                              border: '1px solid rgba(191,90,242,.4)',
+                              borderRadius: 6, padding: '2px 6px',
+                              fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#bf5af2', fontWeight: 700, letterSpacing: 1 }}>
+                              NFT
+                            </div>
+                          </div>
+                          {/* NFT Info */}
+                          <div style={{ padding: isMobile ? '8px 10px' : '10px 12px' }}>
+                            <div style={{ fontFamily: 'Orbitron, monospace', fontSize: isMobile ? 10 : 11, fontWeight: 700,
+                              color: '#bf5af2', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {nft.name}
+                            </div>
+                            <div style={{ fontFamily: 'Sora, sans-serif', fontSize: 9, color: '#5a7a94',
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 6 }}>
+                              {nft.symbol}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+                              <span style={{ fontFamily: 'Sora, monospace', fontSize: 9, color: '#3a5070' }}>
+                                {nft.mint.slice(0,6)}…{nft.mint.slice(-4)}
+                              </span>
+                              <button onClick={() => copyAddress(nft.mint)}
+                                style={{ background: copiedAddress === nft.mint ? 'rgba(0,201,141,.2)' : 'rgba(191,90,242,.1)',
+                                  border: `1px solid ${copiedAddress === nft.mint ? 'rgba(0,201,141,.4)' : 'rgba(191,90,242,.3)'}`,
+                                  color: copiedAddress === nft.mint ? '#00c98d' : '#bf5af2',
+                                  padding: '2px 6px', borderRadius: 4, cursor: 'pointer',
+                                  fontSize: 8, fontFamily: 'Orbitron, monospace', flexShrink: 0 }}>
+                                {copiedAddress === nft.mint ? '✓' : 'COPY'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
