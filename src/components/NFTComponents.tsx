@@ -214,12 +214,12 @@ const NFTModal: FC<{
         position:'fixed', inset:0, zIndex:9999,
         background:'rgba(0,0,0,.82)', backdropFilter:'blur(10px)',
         display:'flex',
-        alignItems: isMobile ? 'flex-end' : 'center',
+        alignItems: 'center',
         justifyContent:'center',
-        padding: isMobile ? 0 : 16,
+        padding: isMobile ? '16px' : '16px',
         pointerEvents:'all',
         WebkitTapHighlightColor:'transparent',
-        touchAction:'none',
+        touchAction:'auto',
         animation:'nftFadeIn 0.16s ease both',
       }}
     >
@@ -230,20 +230,16 @@ const NFTModal: FC<{
       `}</style>
 
       <div
-        onClick={e => { e.stopPropagation(); e.preventDefault(); }}
+        onClick={e => e.stopPropagation()}
         style={{
           width: '100%',
-          maxWidth: isMobile ? '100%' : 560,
-          // No scroll — height fits content
+          maxWidth: isMobile ? '94%' : 560,
           overflow: 'hidden',
           background: 'linear-gradient(155deg,#0e1828,#080c0f)',
           border: '1px solid rgba(191,90,242,.35)',
-          borderBottom: isMobile ? 'none' : '1px solid rgba(191,90,242,.35)',
-          borderRadius: isMobile ? '18px 18px 0 0' : 16,
-          boxShadow: '0 -4px 40px rgba(191,90,242,.1), 0 24px 60px rgba(0,0,0,.8)',
-          animation: isMobile
-            ? 'nftSheetUp 0.26s cubic-bezier(.22,1,.36,1) both'
-            : 'nftSlideUp 0.18s ease both',
+          borderRadius: 18,
+          boxShadow: '0 0 60px rgba(191,90,242,.12), 0 24px 60px rgba(0,0,0,.8)',
+          animation: 'nftSlideUp 0.22s cubic-bezier(.22,1,.36,1) both',
           position:'relative',
         }}
       >
@@ -251,12 +247,7 @@ const NFTModal: FC<{
         <div style={{ position:'absolute', top:0, left:'15%', right:'15%', height:1,
           background:'linear-gradient(90deg,transparent,rgba(191,90,242,.8),transparent)' }} />
 
-        {/* Mobile drag handle */}
-        {isMobile && (
-          <div style={{ display:'flex', justifyContent:'center', padding:'8px 0 4px' }}>
-            <div style={{ width:32, height:3, borderRadius:2, background:'rgba(255,255,255,.2)' }} />
-          </div>
-        )}
+
 
         {/* Close button */}
         <button onClick={onClose} style={{
@@ -277,7 +268,7 @@ const NFTModal: FC<{
 
               {/* Image — fixed height, not percentage */}
               <div style={{ position:'relative', width:'100%', height:180,
-                background:'#050a0f', flexShrink:0 }}>
+                background:'#050a0f', flexShrink:0, borderRadius:'17px 17px 0 0', overflow:'hidden' }}>
                 <NFTImage metaUri={metaUri} name={nft.name} contain />
                 {rarity && (
                   <div style={{ position:'absolute', bottom:8, left:8,
