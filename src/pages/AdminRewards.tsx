@@ -185,8 +185,6 @@ const s=document.createElement('style');s.id='adm-s';s.textContent=`
 @keyframes adm-purple-glow{0%,100%{box-shadow:0 0 8px rgba(140,60,255,.3)}50%{box-shadow:0 0 18px rgba(140,60,255,.5)}}
 @keyframes adm-green-pulse{0%,100%{opacity:.5;box-shadow:0 0 6px #39ff88}50%{opacity:1;box-shadow:0 0 14px #39ff88}}
 @keyframes adm-spin{to{transform:rotate(360deg)}}
-@keyframes adm-modal-pop{from{opacity:0;transform:scale(.85) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
-@keyframes adm-bounce{0%{transform:scale(0)}50%{transform:scale(1.2)}70%{transform:scale(.9)}100%{transform:scale(1)}}
 select option{background:#0f1820;color:#e0e0e0;}
 input:focus,select:focus,textarea:focus{border-color:rgba(140,60,255,.5)!important;box-shadow:0 0 12px rgba(140,60,255,.15);}
 input::placeholder,textarea::placeholder{color:#3a5a6a;}
@@ -267,15 +265,19 @@ const TkLogo:FC<{t:string;s?:number}>=({t,s=14})=>{const m=TK[t];if(!m||!m.logo)
 
 const DateP:FC<{label:string;value:string;color:string;onChange:(v:string)=>void}>=({label,value,color,onChange})=>{
   const d=value?new Date(value):null;const up=(fn:(x:Date)=>void)=>{const x=d?new Date(d):new Date();fn(x);onChange(x.toISOString());};
+  const tz=Intl.DateTimeFormat().resolvedOptions().timeZone;
   return(<div><label style={L}>{label}</label>
     <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
       <select style={{...Sel,width:70,padding:'8px 4px',fontSize:11}} value={d?d.getMonth():''} onChange={e=>up(x=>x.setMonth(Number(e.target.value)))}><option value="">Mon</option>{MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}</select>
       <select style={{...Sel,width:55,padding:'8px 4px',fontSize:11}} value={d?d.getDate():''} onChange={e=>up(x=>x.setDate(Number(e.target.value)))}><option value="">Day</option>{Array.from({length:31},(_,i)=><option key={i} value={i+1}>{i+1}</option>)}</select>
       <select style={{...Sel,width:70,padding:'8px 4px',fontSize:11}} value={d?d.getFullYear():''} onChange={e=>up(x=>x.setFullYear(Number(e.target.value)))}><option value="">Year</option>{[2025,2026,2027,2028,2029,2030].map(y=><option key={y} value={y}>{y}</option>)}</select>
-      <select style={{...Sel,width:70,padding:'8px 4px',fontSize:11}} value={d?d.getHours():''} onChange={e=>up(x=>x.setHours(Number(e.target.value)))}><option value="">Hr</option>{Array.from({length:24},(_,i)=><option key={i} value={i}>{String(i).padStart(2,'0')}:00</option>)}</select>
+      <select style={{...Sel,width:70,padding:'8px 4px',fontSize:11}} value={d?d.getHours():''} onChange={e=>up(x=>x.setHours(Number(e.target.value),0,0,0))}><option value="">Hr</option>{Array.from({length:24},(_,i)=><option key={i} value={i}>{String(i).padStart(2,'0')}:00</option>)}</select>
     </div>
-    {d&&<div style={{fontFamily:'Orbitron,monospace',fontSize:9,color,marginTop:5}}>📅 {d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'})} @ {d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</div>}
-    <div style={{display:'flex',gap:6,marginTop:5}}>{[7,14,30].map(n=><button key={n} onClick={()=>{const s=value?new Date(value):new Date();onChange(new Date(s.getTime()+n*864e5).toISOString());}} style={{padding:'3px 8px',background:'rgba(140,60,255,.08)',border:'1px solid rgba(140,60,255,.15)',borderRadius:4,color:'#cc88ff',fontFamily:'Orbitron,monospace',fontSize:7,cursor:'pointer'}}>+{n}D</button>)}</div>
+    {d&&<div style={{fontFamily:'Orbitron,monospace',fontSize:9,color,marginTop:5}}>📅 {d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'})} @ {d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})} <span style={{fontSize:7,color:'#667788'}}>({tz})</span></div>}
+    <div style={{display:'flex',gap:6,marginTop:5}}>
+      <button onClick={()=>onChange(new Date().toISOString())} style={{padding:'3px 8px',background:'rgba(57,255,136,.08)',border:'1px solid rgba(57,255,136,.2)',borderRadius:4,color:'#39ff88',fontFamily:'Orbitron,monospace',fontSize:7,cursor:'pointer',fontWeight:700}}>NOW</button>
+      {[7,14,30].map(n=><button key={n} onClick={()=>{const s=value?new Date(value):new Date();onChange(new Date(s.getTime()+n*864e5).toISOString());}} style={{padding:'3px 8px',background:'rgba(140,60,255,.08)',border:'1px solid rgba(140,60,255,.15)',borderRadius:4,color:'#cc88ff',fontFamily:'Orbitron,monospace',fontSize:7,cursor:'pointer'}}>+{n}D</button>)}
+    </div>
   </div>);
 };
 
@@ -931,11 +933,8 @@ const AdminRewards:FC=()=>{
 
     // Also save to localStorage as backup
     const updated=[entry,...lwRewards];setLwRewards(updated);saveJ(LS_LW,updated);
-    const awardedAddress=lwForm.address.trim();const awardedPts=pts;const awardedCat=lwForm.category;
     setLwForm(p=>({...p,address:'',lbPoints:'',reason:''}));
-    // Show success confirmation overlay
-    setLwSuccessMsg({wallet:awardedAddress,pts:awardedPts,category:awardedCat});
-    fetchSubs(); // refresh submissions list
+    show(`✅ +${fmtPts(pts)} LB Points → ${short(entry.address)}`);
   };
   const removeLwReward=async(id:string)=>{if(!window.confirm('Remove this LB reward entry?'))return;if(!window.confirm('⚠️ Are you sure you want to proceed?'))return;
     // Delete from Supabase
@@ -953,53 +952,8 @@ const AdminRewards:FC=()=>{
   const lwWalletsSorted=[...lwByWallet.entries()].sort((a,b)=>b[1].pts-a[1].pts);
   const[lwVisible,setLwVisible]=useState(()=>{try{return localStorage.getItem('brains_labwork_visible')!=='false';}catch{return true;}});
   const toggleLwVisibility=()=>{const next=!lwVisible;setLwVisible(next);try{localStorage.setItem('brains_labwork_visible',String(next));}catch{};show(next?'🧪 Submission log is now VISIBLE on the public page':'🧪 Submission log is now HIDDEN from the public page');};
-
-  // ── SUPABASE-BACKED SUBMISSION POLLING ──
-  const[lwSubs,setLwSubs]=useState<any[]>([]);
-  const[lwPendingCount,setLwPendingCount]=useState(0);
-  const[lwNewAlert,setLwNewAlert]=useState<any|null>(null); // notification popup
-  const[lwSuccessMsg,setLwSuccessMsg]=useState<{wallet:string;pts:number;category:string}|null>(null); // success confirmation
-  const prevPendingRef=useRef(0);
-  const lastSeenSubIdRef=useRef<string>('');
-
-  // Load submissions from Supabase on mount + poll every 10s
-  const fetchSubs=useCallback(async()=>{
-    try{
-      const sb=await import('../lib/supabase');
-      const subs=await sb.getSubmissions();
-      if(subs.length>0){
-        setLwSubs(subs);
-        const pending=subs.filter((s:any)=>s.status==='pending');
-        const newCount=pending.length;
-        // If new pending submissions arrived, show notification popup
-        if(newCount>prevPendingRef.current && pending.length>0){
-          const newest=pending[0]; // most recent
-          if(newest.id!==lastSeenSubIdRef.current){
-            lastSeenSubIdRef.current=newest.id;
-            setLwNewAlert(newest);
-            // Auto-dismiss after 15s
-            setTimeout(()=>setLwNewAlert(prev=>prev?.id===newest.id?null:prev),15000);
-          }
-        }
-        prevPendingRef.current=newCount;
-        setLwPendingCount(newCount);
-        // Also sync to localStorage for backup
-        try{localStorage.setItem('brains_labwork_submissions',JSON.stringify(subs.map((s:any)=>({id:s.id,address:s.address,category:s.category,links:s.links,description:s.description,status:s.status,date:s.created_at}))));}catch{}
-      } else {
-        // Fallback to localStorage
-        const raw=loadJ('brains_labwork_submissions',[]);
-        setLwSubs(raw);
-        setLwPendingCount(Array.isArray(raw)?raw.filter((s:any)=>s.status==='pending').length:0);
-      }
-    }catch{
-      const raw=loadJ('brains_labwork_submissions',[]);
-      setLwSubs(raw);
-      setLwPendingCount(Array.isArray(raw)?raw.filter((s:any)=>s.status==='pending').length:0);
-    }
-  },[]);
-
-  useEffect(()=>{fetchSubs();},[fetchSubs]);
-  useEffect(()=>{const id=setInterval(fetchSubs,10000);return()=>clearInterval(id);},[fetchSubs]);
+  // Pending LB submissions count (for tab badge)
+  const lwPendingCount=(()=>{try{const subs=JSON.parse(localStorage.getItem('brains_labwork_submissions')||'[]');return Array.isArray(subs)?subs.filter((s:any)=>s.status==='pending').length:0;}catch{return 0;}})();
 
   // ── REAL TOKEN TRANSFER — BATCHED per recipient ──
   const sendPrizesForPlace=async(form:{wallet:string;items:PrizeItem[]},placeLabel:string)=>{
@@ -1292,94 +1246,17 @@ const AdminRewards:FC=()=>{
         </div>
         {saved&&<div style={{position:'fixed',top:80,left:'50%',transform:'translateX(-50%)',zIndex:9999,padding:'10px 24px',background:'rgba(57,255,136,.12)',border:'1px solid rgba(57,255,136,.35)',borderRadius:10,fontFamily:'Orbitron,monospace',fontSize:10,color:'#39ff88',letterSpacing:2,animation:'adm-fade 0.3s ease both'}}>✓ {saved}</div>}
 
-        {/* ═══ NEW SUBMISSION NOTIFICATION POPUP ═══ */}
-        {lwNewAlert&&createPortal(
-          <div style={{position:'fixed',top:0,right:0,bottom:0,left:0,zIndex:99990,display:'flex',alignItems:'flex-start',justifyContent:'flex-end',padding:'90px 20px 20px',pointerEvents:'none'}}>
-            <div style={{pointerEvents:'auto',width:380,maxWidth:'90vw',background:'linear-gradient(160deg,#0a0e18,#060a14)',border:'1px solid rgba(0,204,255,.35)',borderLeft:'4px solid #00ccff',borderRadius:16,boxShadow:'0 8px 40px rgba(0,0,0,.7),0 0 30px rgba(0,204,255,.15)',animation:'adm-fade 0.4s ease both',overflow:'hidden'}}>
-              {/* Header */}
-              <div style={{padding:'14px 16px',background:'linear-gradient(90deg,rgba(0,204,255,.1),rgba(57,255,136,.04))',borderBottom:'1px solid rgba(0,204,255,.15)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                <div style={{display:'flex',alignItems:'center',gap:8}}>
-                  <div style={{width:10,height:10,borderRadius:'50%',background:'#00ccff',boxShadow:'0 0 12px #00ccff',animation:'adm-pulse 1.5s ease infinite'}} />
-                  <span style={{fontFamily:'Orbitron,monospace',fontSize:10,fontWeight:700,color:'#00ccff',letterSpacing:2}}>📨 NEW SUBMISSION</span>
-                </div>
-                <button onClick={()=>setLwNewAlert(null)} style={{background:'none',border:'none',color:'#5588aa',fontSize:16,cursor:'pointer',padding:'0 4px',lineHeight:1}}>✕</button>
-              </div>
-              {/* Body */}
-              <div style={{padding:'14px 16px'}}>
-                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
-                  <div style={{width:32,height:32,borderRadius:16,background:'rgba(0,204,255,.12)',border:'1px solid rgba(0,204,255,.25)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>🧪</div>
-                  <div>
-                    <div style={{fontFamily:'monospace',fontSize:11,color:'#d0e0f0',fontWeight:700}}>{short(lwNewAlert.address)}</div>
-                    <div style={{fontFamily:'Sora,sans-serif',fontSize:9,color:'#7899aa'}}>{new Date(lwNewAlert.created_at||lwNewAlert.date).toLocaleString()}</div>
-                  </div>
-                  <span style={{marginLeft:'auto',fontFamily:'Orbitron,monospace',fontSize:7,color:(()=>{const cats:{[k:string]:string}={social:'#00ccff',content:'#ff9933',video:'#ff4466',community:'#39ff88',promo:'#cc88ff',other:'#ffcc55'};return cats[lwNewAlert.category]||'#8a9aaa';})(),padding:'3px 8px',background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',borderRadius:4}}>
-                  {({social:'📱 Social',content:'📝 Content',video:'🎬 Video',community:'🤝 Community',promo:'📣 Promo',other:'⚡ Other'} as any)[lwNewAlert.category]||lwNewAlert.category}
-                </span>
-                </div>
-                {/* Links */}
-                {(lwNewAlert.links||[]).slice(0,3).map((lnk:string,li:number)=>(
-                  <div key={li} style={{marginBottom:3}}><a href={lnk} target="_blank" rel="noopener noreferrer" style={{fontFamily:'Sora,sans-serif',fontSize:10,color:'#00ccff',textDecoration:'none',wordBreak:'break-all'}}>🔗 {lnk.length>50?lnk.slice(0,50)+'…':lnk}</a></div>
-                ))}
-                {lwNewAlert.description&&<div style={{fontFamily:'Sora,sans-serif',fontSize:10,color:'#8899aa',marginTop:4,lineHeight:1.5}}>{lwNewAlert.description.length>120?lwNewAlert.description.slice(0,120)+'…':lwNewAlert.description}</div>}
-                {/* Action buttons */}
-                <div style={{display:'flex',gap:8,marginTop:12}}>
-                  <button onClick={()=>{setTab('labwork');setLwNewAlert(null);}} style={{flex:1,padding:'10px 14px',borderRadius:8,cursor:'pointer',fontFamily:'Orbitron,monospace',fontSize:9,fontWeight:700,letterSpacing:1,border:'1px solid rgba(0,204,255,.4)',background:'linear-gradient(135deg,rgba(0,204,255,.15),rgba(57,255,136,.06))',color:'#00ccff'}}>🧪 REVIEW NOW</button>
-                  <button onClick={()=>setLwNewAlert(null)} style={{padding:'10px 14px',borderRadius:8,cursor:'pointer',fontFamily:'Orbitron,monospace',fontSize:9,fontWeight:700,letterSpacing:1,border:'1px solid rgba(255,255,255,.08)',background:'rgba(255,255,255,.03)',color:'#7a8a9a'}}>LATER</button>
-                </div>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
-
-        {/* ═══ SUCCESS CONFIRMATION OVERLAY ═══ */}
-        {lwSuccessMsg&&createPortal(
-          <div style={{position:'fixed',top:0,right:0,bottom:0,left:0,zIndex:99991,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,.55)',animation:'adm-fade 0.3s ease both'}} onClick={()=>setLwSuccessMsg(null)}>
-            <div onClick={e=>e.stopPropagation()} style={{width:420,maxWidth:'90vw',background:'linear-gradient(160deg,#060a14,#0a0e18)',border:'1px solid rgba(57,255,136,.35)',borderRadius:20,boxShadow:'0 12px 60px rgba(0,0,0,.8),0 0 40px rgba(57,255,136,.15)',animation:'adm-modal-pop 0.4s cubic-bezier(.34,1.56,.64,1) both',overflow:'hidden',textAlign:'center'}}>
-              <div style={{padding:'28px 24px 24px'}}>
-                <div style={{fontSize:48,marginBottom:12,animation:'adm-bounce 0.6s ease both'}}>✅</div>
-                <div style={{fontFamily:'Orbitron,monospace',fontSize:14,fontWeight:900,color:'#39ff88',letterSpacing:3,marginBottom:8}}>LB POINTS AWARDED</div>
-                <div style={{fontFamily:'Sora,sans-serif',fontSize:12,color:'#8899aa',lineHeight:1.6,marginBottom:16}}>
-                  Successfully awarded <span style={{color:'#00ccff',fontWeight:700}}>{fmtPts(lwSuccessMsg.pts)} LB Points</span> to
-                </div>
-                <div style={{padding:'12px 16px',background:'rgba(0,204,255,.06)',border:'1px solid rgba(0,204,255,.15)',borderRadius:10,marginBottom:16}}>
-                  <div style={{fontFamily:'monospace',fontSize:13,color:'#d0e0f0',fontWeight:700,wordBreak:'break-all'}}>{lwSuccessMsg.wallet}</div>
-                </div>
-                <div style={{display:'flex',gap:10,justifyContent:'center',marginBottom:16,flexWrap:'wrap'}}>
-                  <div style={{padding:'8px 14px',background:'rgba(57,255,136,.06)',border:'1px solid rgba(57,255,136,.15)',borderRadius:8}}>
-                    <div style={{fontFamily:'Orbitron,monospace',fontSize:7,color:'#39ff88',letterSpacing:2,marginBottom:2}}>POINTS</div>
-                    <div style={{fontFamily:'Orbitron,monospace',fontSize:18,fontWeight:900,color:'#39ff88'}}>{fmtPts(lwSuccessMsg.pts)}</div>
-                  </div>
-                  <div style={{padding:'8px 14px',background:'rgba(0,204,255,.06)',border:'1px solid rgba(0,204,255,.15)',borderRadius:8}}>
-                    <div style={{fontFamily:'Orbitron,monospace',fontSize:7,color:'#00ccff',letterSpacing:2,marginBottom:2}}>CATEGORY</div>
-                    <div style={{fontFamily:'Orbitron,monospace',fontSize:11,fontWeight:700,color:'#00ccff'}}>{({social:'📱 Social',content:'📝 Content',video:'🎬 Video',community:'🤝 Community',promo:'📣 Promo',other:'⚡ Other'} as any)[lwSuccessMsg.category]||lwSuccessMsg.category}</div>
-                  </div>
-                  <div style={{padding:'8px 14px',background:'rgba(140,60,255,.06)',border:'1px solid rgba(140,60,255,.15)',borderRadius:8}}>
-                    <div style={{fontFamily:'Orbitron,monospace',fontSize:7,color:'#cc88ff',letterSpacing:2,marginBottom:2}}>STATUS</div>
-                    <div style={{fontFamily:'Orbitron,monospace',fontSize:11,fontWeight:700,color:'#cc88ff'}}>💾 SAVED TO DB</div>
-                  </div>
-                </div>
-                <div style={{fontFamily:'Sora,sans-serif',fontSize:10,color:'#667788',lineHeight:1.6,marginBottom:16}}>
-                  Points have been saved to the Supabase database and will appear on the public leaderboard. The recipient's global score has been updated.
-                </div>
-                <button onClick={()=>setLwSuccessMsg(null)} style={{padding:'12px 32px',borderRadius:10,cursor:'pointer',fontFamily:'Orbitron,monospace',fontSize:10,fontWeight:700,letterSpacing:2,border:'1px solid rgba(57,255,136,.4)',background:'linear-gradient(135deg,rgba(57,255,136,.15),rgba(0,204,255,.08))',color:'#39ff88'}}>DONE</button>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
-
         {/* Pending LB submissions alert */}
         {lwPendingCount>0&&tab!=='labwork'&&(
-          <div onClick={()=>setTab('labwork')} style={{cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 18px',marginBottom:12,background:'linear-gradient(135deg,rgba(0,204,255,.08),rgba(255,153,51,.04))',border:'1px solid rgba(0,204,255,.25)',borderLeft:'4px solid #00ccff',borderRadius:12,animation:'adm-pulse 2s ease infinite'}}>
-            <div style={{display:'flex',alignItems:'center',gap:10}}>
-              <span style={{fontSize:20}}>📨</span>
+          <div onClick={()=>setTab('labwork')} style={{cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 16px',marginBottom:12,background:'rgba(0,204,255,.06)',border:'1px solid rgba(0,204,255,.2)',borderRadius:10,animation:'adm-pulse 2s ease infinite'}}>
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <span style={{fontSize:16}}>🧪</span>
               <div>
-                <div style={{fontFamily:'Orbitron,monospace',fontSize:11,fontWeight:700,color:'#00ccff',letterSpacing:2}}>{lwPendingCount} PENDING LAB WORK SUBMISSION{lwPendingCount>1?'S':''}</div>
-                <div style={{fontFamily:'Sora,sans-serif',fontSize:9,color:'#5588aa'}}>Community members submitted contributions for review. Tap to review & award LB Points.</div>
+                <div style={{fontFamily:'Orbitron,monospace',fontSize:10,fontWeight:700,color:'#00ccff',letterSpacing:2}}>{lwPendingCount} PENDING LAB WORK SUBMISSION{lwPendingCount>1?'S':''}</div>
+                <div style={{fontFamily:'Sora,sans-serif',fontSize:9,color:'#5588aa'}}>Community members submitted contributions for review. Tap to review.</div>
               </div>
             </div>
-            <span style={{fontFamily:'Orbitron,monospace',fontSize:20,fontWeight:900,color:'#fff',background:'linear-gradient(135deg,#ff4466,#ff6644)',width:32,height:32,borderRadius:16,display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 0 14px rgba(255,68,102,.5)',animation:'adm-pulse 1.5s ease infinite'}}>{lwPendingCount}</span>
+            <span style={{fontFamily:'Orbitron,monospace',fontSize:18,fontWeight:900,color:'#00ccff',background:'rgba(0,204,255,.12)',width:28,height:28,borderRadius:14,display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 0 12px rgba(0,204,255,.4)'}}>{lwPendingCount}</span>
           </div>
         )}
         <div style={{display:'flex',gap:5,marginBottom:20,flexWrap:'wrap',justifyContent:'center'}}>{tabs.map(t=><button key={t.k} onClick={()=>setTab(t.k)} style={{position:'relative',padding:'7px 12px',borderRadius:8,background:tab===t.k?t.c+'12':'rgba(255,255,255,.015)',border:`1px solid ${tab===t.k?t.c+'40':'rgba(255,255,255,.04)'}`,color:tab===t.k?t.c:'#556677',fontFamily:'Orbitron,monospace',fontSize:8,fontWeight:700,letterSpacing:2,cursor:'pointer'}}>
@@ -1963,106 +1840,60 @@ const AdminRewards:FC=()=>{
 
           {/* ── PENDING SUBMISSIONS FROM PUBLIC PAGE (TOP PRIORITY) ── */}
           {(()=>{
-            const subs:any[]=lwSubs.length>0?lwSubs:loadJ('brains_labwork_submissions',[]);
+            const subs:any[]=loadJ('brains_labwork_submissions',[]);
             const pending=subs.filter((s:any)=>s.status==='pending');
             if(pending.length===0&&subs.length===0) return null;
             const cats=[{k:'social',l:'📱 Social',c:'#00ccff'},{k:'content',l:'📝 Content',c:'#ff9933'},{k:'video',l:'🎬 Video',c:'#ff4466'},{k:'community',l:'🤝 Community',c:'#39ff88'},{k:'promo',l:'📣 Promo',c:'#cc88ff'},{k:'other',l:'⚡ Other',c:'#ffcc55'}];
-            const approveSubmission=async(id:string,pts:string)=>{
+            const approveSubmission=(id:string,pts:string)=>{
               const p=parseFloat(pts);if(!p||p<=0){show('⚠️ Enter LB Points to award');return;}
-              const sub=subs.find((s:any)=>s.id===id);
+              const allSubs:any[]=loadJ('brains_labwork_submissions',[]);
+              const sub=allSubs.find((s:any)=>s.id===id);
               if(!sub){show('⚠️ Submission not found');return;}
               if(!window.confirm(`✅ Approve & award ${fmtPts(p)} LB Points to ${short(sub.address)}?\n\nThis adds to their leaderboard score.`))return;
-
-              // 1. Update submission status in Supabase
-              try{
-                const sb=await import('../lib/supabase');
-                await sb.updateSubmissionStatus(id,'approved',`Awarded ${p} LB Points`);
-              }catch(e){console.warn('[Admin] Supabase status update failed:',e);}
-
-              // 2. Award LB Points via Supabase
-              const catLabel=cats.find(c=>c.k===sub.category)?.l||sub.category;
-              const reason=`${catLabel}: ${(sub.links?.join(', ')||sub.description||'Lab Work')}`.slice(0,120);
-              try{
-                const{awardLabWorkPoints,invalidateLabWorkCache}=await import('../lib/supabase');
-                const res=await awardLabWorkPoints(sub.address,p,reason);
-                if(!res.success){show(`⚠️ Supabase error: ${res.error}`);return;}
-                invalidateLabWorkCache();
-              }catch(e:any){show(`⚠️ Supabase failed: ${e.message}`);return;}
-
-              // 3. Also save to localStorage backup
-              const allSubs:any[]=loadJ('brains_labwork_submissions',[]);
-              const localSub=allSubs.find((s:any)=>s.id===id);
-              if(localSub)localSub.status='approved';
+              if(!window.confirm('⚠️ Are you sure you want to proceed?'))return;
+              sub.status='approved';
               saveJ('brains_labwork_submissions',allSubs);
-              const entry={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),address:sub.address,lbPoints:p,reason,category:sub.category,date:new Date().toISOString()};
+              const entry={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),address:sub.address,lbPoints:p,reason:`${cats.find(c=>c.k===sub.category)?.l||sub.category}: ${(sub.links?.join(', ')||sub.link||sub.description||'Lab Work')}`.slice(0,120),category:sub.category,date:new Date().toISOString()};
               const updated=[entry,...lwRewards];setLwRewards(updated);saveJ(LS_LW,updated);
-
-              // 4. Show success confirmation overlay
-              setLwSuccessMsg({wallet:sub.address,pts:p,category:sub.category});
-
-              // 5. Refresh submissions
-              fetchSubs();
+              show(`✅ Approved! +${fmtPts(p)} LB Points → ${short(sub.address)}`);
             };
-            const rejectSubmission=async(id:string)=>{
-              if(!window.confirm('❌ Reject this submission?'))return;
-              // Update in Supabase
-              try{
-                const sb=await import('../lib/supabase');
-                await sb.updateSubmissionStatus(id,'rejected','Rejected by admin');
-              }catch(e){console.warn('[Admin] Supabase reject failed:',e);}
-              // Update localStorage
+            const rejectSubmission=(id:string)=>{
               const allSubs:any[]=loadJ('brains_labwork_submissions',[]);
               const sub=allSubs.find((s:any)=>s.id===id);
               if(sub)sub.status='rejected';
               saveJ('brains_labwork_submissions',allSubs);
-              show('❌ Submission rejected');
-              fetchSubs();
+              show('Rejected');
             };
-            const clearSubs=async()=>{
-              if(!window.confirm('🗑 Clear all submissions?'))return;
-              try{const sb=await import('../lib/supabase');await sb.clearAllSubmissions();}catch{}
-              saveJ('brains_labwork_submissions',[]);
-              show('All submissions cleared');
-              fetchSubs();
-            };
+            const clearSubs=()=>{saveJ('brains_labwork_submissions',[]);show('All submissions cleared');};
             return(
-              <div style={{marginBottom:20,padding:18,background:pending.length>0?'linear-gradient(160deg,rgba(255,153,51,.05),rgba(0,204,255,.03))':'rgba(0,0,0,.1)',border:`1px solid ${pending.length>0?'rgba(255,153,51,.25)':'rgba(0,204,255,.08)'}`,borderLeft:pending.length>0?'4px solid #ff9933':undefined,borderRadius:14}}>
-                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
-                  <div style={{display:'flex',alignItems:'center',gap:10}}>
-                    {pending.length>0&&<span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',minWidth:26,height:26,borderRadius:13,background:'linear-gradient(135deg,#ff4466,#ff6644)',color:'#fff',fontFamily:'Orbitron,monospace',fontSize:11,fontWeight:900,boxShadow:'0 0 12px rgba(255,68,102,.5)',animation:'adm-pulse 1.5s ease infinite'}}>{pending.length}</span>}
-                    <div>
-                      <div style={{fontFamily:'Orbitron,monospace',fontSize:12,color:pending.length>0?'#ff9933':'#667788',letterSpacing:2,fontWeight:700}}>📨 COMMUNITY SUBMISSIONS</div>
-                      <div style={{fontFamily:'Sora,sans-serif',fontSize:9,color:'#556677',marginTop:2}}>{pending.length} pending · {subs.length} total · Review and award LB Points</div>
-                    </div>
+              <div style={{marginBottom:20,padding:16,background:pending.length>0?'rgba(255,153,51,.04)':'rgba(0,0,0,.1)',border:`1px solid ${pending.length>0?'rgba(255,153,51,.2)':'rgba(0,204,255,.08)'}`,borderRadius:12}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    {pending.length>0&&<span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',minWidth:22,height:22,borderRadius:11,background:'#ff4466',color:'#fff',fontFamily:'Orbitron,monospace',fontSize:10,fontWeight:900,boxShadow:'0 0 10px rgba(255,68,102,.5)',animation:'adm-pulse 1.5s ease infinite'}}>{pending.length}</span>}
+                    <div style={{fontFamily:'Orbitron,monospace',fontSize:11,color:pending.length>0?'#ff9933':'#667788',letterSpacing:2,fontWeight:700}}>📥 COMMUNITY SUBMISSIONS ({pending.length} pending / {subs.length} total)</div>
                   </div>
                   {subs.length>0&&<button onClick={clearSubs} style={{...BtnD,fontSize:7,padding:'4px 10px'}}>🗑 CLEAR ALL</button>}
                 </div>
-                {pending.length===0?<div style={{textAlign:'center',padding:18,color:'#556677',fontFamily:'Sora,sans-serif',fontSize:11}}>✓ No pending submissions. New submissions will appear here automatically.</div>:
-                <div style={{maxHeight:500,overflowY:'auto',borderRadius:12,border:'1px solid rgba(255,153,51,.1)'}}>
-                  {pending.map((s:any,si:number)=>{
+                {pending.length===0?<div style={{textAlign:'center',padding:14,color:'#556677',fontFamily:'Sora,sans-serif',fontSize:11}}>No pending submissions. Users can submit from the public Rewards page.</div>:
+                <div style={{maxHeight:500,overflowY:'auto',borderRadius:10,border:'1px solid rgba(255,153,51,.08)'}}>
+                  {pending.map((s:any)=>{
                     const sc=cats.find(c=>c.k===s.category);
                     return(
-                      <div key={s.id} style={{padding:'16px 18px',borderBottom:'1px solid rgba(255,255,255,.04)',background:si%2===0?'rgba(0,0,0,.15)':'rgba(0,0,0,.08)',animation:`adm-fade 0.3s ease ${si*0.05}s both`}}>
-                        {/* Header row */}
-                        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}}>
-                          <div style={{width:28,height:28,borderRadius:14,background:'rgba(0,204,255,.1)',border:'1px solid rgba(0,204,255,.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,flexShrink:0}}>🧪</div>
-                          <span style={{fontFamily:'monospace',fontSize:11,color:'#d0e0f0',fontWeight:700}}>{short(s.address)}</span>
-                          <span style={{fontFamily:'Orbitron,monospace',fontSize:7,color:sc?.c||'#667788',padding:'3px 8px',background:(sc?.c||'#667788')+'12',border:`1px solid ${(sc?.c||'#667788')}30`,borderRadius:5,fontWeight:700}}>{sc?.l||s.category}</span>
-                          <span style={{fontFamily:'Orbitron,monospace',fontSize:7,color:'#ffcc55',padding:'3px 8px',background:'rgba(255,204,85,.08)',border:'1px solid rgba(255,204,85,.2)',borderRadius:5,fontWeight:700}}>⏳ PENDING</span>
-                          <span style={{fontFamily:'Sora,sans-serif',fontSize:8,color:'#556677',marginLeft:'auto'}}>{new Date(s.created_at||s.date).toLocaleString()}</span>
+                      <div key={s.id} style={{padding:'12px 14px',borderBottom:'1px solid rgba(255,255,255,.03)',background:'rgba(0,0,0,.1)'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6,flexWrap:'wrap'}}>
+                          <span style={{fontFamily:'monospace',fontSize:10,color:'#ccd4dc'}}>{short(s.address)}</span>
+                          <span style={{fontFamily:'Orbitron,monospace',fontSize:7,color:sc?.c||'#667788',padding:'2px 6px',background:(sc?.c||'#667788')+'12',border:`1px solid ${(sc?.c||'#667788')}30`,borderRadius:4}}>{sc?.l||s.category}</span>
+                          <span style={{fontFamily:'Orbitron,monospace',fontSize:7,color:'#ffcc55',padding:'2px 6px',background:'rgba(255,204,85,.08)',border:'1px solid rgba(255,204,85,.2)',borderRadius:4}}>⏳ PENDING</span>
+                          <span style={{fontFamily:'Sora,sans-serif',fontSize:8,color:'#556677'}}>{new Date(s.date).toLocaleDateString()}</span>
                         </div>
-                        {/* Links */}
-                        <div style={{padding:'8px 12px',background:'rgba(0,204,255,.03)',border:'1px solid rgba(0,204,255,.08)',borderRadius:8,marginBottom:8}}>
-                          {(s.links?.length?s.links:s.link?[s.link]:[]).map((lnk:string,li:number)=>(
-                            <div key={li} style={{marginBottom:3}}><a href={lnk} target="_blank" rel="noopener noreferrer" style={{fontFamily:'Sora,sans-serif',fontSize:11,color:'#00ccff',textDecoration:'none',wordBreak:'break-all'}}>🔗 {lnk}</a></div>
-                          ))}
-                          {s.description&&<div style={{fontFamily:'Sora,sans-serif',fontSize:10,color:'#8899aa',marginTop:4,lineHeight:1.5}}>{s.description}</div>}
-                        </div>
-                        {/* Action row */}
-                        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-                          <input id={`lw-pts-${s.id}`} type="number" placeholder="LB Points to award..." style={{width:140,padding:'8px 12px',background:'#06080e',border:'1px solid rgba(57,255,136,.25)',borderRadius:8,fontFamily:'Orbitron,monospace',fontSize:11,color:'#39ff88',outline:'none'}}/>
-                          <button onClick={()=>{const el=document.getElementById(`lw-pts-${s.id}`) as HTMLInputElement;approveSubmission(s.id,el?.value||'');}} style={{padding:'8px 18px',borderRadius:8,cursor:'pointer',fontFamily:'Orbitron,monospace',fontSize:9,fontWeight:700,letterSpacing:1,background:'linear-gradient(135deg,rgba(57,255,136,.18),rgba(0,204,255,.08))',border:'1px solid rgba(57,255,136,.4)',color:'#39ff88'}}>✅ APPROVE & AWARD</button>
-                          <button onClick={()=>rejectSubmission(s.id)} style={{padding:'8px 18px',borderRadius:8,cursor:'pointer',fontFamily:'Orbitron,monospace',fontSize:9,fontWeight:700,letterSpacing:1,background:'rgba(255,68,102,.08)',border:'1px solid rgba(255,68,102,.25)',color:'#ff4466'}}>❌ REJECT</button>
+                        {(s.links?.length?s.links:s.link?[s.link]:[]).map((lnk:string,li:number)=>(
+                          <div key={li} style={{marginBottom:2}}><a href={lnk} target="_blank" rel="noopener noreferrer" style={{fontFamily:'Sora,sans-serif',fontSize:10,color:'#00ccff',textDecoration:'none',wordBreak:'break-all'}}>🔗 {lnk}</a></div>
+                        ))}
+                        {s.description&&<div style={{fontFamily:'Sora,sans-serif',fontSize:10,color:'#8899aa',marginBottom:6}}>{s.description}</div>}
+                        <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                          <input id={`lw-pts-${s.id}`} type="number" placeholder="LB Points" style={{width:100,padding:'6px 10px',background:'#06080e',border:'1px solid rgba(57,255,136,.2)',borderRadius:6,fontFamily:'Orbitron,monospace',fontSize:10,color:'#39ff88',outline:'none'}}/>
+                          <button onClick={()=>{const el=document.getElementById(`lw-pts-${s.id}`) as HTMLInputElement;approveSubmission(s.id,el?.value||'');}} style={{...Btn,padding:'6px 14px',fontSize:8,background:'linear-gradient(135deg,rgba(57,255,136,.15),rgba(0,204,255,.08))',border:'1px solid rgba(57,255,136,.35)',color:'#39ff88'}}>✅ APPROVE & AWARD</button>
+                          <button onClick={()=>rejectSubmission(s.id)} style={{...BtnD,padding:'6px 14px',fontSize:8}}>❌ REJECT</button>
                         </div>
                       </div>
                     );
