@@ -7,13 +7,18 @@ const SUPABASE_URL         = import.meta.env.VITE_SUPABASE_URL         || '';
 const SUPABASE_ANON_KEY    = import.meta.env.VITE_SUPABASE_ANON_KEY    || '';
 const SUPABASE_SERVICE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY || '';
 
+const _hasSB = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
+
 /** Public client — read-only (used by all pages) */
-export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+export const supabase: SupabaseClient | null = _hasSB ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 /** Admin client — read/write (used only by AdminRewards) */
-export const supabaseAdmin: SupabaseClient = SUPABASE_SERVICE_KEY
-  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-  : supabase;
+export const supabaseAdmin: SupabaseClient | null = _hasSB
+  ? (SUPABASE_SERVICE_KEY ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY) : supabase)
+  : null;
+
+/** Check if Supabase is configured */
+export function isSupabaseReady(): boolean { return _hasSB; }
 
 // helper
 const ok = (e: any) => !e;
@@ -30,6 +35,7 @@ export interface LabWorkReward {
 
 export async function getLabWorkMap(): Promise<Map<string, number>> {
   const map = new Map<string, number>();
+  if (!supabase) return map;
   try {
     const { data, error } = await supabase.from('labwork_rewards').select('address, lb_points');
     if (error) { console.error('[SB] getLabWorkMap:', error.message); return map; }
@@ -39,6 +45,7 @@ export async function getLabWorkMap(): Promise<Map<string, number>> {
 }
 
 export async function getLabWorkPtsForWallet(address: string): Promise<number> {
+  if (!supabase) return 0;
   try {
     const { data, error } = await supabase.from('labwork_rewards').select('lb_points').eq('address', address);
     if (error) return 0;
@@ -47,6 +54,7 @@ export async function getLabWorkPtsForWallet(address: string): Promise<number> {
 }
 
 export async function getAllLabWorkRewards(): Promise<LabWorkReward[]> {
+  if (!supabase) return [];
   try {
     const { data, error } = await supabase.from('labwork_rewards').select('*').order('created_at', { ascending: false });
     if (error) return [];
@@ -55,6 +63,7 @@ export async function getAllLabWorkRewards(): Promise<LabWorkReward[]> {
 }
 
 export async function awardLabWorkPoints(address: string, lbPoints: number, reason: string, category?: string, weekId?: string): Promise<Res> {
+  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
   try {
     const { error } = await supabaseAdmin.from('labwork_rewards').insert({
       address: address.trim(), lb_points: lbPoints, reason: reason.trim(),
@@ -65,11 +74,13 @@ export async function awardLabWorkPoints(address: string, lbPoints: number, reas
 }
 
 export async function deleteLabWorkReward(id: string): Promise<Res> {
+  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
   try { const { error } = await supabaseAdmin.from('labwork_rewards').delete().eq('id', id); return res(error); }
   catch (e: any) { return { success: false, error: e.message }; }
 }
 
 export async function clearAllLabWorkRewards(): Promise<Res> {
+  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
   try { const { error } = await supabaseAdmin.from('labwork_rewards').delete().neq('id', '00000000-0000-0000-0000-000000000000'); return res(error); }
   catch (e: any) { return { success: false, error: e.message }; }
 }
@@ -94,6 +105,7 @@ export function getSupabaseLabWorkMap(): Map<string, number> | null { return _sb
 // 2. WEEKLY CONFIG (active challenge)
 // ═════════════════════════════════════════════
 export async function getWeeklyConfig(): Promise<any | null> {
+  if (!supabase) return null;
   try {
     const { data, error } = await supabase.from('weekly_config').select('*').eq('id', 'current').single();
     if (error || !data) return null;
@@ -108,6 +120,7 @@ export async function getWeeklyConfig(): Promise<any | null> {
 }
 
 export async function saveWeeklyConfig(config: any): Promise<Res> {
+  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
   try {
     const { error } = await supabaseAdmin.from('weekly_config').upsert({
       id: 'current',
@@ -137,6 +150,7 @@ export function invalidateWeeklyConfigCache() { _wcCache = null; }
 // 3. CHALLENGE LOGS (completed weeks)
 // ═════════════════════════════════════════════
 export async function getChallengeLogs(): Promise<any[]> {
+  if (!supabase) return [];
   try {
     const { data, error } = await supabase.from('challenge_logs').select('*').order('created_at', { ascending: false });
     if (error) return [];
@@ -150,6 +164,7 @@ export async function getChallengeLogs(): Promise<any[]> {
 }
 
 export async function addChallengeLog(log: any): Promise<Res> {
+  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
   try {
     const { error } = await supabaseAdmin.from('challenge_logs').insert({
       week_id: log.weekId ?? '', status: log.status ?? 'ended',
@@ -163,6 +178,7 @@ export async function addChallengeLog(log: any): Promise<Res> {
 }
 
 export async function updateChallengeLog(weekId: string, updates: any): Promise<Res> {
+  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
   try {
     const payload: any = {};
     if (updates.winners !== undefined) payload.winners = updates.winners;
@@ -174,6 +190,7 @@ export async function updateChallengeLog(weekId: string, updates: any): Promise<
 }
 
 export async function deleteChallengeLog(weekId: string): Promise<Res> {
+  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
   try { const { error } = await supabaseAdmin.from('challenge_logs').delete().eq('week_id', weekId); return res(error); }
   catch (e: any) { return { success: false, error: e.message }; }
 }
@@ -193,6 +210,7 @@ export function invalidateChallengeLogsCache() { _clCache = null; }
 // 4. ANNOUNCEMENTS
 // ═════════════════════════════════════════════
 export async function getAnnouncements(): Promise<any[]> {
+  if (!supabase) return [];
   try {
     const { data, error } = await supabase.from('announcements').select('*').order('created_at', { ascending: false });
     if (error) return [];
@@ -204,6 +222,7 @@ export async function getAnnouncements(): Promise<any[]> {
 }
 
 export async function addAnnouncement(ann: { title: string; message: string; type: string }): Promise<Res> {
+  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
   try {
     const { error } = await supabaseAdmin.from('announcements').insert({
       title: ann.title, body: ann.message, category: ann.type, pinned: false,
@@ -213,6 +232,7 @@ export async function addAnnouncement(ann: { title: string; message: string; typ
 }
 
 export async function deleteAnnouncement(id: string): Promise<Res> {
+  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
   try { const { error } = await supabaseAdmin.from('announcements').delete().eq('id', id); return res(error); }
   catch (e: any) { return { success: false, error: e.message }; }
 }
@@ -237,6 +257,7 @@ export interface LabWorkSubmission {
 }
 
 export async function getSubmissions(): Promise<LabWorkSubmission[]> {
+  if (!supabase) return [];
   try {
     const { data, error } = await supabase.from('labwork_submissions').select('*').order('created_at', { ascending: false });
     if (error) return [];
@@ -245,6 +266,7 @@ export async function getSubmissions(): Promise<LabWorkSubmission[]> {
 }
 
 export async function addSubmission(sub: { address: string; category: string; links: string[]; description: string }): Promise<Res> {
+  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
   try {
     const { error } = await supabaseAdmin.from('labwork_submissions').insert({
       address: sub.address, category: sub.category, links: sub.links, description: sub.description, status: 'pending',
@@ -254,6 +276,7 @@ export async function addSubmission(sub: { address: string; category: string; li
 }
 
 export async function updateSubmissionStatus(id: string, status: string, reviewNote?: string): Promise<Res> {
+  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
   try {
     const { error } = await supabaseAdmin.from('labwork_submissions').update({
       status, review_note: reviewNote || '',
@@ -263,11 +286,13 @@ export async function updateSubmissionStatus(id: string, status: string, reviewN
 }
 
 export async function deleteSubmission(id: string): Promise<Res> {
+  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
   try { const { error } = await supabaseAdmin.from('labwork_submissions').delete().eq('id', id); return res(error); }
   catch (e: any) { return { success: false, error: e.message }; }
 }
 
 export async function clearAllSubmissions(): Promise<Res> {
+  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
   try { const { error } = await supabaseAdmin.from('labwork_submissions').delete().neq('id', '00000000-0000-0000-0000-000000000000'); return res(error); }
   catch (e: any) { return { success: false, error: e.message }; }
 }
