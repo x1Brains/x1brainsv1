@@ -115,7 +115,7 @@ const BurnCelebration: FC<{ amount: string; newPts: number; totalPts: number; la
   const imgSz = mob ? 100 : 140;
 
   // Random ember positions
-  const embers = useMemo(() => Array.from({ length: mob ? 12 : 18 }, (_, i) => ({
+  const embers = useMemo(() => Array.from({ length: mob ? 8 : 10 }, (_, i) => ({
     id: i,
     ex: (Math.random() - 0.5) * 200,
     ey: -(Math.random() * 120 + 40),
@@ -134,15 +134,13 @@ const BurnCelebration: FC<{ amount: string; newPts: number; totalPts: number; la
       animation: phase === 'in' ? 'ie-celebrate-in 0.5s cubic-bezier(.34,1.56,.64,1) both' : 'ie-celebrate-out 0.5s ease both',
       cursor: 'pointer',
     }}>
-      {/* Expanding ring bursts */}
-      {[0, 0.3, 0.7].map((d, i) => (
-        <div key={i} style={{
-          position: 'absolute', width: 120, height: 120, borderRadius: '50%',
-          border: `2px solid rgba(255,140,0,${0.4 - i * 0.1})`,
-          animation: `ie-ring-expand 1.5s ease ${d}s infinite`,
-          pointerEvents: 'none',
-        }} />
-      ))}
+      {/* Expanding ring burst */}
+      <div style={{
+        position: 'absolute', width: 120, height: 120, borderRadius: '50%',
+        border: '2px solid rgba(255,140,0,.3)',
+        animation: 'ie-ring-expand 1.5s ease infinite',
+        pointerEvents: 'none',
+      }} />
 
       {/* Ember particles */}
       {embers.map(e => (

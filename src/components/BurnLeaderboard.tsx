@@ -701,10 +701,10 @@ const TierBadge: FC<{ points: number; size?: 'sm'|'md'|'lg' }> = ({ points, size
       color: t.neon, letterSpacing: 2,
       whiteSpace: 'nowrap', position: 'relative', overflow: 'hidden',
       boxShadow: `0 2px 12px ${t.neon}15, inset 0 1px 0 ${t.neon}18, inset 0 -1px 0 rgba(0,0,0,.4)`,
-      animation: 'lb-badge-sway 3s ease-in-out infinite',
+      animation: undefined,
     }}>
       {/* Metallic shimmer sweep — white highlight visible on all tier colors */}
-      <span style={{ position:'absolute', inset:0, background:`linear-gradient(105deg,transparent 15%,rgba(255,255,255,.03) 30%,rgba(255,255,255,.08) 48%,rgba(255,255,255,.12) 50%,rgba(255,255,255,.08) 52%,rgba(255,255,255,.03) 70%,transparent 85%)`, backgroundSize:'250% 100%', animation:'lb-metalShimmer 3s ease-in-out infinite', pointerEvents:'none' }} />
+      <span style={{ position:'absolute', inset:0, background:`linear-gradient(105deg,transparent 15%,rgba(255,255,255,.03) 30%,rgba(255,255,255,.08) 48%,rgba(255,255,255,.12) 50%,rgba(255,255,255,.08) 52%,rgba(255,255,255,.03) 70%,transparent 85%)`, backgroundSize:'250% 100%', pointerEvents:'none' }} />
       {/* Top highlight edge */}
       <span style={{ position:'absolute', top:0, left:'10%', right:'10%', height:1, background:`linear-gradient(90deg,transparent,${t.neon}55,transparent)`, pointerEvents:'none' }} />
       {/* Corner accents */}
@@ -773,23 +773,17 @@ const HeroBg: FC<{ accent?: string; intensity?: number }> = ({ accent, intensity
     `, backgroundSize:'80px 140px', backgroundPosition:'0 0, 0 0, 40px 70px, 40px 70px, 0 0, 40px 70px', pointerEvents:'none' }} />
     {/* Fine grid */}
     <div style={{ position:'absolute', inset:0, backgroundImage:`linear-gradient(rgba(${isF?'255,34,34':'140,60,255'},${.02*a}) 1px,transparent 1px),linear-gradient(90deg,rgba(${isF?'255,34,34':'140,60,255'},${.02*a}) 1px,transparent 1px)`, backgroundSize:'24px 24px', pointerEvents:'none' }} />
-    {/* Fire-only: scanline, ambient orbs */}
-    {isF && <>
-      <div style={{ position:'absolute', top:0, left:0, width:'38%', height:'100%', background:'linear-gradient(90deg,transparent,rgba(255,34,34,.015),rgba(255,102,0,.01),transparent)', animation:'lb-fire-scan 8s linear infinite', pointerEvents:'none', zIndex:2, willChange:'transform' }} />
-      <div style={{ position:'absolute', top:'8%', left:'2%', width:200, height:200, borderRadius:'50%', background:'radial-gradient(circle,rgba(255,34,34,.025) 0%,transparent 70%)', animation:'lb-fire-drift 16s ease-in-out infinite', pointerEvents:'none' }} />
-      <div style={{ position:'absolute', bottom:'5%', right:'4%', width:170, height:170, borderRadius:'50%', background:'radial-gradient(circle,rgba(255,102,0,.02) 0%,transparent 70%)', animation:'lb-fire-drift 20s ease-in-out 3s infinite', pointerEvents:'none' }} />
-    </>}
     {/* Corner brackets */}
     {(isF?[[8,null,8,null,'#ff2222'],[8,8,null,null,'#ff6600'],[null,null,8,8,'#ffbb33'],[null,8,null,8,'#ffdd44']]:[[8,null,8,null,'#00ccff'],[8,8,null,null,'#ff9933'],[null,null,8,8,'#ee55ff'],[null,8,null,8,'#39ff88']]).map(([t,r,b,l,c],i)=>(
       <div key={i} style={{ position:'absolute', top:t!=null?t:undefined, right:r!=null?r:undefined, bottom:b!=null?b:undefined, left:l!=null?l:undefined, width:16, height:16, borderTop:t!=null?`1px solid ${c}${Math.round(0x33*a).toString(16).padStart(2,'0')}`:undefined, borderRight:r!=null&&t!=null?`1px solid ${c}${Math.round(0x33*a).toString(16).padStart(2,'0')}`:undefined, borderBottom:b!=null?`1px solid ${c}${Math.round(0x33*a).toString(16).padStart(2,'0')}`:undefined, borderLeft:l!=null&&b!=null?`1px solid ${c}${Math.round(0x33*a).toString(16).padStart(2,'0')}`:undefined, pointerEvents:'none', zIndex:4 }} />
     ))}
-    {/* Rainbow top border */}
-    <div style={{ position:'absolute', top:0, left:0, right:0, height:1, background:isF?'linear-gradient(90deg,transparent 3%,#cc330088 10%,#ff222288 22%,#ff440088 35%,#ff660088 48%,#ffbb3388 60%,#ffdd4488 72%,#ff660088 82%,#ff222088 90%,transparent 97%)':'linear-gradient(90deg,transparent 5%,#00ccff 15%,#aa44ff 30%,#ee55ff 42%,#ff44cc 52%,#ff9933 65%,#ffd700 80%,transparent 95%)', backgroundSize:'200% 100%', animation:isF?'lb-fire-border 3.5s ease infinite':'lb-border-flow 4s ease infinite', zIndex:6, opacity:a }} />
+    {/* Top border — static gradient, no animation */}
+    <div style={{ position:'absolute', top:0, left:0, right:0, height:1, background:isF?'linear-gradient(90deg,transparent 3%,#cc330088 10%,#ff222288 22%,#ff440088 35%,#ff660088 48%,#ffbb3388 60%,#ffdd4488 72%,#ff660088 82%,#ff222088 90%,transparent 97%)':'linear-gradient(90deg,transparent 5%,#00ccff 15%,#aa44ff 30%,#ee55ff 42%,#ff44cc 52%,#ff9933 65%,#ffd700 80%,transparent 95%)', zIndex:6, opacity:a }} />
     {/* Bottom edge glow */}
     <div style={{ position:'absolute', bottom:0, left:0, right:0, height:1, background:`linear-gradient(90deg,transparent,rgba(${isF?'255,34,34':'140,60,255'},${.1*a}),rgba(${isF?'255,102,0':'238,85,255'},${.07*a}),transparent)`, pointerEvents:'none', zIndex:4 }} />
-    {/* Edge node */}
-    <div style={{ position:'absolute', top:'40%', left:0, width:3, height:3, borderRadius:'50%', background:isF?'#ff2222':(accent||'#00ccff'), boxShadow:`0 0 ${isF?10:6}px ${isF?'#ff2222':(accent||'#00ccff')}`, animation:'lb-pulse 3s ease infinite', pointerEvents:'none', zIndex:4, opacity:a }} />
-    <div style={{ position:'absolute', top:'60%', right:0, width:3, height:3, borderRadius:'50%', background:isF?'#ff6600':'#ee55ff', boxShadow:isF?'0 0 8px #ff6600':'0 0 6px #ee55ff', animation:'lb-pulse 3s ease 1.5s infinite', pointerEvents:'none', zIndex:4, opacity:a }} />
+    {/* Static edge dots */}
+    <div style={{ position:'absolute', top:'40%', left:0, width:3, height:3, borderRadius:'50%', background:isF?'#ff2222':(accent||'#00ccff'), boxShadow:`0 0 ${isF?6:4}px ${isF?'#ff2222':(accent||'#00ccff')}`, pointerEvents:'none', zIndex:4, opacity:a }} />
+    <div style={{ position:'absolute', top:'60%', right:0, width:3, height:3, borderRadius:'50%', background:isF?'#ff6600':'#ee55ff', boxShadow:isF?'0 0 4px #ff6600':'0 0 4px #ee55ff', pointerEvents:'none', zIndex:4, opacity:a }} />
   </>);
 };
 // Standard panel wrapper style matching hero aesthetic
@@ -798,7 +792,6 @@ const heroPanelStyle = (mb = 20, fire = false): React.CSSProperties => fire ? ({
   background:'linear-gradient(135deg,#08080a 0%,#07070a 25%,#08080b 50%,#060609 75%,#08080a 100%)',
   border:'1px solid rgba(255,34,34,.05)', borderRadius:16,
   boxShadow:'0 4px 40px rgba(0,0,0,.55), 0 0 40px rgba(255,34,34,.015)',
-  animation:'lb-fire-flicker 3s ease infinite',
 }) : ({
   position:'relative', overflow:'hidden', marginBottom:mb,
   background:'linear-gradient(135deg,#020308 0%,#04070f 25%,#060412 50%,#030610 75%,#020409 100%)',
@@ -1313,7 +1306,7 @@ const MyScoreCard: FC<{
                 <div style={{ position:'absolute', left:0, top:0, bottom:0, width:1, background:`linear-gradient(180deg,transparent,${s.color}22,${s.color}44,${s.color}22,transparent)` }} />
                 <div style={{ position:'absolute', bottom:0, left:'10%', right:'10%', height:1, background:`linear-gradient(90deg,transparent,${s.color}22,transparent)` }} />
                 <div style={{ position:'absolute', top:'25%', left:'50%', transform:'translate(-50%,-50%)', width:100, height:70, borderRadius:'50%', background:`radial-gradient(circle,${s.glow},transparent 70%)`, pointerEvents:'none' }} />
-                <div style={{ position:'absolute', inset:0, background:`linear-gradient(90deg,transparent,${s.color}02,transparent)`, backgroundSize:'300% 100%', animation:`lb-bar-shimmer ${5+i}s ease-in-out ${i*.3}s infinite`, pointerEvents:'none' }} />
+                <div style={{ position:'absolute', inset:0, background:`linear-gradient(90deg,transparent,${s.color}02,transparent)`, backgroundSize:'300% 100%', animation:'none', pointerEvents:'none' }} />
                 <div style={{ position:'relative', zIndex:1 }}>
                   <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:4, marginBottom:8 }}>
                     <span style={{ fontSize:12, filter:`drop-shadow(0 0 3px ${s.color}44)` }}>{s.icon}</span>
@@ -1358,7 +1351,7 @@ const MyScoreCard: FC<{
                   </div>
                   <div style={{ position:'relative', height:10, borderRadius:5, overflow:'hidden', background:isF?'rgba(10,10,12,.8)':'rgba(10,5,20,.8)', border:isF?'1px solid rgba(255,34,34,.15)':'1px solid rgba(140,60,255,.12)' }}>
                     <div style={{ position:'absolute', top:1, left:1, bottom:1, width:`calc(${tierPct}% - 2px)`, background:isF?`linear-gradient(90deg,#cc3300,${tier.neon},#ffbb33)`:`linear-gradient(90deg,#4420aa,${tier.neon},#39ff88)`, borderRadius:4, animation:'lb-bar-fill 1.6s cubic-bezier(.16,1,.3,1) both', minWidth:tierPct>0?3:0, boxShadow:`0 0 8px ${tier.neon}44` }}>
-                      <div style={{ position:'absolute', inset:0, borderRadius:4, background:'linear-gradient(90deg,transparent 40%,rgba(255,255,255,.12) 50%,transparent 60%)', backgroundSize:'200% 100%', animation:'lb-heat-wave 2s ease infinite' }} />
+                      <div style={{ position:'absolute', inset:0, borderRadius:4, background:'linear-gradient(90deg,transparent 40%,rgba(255,255,255,.12) 50%,transparent 60%)', backgroundSize:'200% 100%', animation:'none' }} />
                     </div>
                     {tierPct<100&&<div style={{ position:'absolute', top:1, bottom:1, right:1, width:`calc(${100-tierPct}% - 2px)`, borderRadius:'0 4px 4px 0', backgroundImage:isF?'repeating-linear-gradient(90deg,rgba(255,34,34,.02) 0px,rgba(255,34,34,.02) 1px,transparent 1px,transparent 6px)':'repeating-linear-gradient(90deg,rgba(140,60,255,.015) 0px,rgba(140,60,255,.015) 1px,transparent 1px,transparent 6px)', pointerEvents:'none' }} />}
                   </div>
@@ -1612,10 +1605,6 @@ export const BurnLeaderboard: FC<Props> = ({
           <div style={{ position:'absolute', top:'5%', left:'50%', transform:'translateX(-50%)', width:'70%', height:'60%', borderRadius:'50%', background:'radial-gradient(ellipse,rgba(255,34,34,.04) 0%,rgba(255,102,0,.02) 30%,transparent 60%)', animation:'lb-stat-breathe 3.5s ease-in-out infinite', pointerEvents:'none', zIndex:2, willChange:'opacity' }} />
           {/* Bottom fire glow band */}
           <div style={{ position:'absolute', bottom:0, left:0, right:0, height:2, background:'linear-gradient(90deg,transparent 2%,#cc330022 15%,#ff440044 40%,#ff660055 50%,#ff440044 60%,#cc330022 85%,transparent 98%)', backgroundSize:'200% 100%', animation:'lb-fire-border 3.5s ease infinite', pointerEvents:'none', zIndex:10, willChange:'background-position' }} />
-          {/* Rising ember particles — 5 only */}
-          {[0,1,2,3,4].map(i => (
-            <div key={`pe-${i}`} style={{ position:'absolute', bottom:'-2%', left:`${10+i*20}%`, width:2, height:2, borderRadius:'50%', background:['#ff2222','#ff4400','#ff6600','#ffbb33','#ffdd44'][i], opacity:0, animation:`lb-ember-float ${4+i*0.8}s ease-in ${i*1.2}s infinite`, pointerEvents:'none', zIndex:3, willChange:'transform,opacity' }} />
-          ))}
         </>}
 
         {/* Extra: Diagonal energy traces (Vegas only; fire has these in HeroBg) */}
@@ -1711,7 +1700,7 @@ export const BurnLeaderboard: FC<Props> = ({
               {/* Radial glow behind value */}
               <div style={{ position:'absolute', top:'30%', left:'50%', transform:'translate(-50%,-50%)', width:120, height:80, borderRadius:'50%', background:`radial-gradient(circle,${s.glow},transparent 70%)`, pointerEvents:'none' }} />
               {/* Heat shimmer (fire) / Shimmer sweep (vegas) */}
-              <div style={{ position:'absolute', inset:0, background:`linear-gradient(90deg,transparent,${s.color}06,${isF?'rgba(255,255,255,.02),':''}transparent)`, backgroundSize:'300% 100%', animation:isF?`lb-heat-shimmer ${4.5+i}s ease-in-out ${i*.4}s infinite`:`lb-bar-shimmer ${5+i}s ease-in-out ${i*.4}s infinite`, pointerEvents:'none' }} />
+              <div style={{ position:'absolute', inset:0, background:`linear-gradient(90deg,transparent,${s.color}06,${isF?'rgba(255,255,255,.02),':''}transparent)`, backgroundSize:'300% 100%', animation:'none', pointerEvents:'none' }} />
               {/* Stat breathe pulse (fire only) */}
               {isF && <div style={{ position:'absolute', inset:0, background:`radial-gradient(ellipse at center,${s.color}04,transparent 60%)`, animation:'lb-stat-breathe 3s ease-in-out infinite', pointerEvents:'none' }} />}
               {/* Content */}
@@ -1754,7 +1743,7 @@ export const BurnLeaderboard: FC<Props> = ({
                   <div key={`mkt-${i}-${themeName}`} style={{ padding:isMobile?'12px 8px':'14px 16px', textAlign:'center', borderLeft:i>0?`1px solid ${it.color}12`:'none', position:'relative', overflow:'hidden' }}>
                     <div style={{ position:'absolute', left:0, top:0, bottom:0, width:1, background:`linear-gradient(180deg,transparent,${it.color}22,transparent)` }} />
                     <div style={{ position:'absolute', top:'20%', left:'50%', transform:'translate(-50%,0)', width:80, height:50, borderRadius:'50%', background:`radial-gradient(circle,${it.color}04,transparent 70%)`, pointerEvents:'none' }} />
-                    <div style={{ position:'absolute', inset:0, background:`linear-gradient(90deg,transparent,${it.color}03,transparent)`, backgroundSize:'300% 100%', animation:isF?`lb-heat-shimmer ${5+i}s ease-in-out ${i*.3}s infinite`:`lb-bar-shimmer ${5+i}s ease-in-out ${i*.3}s infinite`, pointerEvents:'none' }} />
+                    <div style={{ position:'absolute', inset:0, background:`linear-gradient(90deg,transparent,${it.color}03,transparent)`, backgroundSize:'300% 100%', animation:'none', pointerEvents:'none' }} />
                     <div style={{ position:'relative', zIndex:1 }}>
                       <div style={{ fontFamily:'Sora, sans-serif', fontSize:isMobile?7:8, color:isF?'#b8b0c0':'#7a99aa', letterSpacing:2, marginBottom:5 }}>{it.label}</div>
                       {it.value ? (
@@ -2059,7 +2048,7 @@ export const BurnLeaderboard: FC<Props> = ({
               {/* Filled portion — the burn progress */}
               <div style={{ position:'absolute', top:2, left:2, bottom:2, width:`calc(${Math.max(burnedPct,.3)}% - 4px)`, borderRadius:14, background:'linear-gradient(90deg,#662200,#aa4400,#dd6600,#ff9933,#ffbb55)', boxShadow:'0 0 6px rgba(255,140,0,.15), inset 0 1px 2px rgba(255,255,255,.1)', transition:'width 2s cubic-bezier(.16,1,.3,1)', zIndex:2 }}>
                 {/* Inner glow shimmer */}
-                <div style={{ position:'absolute', inset:0, borderRadius:14, background:'linear-gradient(90deg,transparent 30%,rgba(255,255,255,.12) 50%,transparent 70%)', backgroundSize:'200% 100%', animation:'lb-heat-wave 2.5s ease infinite' }} />
+                <div style={{ position:'absolute', inset:0, borderRadius:14, background:'linear-gradient(90deg,transparent 30%,rgba(255,255,255,.12) 50%,transparent 70%)', backgroundSize:'200% 100%', animation:'none' }} />
                 {/* Ember particles at the leading edge */}
                 <div style={{ position:'absolute', top:'15%', right:-1, bottom:'15%', width:3, borderRadius:2, background:'#ffdd88', boxShadow:'0 0 8px #ffbb55, 0 0 16px rgba(255,140,0,.6)', animation:'lb-pulse 1.5s ease infinite', zIndex:3 }} />
               </div>
@@ -2089,7 +2078,7 @@ export const BurnLeaderboard: FC<Props> = ({
               ].map((s,i) => (
                 <div key={i} style={{ padding:'10px 10px', background:`linear-gradient(135deg,${s.color}08,transparent)`, border:`1px solid ${s.color}15`, borderRadius:8, textAlign:'center', position:'relative', overflow:'hidden' }}>
                   <div style={{ position:'absolute', left:0, top:0, bottom:0, width:2, background:`linear-gradient(180deg,transparent,${s.color}55,transparent)` }} />
-                  <div style={{ position:'absolute', inset:0, background:`linear-gradient(90deg,transparent,${s.color}04,transparent)`, backgroundSize:'300% 100%', animation:`lb-bar-shimmer ${5+i}s ease-in-out infinite`, pointerEvents:'none' }} />
+                  <div style={{ position:'absolute', inset:0, background:`linear-gradient(90deg,transparent,${s.color}04,transparent)`, backgroundSize:'300% 100%', animation:'none', pointerEvents:'none' }} />
                   <div style={{ position:'relative', zIndex:1 }}>
                     <div style={{ fontFamily:'Sora, sans-serif', fontSize:7, color:isF?'#f0ecf4':'#c8dce8', letterSpacing:2, marginBottom:4 }}>{s.label}</div>
                     <div style={{ fontFamily:'Rajdhani, sans-serif', fontSize:isMobile?13:15, fontWeight:800, color:s.color, textShadow:'none' }}>{s.value}</div>
@@ -2109,7 +2098,7 @@ export const BurnLeaderboard: FC<Props> = ({
             ].map((row, i) => row.evt && (
               <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'14px 18px', background:`linear-gradient(135deg,${row.color}08,${row.color}03)`, border:`1px solid ${row.color}20`, borderLeft:`3px solid ${row.color}55`, borderRadius:10, position:'relative', overflow:'hidden' }}>
                 {/* Shimmer */}
-                <div style={{ position:'absolute', inset:0, background:`linear-gradient(90deg,transparent,${row.color}05,transparent)`, backgroundSize:'300% 100%', animation:`lb-bar-shimmer ${4+i}s ease-in-out infinite`, pointerEvents:'none' }} />
+                <div style={{ position:'absolute', inset:0, background:`linear-gradient(90deg,transparent,${row.color}05,transparent)`, backgroundSize:'300% 100%', animation:'none', pointerEvents:'none' }} />
                 {/* Bottom gradient line */}
                 <div style={{ position:'absolute', bottom:0, left:'5%', right:'5%', height:1, background:`linear-gradient(90deg,transparent,${row.color}44,transparent)` }} />
                 {/* Radial glow behind icon */}
@@ -2437,7 +2426,7 @@ export const BurnLeaderboard: FC<Props> = ({
                   <div style={{ position:'absolute', inset:0, backgroundImage:'linear-gradient(rgba(100,60,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(100,60,255,.03) 1px,transparent 1px)', backgroundSize:'20px 20px', pointerEvents:'none' }} />
                   <div style={{ position:'absolute', left:0, top:0, bottom:0, width:2, background:isF?`linear-gradient(180deg,#ff6600 0%,${accentA} 40%,#ffbb33 70%,#ff2222 100%)`:`linear-gradient(180deg,#ff9933 0%,${accentA} 40%,#39ff88 70%,#aa44ff 100%)` }} />
                   <div style={{ position:'absolute', left:2, top:'20%', bottom:'20%', width:1, background:`linear-gradient(180deg,transparent,${accentA}44,transparent)` }} />
-                  <div style={{ position:'absolute', inset:0, background:`linear-gradient(90deg,transparent,${accentA}04,transparent)`, backgroundSize:'200% 100%', animation:`lb-bar-shimmer ${4+i*.3}s ease-in-out ${i*.15}s infinite`, pointerEvents:'none', zIndex:0 }} />
+                  <div style={{ position:'absolute', inset:0, background:`linear-gradient(90deg,transparent,${accentA}04,transparent)`, backgroundSize:'200% 100%', animation:'none', pointerEvents:'none', zIndex:0 }} />
                   {isTop && <div style={{ position:'absolute', inset:0, background:'linear-gradient(90deg,transparent,rgba(200,120,255,.06),transparent)', backgroundSize:'200% 100%', animation:'lb-bar-shimmer 3s ease-in-out infinite', pointerEvents:'none' }} />}
                   <div style={{ display:'grid', gridTemplateColumns:isMobile?'50px 1fr 100px':'60px 1fr 130px', alignItems:'center', gap:isMobile?8:12, position:'relative', zIndex:1 }}>
                     {/* Col 1 — rank + icon */}
