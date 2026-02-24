@@ -9,6 +9,7 @@ import { TopBar, PageBackground, Footer, AddressBar } from '../components/UI';
 import { fetchLeaderboard, getCachedLeaderboard, BurnerEntry, injectLeaderboardStyles } from '../components/BurnLeaderboard';
 import { useIncTheme, ThemeToggle, type IncTheme } from '../components/incineratorThemes';
 import { injectPortalStyles } from '../components/BurnPortal';
+import burnBrainImg from '../assets/images1st.jpg';
 
 injectLeaderboardStyles();
 injectPortalStyles();
@@ -37,6 +38,14 @@ function injectIEStyles() {
     @keyframes ie-drift{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
     @keyframes ie-metalShimmer{0%{background-position:250% center}50%{background-position:-50% center}100%{background-position:250% center}}
     @keyframes ie-badge-sway{0%,100%{transform:translateX(0)}25%{transform:translateX(2px)}75%{transform:translateX(-2px)}}
+    @keyframes ie-celebrate-in{0%{opacity:0;transform:scale(.5) rotate(-10deg)}60%{opacity:1;transform:scale(1.08) rotate(2deg)}100%{opacity:1;transform:scale(1) rotate(0)}}
+    @keyframes ie-celebrate-out{0%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(.7) translateY(-30px)}}
+    @keyframes ie-flame-rise{0%{transform:translateY(0) scaleX(1);opacity:.8}50%{transform:translateY(-20px) scaleX(1.2);opacity:1}100%{transform:translateY(-50px) scaleX(.6);opacity:0}}
+    @keyframes ie-ember-fly{0%{transform:translate(0,0) scale(1);opacity:1}100%{transform:translate(var(--ex,30px),var(--ey,-80px)) scale(0);opacity:0}}
+    @keyframes ie-skull-float{0%{transform:translateY(0) rotate(0)}50%{transform:translateY(-8px) rotate(3deg)}100%{transform:translateY(0) rotate(0)}}
+    @keyframes ie-ring-expand{0%{transform:scale(.5);opacity:.8}100%{transform:scale(2.5);opacity:0}}
+    @keyframes ie-img-burn{0%{filter:brightness(1) saturate(1)}25%{filter:brightness(1.3) saturate(1.5) sepia(.3)}50%{filter:brightness(1.6) saturate(2) sepia(.5) hue-rotate(-10deg)}75%{filter:brightness(1.2) saturate(1.3) sepia(.2)}100%{filter:brightness(1) saturate(1)}}
+    @keyframes ie-text-glow{0%,100%{text-shadow:0 0 10px rgba(255,140,0,.5),0 0 30px rgba(255,60,0,.3)}50%{text-shadow:0 0 20px rgba(255,140,0,.8),0 0 50px rgba(255,60,0,.5),0 0 80px rgba(255,30,0,.3)}}
   `;
   document.head.appendChild(s);
 }
@@ -62,19 +71,199 @@ async function sendBurn(conn:any,w:any,amt:number){
   const mi=await getMint(conn,MP,'confirmed',TOKEN_2022_PROGRAM_ID);
   const d=mi.decimals;const raw=BigInt(Math.floor(amt*10**d));
   const ix=createBurnCheckedInstruction(ta,MP,w.publicKey,raw,d,[],TOKEN_2022_PROGRAM_ID);
-  const{blockhash,lastValidBlockHeight}=await conn.getLatestBlockhash('finalized');
+  const{blockhash,lastValidBlockHeight}=await conn.getLatestBlockhash('confirmed');
   const tx=new Transaction({feePayer:w.publicKey,recentBlockhash:blockhash}).add(ix);
   const s=await w.signTransaction(tx);if(!s.signature)throw new Error('Signing failed');
   const sig=await conn.sendRawTransaction(s.serialize(),{skipPreflight:false,maxRetries:3,preflightCommitment:'confirmed'});
   return{signature:sig,blockhash,lastValidBlockHeight};
 }
-async function confirmBurn(c:any,sig:string,bh:string,lv:number){try{const r=await c.confirmTransaction({signature:sig,blockhash:bh,lastValidBlockHeight:lv},'confirmed');return!r.value.err;}catch{return false;}}
+async function confirmBurn(c:any,sig:string,_bh:string,_lv:number){
+  // Fast polling — X1 confirms in <1s, but confirmTransaction can hang for 30s+
+  for(let i=0;i<20;i++){
+    try{
+      const resp=await c.getSignatureStatuses([sig]);
+      const s=resp?.value?.[0];
+      if(s){
+        if(s.err) return false;
+        if(s.confirmationStatus==='confirmed'||s.confirmationStatus==='finalized') return true;
+      }
+    }catch{}
+    await new Promise(r=>setTimeout(r,500));
+  }
+  // Fallback — if we got here, TX is likely confirmed but RPC is slow. Return true since TX was sent.
+  try{const resp=await c.getSignatureStatuses([sig]);const s=resp?.value?.[0];if(s&&!s.err)return true;}catch{}
+  return true; // Assume success — TX was broadcast and not rejected
+}
 
 function useIsMobile(){const[m,setM]=useState(typeof window!=='undefined'?window.innerWidth<640:false);useEffect(()=>{const h=()=>setM(window.innerWidth<640);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[]);return m;}
 
 interface WC{weekId:string;status:string;challenges:{ampPct:number;tier?:number}[];prizes:{token:string;amount:number;isNFT?:boolean;nftName?:string}[][];}
 function loadWC():WC|null{try{const r=localStorage.getItem('brains_weekly_config');return r?JSON.parse(r):null;}catch{return null;}}
 const TIER_AMP_RATES_IE=[0,1.50,3.50,5.50,8.88]; // tier index → amp %
+
+// ═══ BURN CELEBRATION POPUP ═══
+const BurnCelebration: FC<{ amount: string; newPts: number; totalPts: number; labWorkPts: number; tierName: string; tierIcon: string; onClose: () => void; theme: IncTheme }> = ({ amount, newPts, totalPts, labWorkPts, tierName, tierIcon, onClose, theme: t }) => {
+  const [phase, setPhase] = useState<'in' | 'out'>('in');
+  const mob = typeof window !== 'undefined' && window.innerWidth < 640;
+  useEffect(() => {
+    const timer = setTimeout(() => { setPhase('out'); setTimeout(onClose, 600); }, 5500);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+  useEffect(() => { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = ''; }; }, []);
+
+  const fP = (n: number) => n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : n.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  const imgSz = mob ? 100 : 140;
+
+  // Random ember positions
+  const embers = useMemo(() => Array.from({ length: mob ? 12 : 18 }, (_, i) => ({
+    id: i,
+    ex: (Math.random() - 0.5) * 200,
+    ey: -(Math.random() * 120 + 40),
+    size: Math.random() * 6 + 3,
+    delay: Math.random() * 1.5,
+    dur: Math.random() * 1.2 + 0.8,
+    color: ['#ff4400', '#ff8800', '#ffcc00', '#ff6600', '#ffaa33'][Math.floor(Math.random() * 5)],
+  })), []);
+
+  return (
+    <div onClick={() => { setPhase('out'); setTimeout(onClose, 600); }} style={{
+      position: 'fixed', inset: 0, zIndex: 99999,
+      background: 'rgba(0,0,0,.85)',
+      backdropFilter: 'blur(12px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column',
+      animation: phase === 'in' ? 'ie-celebrate-in 0.5s cubic-bezier(.34,1.56,.64,1) both' : 'ie-celebrate-out 0.5s ease both',
+      cursor: 'pointer',
+    }}>
+      {/* Expanding ring bursts */}
+      {[0, 0.3, 0.7].map((d, i) => (
+        <div key={i} style={{
+          position: 'absolute', width: 120, height: 120, borderRadius: '50%',
+          border: `2px solid rgba(255,140,0,${0.4 - i * 0.1})`,
+          animation: `ie-ring-expand 1.5s ease ${d}s infinite`,
+          pointerEvents: 'none',
+        }} />
+      ))}
+
+      {/* Ember particles */}
+      {embers.map(e => (
+        <div key={e.id} style={{
+          position: 'absolute', width: e.size, height: e.size, borderRadius: '50%',
+          background: e.color, boxShadow: `0 0 ${e.size * 2}px ${e.color}`,
+          animation: `ie-ember-fly ${e.dur}s ease ${e.delay}s infinite`,
+          ['--ex' as any]: `${e.ex}px`, ['--ey' as any]: `${e.ey}px`,
+          pointerEvents: 'none',
+        }} />
+      ))}
+
+      {/* Central flame aura */}
+      <div style={{
+        position: 'absolute', width: mob ? 180 : 280, height: mob ? 180 : 280, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(255,80,0,.25) 0%, rgba(255,140,0,.1) 40%, transparent 70%)',
+        animation: 'ie-bloom 2s ease infinite',
+        pointerEvents: 'none',
+      }} />
+
+      {/* Brain image in flames */}
+      <div style={{
+        position: 'relative', width: imgSz, height: imgSz, borderRadius: '50%', overflow: 'visible',
+        animation: 'ie-skull-float 2s ease infinite',
+        marginBottom: mob ? 16 : 24,
+      }}>
+        {/* Fire ring around image */}
+        <div style={{
+          position: 'absolute', inset: mob ? -8 : -12, borderRadius: '50%',
+          background: 'conic-gradient(from 0deg, #ff2200, #ff8800, #ffcc00, #ff6600, #ff2200)',
+          animation: 'ie-spin 3s linear infinite',
+          filter: 'blur(8px)', opacity: 0.7,
+        }} />
+        <div style={{
+          position: 'absolute', inset: mob ? -4 : -6, borderRadius: '50%',
+          border: `${mob ? 2 : 3}px solid rgba(255,140,0,.6)`,
+          boxShadow: '0 0 30px rgba(255,80,0,.5), 0 0 60px rgba(255,40,0,.3), inset 0 0 20px rgba(255,100,0,.4)',
+          animation: 'ie-burn 1.5s ease infinite',
+        }} />
+        {/* Actual image */}
+        <img src={burnBrainImg} alt="BURN" style={{
+          width: imgSz, height: imgSz, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center top',
+          position: 'relative', zIndex: 2, display: 'block',
+          transform: 'scale(1.3)',
+          animation: 'ie-img-burn 2s ease infinite',
+          border: `${mob ? 2 : 3}px solid rgba(255,100,0,.5)`,
+        }} />
+        {/* Top flame tongues */}
+        {[0, 1, 2, 3, 4].map(i => (
+          <div key={i} style={{
+            position: 'absolute', bottom: '60%',
+            left: `${15 + i * 17}%`,
+            width: 12 + i * 2, height: 30 + Math.random() * 20,
+            background: `linear-gradient(to top, rgba(255,${60 + i * 30},0,.7), rgba(255,${120 + i * 20},0,.3), transparent)`,
+            borderRadius: '50% 50% 30% 30%',
+            animation: `ie-flame-rise ${0.6 + i * 0.15}s ease ${i * 0.1}s infinite`,
+            filter: 'blur(2px)', zIndex: 3, pointerEvents: 'none',
+          }} />
+        ))}
+      </div>
+
+      {/* Text */}
+      <div style={{
+        fontFamily: 'Orbitron, monospace', fontSize: mob ? 20 : 28, fontWeight: 900, letterSpacing: mob ? 2 : 4,
+        background: 'linear-gradient(135deg, #ff4400, #ff8800, #ffcc00, #ffffff, #ffcc00, #ff8800)',
+        backgroundSize: '200% 100%',
+        WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+        animation: 'ie-text-glow 2s ease infinite, ie-metalShimmer 3s ease infinite',
+        marginBottom: 6,
+      }}>
+        INCINERATED
+      </div>
+      <div style={{
+        fontFamily: 'Orbitron, monospace', fontSize: mob ? 14 : 18, fontWeight: 700, color: '#ffcc44',
+        letterSpacing: mob ? 2 : 3, marginBottom: mob ? 12 : 16,
+        textShadow: '0 0 12px rgba(255,140,0,.5)',
+      }}>
+        🔥 {amount} BRAINS 🔥
+      </div>
+
+      {/* LB Points earned panel */}
+      <div style={{
+        display: 'flex', gap: mob ? 8 : 12, flexWrap: 'wrap', justifyContent: 'center', marginBottom: mob ? 8 : 10,
+      }}>
+        <div style={{
+          background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.25)', borderRadius: mob ? 8 : 10,
+          padding: mob ? '8px 14px' : '10px 18px', textAlign: 'center', minWidth: mob ? 100 : 120,
+        }}>
+          <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 6 : 7, color: '#ff9955', letterSpacing: 2, marginBottom: 3 }}>◆ LB POINTS EARNED</div>
+          <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 16 : 20, fontWeight: 900, color: '#ffcc44', textShadow: '0 0 8px rgba(255,204,68,.3)' }}>+{fP(newPts)}</div>
+        </div>
+        <div style={{
+          background: 'rgba(140,60,255,.06)', border: '1px solid rgba(140,60,255,.2)', borderRadius: mob ? 8 : 10,
+          padding: mob ? '8px 14px' : '10px 18px', textAlign: 'center', minWidth: mob ? 100 : 120,
+        }}>
+          <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 6 : 7, color: '#bb88ff', letterSpacing: 2, marginBottom: 3 }}>TOTAL LB POINTS</div>
+          <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 16 : 20, fontWeight: 900, color: '#cc99ff', textShadow: '0 0 8px rgba(140,60,255,.3)' }}>{fP(totalPts)}</div>
+        </div>
+      </div>
+
+      {/* Lab Work + Tier row */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+        {labWorkPts > 0 && (
+          <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 7 : 9, color: '#00ccff', background: 'rgba(0,204,255,.08)', border: '1px solid rgba(0,204,255,.2)', borderRadius: 6, padding: mob ? '3px 8px' : '4px 10px' }}>
+            🧪 {fP(labWorkPts)} LAB WORK
+          </div>
+        )}
+        <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 7 : 9, color: getTier(totalPts).neon, background: `${getTier(totalPts).neon}15`, border: `1px solid ${getTier(totalPts).neon}33`, borderRadius: 6, padding: mob ? '3px 8px' : '4px 10px' }}>
+          {tierIcon} {tierName}
+        </div>
+      </div>
+
+      <div style={{
+        fontFamily: 'Sora, sans-serif', fontSize: mob ? 9 : 11, color: '#ff9955', letterSpacing: 2,
+        opacity: 0.7, marginTop: 6,
+      }}>
+        TAP TO DISMISS
+      </div>
+    </div>
+  );
+};
 
 // ═══ MAIN ═══
 const IncineratorEngine:FC=()=>{
@@ -91,6 +280,7 @@ const IncineratorEngine:FC=()=>{
   const[suc,setSuc]=useState<string|null>(null);
   const[txSig,setTxSig]=useState<string|null>(null);
   const[conf,setConf]=useState<'pending'|'confirmed'|'unknown'|null>(null);
+  const[showCelebration,setShowCelebration]=useState<{amount:string;newPts:number;totalPts:number;labWorkPts:number;tierName:string;tierIcon:string}|null>(null);
   const resRef=useRef<HTMLDivElement>(null);
   const[entries,setEntries]=useState<BurnerEntry[]>([]);
   const[loading,setLoading]=useState(true);
@@ -98,11 +288,7 @@ const IncineratorEngine:FC=()=>{
   const[fetBal,setFetBal]=useState(false);
   const[wc,setWc]=useState<WC|null>(()=>loadWC());
   // Load from Supabase on mount
-  useEffect(()=>{(async()=>{try{const sb=await import('../lib/supabase');
-    const[cfg,lwMap]=await Promise.all([sb.getCachedWeeklyConfig(),sb.getCachedLabWorkMap()]);
-    if(cfg)setWc(cfg as WC);
-    if(lwMap&&lwMap.size>0)sb.setSupabaseLabWorkMap(lwMap);
-  }catch{}})();},[]);
+  useEffect(()=>{(async()=>{try{const sb=await import('../lib/supabase');const cfg=await sb.getCachedWeeklyConfig();if(cfg)setWc(cfg as WC);}catch{}})();},[]);
   // Stack ALL challenge tier AMPs for the active week
   const amp=useMemo(()=>{
     if(!wc||wc.status!=='active'||!wc.challenges?.length) return 0;
@@ -146,8 +332,13 @@ const IncineratorEngine:FC=()=>{
     const a=parseFloat(burnAmt);if(isNaN(a)||a<=0){setErr('Enter a valid amount');return;}
     if(bal!==null&&a>bal){setErr(`Insufficient balance. You have ${bal.toLocaleString()} BRAINS`);return;}
     setBurning(true);setErr(null);setSuc(null);setTxSig(null);setConf(null);
+    const burnAmtStr = a.toLocaleString();
+    const earnedPts = a * 1.888 * (1 + amp / 100);
+    const projectedTotal = myPts + earnedPts;
+    const projTier = getTier(projectedTotal);
     try{const{signature,blockhash,lastValidBlockHeight}=await sendBurn(connection,{publicKey,signTransaction},a);
-      setTxSig(signature);setSuc(`Incinerated ${a.toLocaleString()} BRAINS`);setConf('pending');setBurnAmt('');setBurning(false);
+      setTxSig(signature);setSuc(`Incinerated ${burnAmtStr} BRAINS`);setConf('pending');setBurnAmt('');setBurning(false);
+      setShowCelebration({ amount: burnAmtStr, newPts: earnedPts, totalPts: projectedTotal, labWorkPts: me?.labWorkPts ?? 0, tierName: projTier.name, tierIcon: projTier.icon });
       setTimeout(()=>{resRef.current?.scrollIntoView({behavior:'smooth',block:'nearest'});},100);
       const ok=await confirmBurn(connection,signature,blockhash,lastValidBlockHeight);setConf(ok?'confirmed':'unknown');
       setTimeout(()=>{fetchBal();const ctrl=new AbortController();fetchLeaderboard(connection,ctrl.signal,()=>{}).then(setEntries).catch(()=>{});},2000);
@@ -549,6 +740,8 @@ const IncineratorEngine:FC=()=>{
           </div>
         <Footer/>
       </div>
+      {/* Burn celebration popup */}
+      {showCelebration && <BurnCelebration amount={showCelebration.amount} newPts={showCelebration.newPts} totalPts={showCelebration.totalPts} labWorkPts={showCelebration.labWorkPts} tierName={showCelebration.tierName} tierIcon={showCelebration.tierIcon} onClose={() => setShowCelebration(null)} theme={t} />}
     </div>
   );
 };

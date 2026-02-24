@@ -1,7 +1,6 @@
 import React, { FC, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { NAV_LINKS } from '../constants';
 
 // ─── XENBLOCKS TOKEN ICONS ───────────────────────────────────────────────────
 // Primary: real PNGs from explorer.xenblocks.io
@@ -85,8 +84,9 @@ export const TopBar: FC = () => {
   const isBurnHistory  = location.pathname === '/burn-history';
   const isRewards      = location.pathname === '/rewards';
   const isAdminRewards = location.pathname === '/x9b7r41ns/ctrl';
+  const isIncinerator  = location.pathname === '/incinerator-engine';
 
-  const isSubPage = isPortfolio || isNFTLab || isMint || isBurnHistory || isRewards || isAdminRewards;
+  const isSubPage = isPortfolio || isNFTLab || isMint || isBurnHistory || isRewards || isAdminRewards || isIncinerator;
 
   return (
     <>
@@ -159,113 +159,46 @@ export const TopBar: FC = () => {
         animation: 'fadeUp 0.3s ease both',
       }}>
 
-        {/* ← HOME pill — any sub-page */}
+        {/* ← BACK — go to previous page */}
+        {isSubPage && (
+          <button className="tb-hide-mobile" onClick={() => window.history.back()}
+            style={navPillStyle(false)}
+            onMouseEnter={e => hoverOn(e)} onMouseLeave={e => hoverOff(e)}
+          >
+            <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#8aa0b8', letterSpacing: 2 }}>← BACK</span>
+          </button>
+        )}
+
+        {/* HOME — always visible on sub-pages */}
         {isSubPage && (
           <button className="tb-hide-mobile" onClick={() => navigate('/')}
             style={navPillStyle(false)}
             onMouseEnter={e => hoverOn(e)} onMouseLeave={e => hoverOff(e)}
           >
-            <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#8aa0b8', letterSpacing: 2 }}>← HOME</span>
+            <span style={{ fontSize: 12 }}>🏠</span>
+            <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#8aa0b8', letterSpacing: 2 }}>HOME</span>
           </button>
         )}
 
-        {/* Lab Work page also gets a Portfolio link */}
-        {isNFTLab && (
-          <button className="tb-hide-mobile" onClick={() => navigate('/portfolio')}
-            style={navPillStyle(false)}
-            onMouseEnter={e => hoverOn(e)} onMouseLeave={e => hoverOff(e)}
-          >
-            <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#8aa0b8', letterSpacing: 2 }}>💼 PORTFOLIO</span>
-          </button>
+        {/* BURN BRAINS — orange (hidden when on incinerator engine) */}
+        {!isIncinerator && (
+        <button className="tb-hide-mobile" onClick={() => navigate('/incinerator-engine')}
+          style={{
+            background: 'rgba(255,140,0,0.06)',
+            border: '1px solid rgba(255,140,0,0.25)',
+            borderRadius: 8, padding: '7px 12px', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 6,
+            backdropFilter: 'blur(12px)', transition: 'all 0.2s',
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,140,0,0.18)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,140,0,0.6)'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,140,0,0.06)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,140,0,0.25)'; }}
+        >
+          <span style={{ fontSize: 12 }}>🧠</span>
+          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#ff8c00', letterSpacing: 2, fontWeight: 700 }}>BURN BRAINS</span>
+        </button>
         )}
 
-        {/* Mint page gets quick links */}
-        {isMint && (
-          <>
-            <button className="tb-hide-mobile" onClick={() => navigate('/lab-work')}
-              style={navPillStyle(false)}
-              onMouseEnter={e => hoverOn(e)} onMouseLeave={e => hoverOff(e)}
-            >
-              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#8aa0b8', letterSpacing: 2 }}>🧠 LAB WORK</span>
-            </button>
-            <button className="tb-hide-mobile" onClick={() => navigate('/portfolio')}
-              style={navPillStyle(false)}
-              onMouseEnter={e => hoverOn(e)} onMouseLeave={e => hoverOff(e)}
-            >
-              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#8aa0b8', letterSpacing: 2 }}>💼 PORTFOLIO</span>
-            </button>
-          </>
-        )}
-
-        {/* Burn History page gets Portfolio + Rewards links */}
-        {isBurnHistory && (
-          <>
-            <button className="tb-hide-mobile" onClick={() => navigate('/portfolio')}
-              style={navPillStyle(false)}
-              onMouseEnter={e => hoverOn(e)} onMouseLeave={e => hoverOff(e)}
-            >
-              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#8aa0b8', letterSpacing: 2 }}>💼 PORTFOLIO</span>
-            </button>
-            <button className="tb-hide-mobile" onClick={() => navigate('/rewards')}
-              style={{
-                ...navPillStyle(false),
-                borderColor: 'rgba(255,204,85,.25)',
-              }}
-              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,204,85,.08)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,204,85,.5)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(10,14,20,0.85)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,204,85,.25)'; }}
-            >
-              <span style={{ fontSize: 12 }}>🏆</span>
-              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#ffcc55', letterSpacing: 2, fontWeight: 700 }}>REWARDS</span>
-            </button>
-          </>
-        )}
-
-        {/* Rewards / Admin pages get Burns link back */}
-        {(isRewards || isAdminRewards) && (
-          <>
-            <button className="tb-hide-mobile" onClick={() => navigate('/burn-history')}
-              style={navPillStyleBurn()}
-              onMouseEnter={e => hoverOnBurn(e)} onMouseLeave={e => hoverOffBurn(e)}
-            >
-              <span style={{ fontSize: 12 }}>🔥</span>
-              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#ff8c55', letterSpacing: 2, fontWeight: 700 }}>INCINERATOR</span>
-            </button>
-            <button className="tb-hide-mobile" onClick={() => navigate('/portfolio')}
-              style={navPillStyle(false)}
-              onMouseEnter={e => hoverOn(e)} onMouseLeave={e => hoverOff(e)}
-            >
-              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#8aa0b8', letterSpacing: 2 }}>💼 PORTFOLIO</span>
-            </button>
-          </>
-        )}
-
-        {/* 🔥 INCINERATOR pill — show on portfolio page */}
-        {isPortfolio && (
-          <button className="tb-hide-mobile" onClick={() => navigate('/burn-history')}
-            style={navPillStyleBurn()}
-            onMouseEnter={e => hoverOnBurn(e)} onMouseLeave={e => hoverOffBurn(e)}
-          >
-            <span style={{ fontSize: 12 }}>🔥</span>
-            <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#ff8c55', letterSpacing: 2, fontWeight: 700 }}>INCINERATOR</span>
-          </button>
-        )}
-
-        {/* 🔬 MINT quick-access — show on non-mint pages */}
-        {!isMint && (
-          <button className="tb-hide-mobile" onClick={() => navigate('/mint')}
-            style={navPillStyleMint()}
-            onMouseEnter={e => hoverOnMint(e)} onMouseLeave={e => hoverOffMint(e)}
-          >
-            <span style={{ fontSize: 12 }}>🔬</span>
-            <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#bf5af2', letterSpacing: 2, fontWeight: 700 }}>MINT</span>
-            <span style={{
-              fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#0a0e14',
-              background: '#bf5af2', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1,
-            }}>NEW</span>
-          </button>
-        )}
-
-        {/* Ecosystem links dropdown */}
+        {/* Mobile nav menu dropdown */}
         <div style={{ position: 'relative' }}>
           <button
             onClick={() => setNavOpen(o => !o)}
@@ -273,9 +206,8 @@ export const TopBar: FC = () => {
             onMouseEnter={e => !navOpen && hoverOn(e)}
             onMouseLeave={e => !navOpen && hoverOff(e)}
           >
-            <span style={{ fontSize: 14 }}>⚡</span>
-            <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: navOpen ? '#ff8c00' : '#5c7a90', letterSpacing: 2, fontWeight: 700 }}>LINKS</span>
-            <span style={{ fontSize: 9, color: navOpen ? '#ff8c00' : '#3a5570', display: 'inline-block', transform: navOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
+            <span style={{ fontSize: 14 }}>{navOpen ? '✕' : '☰'}</span>
+            <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: navOpen ? '#ff8c00' : '#5c7a90', letterSpacing: 2, fontWeight: 700 }}>MENU</span>
           </button>
 
           {navOpen && (
@@ -283,35 +215,85 @@ export const TopBar: FC = () => {
               position: 'absolute', top: 'calc(100% + 8px)', right: 0,
               background: 'rgba(10,14,20,0.97)',
               border: '1px solid #1e3050', borderRadius: 12,
-              padding: 8, minWidth: 180,
+              padding: 8, minWidth: 200,
               boxShadow: '0 8px 40px rgba(0,0,0,0.6)',
               backdropFilter: 'blur(20px)', zIndex: 9001,
             }}>
               <div style={{ padding: '6px 10px 10px', borderBottom: '1px solid #1e3050', marginBottom: 6 }}>
-                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 7, color: '#5c7a90', letterSpacing: 3 }}>X1 Ecosystem</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 7, color: '#5c7a90', letterSpacing: 3 }}>NAVIGATE</span>
               </div>
-              {/* Incinerator quick link inside dropdown */}
+
+              {/* HOME */}
+              <button
+                onClick={() => { navigate('/'); setNavOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: location.pathname === '/' ? 'rgba(138,160,184,0.08)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(138,160,184,0.1)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = location.pathname === '/' ? 'rgba(138,160,184,0.08)' : 'transparent'; }}
+              >
+                <span style={{ fontSize: 14 }}>🏠</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#8aa0b8', letterSpacing: 1.5, fontWeight: 700 }}>HOME</span>
+              </button>
+
+              {/* PORTFOLIO — green */}
+              <button
+                onClick={() => { navigate('/portfolio'); setNavOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isPortfolio ? 'rgba(0,201,141,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,201,141,0.1)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isPortfolio ? 'rgba(0,201,141,0.1)' : 'transparent'; }}
+              >
+                <span style={{ fontSize: 14 }}>💼</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#00c98d', letterSpacing: 1.5, fontWeight: 700 }}>PORTFOLIO</span>
+                {isPortfolio && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#00c98d' }} />}
+              </button>
+
+              {/* INCINERATOR — red */}
               <button
                 onClick={() => { navigate('/burn-history'); setNavOpen(false); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 7, background: 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,80,0,0.08)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isBurnHistory ? 'rgba(255,34,34,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,34,34,0.1)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isBurnHistory ? 'rgba(255,34,34,0.1)' : 'transparent'; }}
               >
                 <span style={{ fontSize: 14 }}>🔥</span>
-                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ff8c55', letterSpacing: 1.5, fontWeight: 700, textTransform: 'uppercase' }}>Incinerator</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ff4444', letterSpacing: 1.5, fontWeight: 700 }}>INCINERATOR</span>
+                {isBurnHistory && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#ff4444' }} />}
               </button>
-              {NAV_LINKS.map(link => (
-                <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer"
-                  onClick={() => setNavOpen(false)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 7, textDecoration: 'none', transition: 'all 0.15s' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(255,140,0,0.08)'; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent'; }}
-                >
-                  <span style={{ fontSize: 14 }}>{link.icon}</span>
-                  <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#8aa0b8', letterSpacing: 1.5, fontWeight: 700, textTransform: 'uppercase' }}>{link.label}</span>
-                  <span style={{ marginLeft: 'auto', fontSize: 9, color: '#4a6070' }}>↗</span>
-                </a>
-              ))}
+
+              {/* REWARDS — yellow */}
+              <button
+                onClick={() => { navigate('/rewards'); setNavOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isRewards ? 'rgba(255,204,0,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,204,0,0.1)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isRewards ? 'rgba(255,204,0,0.1)' : 'transparent'; }}
+              >
+                <span style={{ fontSize: 14 }}>🏆</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ffcc00', letterSpacing: 1.5, fontWeight: 700 }}>REWARDS</span>
+                {isRewards && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#ffcc00' }} />}
+              </button>
+
+              {/* BURN BRAINS — orange */}
+              <button
+                onClick={() => { navigate('/incinerator-engine'); setNavOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isIncinerator ? 'rgba(255,140,0,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,140,0,0.1)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isIncinerator ? 'rgba(255,140,0,0.1)' : 'transparent'; }}
+              >
+                <span style={{ fontSize: 14 }}>🧠</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ff8c00', letterSpacing: 1.5, fontWeight: 700 }}>BURN BRAINS</span>
+                {isIncinerator && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#ff8c00' }} />}
+              </button>
+
+              {/* MINT — purple */}
+              <button
+                onClick={() => { navigate('/mint'); setNavOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isMint ? 'rgba(191,90,242,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(191,90,242,0.1)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isMint ? 'rgba(191,90,242,0.1)' : 'transparent'; }}
+              >
+                <span style={{ fontSize: 14 }}>🔬</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#bf5af2', letterSpacing: 1.5, fontWeight: 700 }}>MINT</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#0a0e14', background: '#bf5af2', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NEW</span>
+                {isMint && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#bf5af2' }} />}
+              </button>
             </div>
           )}
         </div>

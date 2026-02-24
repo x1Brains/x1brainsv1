@@ -1115,8 +1115,8 @@ const PodiumCard: FC<{ entry: BurnerEntry; rank: number; isYou: boolean; isMobil
 };
 
 // ─── LEADERBOARD ROW (rank 4+) ───────────────────────────────────────────────
-const LbRow: FC<{ entry: BurnerEntry; rank: number; isYou: boolean; delay: number }> = ({
-  entry, rank, isYou, delay,
+const LbRow: FC<{ entry: BurnerEntry; rank: number; isYou: boolean; delay: number; isMobile?: boolean }> = ({
+  entry, rank, isYou, delay, isMobile = false,
 }) => {
   const { isF } = useFireCtx();
   const [hov, setHov] = useState(false);
@@ -1129,9 +1129,9 @@ const LbRow: FC<{ entry: BurnerEntry; rank: number; isYou: boolean; delay: numbe
       onMouseLeave={() => setHov(false)}
       style={{
         display: 'grid',
-        gridTemplateColumns: '42px 1fr 130px 120px 70px 50px',
-        alignItems: 'center', gap: 8,
-        padding: '11px 16px',
+        gridTemplateColumns: isMobile ? '30px 1fr 90px 80px' : '42px 1fr 130px 120px 70px 50px',
+        alignItems: 'center', gap: isMobile ? 4 : 8,
+        padding: isMobile ? '9px 10px' : '11px 16px',
         background: isYou ? 'linear-gradient(135deg,rgba(255,140,0,.06),rgba(255,140,0,.03))' : hov ? 'linear-gradient(135deg,#0a0618,#0e0a20)' : rank % 2 === 0 ? 'linear-gradient(135deg,#04030a,#060410)' : 'linear-gradient(135deg,#030208,#05040e)',
         border: `1px solid ${accentColor}`,
         borderLeft: `3px solid ${accentColor}`,
@@ -1146,14 +1146,14 @@ const LbRow: FC<{ entry: BurnerEntry; rank: number; isYou: boolean; delay: numbe
       <div style={{ position:'absolute', inset:0, backgroundImage:'linear-gradient(rgba(100,60,255,.015) 1px,transparent 1px),linear-gradient(90deg,rgba(100,60,255,.015) 1px,transparent 1px)', backgroundSize:'20px 20px', pointerEvents:'none' }} />
 
       {/* Rank */}
-      <div style={{ fontFamily:'Orbitron, monospace', fontSize:11, fontWeight:700, color: isYou?'#ff9933':hov?'#ee88ff':'#b8d0e0', textAlign:'center', position:'relative', zIndex:1 }}>
+      <div style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?9:11, fontWeight:700, color: isYou?'#ff9933':hov?'#ee88ff':'#b8d0e0', textAlign:'center', position:'relative', zIndex:1 }}>
         {rank}
       </div>
 
       {/* Address + tier */}
       <div style={{ minWidth:0, position:'relative', zIndex:1 }}>
         <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-          <span style={{ fontFamily:'monospace', fontSize:12, color: isYou?'#f0d0a0':hov?'#d0b8e8':'#dde4ec', letterSpacing:0.4 }}>
+          <span style={{ fontFamily:'monospace', fontSize:isMobile?10:12, color: isYou?'#f0d0a0':hov?'#d0b8e8':'#dde4ec', letterSpacing:0.4 }}>
             {short(entry.address)}
           </span>
           {isYou && <span style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:'#ff9933', background:'rgba(255,140,0,.1)', border:'1px solid rgba(255,140,0,.3)', borderRadius:3, padding:'1px 5px' }}>YOU</span>}
@@ -1168,13 +1168,13 @@ const LbRow: FC<{ entry: BurnerEntry; rank: number; isYou: boolean; delay: numbe
 
       {/* Burned */}
       <div style={{ textAlign:'right', position:'relative', zIndex:1 }}>
-        <div style={{ fontFamily:'Sora, sans-serif', fontSize:11, color:'#ff9933' }}>🔥 {fmtN(entry.burned, 1)}</div>
-        <div style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:'#e8eef4', marginTop:1 }}>BRAINS</div>
+        <div style={{ fontFamily:'Sora, sans-serif', fontSize:isMobile?9:11, color:'#ff9933' }}>🔥 {fmtN(entry.burned, 1)}</div>
+        <div style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?6:7, color:'#e8eef4', marginTop:1 }}>BRAINS</div>
       </div>
 
       {/* Points */}
       <div style={{ textAlign:'right', position:'relative', zIndex:1 }}>
-        <div style={{ fontFamily:'Orbitron, monospace', fontSize:13, fontWeight:700, color: hov?(isF?'#e0c880':'#c8f0d8'):(isF?'#d4a860':'#88dda8'), textShadow:'none' }}>
+        <div style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?11:13, fontWeight:700, color: hov?(isF?'#e0c880':'#c8f0d8'):(isF?'#d4a860':'#88dda8'), textShadow:'none' }}>
           {fmtPts(entry.points)}
         </div>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:4, marginTop:1 }}>
@@ -1183,19 +1183,23 @@ const LbRow: FC<{ entry: BurnerEntry; rank: number; isYou: boolean; delay: numbe
         </div>
       </div>
 
-      {/* Txs */}
+      {/* Txs — hidden on mobile */}
+      {!isMobile && (
       <div style={{ textAlign:'right', position:'relative', zIndex:1 }}>
         {(entry.ampPct??0)>0?<>
           <div style={{ fontFamily:'Orbitron, monospace', fontSize:11, fontWeight:700, color:isF?'#d4a050':'#78c8a0' }}>+{fmtPts(entry.ampBonusPts??0)}</div>
           <div style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:isF?'#ff9944':'#90b8a0', marginTop:1 }}>+{(entry.ampPct??0).toFixed(1)}%</div>
         </>:<div style={{ fontFamily:'Orbitron, monospace', fontSize:9, color:isF?'#6a5e78':'#6b8899' }}>—</div>}
       </div>
+      )}
 
-      {/* TX count */}
+      {/* TX count — hidden on mobile */}
+      {!isMobile && (
       <div style={{ textAlign:'right', position:'relative', zIndex:1 }}>
         <div style={{ fontFamily:'Orbitron, monospace', fontSize:10, color:isF?'#f0ecf4':'#c8dce8' }}>{entry.txCount}</div>
         <div style={{ fontFamily:'Sora, sans-serif', fontSize:7, color:'#dde4ec', marginTop:1 }}>TXS</div>
       </div>
+      )}
     </div>
   );
 };
@@ -2348,20 +2352,20 @@ export const BurnLeaderboard: FC<Props> = ({
             const displayed = showAll ? sorted : sorted.slice(0, 10);
             return (
             <>
-              <div style={{ display:'grid', gridTemplateColumns:'42px 1fr 130px 120px 70px 50px', gap:10, padding:'6px 16px 10px', borderBottom:'1px solid rgba(120,60,255,.1)', marginBottom:8 }}>
-                {['RANK','WALLET · TIER','BRAINS BURNED','LB PTS EARNED','⚡ AMP','TXS'].map(h => (
-                  <div key={h} style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:'#e8eef4', letterSpacing:2 }}>{h}</div>
+              <div style={{ display:'grid', gridTemplateColumns:isMobile?'30px 1fr 90px 80px':'42px 1fr 130px 120px 70px 50px', gap:isMobile?4:10, padding:isMobile?'6px 10px 8px':'6px 16px 10px', borderBottom:'1px solid rgba(120,60,255,.1)', marginBottom:8 }}>
+                {(isMobile?['RANK','WALLET · TIER','BRAINS BURNED','LB PTS E…']:['RANK','WALLET · TIER','BRAINS BURNED','LB PTS EARNED','⚡ AMP','TXS']).map(h => (
+                  <div key={h} style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?6:7, color:'#e8eef4', letterSpacing:isMobile?1:2 }}>{h}</div>
                 ))}
               </div>
               <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
                 {displayed.map((e, i) => (
-                  <LbRow key={e.address} entry={e} rank={i+1} isYou={e.address===walletAddress} delay={0.03*Math.min(i,10)} />
+                  <LbRow key={e.address} entry={e} rank={i+1} isYou={e.address===walletAddress} delay={0.03*Math.min(i,10)} isMobile={isMobile} />
                 ))}
               </div>
               {!showAll && myRank && myRank > 10 && myEntry && (
                 <>
                   <div style={{ textAlign:'center', padding:'10px 0', fontFamily:'Orbitron, monospace', fontSize:9, color:'#dde4ec', letterSpacing:3 }}>· · · · · ·</div>
-                  <LbRow entry={myEntry} rank={myRank} isYou delay={0} />
+                  <LbRow entry={myEntry} rank={myRank} isYou delay={0} isMobile={isMobile} />
                 </>
               )}
               {showAll && filtered.length > 10 && (

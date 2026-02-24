@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useRef } from 'react';
+import React, { FC, useState, useEffect, useRef, useMemo } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { PublicKey, Transaction } from '@solana/web3.js';
 import {
@@ -13,6 +13,7 @@ import {
   BRAINS_LOGO, XNT_INFO, METADATA_PROGRAM_ID_STRING,
 } from '../constants';
 import { fetchOffChainLogo, resolveUri } from '../utils';
+import burnBrainImg from '../assets/images1st.jpg';
 
 // CORS-resilient wrapper — retries via proxy on localhost if direct fetch fails
 const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
@@ -41,7 +42,7 @@ import {
 } from '../components/UI';
 import { TokenCard, TokenData, XenBlocksPanel, WalletTokenSnapshot, useTokenPrices, priceCache } from '../components/TokenComponents';
 import { NFTGrid } from '../components/NFTComponents';
-import { BurnedBrainsBar, injectBurnStyles } from '../components/BurnedBrainsBar';
+import { BurnedBrainsBar, injectBurnStyles, walletBurnStats } from '../components/BurnedBrainsBar';
 
 // ─────────────────────────────────────────────
 // MOBILE HOOK — matches BurnedBrainsBar breakpoint (640px)
@@ -181,33 +182,19 @@ async function burnBrainsTokens(connection: any, wallet: any, amount: number): P
   if (!signedTx.signature) throw new Error('Transaction signing failed');
   const signature = await connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: false, maxRetries: 3, preflightCommitment: 'confirmed' });
 
-  // Confirm with timeout — some RPC endpoints are slow on localhost
-  try {
-    const confirmPromise = connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
-    const timeoutPromise = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000));
-    const confirmation = await Promise.race([confirmPromise, timeoutPromise]);
-    if (confirmation.value?.err) throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-  } catch (confirmErr: any) {
-    // If confirmation times out, poll signature status as fallback
-    if (confirmErr?.message === 'timeout') {
-      console.warn('[Burn] confirmTransaction timed out, polling signature status...');
-      for (let i = 0; i < 8; i++) {
-        await new Promise(r => setTimeout(r, 1500));
-        try {
-          const status = await connection.getSignatureStatus(signature);
-          if (status?.value?.confirmationStatus === 'confirmed' || status?.value?.confirmationStatus === 'finalized') {
-            if (status.value.err) throw new Error(`Transaction failed: ${JSON.stringify(status.value.err)}`);
-            return signature; // Success!
-          }
-        } catch { /* retry */ }
+  // Fast polling — X1 confirms in <1s, confirmTransaction can hang 30s+
+  for (let i = 0; i < 20; i++) {
+    try {
+      const resp = await connection.getSignatureStatuses([signature]);
+      const s = resp?.value?.[0];
+      if (s) {
+        if (s.err) throw new Error(`Transaction failed: ${JSON.stringify(s.err)}`);
+        if (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized') return signature;
       }
-      // If we got a signature back from sendRawTransaction, the tx likely went through
-      // Return signature anyway so user can check on explorer
-      console.warn('[Burn] Could not confirm, returning signature for manual verification');
-      return signature;
-    }
-    throw confirmErr;
+    } catch {}
+    await new Promise(r => setTimeout(r, 500));
   }
+  // TX was broadcast successfully — return signature even if RPC is slow to confirm
   return signature;
 }
 
@@ -692,6 +679,139 @@ const PortfolioStatsBar: FC<{
 // ─────────────────────────────────────────────
 // PORTFOLIO PAGE
 // ─────────────────────────────────────────────
+// ─── BURN CELEBRATION POPUP ──────────────────────────────────────────────────
+function injectBurnCelebrationStyles() {
+  if (typeof document === 'undefined') return;
+  if (document.head.querySelector('style[data-burn-celebrate]')) return;
+  const s = document.createElement('style');
+  s.setAttribute('data-burn-celebrate', '1');
+  s.textContent = `
+    @keyframes bc-in{0%{opacity:0;transform:scale(.5) rotate(-10deg)}60%{opacity:1;transform:scale(1.08) rotate(2deg)}100%{opacity:1;transform:scale(1) rotate(0)}}
+    @keyframes bc-out{0%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(.7) translateY(-30px)}}
+    @keyframes bc-flame{0%{transform:translateY(0) scaleX(1);opacity:.8}50%{transform:translateY(-20px) scaleX(1.2);opacity:1}100%{transform:translateY(-50px) scaleX(.6);opacity:0}}
+    @keyframes bc-ember{0%{transform:translate(0,0) scale(1);opacity:1}100%{transform:translate(var(--ex,30px),var(--ey,-80px)) scale(0);opacity:0}}
+    @keyframes bc-float{0%{transform:translateY(0) rotate(0)}50%{transform:translateY(-8px) rotate(3deg)}100%{transform:translateY(0) rotate(0)}}
+    @keyframes bc-ring{0%{transform:scale(.5);opacity:.8}100%{transform:scale(2.5);opacity:0}}
+    @keyframes bc-img{0%{filter:brightness(1) saturate(1)}25%{filter:brightness(1.3) saturate(1.5) sepia(.3)}50%{filter:brightness(1.6) saturate(2) sepia(.5) hue-rotate(-10deg)}75%{filter:brightness(1.2) saturate(1.3) sepia(.2)}100%{filter:brightness(1) saturate(1)}}
+    @keyframes bc-glow{0%,100%{text-shadow:0 0 10px rgba(255,140,0,.5),0 0 30px rgba(255,60,0,.3)}50%{text-shadow:0 0 20px rgba(255,140,0,.8),0 0 50px rgba(255,60,0,.5),0 0 80px rgba(255,30,0,.3)}}
+    @keyframes bc-spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
+    @keyframes bc-burn{0%,100%{box-shadow:0 0 40px rgba(255,60,0,.5),0 0 80px rgba(255,30,0,.3),inset 0 0 30px rgba(255,80,0,.4)}50%{box-shadow:0 0 70px rgba(255,60,0,.8),0 0 120px rgba(255,30,0,.5),inset 0 0 50px rgba(255,80,0,.6)}}
+    @keyframes bc-bloom{0%,100%{opacity:.3;transform:scale(1)}50%{opacity:.6;transform:scale(1.05)}}
+    @keyframes bc-shimmer{0%{background-position:250% center}50%{background-position:-50% center}100%{background-position:250% center}}
+  `;
+  document.head.appendChild(s);
+}
+injectBurnCelebrationStyles();
+
+// Simple tier lookup for celebration display
+const BURN_TIERS = [
+  { name: 'UNRANKED', min: 0, icon: '○', neon: '#a0bbcc' }, { name: 'SPARK', min: 1, icon: '✦', neon: '#bbddff' },
+  { name: 'FLAME', min: 25000, icon: '🕯️', neon: '#ffdd77' }, { name: 'INFERNO', min: 50000, icon: '🔥', neon: '#ffaa44' },
+  { name: 'OVERWRITE', min: 100000, icon: '⚙️', neon: '#ff8811' }, { name: 'ANNIHILATE', min: 200000, icon: '💥', neon: '#ff6622' },
+  { name: 'TERMINATE', min: 350000, icon: '⚡', neon: '#ff4411' }, { name: 'DISINTEGRATE', min: 500000, icon: '☢️', neon: '#ff2277' },
+  { name: 'GODSLAYER', min: 700000, icon: '⚔️', neon: '#dd22ff' }, { name: 'APOCALYPSE', min: 850000, icon: '💀', neon: '#ff1155' },
+  { name: 'INCINERATOR', min: 1000000, icon: '☠️', neon: '#fffaee' },
+];
+function getBurnTier(p: number) { for (let i = BURN_TIERS.length - 1; i >= 0; i--) if (p >= BURN_TIERS[i].min) return BURN_TIERS[i]; return BURN_TIERS[0]; }
+
+const BurnCelebrationPortfolio: FC<{ amount: string; newPts: number; totalPts: number; labWorkPts: number; tierName: string; tierIcon: string; onClose: () => void }> = ({ amount, newPts, totalPts, labWorkPts, tierName, tierIcon, onClose }) => {
+  const [phase, setPhase] = useState<'in' | 'out'>('in');
+  const mob = typeof window !== 'undefined' && window.innerWidth < 640;
+  useEffect(() => {
+    const timer = setTimeout(() => { setPhase('out'); setTimeout(onClose, 600); }, 5500);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+  useEffect(() => { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = ''; }; }, []);
+
+  const fP = (n: number) => n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : n.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  const imgSz = mob ? 100 : 140;
+
+  const embers = useMemo(() => Array.from({ length: mob ? 12 : 18 }, (_, i) => ({
+    id: i, ex: (Math.random() - 0.5) * 200, ey: -(Math.random() * 120 + 40),
+    size: Math.random() * 6 + 3, delay: Math.random() * 1.5, dur: Math.random() * 1.2 + 0.8,
+    color: ['#ff4400', '#ff8800', '#ffcc00', '#ff6600', '#ffaa33'][Math.floor(Math.random() * 5)],
+  })), []);
+
+  return (
+    <div onClick={() => { setPhase('out'); setTimeout(onClose, 600); }} style={{
+      position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,.85)',
+      backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column',
+      animation: phase === 'in' ? 'bc-in 0.5s cubic-bezier(.34,1.56,.64,1) both' : 'bc-out 0.5s ease both', cursor: 'pointer',
+    }}>
+      {[0, 0.3, 0.7].map((d, i) => (
+        <div key={i} style={{ position: 'absolute', width: 120, height: 120, borderRadius: '50%',
+          border: `2px solid rgba(255,140,0,${0.4 - i * 0.1})`, animation: `bc-ring 1.5s ease ${d}s infinite`, pointerEvents: 'none' }} />
+      ))}
+      {embers.map(e => (
+        <div key={e.id} style={{ position: 'absolute', width: e.size, height: e.size, borderRadius: '50%',
+          background: e.color, boxShadow: `0 0 ${e.size * 2}px ${e.color}`,
+          animation: `bc-ember ${e.dur}s ease ${e.delay}s infinite`,
+          ['--ex' as any]: `${e.ex}px`, ['--ey' as any]: `${e.ey}px`, pointerEvents: 'none' }} />
+      ))}
+      <div style={{ position: 'absolute', width: mob ? 180 : 280, height: mob ? 180 : 280, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(255,80,0,.25) 0%, rgba(255,140,0,.1) 40%, transparent 70%)',
+        animation: 'bc-bloom 2s ease infinite', pointerEvents: 'none' }} />
+      <div style={{ position: 'relative', width: imgSz, height: imgSz, borderRadius: '50%', overflow: 'visible',
+        animation: 'bc-float 2s ease infinite', marginBottom: mob ? 16 : 24 }}>
+        <div style={{ position: 'absolute', inset: mob ? -8 : -12, borderRadius: '50%',
+          background: 'conic-gradient(from 0deg, #ff2200, #ff8800, #ffcc00, #ff6600, #ff2200)',
+          animation: 'bc-spin 3s linear infinite', filter: 'blur(8px)', opacity: 0.7 }} />
+        <div style={{ position: 'absolute', inset: mob ? -4 : -6, borderRadius: '50%',
+          border: `${mob ? 2 : 3}px solid rgba(255,140,0,.6)`, animation: 'bc-burn 1.5s ease infinite' }} />
+        <img src={burnBrainImg} alt="BURN" style={{
+          width: imgSz, height: imgSz, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center top',
+          position: 'relative', zIndex: 2, display: 'block', transform: 'scale(1.3)',
+          animation: 'bc-img 2s ease infinite', border: `${mob ? 2 : 3}px solid rgba(255,100,0,.5)` }} />
+        {[0, 1, 2, 3, 4].map(i => (
+          <div key={i} style={{ position: 'absolute', bottom: '60%', left: `${15 + i * 17}%`,
+            width: 12 + i * 2, height: 30 + i * 5,
+            background: `linear-gradient(to top, rgba(255,${60 + i * 30},0,.7), rgba(255,${120 + i * 20},0,.3), transparent)`,
+            borderRadius: '50% 50% 30% 30%', animation: `bc-flame ${0.6 + i * 0.15}s ease ${i * 0.1}s infinite`,
+            filter: 'blur(2px)', zIndex: 3, pointerEvents: 'none' }} />
+        ))}
+      </div>
+      <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 20 : 28, fontWeight: 900, letterSpacing: mob ? 2 : 4,
+        background: 'linear-gradient(135deg, #ff4400, #ff8800, #ffcc00, #ffffff, #ffcc00, #ff8800)',
+        backgroundSize: '200% 100%', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+        animation: 'bc-glow 2s ease infinite, bc-shimmer 3s ease infinite', marginBottom: 6 }}>
+        INCINERATED
+      </div>
+      <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 14 : 18, fontWeight: 700, color: '#ffcc44',
+        letterSpacing: mob ? 2 : 3, marginBottom: mob ? 12 : 16, textShadow: '0 0 12px rgba(255,140,0,.5)' }}>
+        🔥 {amount} BRAINS 🔥
+      </div>
+
+      {/* LB Points earned panel */}
+      <div style={{ display: 'flex', gap: mob ? 8 : 12, flexWrap: 'wrap', justifyContent: 'center', marginBottom: mob ? 8 : 10 }}>
+        <div style={{ background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.25)', borderRadius: mob ? 8 : 10, padding: mob ? '8px 14px' : '10px 18px', textAlign: 'center', minWidth: mob ? 100 : 120 }}>
+          <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 6 : 7, color: '#ff9955', letterSpacing: 2, marginBottom: 3 }}>◆ LB POINTS EARNED</div>
+          <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 16 : 20, fontWeight: 900, color: '#ffcc44', textShadow: '0 0 8px rgba(255,204,68,.3)' }}>+{fP(newPts)}</div>
+        </div>
+        <div style={{ background: 'rgba(140,60,255,.06)', border: '1px solid rgba(140,60,255,.2)', borderRadius: mob ? 8 : 10, padding: mob ? '8px 14px' : '10px 18px', textAlign: 'center', minWidth: mob ? 100 : 120 }}>
+          <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 6 : 7, color: '#bb88ff', letterSpacing: 2, marginBottom: 3 }}>TOTAL LB POINTS</div>
+          <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 16 : 20, fontWeight: 900, color: '#cc99ff', textShadow: '0 0 8px rgba(140,60,255,.3)' }}>{fP(totalPts)}</div>
+        </div>
+      </div>
+
+      {/* Lab Work + Tier row */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+        {labWorkPts > 0 && (
+          <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 7 : 9, color: '#00ccff', background: 'rgba(0,204,255,.08)', border: '1px solid rgba(0,204,255,.2)', borderRadius: 6, padding: mob ? '3px 8px' : '4px 10px' }}>
+            🧪 {fP(labWorkPts)} LAB WORK
+          </div>
+        )}
+        <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 7 : 9, color: '#ffaa44', background: 'rgba(255,170,68,.08)', border: '1px solid rgba(255,170,68,.2)', borderRadius: 6, padding: mob ? '3px 8px' : '4px 10px' }}>
+          {tierIcon} {tierName}
+        </div>
+      </div>
+
+      <div style={{ fontFamily: 'Sora, sans-serif', fontSize: mob ? 9 : 11, color: '#ff9955', letterSpacing: 2, opacity: 0.7, marginTop: 6 }}>
+        TAP TO DISMISS
+      </div>
+    </div>
+  );
+};
+
 const Portfolio: FC = () => {
   const { publicKey, signTransaction } = useWallet();
   const { connection }                 = useConnection();
@@ -723,6 +843,7 @@ const Portfolio: FC = () => {
   const [burnSuccess, setBurnSuccess]         = useState<string | null>(null);
   const [burnTxSig, setBurnTxSig]             = useState<string | null>(null);
   const [burnKey, setBurnKey]                 = useState(0);
+  const [showCelebration, setShowCelebration] = useState<{amount:string;newPts:number;totalPts:number;labWorkPts:number;tierName:string;tierIcon:string}|null>(null);
 
   const burnRef      = useRef<HTMLDivElement>(null);
   const splRef       = useRef<HTMLDivElement>(null);
@@ -912,9 +1033,16 @@ const Portfolio: FC = () => {
     if (!brainsToken || amount > brainsToken.balance) { setBurnError(`Insufficient balance. You have ${brainsToken?.balance || 0} BRAINS`); return; }
     setBurning(true); setBurnError(null); setBurnSuccess(null); setBurnTxSig(null);
     try {
+      const earnedPts = amount * 1.888;
+      // Read real totals from BurnedBrainsBar's global stats (same on-chain scan + Supabase data)
+      const currentTotal = walletBurnStats.totalLbPts;
+      const currentLabWork = walletBurnStats.labWorkPts;
+      const projectedTotal = currentTotal + earnedPts;
+      const projTier = getBurnTier(projectedTotal);
       const signature = await burnBrainsTokens(connection, { publicKey, signTransaction }, amount);
       setBurnTxSig(signature);
       setBurnSuccess(`Successfully burned ${amount.toLocaleString()} BRAINS`);
+      setShowCelebration({ amount: amount.toLocaleString(), newPts: earnedPts, totalPts: projectedTotal, labWorkPts: currentLabWork, tierName: projTier.name, tierIcon: projTier.icon });
       setBurnKey(k => k + 1);
       setBurnAmount('');
       setTimeout(() => loadTokens(), 2000);
@@ -1326,6 +1454,7 @@ const Portfolio: FC = () => {
 
         <Footer />
       </div>
+      {showCelebration && <BurnCelebrationPortfolio amount={showCelebration.amount} newPts={showCelebration.newPts} totalPts={showCelebration.totalPts} labWorkPts={showCelebration.labWorkPts} tierName={showCelebration.tierName} tierIcon={showCelebration.tierIcon} onClose={() => setShowCelebration(null)} />}
     </div>
   );
 };

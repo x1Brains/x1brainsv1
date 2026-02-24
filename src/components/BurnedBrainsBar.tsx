@@ -9,6 +9,9 @@ const INITIAL_SUPPLY = 8_880_000;
 const POLL_INTERVAL  = 5_000;
 const BURN_SCAN_INTERVAL = 60_000;
 
+// ── Global burn stats — written by BurnedBrainsBar, readable by other components ──
+export const walletBurnStats = { totalLbPts: 0, burnLbPts: 0, labWorkPts: 0, walletBurned: 0, tierName: '', tierIcon: '' };
+
 // ─────────────────────────────────────────────
 // TIERS (same as BurnLeaderboard)
 // ─────────────────────────────────────────────
@@ -330,6 +333,14 @@ export const BurnedBrainsBar: FC = () => {
   const tier         = getTier(totalLbPts);
   const next         = nextTier(totalLbPts);
   const ptsToNext    = next ? next.min - totalLbPts : 0;
+
+  // Update global stats so other components (Portfolio celebration) can read them
+  walletBurnStats.totalLbPts = totalLbPts;
+  walletBurnStats.burnLbPts = burnLbPts;
+  walletBurnStats.labWorkPts = labWorkPts;
+  walletBurnStats.walletBurned = walletAmount;
+  walletBurnStats.tierName = tier.name;
+  walletBurnStats.tierIcon = tier.icon;
   const embers       = Array.from({ length: isMobile ? 6 : 12 }, (_, i) => ({
     delay: i * 0.22, x: 3 + i * (isMobile ? 16 : 8.2), size: 2 + (i % 3), duration: 1.6 + (i % 4) * 0.4,
   }));
