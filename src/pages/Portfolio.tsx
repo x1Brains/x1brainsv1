@@ -726,7 +726,7 @@ const BurnCelebrationPortfolio: FC<{ amount: string; newPts: number; totalPts: n
   const fP = (n: number) => n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : n.toLocaleString(undefined, { maximumFractionDigits: 1 });
   const imgSz = mob ? 100 : 140;
 
-  const embers = useMemo(() => Array.from({ length: mob ? 12 : 18 }, (_, i) => ({
+  const embers = useMemo(() => Array.from({ length: mob ? 8 : 10 }, (_, i) => ({
     id: i, ex: (Math.random() - 0.5) * 200, ey: -(Math.random() * 120 + 40),
     size: Math.random() * 6 + 3, delay: Math.random() * 1.5, dur: Math.random() * 1.2 + 0.8,
     color: ['#ff4400', '#ff8800', '#ffcc00', '#ff6600', '#ffaa33'][Math.floor(Math.random() * 5)],
@@ -738,10 +738,8 @@ const BurnCelebrationPortfolio: FC<{ amount: string; newPts: number; totalPts: n
       backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column',
       animation: phase === 'in' ? 'bc-in 0.5s cubic-bezier(.34,1.56,.64,1) both' : 'bc-out 0.5s ease both', cursor: 'pointer',
     }}>
-      {[0, 0.3, 0.7].map((d, i) => (
-        <div key={i} style={{ position: 'absolute', width: 120, height: 120, borderRadius: '50%',
-          border: `2px solid rgba(255,140,0,${0.4 - i * 0.1})`, animation: `bc-ring 1.5s ease ${d}s infinite`, pointerEvents: 'none' }} />
-      ))}
+      <div style={{ position: 'absolute', width: 120, height: 120, borderRadius: '50%',
+        border: '2px solid rgba(255,140,0,.3)', animation: 'bc-ring 1.5s ease infinite', pointerEvents: 'none' }} />
       {embers.map(e => (
         <div key={e.id} style={{ position: 'absolute', width: e.size, height: e.size, borderRadius: '50%',
           background: e.color, boxShadow: `0 0 ${e.size * 2}px ${e.color}`,
