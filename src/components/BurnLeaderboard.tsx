@@ -1463,11 +1463,12 @@ export const BurnLeaderboard: FC<Props> = ({
   const [lb, setLb]          = useState<LbState>({ entries:[], loading:false, progress:'', batches:0, error:null, fetchedAt:null });
   const [showAll, setShowAll] = useState(false);
   const [lbSort, setLbSort]   = useState<'points'|'burned'|'wallet'>('points');
-  const [lbView, setLbView]   = useState<'all'|'burners'|'labwork'>('all');
+  const [lbView, setLbView]   = useState<'all'|'burners'|'labwork'|'weekly'>('all');
   const [firstEvtLive, setFirstEvtLive] = useState<BurnEvent|null>(null);
   const [lastEvtLive,  setLastEvtLive]  = useState<BurnEvent|null>(null);
   const [podiumPopup, setPodiumPopup]   = useState<{ entry: BurnerEntry; rank: number } | null>(null);
   const [tierCollapsed, setTierCollapsed] = useState(true);
+  const [weekCfg, setWeekCfg]           = useState<{weekId:string;status:string;startDate?:string;endDate?:string}|null>(null);
   const [t, themeName, toggleTheme] = useIncTheme();
   const isF = themeName === 'fire';
   const brainsPrice = useBrainsPrice();
@@ -1478,6 +1479,19 @@ export const BurnLeaderboard: FC<Props> = ({
   const mountedRef  = useRef(true);
 
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; abortRef.current?.abort(); if (refreshRef.current) clearInterval(refreshRef.current); }; }, []);
+
+  // Load active weekly config for the weekly filter
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = localStorage.getItem('brains_weekly_config');
+        if (raw) { const p = JSON.parse(raw); if (p?.weekId) setWeekCfg(p); }
+        const sb = await import('../lib/supabase');
+        const cfg = await sb.getCachedWeeklyConfig();
+        if (cfg && mountedRef.current) setWeekCfg(cfg as any);
+      } catch {}
+    })();
+  }, []);
 
   // Fetch the single most recent burn tx from the mint address
   const fetchLatestBurn = useCallback(async () => {
@@ -2301,11 +2315,11 @@ export const BurnLeaderboard: FC<Props> = ({
         {entries.length > 0 && (
           <div style={{ position:'relative', zIndex:2, padding:isMobile?'8px 14px':'10px 22px', display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', borderBottom:isF?'1px solid rgba(255,34,34,.05)':'1px solid rgba(140,60,255,.05)' }}>
             <span style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:isF?'#b8b0c0':'#b0bcc8', letterSpacing:2 }}>VIEW:</span>
-            {([['all','🌐 ALL'],['burners','🔥 BURNERS'],['labwork','🧪 LAB WORK']] as const).map(([key, label]) => (
+            {([['all','🌐 ALL'],['burners','🔥 BURNERS'],['labwork','🧪 LAB WORK'],['weekly','⚡ WEEKLY']] as const).map(([key, label]) => (
               <button key={key} onClick={() => setLbView(key)} style={{
-                background: lbView===key ? (key==='labwork'?'rgba(0,204,255,.12)':isF?'rgba(212,160,80,.08)':'rgba(57,255,136,.12)') : (isF?'rgba(200,56,56,.03)':'rgba(140,60,255,.04)'),
-                border: `1px solid ${lbView===key ? (key==='labwork'?'rgba(0,204,255,.3)':isF?'rgba(212,160,80,.2)':'rgba(57,255,136,.3)') : (isF?'rgba(200,56,56,.08)':'rgba(140,60,255,.1)')}`,
-                color: lbView===key ? (key==='labwork'?'#00ccff':isF?'#ffbb33':'#39ff88') : (isF?'#a89cb0':'#8ebbcc'),
+                background: lbView===key ? (key==='labwork'?'rgba(0,204,255,.12)':key==='weekly'?'rgba(255,140,0,.12)':isF?'rgba(212,160,80,.08)':'rgba(57,255,136,.12)') : (isF?'rgba(200,56,56,.03)':'rgba(140,60,255,.04)'),
+                border: `1px solid ${lbView===key ? (key==='labwork'?'rgba(0,204,255,.3)':key==='weekly'?'rgba(255,140,0,.3)':isF?'rgba(212,160,80,.2)':'rgba(57,255,136,.3)') : (isF?'rgba(200,56,56,.08)':'rgba(140,60,255,.1)')}`,
+                color: lbView===key ? (key==='labwork'?'#00ccff':key==='weekly'?'#ff9933':isF?'#ffbb33':'#39ff88') : (isF?'#a89cb0':'#8ebbcc'),
                 padding:'4px 12px', fontFamily:'Orbitron, monospace', fontSize:8, letterSpacing:1,
                 borderRadius:6, cursor:'pointer', transition:'all 0.15s',
               }}>{label}</button>
@@ -2367,9 +2381,23 @@ export const BurnLeaderboard: FC<Props> = ({
           {/* Leaderboard rows */}
           {entries.length > 0 && (() => {
             // Apply view filter
-            const filtered = lbView === 'burners' ? entries.filter(e => e.burned > 0) :
-                             lbView === 'labwork' ? entries.filter(e => (e.labWorkPts ?? 0) > 0) :
-                             entries;
+            let filtered: BurnerEntry[];
+            if (lbView === 'weekly' && weekCfg?.status === 'active' && weekCfg.startDate) {
+              const wStart = Math.floor(new Date(weekCfg.startDate).getTime() / 1000);
+              const wEnd = weekCfg.endDate ? Math.floor(new Date(weekCfg.endDate).getTime() / 1000) : Infinity;
+              filtered = entries.map(e => {
+                const wkEvents = (e.events || []).filter(ev => ev.blockTime >= wStart && ev.blockTime <= wEnd);
+                if (wkEvents.length === 0) return null;
+                const burned = wkEvents.reduce((s, ev) => s + ev.amount, 0);
+                return { ...e, burned, txCount: wkEvents.length, points: Math.floor(burned * 1.888), events: wkEvents };
+              }).filter((e): e is BurnerEntry => e !== null && e.points > 0);
+            } else if (lbView === 'weekly') {
+              filtered = []; // No active week
+            } else {
+              filtered = lbView === 'burners' ? entries.filter(e => e.burned > 0) :
+                               lbView === 'labwork' ? entries.filter(e => (e.labWorkPts ?? 0) > 0) :
+                               entries;
+            }
             const sorted = [...filtered].sort((a, b) =>
               lbSort === 'burned' ? b.burned - a.burned :
               lbSort === 'wallet' ? a.address.localeCompare(b.address) :
@@ -2378,6 +2406,22 @@ export const BurnLeaderboard: FC<Props> = ({
             const displayed = showAll ? sorted : sorted.slice(0, 10);
             return (
             <>
+              {lbView === 'weekly' && weekCfg?.status === 'active' && (
+                <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'rgba(255,140,0,.06)', border:'1px solid rgba(255,140,0,.15)', borderRadius:8, marginBottom:10 }}>
+                  <span style={{ fontSize:14 }}>⚡</span>
+                  <div>
+                    <div style={{ fontFamily:'Orbitron, monospace', fontSize:9, fontWeight:700, color:'#ff9933', letterSpacing:1 }}>{weekCfg.weekId?.toUpperCase() || 'ACTIVE CHALLENGE'}</div>
+                    <div style={{ fontFamily:'Sora, sans-serif', fontSize:9, color:'#aabbcc' }}>
+                      {weekCfg.startDate ? new Date(weekCfg.startDate).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—'} → {weekCfg.endDate ? new Date(weekCfg.endDate).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : 'ongoing'} · Only burns during this period
+                    </div>
+                  </div>
+                </div>
+              )}
+              {lbView === 'weekly' && (!weekCfg || weekCfg.status !== 'active') && (
+                <div style={{ textAlign:'center', padding:'20px', fontFamily:'Sora, sans-serif', fontSize:12, color:'#8899aa' }}>
+                  No active weekly challenge. Weekly leaderboard is available during active challenge periods.
+                </div>
+              )}
               <div style={{ display:'grid', gridTemplateColumns:isMobile?'30px 1fr 90px 80px':'42px 1fr 130px 120px 70px 50px', gap:isMobile?4:10, padding:isMobile?'6px 10px 8px':'6px 16px 10px', borderBottom:'1px solid rgba(120,60,255,.1)', marginBottom:8 }}>
                 {(isMobile?['RANK','WALLET · TIER','BRAINS BURNED','LB PTS E…']:['RANK','WALLET · TIER','BRAINS BURNED','LB PTS EARNED','⚡ AMP','TXS']).map(h => (
                   <div key={h} style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?6:7, color:'#e8eef4', letterSpacing:isMobile?1:2 }}>{h}</div>
@@ -2397,7 +2441,7 @@ export const BurnLeaderboard: FC<Props> = ({
               {showAll && filtered.length > 10 && (
                 <div style={{ textAlign:'center', padding:'14px 0 6px' }}>
                   <span style={{ fontFamily:'Orbitron, monospace', fontSize:8, color:isF?'#b8b0c0':'#b0bcc8', letterSpacing:2 }}>
-                    SHOWING {filtered.length} {lbView==='burners'?'BURNERS':lbView==='labwork'?'LAB WORKERS':'WALLETS'} · SORTED BY {lbSort === 'burned' ? 'BRAINS BURNED' : lbSort === 'wallet' ? 'WALLET ADDRESS' : 'LB PTS EARNED'}
+                    SHOWING {filtered.length} {lbView==='burners'?'BURNERS':lbView==='labwork'?'LAB WORKERS':lbView==='weekly'?'WEEKLY BURNERS':'WALLETS'} · SORTED BY {lbSort === 'burned' ? 'BRAINS BURNED' : lbSort === 'wallet' ? 'WALLET ADDRESS' : 'LB PTS EARNED'}
                   </span>
                 </div>
               )}

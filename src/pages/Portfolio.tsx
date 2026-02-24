@@ -1051,8 +1051,14 @@ const Portfolio: FC = () => {
   const t22Count    = token2022s.length + (brainsToken ? 1 : 0);
   const totalTokens = 1 + splTokens.length + t22Count + lpTokens.length + nftTokens.length;
 
-  // USD price lookup — kept for TokenCard usdPrice prop (no-op, cards fetch own prices)
-  const allMints: string[] = [];
+  // USD price lookup — collect all mints for batch price fetching
+  const allMints = useMemo(() => {
+    const mints: string[] = [XNT_WRAPPED];
+    if (brainsToken) mints.push(brainsToken.mint);
+    for (const t of splTokens) mints.push(t.mint);
+    for (const t of token2022s) mints.push(t.mint);
+    return mints;
+  }, [brainsToken, splTokens, token2022s]);
   const tokenPrices = useTokenPrices(allMints);
 
   // Compute total portfolio USD — reads from global priceCache populated by TokenCard hooks
@@ -1288,6 +1294,17 @@ const Portfolio: FC = () => {
                   </div>
                 )}
 
+                {/* ── Global Hide Zero Balance Toggle ── */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 10, gap: 10 }}>
+                  <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#6a8ea8', letterSpacing: 1.5 }}>HIDE ZERO BALANCE</span>
+                  <button onClick={() => setHideZeroBalance(v => !v)}
+                    style={{ position: 'relative', width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', outline: 'none', flexShrink: 0, transition: 'all 0.25s',
+                      background: hideZeroBalance ? 'linear-gradient(135deg,#ff8c00,#ffb700)' : 'rgba(255,255,255,.1)',
+                      boxShadow: hideZeroBalance ? '0 0 10px rgba(255,140,0,.4)' : 'none' }}>
+                    <span style={{ position: 'absolute', top: 2, left: hideZeroBalance ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left 0.25s', boxShadow: '0 1px 4px rgba(0,0,0,.4)' }} />
+                  </button>
+                </div>
+
                 {/* 3. SPL Tokens */}
                 {showSPL && (() => {
                   const visible = splTokens.filter(t => t.metaSource !== 'fallback' && (!hideZeroBalance || t.balance > 0));
@@ -1295,15 +1312,6 @@ const Portfolio: FC = () => {
                   return visible.length > 0 ? (
                     <div ref={splRef}>
                       <SectionHeader label="SPL Tokens" count={visible.length} color="#ff8c00" hiddenCount={hideZeroBalance ? hidden : 0} />
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginTop: -10, marginBottom: 14, gap: 10 }}>
-                        <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#6a8ea8', letterSpacing: 1.5 }}>Hide Zero</span>
-                        <button onClick={() => setHideZeroBalance(v => !v)}
-                          style={{ position: 'relative', width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', outline: 'none', flexShrink: 0, transition: 'all 0.25s',
-                            background: hideZeroBalance ? 'linear-gradient(135deg,#ff8c00,#ffb700)' : 'rgba(255,255,255,.1)',
-                            boxShadow: hideZeroBalance ? '0 0 10px rgba(255,140,0,.4)' : 'none' }}>
-                          <span style={{ position: 'absolute', top: 2, left: hideZeroBalance ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left 0.25s', boxShadow: '0 1px 4px rgba(0,0,0,.4)' }} />
-                        </button>
-                      </div>
                       {visible.map((t, i) => <TokenCard key={t.mint} token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * i} usdPrice={tokenPrices.get(t.mint) ?? null} />)}
                     </div>
                   ) : null;
@@ -1323,12 +1331,16 @@ const Portfolio: FC = () => {
                 })()}
 
                 {/* 5. LP Tokens */}
-                {showLP && lpTokens.length > 0 && (
+                {showLP && (() => {
+                  const visible = lpTokens.filter(t => !hideZeroBalance || t.balance > 0);
+                  const hidden = lpTokens.filter(t => t.balance <= 0).length;
+                  return visible.length > 0 ? (
                   <div ref={lpRef}>
-                    <SectionHeader label="LP Tokens" count={lpTokens.length} color="#00c98d" />
-                    {lpTokens.map((t, i) => <TokenCard key={t.mint} token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * i} isLP={true} usdPrice={tokenPrices.get(t.mint) ?? null} />)}
+                    <SectionHeader label="LP Tokens" count={visible.length} color="#00c98d" hiddenCount={hideZeroBalance ? hidden : 0} />
+                    {visible.map((t, i) => <TokenCard key={t.mint} token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * i} isLP={true} usdPrice={tokenPrices.get(t.mint) ?? null} />)}
                   </div>
-                )}
+                  ) : null;
+                })()}
 
                 {/* 5b. NFT Section */}
                 {showNFT && nftTokens.length > 0 && (
