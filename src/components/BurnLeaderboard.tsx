@@ -1047,7 +1047,7 @@ const PodiumCard: FC<{ entry: BurnerEntry; rank: number; isYou: boolean; isMobil
         transition: 'all 0.2s',
         animation: `lb-fade-up 0.4s ease ${delay}s both`,
         boxShadow: 'none',
-        minHeight: isTop ? (isMobile ? 220 : 320) : (isMobile ? 190 : 280),
+        minHeight: isTop ? (isMobile ? 180 : 320) : (isMobile ? 160 : 280),
         display: 'flex', flexDirection: 'column', alignItems: 'center',
       }}
     >
@@ -1230,9 +1230,11 @@ const MyScoreCard: FC<{
       <div style={{ position:'absolute', top:'40%', left:'60%', width:80, height:80, borderRadius:'50%', background:isF?'radial-gradient(circle,rgba(255,187,51,.015) 0%,transparent 70%)':'radial-gradient(circle,rgba(0,200,255,.015) 0%,transparent 70%)', pointerEvents:'none' }} />
 
       {/* ── HEADER ROW ── */}
-      <div style={{ position:'relative', zIndex:6, padding: isMobile?'16px 14px':'18px 24px', display:'flex', alignItems:'center', gap:14, flexWrap: isMobile?'wrap':'nowrap', borderBottom:isF?'1px solid rgba(255,34,34,.08)':'1px solid rgba(140,60,255,.1)' }}>
+      <div style={{ position:'relative', zIndex:6, padding: isMobile?'14px 12px':'18px 24px', display:'flex', alignItems:isMobile?'flex-start':'center', gap:isMobile?10:14, flexDirection:isMobile?'column':'row', borderBottom:isF?'1px solid rgba(255,34,34,.08)':'1px solid rgba(140,60,255,.1)' }}>
+        {/* Top row on mobile: orbital + title */}
+        <div style={{ display:'flex', alignItems:'center', gap:isMobile?10:14, width:'100%' }}>
         {/* Animated orbital with BRAINS logo — hero style */}
-        <div style={{ position:'relative', width:isMobile?50:60, height:isMobile?50:60, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+        <div style={{ position:'relative', width:isMobile?40:60, height:isMobile?40:60, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
           {/* Outer ring — orange/gold with orbiting dot */}
           <div style={{ position:'absolute', inset:0, borderRadius:'50%', border:isF?'1.5px solid rgba(255,34,34,.12)':'1.5px solid rgba(255,140,0,.1)', animation:'lb-spin 10s linear infinite' }}>
             <div style={{ position:'absolute', top:-2, left:'50%', width:4, height:4, borderRadius:'50%', background:isF?'#ff2222':'#ff9933', boxShadow:isF?'0 0 3px rgba(255,34,34,.2)':'0 0 3px rgba(255,153,51,.2)' }} />
@@ -1254,34 +1256,35 @@ const MyScoreCard: FC<{
         {/* Title */}
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
-            <span key={isF?'f':'v'} style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?14:16, fontWeight:900, letterSpacing:3, background:isF?'linear-gradient(90deg,#ffdd44,#ffbb33,#ff6600,#ffffff,#ff2222)':'linear-gradient(90deg,#cc88ff,#ee55ff,#ff9933)', backgroundSize:isF?'200% 100%':undefined, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', filter:isF?'drop-shadow(0 0 4px rgba(255,34,34,.12))':'drop-shadow(0 0 4px rgba(140,60,255,.08))', animation:isF?'lb-grad-shift 5s ease infinite':undefined }}>
+            <span key={isF?'f':'v'} style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?12:16, fontWeight:900, letterSpacing:isMobile?2:3, background:isF?'linear-gradient(90deg,#ffdd44,#ffbb33,#ff6600,#ffffff,#ff2222)':'linear-gradient(90deg,#cc88ff,#ee55ff,#ff9933)', backgroundSize:isF?'200% 100%':undefined, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', filter:isF?'drop-shadow(0 0 4px rgba(255,34,34,.12))':'drop-shadow(0 0 4px rgba(140,60,255,.08))', animation:isF?'lb-grad-shift 5s ease infinite':undefined }}>
               YOUR BURNS
             </span>
             <span style={{ fontFamily:'Sora, sans-serif', fontSize:7, color:isF?'#ff6600':'#cc88ff', padding:'2px 8px', background:isF?'rgba(255,102,0,.12)':'rgba(140,60,255,.08)', border:isF?'1px solid rgba(255,34,34,.18)':'1px solid rgba(140,60,255,.15)', borderRadius:12, letterSpacing:2 }}>PERSONAL</span>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-            <span style={{ fontFamily:'Sora, sans-serif', fontSize:isMobile?8:9, color:isF?'#b8b0c0':'#b0bcc8', letterSpacing:1.5 }}>
+            <span style={{ fontFamily:'Sora, sans-serif', fontSize:isMobile?7:9, color:isF?'#b8b0c0':'#b0bcc8', letterSpacing:1.5 }}>
               🔗 CONNECTED WALLET · ALL-TIME
             </span>
             {walletAddress && (
               <span style={{ display:'flex', alignItems:'center', gap:5 }}>
-                <span style={{ fontFamily:'monospace', fontSize:isMobile?10:11, color:isF?'#f0ecf4':'#c8dce8' }}>{short(walletAddress)}</span>
+                <span style={{ fontFamily:'monospace', fontSize:isMobile?9:11, color:isF?'#f0ecf4':'#c8dce8' }}>{short(walletAddress)}</span>
                 <CopyBtn text={walletAddress} />
               </span>
             )}
           </div>
         </div>
+        </div>{/* end top row wrapper */}
 
-        {/* Rank pill */}
+        {/* Rank pill — on mobile, full width row below */}
         {entry && rank && (
-          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:5, flexShrink:0 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:5, background:isF?'rgba(10,8,6,.95)':'rgba(10,5,20,.95)', border:isF?'1px solid rgba(255,187,51,.3)':'1px solid rgba(140,60,255,.25)', borderRadius:8, padding:'6px 14px' }}>
-              <span style={{ fontSize:12 }}>🏆</span>
-              <span style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?11:13, fontWeight:800, color:isF?'#ff6600':'#cc88ff', letterSpacing:2 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:isMobile?8:5, flexDirection:isMobile?'row':'column', justifyContent:isMobile?'flex-start':'center', flexShrink:0, width:isMobile?'100%':undefined }}>
+            <div style={{ display:'flex', alignItems:'center', gap:5, background:isF?'rgba(10,8,6,.95)':'rgba(10,5,20,.95)', border:isF?'1px solid rgba(255,187,51,.3)':'1px solid rgba(140,60,255,.25)', borderRadius:8, padding:isMobile?'4px 10px':'6px 14px' }}>
+              <span style={{ fontSize:isMobile?10:12 }}>🏆</span>
+              <span style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?10:13, fontWeight:800, color:isF?'#ff6600':'#cc88ff', letterSpacing:2 }}>
                 RANK #{rank}
               </span>
             </div>
-            <span style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:isF?'#b8b0c0':'#b0bcc8', letterSpacing:1 }}>
+            <span style={{ fontFamily:'Sora, sans-serif', fontSize:isMobile?7:8, color:isF?'#b8b0c0':'#b0bcc8', letterSpacing:1 }}>
               top {percentile||'<1'}% · of {total}
             </span>
             <TierBadge points={entry.points} size="sm" />
@@ -2203,23 +2206,23 @@ export const BurnLeaderboard: FC<Props> = ({
           {!podiumReady ? (
             <PodiumSkeleton isMobile={isMobile} />
           ) : (
-            <div style={{ display:'flex', gap:isMobile?6:10, alignItems:'flex-end' }}>
+            <div style={{ display:'flex', gap:isMobile?6:10, alignItems:'flex-end', overflowX:isMobile?'auto':'visible', overflowY:'visible', WebkitOverflowScrolling:'touch', paddingBottom:isMobile?4:0, scrollSnapType:isMobile?'x mandatory':'none' }}>
               {[
                 top3[1] ? { e:top3[1], r:2 } : null,
                 top3[0] ? { e:top3[0], r:1 } : null,
                 top3[2] ? { e:top3[2], r:3 } : null,
               ].map((item, i) => item ? (
-                <div key={item.e.address} style={{ flex:1, display:'flex', animation:`lb-podium-in 0.6s cubic-bezier(.34,1.56,.64,1) ${0.12*i}s both` }}>
+                <div key={item.e.address} style={{ flex:isMobile?'0 0 42%':'1', minWidth:isMobile?140:undefined, display:'flex', animation:`lb-podium-in 0.6s cubic-bezier(.34,1.56,.64,1) ${0.12*i}s both`, scrollSnapAlign:isMobile?'start':'none' }}>
                   <PodiumCard entry={item.e} rank={item.r}
                     isYou={item.e.address===walletAddress} isMobile={isMobile} delay={0}
                     onShowDetail={() => setPodiumPopup({ entry: item.e, rank: item.r })} />
                 </div>
               ) : (
                 <div key={i} style={{
-                  flex:1, position:'relative', overflow:'hidden',
+                  flex:isMobile?'0 0 42%':'1', minWidth:isMobile?140:undefined, position:'relative', overflow:'hidden',
                   background:'linear-gradient(160deg,#06040e,#08060f)',
                   border:'1px dashed rgba(120,60,255,.15)', borderRadius:12,
-                  minHeight: i===1 ? (isMobile?220:320) : (isMobile?190:280),
+                  minHeight: i===1 ? (isMobile?180:320) : (isMobile?160:280),
                   display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:10,
                   padding: isMobile?'10px 8px':'16px 14px',
                 }}>
