@@ -359,12 +359,14 @@ interface WeekAmpWindow {
   weekId: string;
   startTs: number;  // unix seconds
   endTs: number;    // unix seconds (Infinity if still active)
-  totalAmpPct: number; // stacked amp % for this week
+  totalAmpPct: number; // max possible stacked amp % for this week
+  challenges: { tier: number; target: number; ampPct: number }[]; // per-challenge breakdown
 }
 
 interface AmpResult {
   totalBonusPts: number;  // sum of bonus pts across all weeks
-  currentAmpPct: number;  // active week's stacked amp % (0 if no active week)
+  currentAmpPct: number;  // active week's EARNED amp % based on burn amount (0 if no active week)
+  maxAmpPct: number;      // active week's max possible amp %
   weekBreakdown: { weekId: string; ampPct: number; weekBurned: number; bonusPts: number }[];
 }
 
@@ -374,20 +376,22 @@ function _parseAmpWindows(logs: any[], cfg: any | null): WeekAmpWindow[] {
   // Past completed weeks
   for (const log of logs) {
     if (!log.challenges || !Array.isArray(log.challenges)) continue;
-    const totalAmp = log.challenges.reduce((s: number, c: any) => s + (TIER_AMP_RATES[c.tier ?? 0] ?? 0), 0);
+    const chs = log.challenges.map((c: any) => ({ tier: c.tier ?? 0, target: c.target ?? 0, ampPct: TIER_AMP_RATES[c.tier ?? 0] ?? 0 }));
+    const totalAmp = Math.round(chs.reduce((s: number, c: any) => s + c.ampPct, 0) * 100) / 100;
     if (totalAmp <= 0) continue;
     const startTs = log.startDate ? Math.floor(new Date(log.startDate).getTime() / 1000) : 0;
     const endTs = log.stoppedAt ? Math.floor(new Date(log.stoppedAt).getTime() / 1000)
                 : log.endDate ? Math.floor(new Date(log.endDate).getTime() / 1000) : 0;
-    if (startTs > 0 && endTs > 0) windows.push({ weekId: log.weekId || '', startTs, endTs, totalAmpPct: totalAmp });
+    if (startTs > 0 && endTs > 0) windows.push({ weekId: log.weekId || '', startTs, endTs, totalAmpPct: totalAmp, challenges: chs });
   }
   // Current active week
   if (cfg?.status === 'active' && cfg.challenges && Array.isArray(cfg.challenges)) {
-    const totalAmp = cfg.challenges.reduce((s: number, c: any) => s + (TIER_AMP_RATES[c.tier ?? 0] ?? 0), 0);
+    const chs = cfg.challenges.map((c: any) => ({ tier: c.tier ?? 0, target: c.target ?? 0, ampPct: TIER_AMP_RATES[c.tier ?? 0] ?? 0 }));
+    const totalAmp = Math.round(chs.reduce((s: number, c: any) => s + c.ampPct, 0) * 100) / 100;
     if (totalAmp > 0) {
       const startTs = cfg.startDate ? Math.floor(new Date(cfg.startDate).getTime() / 1000) : 0;
       const endTs = cfg.endDate ? Math.floor(new Date(cfg.endDate).getTime() / 1000) : Infinity;
-      if (startTs > 0) windows.push({ weekId: cfg.weekId || '', startTs, endTs: endTs || Infinity, totalAmpPct: totalAmp });
+      if (startTs > 0) windows.push({ weekId: cfg.weekId || '', startTs, endTs: endTs || Infinity, totalAmpPct: totalAmp, challenges: chs });
     }
   }
   return windows;
@@ -424,10 +428,10 @@ async function fetchAmpWindowsFromSupabase(): Promise<WeekAmpWindow[]> {
   }
 }
 
-/** Calculate AMP bonus for a single wallet's burn events */
+/** Calculate AMP bonus for a single wallet's burn events — only for met challenge targets */
 function calcAmpBonus(events: BurnEvent[], windows: WeekAmpWindow[]): AmpResult {
   if (windows.length === 0 || events.length === 0) {
-    return { totalBonusPts: 0, currentAmpPct: 0, weekBreakdown: [] };
+    return { totalBonusPts: 0, currentAmpPct: 0, maxAmpPct: 0, weekBreakdown: [] };
   }
 
   const breakdown: AmpResult['weekBreakdown'] = [];
@@ -442,17 +446,47 @@ function calcAmpBonus(events: BurnEvent[], windows: WeekAmpWindow[]): AmpResult 
       }
     }
     if (weekBurned <= 0) continue;
-    const bonusPts = Math.floor(weekBurned * 1.888 * (w.totalAmpPct / 100));
+
+    // Only stack AMP for challenges whose target the user has met
+    // Sort challenges by target ascending so lower targets are checked first
+    const sorted = [...w.challenges].sort((a, b) => a.target - b.target);
+    let earnedAmpPct = 0;
+    for (const ch of sorted) {
+      if (ch.target <= 0 || weekBurned >= ch.target) {
+        earnedAmpPct += ch.ampPct;
+      }
+    }
+    earnedAmpPct = Math.round(earnedAmpPct * 100) / 100;
+    if (earnedAmpPct <= 0) continue;
+
+    const bonusPts = Math.floor(weekBurned * 1.888 * (earnedAmpPct / 100));
     totalBonusPts += bonusPts;
-    breakdown.push({ weekId: w.weekId, ampPct: w.totalAmpPct, weekBurned, bonusPts });
+    breakdown.push({ weekId: w.weekId, ampPct: earnedAmpPct, weekBurned, bonusPts });
   }
 
   // Current amp % is from the active week (endTs === Infinity or future)
   const now = Math.floor(Date.now() / 1000);
   const activeWindow = windows.find(w => w.endTs >= now);
-  const currentAmpPct = activeWindow?.totalAmpPct ?? 0;
+  let currentAmpPct = 0;
+  let maxAmpPct = activeWindow?.totalAmpPct ?? 0;
+  if (activeWindow) {
+    // Find user's current burn in active window
+    let activeBurned = 0;
+    for (const ev of events) {
+      if (ev.blockTime >= activeWindow.startTs && ev.blockTime <= activeWindow.endTs) {
+        activeBurned += ev.amount;
+      }
+    }
+    const sorted = [...activeWindow.challenges].sort((a, b) => a.target - b.target);
+    for (const ch of sorted) {
+      if (ch.target <= 0 || activeBurned >= ch.target) {
+        currentAmpPct += ch.ampPct;
+      }
+    }
+    currentAmpPct = Math.round(currentAmpPct * 100) / 100;
+  }
 
-  return { totalBonusPts, currentAmpPct, weekBreakdown: breakdown };
+  return { totalBonusPts, currentAmpPct, maxAmpPct, weekBreakdown: breakdown };
 }
 
 // ─── LEADERBOARD CACHE ──────────────────────────────────────────────────────

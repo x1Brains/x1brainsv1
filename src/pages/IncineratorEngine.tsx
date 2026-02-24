@@ -97,7 +97,7 @@ async function confirmBurn(c:any,sig:string,_bh:string,_lv:number){
 
 function useIsMobile(){const[m,setM]=useState(typeof window!=='undefined'?window.innerWidth<640:false);useEffect(()=>{const h=()=>setM(window.innerWidth<640);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[]);return m;}
 
-interface WC{weekId:string;status:string;challenges:{ampPct:number;tier?:number}[];prizes:{token:string;amount:number;isNFT?:boolean;nftName?:string}[][];}
+interface WC{weekId:string;status:string;startDate?:string;endDate?:string;challenges:{ampPct:number;tier?:number;target?:number}[];prizes:{token:string;amount:number;isNFT?:boolean;nftName?:string}[][];}
 function loadWC():WC|null{try{const r=localStorage.getItem('brains_weekly_config');return r?JSON.parse(r):null;}catch{return null;}}
 const TIER_AMP_RATES_IE=[0,1.50,3.50,5.50,8.88]; // tier index → amp %
 
@@ -287,14 +287,45 @@ const IncineratorEngine:FC=()=>{
   const[wc,setWc]=useState<WC|null>(()=>loadWC());
   // Load from Supabase on mount
   useEffect(()=>{(async()=>{try{const sb=await import('../lib/supabase');const cfg=await sb.getCachedWeeklyConfig();if(cfg)setWc(cfg as WC);}catch{}})();},[]);
-  // Stack ALL challenge tier AMPs for the active week
-  const amp=useMemo(()=>{
+
+  // Compute AMP based on challenge targets vs user's weekly burn amount
+  // me?.ampPct is the earned AMP from leaderboard (already accounts for met targets)
+  const amp=me?.ampPct??0;
+  // Max possible AMP if all challenges are met
+  const maxAmp=useMemo(()=>{
     if(!wc||wc.status!=='active'||!wc.challenges?.length) return 0;
-    return wc.challenges.reduce((s,c)=>{
+    const raw=wc.challenges.reduce((s,c)=>{
       const tier=(c as any).tier??0;
       return s+(TIER_AMP_RATES_IE[tier]??c.ampPct??0);
     },0);
+    return Math.round(raw*100)/100;
   },[wc]);
+
+  // Compute what AMP the user would earn WITH the current burn amount added
+  const previewAmp=useMemo(()=>{
+    if(!wc||wc.status!=='active'||!wc.challenges?.length) return 0;
+    // Get user's current weekly burned from their events in the active window
+    const startTs=wc.startDate?Math.floor(new Date(wc.startDate).getTime()/1000):0;
+    const endTs=wc.endDate?Math.floor(new Date(wc.endDate).getTime()/1000):Infinity;
+    let weekBurned=0;
+    if(me?.events){
+      for(const ev of me.events){
+        if(ev.blockTime>=startTs&&ev.blockTime<=endTs) weekBurned+=ev.amount;
+      }
+    }
+    // Add the preview burn amount
+    const projBurned=weekBurned+(parseFloat(burnAmt)||0);
+    // Check each challenge target
+    const sorted=[...wc.challenges].sort((a,b)=>(a.target??0)-(b.target??0));
+    let earned=0;
+    for(const c of sorted){
+      const tier=(c as any).tier??0;
+      const target=c.target??0;
+      const rate=TIER_AMP_RATES_IE[tier]??c.ampPct??0;
+      if(target<=0||projBurned>=target) earned+=rate;
+    }
+    return Math.round(earned*100)/100;
+  },[wc,me,burnAmt]);
 
   useEffect(()=>{if(!connection)return;let c=false;const ctrl=new AbortController();
     // Show cached data instantly
@@ -318,7 +349,7 @@ const IncineratorEngine:FC=()=>{
   const myPts=me?.points??0,myBrn=me?.burned??0,myTx=me?.txCount??0;
   const cur=getTier(myPts),nxt=getNextTier(myPts);
   const pAmt=parseFloat(burnAmt)||0;
-  const pBase=pAmt*1.888,pAmp=amp>0?pAmt*1.888*(amp/100):0,pTot=pBase+pAmp;
+  const pBase=pAmt*1.888,pAmp=previewAmp>0?pAmt*1.888*(previewAmp/100):0,pTot=pBase+pAmp;
   const proj=myPts+pTot,pTier=getTier(proj),pNext=getNextTier(proj);
   const tUp=pTier.name!==cur.name&&pTier.min>cur.min;
   const rank=useMemo(()=>{if(!publicKey)return null;const s=[...entries].sort((a,b)=>b.points-a.points);const i=s.findIndex(e=>e.address===publicKey.toBase58());return i>=0?i+1:null;},[entries,publicKey]);
@@ -331,7 +362,7 @@ const IncineratorEngine:FC=()=>{
     if(bal!==null&&a>bal){setErr(`Insufficient balance. You have ${bal.toLocaleString()} BRAINS`);return;}
     setBurning(true);setErr(null);setSuc(null);setTxSig(null);setConf(null);
     const burnAmtStr = a.toLocaleString();
-    const earnedPts = a * 1.888 * (1 + amp / 100);
+    const earnedPts = a * 1.888 * (1 + previewAmp / 100);
     const projectedTotal = myPts + earnedPts;
     const projTier = getTier(projectedTotal);
     try{const{signature,blockhash,lastValidBlockHeight}=await sendBurn(connection,{publicKey,signTransaction},a);
@@ -542,7 +573,7 @@ const IncineratorEngine:FC=()=>{
               <div style={{width:40,height:40,borderRadius:'50%',flexShrink:0,background:`linear-gradient(135deg,rgba(${t.primaryRgb},.2),rgba(${t.primaryRgb},.3))`,border:`2px solid rgba(${t.primaryRgb},.5)`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:19}}>{isF?'🔥':'🎰'}</div>
               <div>
                 <div style={{fontFamily:'Orbitron,monospace',fontSize:mob?13:16,color:'#fff',letterSpacing:2,textTransform:'uppercase',fontWeight:900}}>BURN CHAMBER</div>
-                <div style={{fontFamily:'Sora,sans-serif',fontSize:11,color:t.textMuted,marginTop:2}}>{`Permanently incinerate · Earn ${amp>0?`×1.888 + ${amp}% AMP`:'×1.888 LB Points'}`}</div>
+                <div style={{fontFamily:'Sora,sans-serif',fontSize:11,color:t.textMuted,marginTop:2}}>{`Permanently incinerate · Earn ${previewAmp>0?`×1.888 + ${previewAmp}% AMP`:'×1.888 LB Points'}`}</div>
               </div>
             </div>
             <div style={{background:t.warnBg,border:`1px solid ${t.warnBorder}`,borderLeft:`4px solid ${t.warnAccent}`,borderRadius:8,padding:'10px 14px',marginBottom:18,display:'flex',alignItems:'flex-start',gap:8}}>
@@ -581,8 +612,8 @@ const IncineratorEngine:FC=()=>{
                   <span style={{fontFamily:'Sora,sans-serif',fontSize:11,color:t.textMuted}}>Base (×1.888)</span>
                   <span style={{fontFamily:'Rajdhani,sans-serif',fontSize:16,fontWeight:700,color:t.secondary}}>+{fF(pBase)}</span>
                 </div>
-                {amp>0&&<div style={{display:'flex',justifyContent:'space-between',padding:'8px 12px',background:`rgba(${t.accentRgb},.05)`,borderRadius:8,border:`1px solid rgba(${t.accentRgb},.1)`}}>
-                  <span style={{fontFamily:'Sora,sans-serif',fontSize:11,color:t.textMuted}}>AMP (+{amp}%)</span>
+                {previewAmp>0&&<div style={{display:'flex',justifyContent:'space-between',padding:'8px 12px',background:`rgba(${t.accentRgb},.05)`,borderRadius:8,border:`1px solid rgba(${t.accentRgb},.1)`}}>
+                  <span style={{fontFamily:'Sora,sans-serif',fontSize:11,color:t.textMuted}}>AMP (+{previewAmp}%)</span>
                   <span style={{fontFamily:'Rajdhani,sans-serif',fontSize:16,fontWeight:700,color:t.accent}}>+{fF(pAmp)}</span>
                 </div>}
                 <div style={{display:'flex',justifyContent:'space-between',padding:'10px 12px',background:`rgba(${t.primaryRgb},.06)`,borderRadius:8,border:`1px solid rgba(${t.primaryRgb},.15)`,gridColumn:mob||!amp?undefined:'1/-1'}}>
@@ -666,10 +697,10 @@ const IncineratorEngine:FC=()=>{
               <div style={{fontFamily:'Orbitron,monospace',fontSize:10,color:t.accent,letterSpacing:2,textTransform:'uppercase'}}>⚡ WEEKLY CHALLENGE ACTIVE</div>
               <div style={{fontFamily:'Orbitron,monospace',fontSize:9,color:t.accent,background:`rgba(${t.accentRgb},.1)`,border:`1px solid rgba(${t.accentRgb},.3)`,padding:'2px 8px',borderRadius:5,fontWeight:700}}>{wc.weekId?.toUpperCase()}</div>
             </div>
-            {amp>0&&<div style={{display:'flex',alignItems:'center',gap:12,background:`rgba(${t.accentRgb},.06)`,border:`1px solid rgba(${t.accentRgb},.15)`,borderRadius:10,padding:'14px 16px'}}>
-              <div style={{fontFamily:'Rajdhani,sans-serif',fontSize:32,fontWeight:700,color:t.accent,textShadow:`0 0 12px rgba(${t.accentRgb},.4)`}}>+{amp}%</div>
-              <div><div style={{fontFamily:'Orbitron,monospace',fontSize:11,color:'#fff',fontWeight:700,letterSpacing:1}}>AMP BONUS ACTIVE</div>
-              <div style={{fontFamily:'Sora,sans-serif',fontSize:10,color:t.textMuted,marginTop:2}}>All burns this week earn +{amp}% bonus</div></div>
+            {maxAmp>0&&<div style={{display:'flex',alignItems:'center',gap:12,background:`rgba(${t.accentRgb},.06)`,border:`1px solid rgba(${t.accentRgb},.15)`,borderRadius:10,padding:'14px 16px'}}>
+              <div style={{fontFamily:'Rajdhani,sans-serif',fontSize:32,fontWeight:700,color:amp>0?t.accent:'#667788',textShadow:amp>0?`0 0 12px rgba(${t.accentRgb},.4)`:'none'}}>+{amp>0?amp:0}%</div>
+              <div><div style={{fontFamily:'Orbitron,monospace',fontSize:11,color:'#fff',fontWeight:700,letterSpacing:1}}>{amp>0?'AMP BONUS EARNED':'WEEKLY CHALLENGE ACTIVE'}</div>
+              <div style={{fontFamily:'Sora,sans-serif',fontSize:10,color:t.textMuted,marginTop:2}}>{amp>0?`Your burns earn +${amp}% bonus`:`Burn to unlock up to +${maxAmp}% AMP`}{amp>0&&amp<maxAmp?` · ${maxAmp}% max`:''}</div></div>
             </div>}
             {wc.prizes?.length>0&&<div style={{marginTop:14}}>
               <div style={{fontFamily:'Orbitron,monospace',fontSize:9,color:t.primary,letterSpacing:2,marginBottom:8}}>PRIZE VAULT</div>
@@ -733,7 +764,7 @@ const IncineratorEngine:FC=()=>{
           <div style={{marginTop:16,padding:'14px 18px',background:'rgba(0,0,0,.2)',border:'1px solid rgba(255,255,255,.05)',borderRadius:12,textAlign:'center'}}>
             <div style={{fontFamily:'Sora,sans-serif',fontSize:11,color:t.textMuted,lineHeight:1.8}}>
               <span style={{color:t.secondary,fontWeight:600}}>Points</span> = Burned × <span style={{color:t.primary,fontWeight:700}}>1.888</span>
-              {amp>0&&<> + Weekly AMP (<span style={{color:t.accent,fontWeight:700}}>+{amp}%</span>)</>}
+              {previewAmp>0&&<> + Weekly AMP (<span style={{color:t.accent,fontWeight:700}}>+{previewAmp}%</span>)</>}
             </div>
           </div>
         <Footer/>
