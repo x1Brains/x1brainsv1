@@ -98,7 +98,11 @@ const IncineratorEngine:FC=()=>{
   const[fetBal,setFetBal]=useState(false);
   const[wc,setWc]=useState<WC|null>(()=>loadWC());
   // Load from Supabase on mount
-  useEffect(()=>{(async()=>{try{const sb=await import('../lib/supabase');const cfg=await sb.getCachedWeeklyConfig();if(cfg)setWc(cfg as WC);}catch{}})();},[]);
+  useEffect(()=>{(async()=>{try{const sb=await import('../lib/supabase');
+    const[cfg,lwMap]=await Promise.all([sb.getCachedWeeklyConfig(),sb.getCachedLabWorkMap()]);
+    if(cfg)setWc(cfg as WC);
+    if(lwMap&&lwMap.size>0)sb.setSupabaseLabWorkMap(lwMap);
+  }catch{}})();},[]);
   // Stack ALL challenge tier AMPs for the active week
   const amp=useMemo(()=>{
     if(!wc||wc.status!=='active'||!wc.challenges?.length) return 0;

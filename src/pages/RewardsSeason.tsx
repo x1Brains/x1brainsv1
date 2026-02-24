@@ -198,23 +198,46 @@ const LabWorkSection: FC<{ isMobile: boolean }> = ({ isMobile }) => {
   const [msg, setMsg] = useState('');
   const wallet = useWallet();
 
+  // Load submissions from Supabase on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const sb = await import('../lib/supabase');
+        const subs = await sb.getSubmissions();
+        if (subs.length > 0) {
+          const mapped: LWSubmission[] = subs.map(s => ({ id: s.id, address: s.address, category: s.category, links: s.links || [], description: s.description, date: s.created_at, status: s.status as any }));
+          setSubmissions(mapped);
+        }
+      } catch {}
+    })();
+  }, []);
+
   useEffect(() => { if (wallet.publicKey && !form.address) setForm(p => ({ ...p, address: wallet.publicKey!.toBase58() })); }, [wallet.publicKey]);
 
   const addLink = () => setForm(p => ({ ...p, links: [...p.links, ''] }));
   const removeLink = (i: number) => setForm(p => ({ ...p, links: p.links.filter((_, idx) => idx !== i) }));
   const updateLink = (i: number, val: string) => setForm(p => ({ ...p, links: p.links.map((l, idx) => idx === i ? val : l) }));
 
-  const submit = () => {
+  const submit = async () => {
     if (!form.address.trim()) { setMsg('⚠️ Enter your wallet address'); setTimeout(() => setMsg(''), 3000); return; }
     const cleanLinks = form.links.map(l => l.trim()).filter(Boolean);
     if (cleanLinks.length === 0 && !form.description.trim()) { setMsg('⚠️ Add at least one link or description'); setTimeout(() => setMsg(''), 3000); return; }
     const entry: LWSubmission = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), address: form.address.trim(), category: form.category, links: cleanLinks, description: form.description.trim(), date: new Date().toISOString(), status: 'pending' };
+
+    // Write to Supabase first
+    try {
+      const { addSubmission } = await import('../lib/supabase');
+      const res = await addSubmission({ address: entry.address, category: entry.category, links: entry.links, description: entry.description });
+      if (!res.success) console.warn('[LabWork] Supabase submit failed:', res.error);
+    } catch (e) { console.warn('[LabWork] Supabase submit error:', e); }
+
+    // Also save to localStorage as backup
     const updated = [entry, ...submissions];
     setSubmissions(updated);
     try { localStorage.setItem(LS_LW_SUBMISSIONS, JSON.stringify(updated)); } catch {}
     setForm(p => ({ ...p, links: [''], description: '' }));
-    setMsg('✅ Submitted! Admin will review and award LB Points.');
-    setTimeout(() => setMsg(''), 4000);
+    setMsg('✅ Submitted! Your contribution is under review. LB Points will be awarded after approval.');
+    setTimeout(() => setMsg(''), 5000);
   };
 
   const mySubmissions = form.address ? submissions.filter(s => s.address === form.address) : [];
@@ -406,11 +429,12 @@ const RewardsSeason:FC=()=>{
   useEffect(()=>{const id=setInterval(async()=>{
     try{
       const sb=await import('../lib/supabase');
-      sb.invalidateWeeklyConfigCache();sb.invalidateChallengeLogsCache();sb.invalidateAnnouncementsCache();
-      const[wc,cl,an]=await Promise.all([sb.getWeeklyConfig(),sb.getChallengeLogs(),sb.getAnnouncements()]);
+      sb.invalidateWeeklyConfigCache();sb.invalidateChallengeLogsCache();sb.invalidateAnnouncementsCache();sb.invalidateLabWorkCache();
+      const[wc,cl,an,lwMap]=await Promise.all([sb.getWeeklyConfig(),sb.getChallengeLogs(),sb.getAnnouncements(),sb.getCachedLabWorkMap()]);
       if(wc&&wc.weekId)setW((prev:any)=>JSON.stringify(prev)!==JSON.stringify(wc)?wc as WConfig:prev);
       if(cl.length>0)setLogs((prev:any)=>JSON.stringify(prev)!==JSON.stringify(cl)?cl as ChallengeLog[]:prev);
       if(an.length>0)setAnns((prev:any)=>JSON.stringify(prev)!==JSON.stringify(an)?an as Ann[]:prev);
+      if(lwMap&&lwMap.size>0)_rewardsLwCache=lwMap;
     }catch{
       const fresh=loadJ('brains_weekly_config',null);if(fresh&&JSON.stringify(fresh)!==JSON.stringify(w))setW(fresh);
     }
@@ -551,7 +575,7 @@ const RewardsSeason:FC=()=>{
               return stats.map((s,i)=>(
                 <div key={i} style={{padding:isMobile?'14px 10px':'18px 16px',textAlign:'center',borderRight:(!isMobile&&i<stats.length-1)?'1px solid rgba(120,60,255,.06)':'none',borderBottom:(isMobile&&i<2)?'1px solid rgba(120,60,255,.06)':'none'}}>
                   <div style={{fontFamily:'Orbitron,monospace',fontSize:7,color:s.c+'99',letterSpacing:2,marginBottom:5}}>{s.l}</div>
-                  <div style={{fontFamily:'Orbitron,monospace',fontSize:isMobile?13:17,fontWeight:900,letterSpacing:1,background:`linear-gradient(135deg,${s.c},${s.c}cc)`,WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text',filter:`drop-shadow(0 0 10px ${s.c}55)`,animation:s.l==='TIME LEFT'&&isLive?'rw-cd 2s ease infinite':undefined}}>{s.v}</div>
+                  <div style={{fontFamily:'Orbitron,monospace',fontSize:isMobile?13:17,fontWeight:900,letterSpacing:1,color:s.c,textShadow:`0 0 12px ${s.c}55`,animation:s.l==='TIME LEFT'&&isLive?'rw-cd 2s ease infinite':undefined}}>{s.v}</div>
                 </div>));
             })()}
           </div>

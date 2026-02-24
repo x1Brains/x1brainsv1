@@ -18,6 +18,7 @@ import {
 import { injectBurnStyles } from '../components/BurnedBrainsBar';
 import { BurnPortal, injectPortalStyles, BurnTransactions } from '../components/BurnPortal';
 import { BurnLeaderboard, injectLeaderboardStyles, BurnerEntry } from '../components/BurnLeaderboard';
+import { getLabWorkPtsForWallet } from '../lib/supabase';
 
 injectBurnStyles();
 injectPortalStyles();
@@ -280,6 +281,28 @@ const BurnHistory: FC = () => {
   const [globalBurn, setGlobalBurn] = useState<number | null>(null);
   const [lbEntries, setLbEntries]   = useState<BurnerEntry[]>([]);
   const [decimals,   setDecimals]   = useState(6);
+  const [labWorkPts, setLabWorkPts] = useState(0);
+
+  // Fetch lab work points from Supabase for connected wallet
+  useEffect(() => {
+    if (!publicKey) { setLabWorkPts(0); return; }
+    const addr = publicKey.toBase58();
+    getLabWorkPtsForWallet(addr)
+      .then(pts => { if (mountedRef.current) setLabWorkPts(pts); })
+      .catch(() => {
+        // Fallback to localStorage
+        try {
+          const raw = localStorage.getItem('brains_labwork_rewards');
+          if (raw) {
+            const rewards = JSON.parse(raw);
+            if (Array.isArray(rewards)) {
+              const total = rewards.filter((r: any) => r.address === addr).reduce((s: number, r: any) => s + (r.lbPoints || 0), 0);
+              if (mountedRef.current) setLabWorkPts(total);
+            }
+          }
+        } catch {}
+      });
+  }, [publicKey]);
 
   const abortRef   = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
@@ -673,10 +696,15 @@ const BurnHistory: FC = () => {
                 <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                   <div style={{ width:5, height:5, borderRadius:'50%', background:'#39ff88', boxShadow:'0 0 8px #39ff88', animation:'burn-pulse 1.8s ease infinite' }} />
                   <span style={{ fontFamily:'Orbitron, monospace', fontSize:9, color:'#39ff88', letterSpacing:2 }}>
-                    {(Math.floor(scan.total * 1.888)).toLocaleString()} TOTAL LB POINTS
+                    {(Math.floor(scan.total * 1.888) + labWorkPts).toLocaleString()} TOTAL LB POINTS
                   </span>
+                  {labWorkPts > 0 && (
+                    <span style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:'#00ccff', background:'rgba(0,204,255,.1)', border:'1px solid rgba(0,204,255,.25)', borderRadius:4, padding:'2px 6px' }}>
+                      🧪 +{labWorkPts.toLocaleString()} LAB WORK
+                    </span>
+                  )}
                 </div>
-                <BHTierBadge points={Math.floor(scan.total * 1.888)} />
+                <BHTierBadge points={Math.floor(scan.total * 1.888) + labWorkPts} />
               </div>
             )}
 

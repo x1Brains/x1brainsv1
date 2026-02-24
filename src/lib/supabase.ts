@@ -266,9 +266,11 @@ export async function getSubmissions(): Promise<LabWorkSubmission[]> {
 }
 
 export async function addSubmission(sub: { address: string; category: string; links: string[]; description: string }): Promise<Res> {
-  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
+  // Use admin client if available (admin panel), otherwise anon client (public page)
+  const client = supabaseAdmin || supabase;
+  if (!client) return { success: false, error: 'Supabase not configured' };
   try {
-    const { error } = await supabaseAdmin.from('labwork_submissions').insert({
+    const { error } = await client.from('labwork_submissions').insert({
       address: sub.address, category: sub.category, links: sub.links, description: sub.description, status: 'pending',
     });
     return res(error);
