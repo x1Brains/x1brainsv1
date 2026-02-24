@@ -288,9 +288,6 @@ const IncineratorEngine:FC=()=>{
   // Load from Supabase on mount
   useEffect(()=>{(async()=>{try{const sb=await import('../lib/supabase');const cfg=await sb.getCachedWeeklyConfig();if(cfg)setWc(cfg as WC);}catch{}})();},[]);
 
-  // Compute AMP based on challenge targets vs user's weekly burn amount
-  // me?.ampPct is the earned AMP from leaderboard (already accounts for met targets)
-  const amp=me?.ampPct??0;
   // Max possible AMP if all challenges are met
   const maxAmp=useMemo(()=>{
     if(!wc||wc.status!=='active'||!wc.challenges?.length) return 0;
@@ -300,32 +297,6 @@ const IncineratorEngine:FC=()=>{
     },0);
     return Math.round(raw*100)/100;
   },[wc]);
-
-  // Compute what AMP the user would earn WITH the current burn amount added
-  const previewAmp=useMemo(()=>{
-    if(!wc||wc.status!=='active'||!wc.challenges?.length) return 0;
-    // Get user's current weekly burned from their events in the active window
-    const startTs=wc.startDate?Math.floor(new Date(wc.startDate).getTime()/1000):0;
-    const endTs=wc.endDate?Math.floor(new Date(wc.endDate).getTime()/1000):Infinity;
-    let weekBurned=0;
-    if(me?.events){
-      for(const ev of me.events){
-        if(ev.blockTime>=startTs&&ev.blockTime<=endTs) weekBurned+=ev.amount;
-      }
-    }
-    // Add the preview burn amount
-    const projBurned=weekBurned+(parseFloat(burnAmt)||0);
-    // Check each challenge target
-    const sorted=[...wc.challenges].sort((a,b)=>(a.target??0)-(b.target??0));
-    let earned=0;
-    for(const c of sorted){
-      const tier=(c as any).tier??0;
-      const target=c.target??0;
-      const rate=TIER_AMP_RATES_IE[tier]??c.ampPct??0;
-      if(target<=0||projBurned>=target) earned+=rate;
-    }
-    return Math.round(earned*100)/100;
-  },[wc,me,burnAmt]);
 
   useEffect(()=>{if(!connection)return;let c=false;const ctrl=new AbortController();
     // Show cached data instantly
@@ -347,6 +318,33 @@ const IncineratorEngine:FC=()=>{
 
   const me=useMemo(()=>publicKey?entries.find(e=>e.address===publicKey.toBase58())??null:null,[entries,publicKey]);
   const myPts=me?.points??0,myBrn=me?.burned??0,myTx=me?.txCount??0;
+
+  // AMP earned from leaderboard (already accounts for met targets)
+  const amp=me?.ampPct??0;
+
+  // Compute what AMP the user would earn WITH the current burn amount added
+  const previewAmp=useMemo(()=>{
+    if(!wc||wc.status!=='active'||!wc.challenges?.length) return 0;
+    const startTs=wc.startDate?Math.floor(new Date(wc.startDate).getTime()/1000):0;
+    const endTs=wc.endDate?Math.floor(new Date(wc.endDate).getTime()/1000):Infinity;
+    let weekBurned=0;
+    if(me?.events){
+      for(const ev of me.events){
+        if(ev.blockTime>=startTs&&ev.blockTime<=endTs) weekBurned+=ev.amount;
+      }
+    }
+    const projBurned=weekBurned+(parseFloat(burnAmt)||0);
+    const sorted=[...wc.challenges].sort((a,b)=>(a.target??0)-(b.target??0));
+    let earned=0;
+    for(const c of sorted){
+      const tier=(c as any).tier??0;
+      const target=c.target??0;
+      const rate=TIER_AMP_RATES_IE[tier]??c.ampPct??0;
+      if(target<=0||projBurned>=target) earned+=rate;
+    }
+    return Math.round(earned*100)/100;
+  },[wc,me,burnAmt]);
+
   const cur=getTier(myPts),nxt=getNextTier(myPts);
   const pAmt=parseFloat(burnAmt)||0;
   const pBase=pAmt*1.888,pAmp=previewAmp>0?pAmt*1.888*(previewAmp/100):0,pTot=pBase+pAmp;
