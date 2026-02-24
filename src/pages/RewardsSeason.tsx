@@ -57,12 +57,11 @@ interface Ann{id:string;date:string;title:string;message:string;type:string;}
 interface ChallengeLog{weekId:string;startDate:string;endDate:string;stoppedAt:string;challenges:Challenge[];winners?:Winner[];prizes:[PrizeItem[],PrizeItem[],PrizeItem[]];sendReceipts?:SendReceipt[];}
 
 function loadJ(k:string,f:any):any{try{const v=localStorage.getItem(k);if(!v)return f;return JSON.parse(v)??f;}catch{return f;}}
+import { usePrice } from '../components/TokenComponents';
+
 const short=(a:string)=>a.length>10?`${a.slice(0,4)}…${a.slice(-4)}`:a;
 const fmtN=(n:number,d=2)=>n.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 const fmtPts=(n:number)=>n>=1_000_000?`${(n/1e6).toFixed(2)}M`:n>=1_000?`${(n/1000).toFixed(1)}K`:n.toLocaleString();
-
-let _pc:Record<string,number>={};
-function usePrice(mint:string):number|null{const[p,setP]=useState<number|null>(_pc[mint]||null);useEffect(()=>{if(_pc[mint]){setP(_pc[mint]);return;}if(!mint)return;(async()=>{try{const r=await fetch(`/api/xdex-price/api/token-price/prices?network=X1%20Mainnet&token_addresses=${mint}`,{signal:AbortSignal.timeout(8000)});if(!r.ok)return;const d=await r.json();let pr:number|null=null;if(d?.success&&Array.isArray(d?.data)){const it=d.data.find((i:any)=>i?.token_address===mint);if(it?.price)pr=Number(it.price);}else if(typeof d?.[mint]==='number')pr=d[mint];if(pr&&pr>0){_pc[mint]=pr;setP(pr);}}catch{}})();},[mint]);return p;}
 
 const TIER_CFG:Record<number,{label:string;color:string;bg:string;border:string;glow:string}>={
   1:{label:'TIER 1',color:'#39ff88',bg:'rgba(57,255,136,.04)',border:'rgba(57,255,136,.2)',glow:'rgba(57,255,136,.15)'},
@@ -87,12 +86,16 @@ const ScanLine:FC=()=>(<div style={{position:'absolute',top:0,left:0,width:'38%'
 const GridBg:FC=()=>(<div style={{position:'absolute',inset:0,backgroundImage:'linear-gradient(rgba(100,60,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(100,60,255,.025) 1px,transparent 1px)',backgroundSize:'24px 24px',pointerEvents:'none'}} />);
 const pan=(g?:string):React.CSSProperties=>({position:'relative',overflow:'hidden',background:'linear-gradient(160deg,#04060f 0%,#07050e 50%,#050a12 100%)',border:`1px solid ${g||'rgba(120,60,255,.15)'}`,borderTop:`2px solid ${g||'rgba(140,60,255,.35)'}`,borderRadius:16,marginBottom:20});
 
-const ReceiptCard:FC<{receipt:SendReceipt;brainsPrice:number|null;isMobile:boolean}>=({receipt,brainsPrice,isMobile})=>{
+const ReceiptCard:FC<{receipt:SendReceipt;brainsPrice:number|null;xntPrice:number|null;isMobile:boolean}>=({receipt,brainsPrice,xntPrice,isMobile})=>{
   const cl=receipt.place===0?'#ffd700':receipt.place===1?'#cc88ff':'#39ff88';
   const medal=['🥇','🥈','🥉'][receipt.place];
   const placeLabel=['1ST','2ND','3RD'][receipt.place];
   let usdTotal=0;
-  for(const it of receipt.items){if(!it.isNFT&&it.token==='BRAINS'&&brainsPrice) usdTotal+=it.amount*brainsPrice;}
+  for(const it of receipt.items){
+    if(it.isNFT) continue;
+    if(it.token==='BRAINS'&&brainsPrice) usdTotal+=it.amount*brainsPrice;
+    else if(it.token==='XNT'&&xntPrice) usdTotal+=it.amount*xntPrice;
+  }
   return(
     <div style={{padding:'12px 14px',background:`${cl}06`,border:`1px solid ${cl}20`,borderRadius:10,marginBottom:8}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8,flexWrap:'wrap',gap:6}}>
@@ -421,7 +424,16 @@ const RewardsSeason:FC=()=>{
   const timeUp=isLive&&w.endDate&&new Date(w.endDate).getTime()<=Date.now();
   const isAdmin=wa===ADMIN_WALLET;
   const totalAmp=w.challenges.reduce((s:number,c:any)=>s+TIER_AMPS[c.tier],0);
-  const brainsPrice=usePrice(BRAINS_MINT);
+  const brainsPrice=(usePrice(BRAINS_MINT) ?? null) as number|null;
+  const xntPrice=(usePrice('So11111111111111111111111111111111111111112') ?? null) as number|null;
+
+  // Helper to get USD for a prize item
+  const prizeItemUsd=(p:PrizeItem):number=>{
+    if(p.isNFT) return 0;
+    if(p.token==='BRAINS'&&brainsPrice) return p.amount*brainsPrice;
+    if(p.token==='XNT'&&xntPrice) return p.amount*xntPrice;
+    return 0;
+  };
   const lastLog=logs.length>0?logs[0]:null;
   const lwLb=readLwLeaderboard();
   const lwTotalPts=lwLb.reduce((s,e)=>s+e.pts,0);
@@ -628,7 +640,7 @@ const RewardsSeason:FC=()=>{
               const nftList:PrizeItem[]=[];
               for(const p of allItems){if(p.isNFT){nftList.push(p);}else{tokenTotals.set(p.token,(tokenTotals.get(p.token)||0)+p.amount);}}
               let totalUsd=0;
-              if(brainsPrice){for(const p of allItems){if(!p.isNFT&&p.token==='BRAINS')totalUsd+=p.amount*brainsPrice;}}
+              for(const p of allItems){totalUsd+=prizeItemUsd(p);}
               const placeColors=['#ffd700','#cc88ff','#39ff88'];
               const placeLabels=['🥇 1ST','🥈 2ND','🥉 3RD'];
               return(
@@ -677,7 +689,7 @@ const RewardsSeason:FC=()=>{
                   {[0,1,2].map((place,idx)=>{
                     const items=w.prizes[place]||[];
                     const cl=placeColors[place];
-                    let placeUsd=0;for(const p of items){if(!p.isNFT&&p.token==='BRAINS'&&brainsPrice)placeUsd+=p.amount*brainsPrice;}
+                    let placeUsd=0;for(const p of items){placeUsd+=prizeItemUsd(p);}
                     return(
                       <div key={place} style={{display:'flex',alignItems:'center',gap:isMobile?8:14,padding:isMobile?'10px 12px':'12px 18px',background:`${cl}06`,border:`1px solid ${cl}18`,borderLeft:`3px solid ${cl}`,borderRadius:10,animation:`rw-row-in 0.3s ease ${idx*0.08}s both`}}>
                         {/* Place badge */}
@@ -824,7 +836,7 @@ const RewardsSeason:FC=()=>{
                           </div>);
                       })}
                     </div>
-                    {lastLog.sendReceipts&&lastLog.sendReceipts.length>0&&(<div style={{marginTop:8}}><div style={{fontFamily:'Orbitron,monospace',fontSize:isMobile?10:11,color:'#39ff88',letterSpacing:3,marginBottom:10,textAlign:'center'}}>✅ PRIZES SENT — VERIFIED ON CHAIN</div>{lastLog.sendReceipts.map((r:SendReceipt,i:number)=>(<ReceiptCard key={i} receipt={r} brainsPrice={brainsPrice} isMobile={isMobile} />))}</div>)}
+                    {lastLog.sendReceipts&&lastLog.sendReceipts.length>0&&(<div style={{marginTop:8}}><div style={{fontFamily:'Orbitron,monospace',fontSize:isMobile?10:11,color:'#39ff88',letterSpacing:3,marginBottom:10,textAlign:'center'}}>✅ PRIZES SENT — VERIFIED ON CHAIN</div>{lastLog.sendReceipts.map((r:SendReceipt,i:number)=>(<ReceiptCard key={i} receipt={r} brainsPrice={brainsPrice} xntPrice={xntPrice} isMobile={isMobile} />))}</div>)}
                     <div style={{textAlign:'center',marginTop:16,fontFamily:'Sora,sans-serif',fontSize:11,color:'#7a8a9a'}}>Next challenge coming soon. Check back for new challenges!</div>
                   </div>
                 ):(
@@ -844,7 +856,7 @@ const RewardsSeason:FC=()=>{
               <GridBg /><div style={{position:'relative',zIndex:1,padding:isMobile?'16px 12px':'20px 24px'}}>
                 <div style={{fontFamily:'Orbitron,monospace',fontSize:10,color:'#cc88ff',letterSpacing:3,marginBottom:14}}>📜 PAST CHALLENGES</div>
                 {logs.slice(0,5).map((lg:ChallengeLog,i:number)=>{
-                  let totalUsd=0;if(lg.sendReceipts&&brainsPrice){for(const r of lg.sendReceipts)for(const it of r.items){if(!it.isNFT&&it.token==='BRAINS')totalUsd+=it.amount*brainsPrice;}}
+                  let totalUsd=0;if(lg.sendReceipts){for(const r of lg.sendReceipts)for(const it of r.items){if(!it.isNFT){if(it.token==='BRAINS'&&brainsPrice)totalUsd+=it.amount*brainsPrice;if(it.token==='XNT'&&xntPrice)totalUsd+=it.amount*xntPrice;}}}
                   return(
                   <div key={i} style={{padding:'14px 16px',background:'rgba(0,0,0,.15)',border:'1px solid rgba(120,60,255,.06)',borderRadius:10,marginBottom:10}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6,flexWrap:'wrap',gap:6}}>

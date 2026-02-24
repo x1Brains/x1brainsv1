@@ -40,7 +40,7 @@ import {
   TopBar, PageBackground, Spinner,
   SectionHeader, PipelineBar, Footer, AddressBar, SideNav,
 } from '../components/UI';
-import { TokenCard, TokenData, XenBlocksPanel, WalletTokenSnapshot, useTokenPrices, priceCache } from '../components/TokenComponents';
+import { TokenCard, TokenData, XenBlocksPanel, WalletTokenSnapshot, useTokenPrices } from '../components/TokenComponents';
 import { NFTGrid } from '../components/NFTComponents';
 import { BurnedBrainsBar, injectBurnStyles, walletBurnStats } from '../components/BurnedBrainsBar';
 
@@ -1061,16 +1061,9 @@ const Portfolio: FC = () => {
   }, [brainsToken, splTokens, token2022s]);
   const tokenPrices = useTokenPrices(allMints);
 
-  // Compute total portfolio USD — reads from global priceCache populated by TokenCard hooks
-  // Re-evaluates every 3s to pick up prices as they load
-  const [priceTick, setPriceTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setPriceTick(t => t + 1), 800);
-    return () => clearInterval(id);
-  }, []);
-
-  const totalUSD: number | null = (() => {
-    if (priceCache.size === 0) return null;
+  // Compute total portfolio USD — uses live tokenPrices which auto-refreshes every 30s
+  const totalUSD: number | null = useMemo(() => {
+    if (tokenPrices.size === 0) return null;
     let total = 0;
     let hasAny = false;
     const allTokens = [
@@ -1080,12 +1073,11 @@ const Portfolio: FC = () => {
       ...(brainsToken ? [{ mint: brainsToken.mint, balance: brainsToken.balance }] : []),
     ];
     for (const t of allTokens) {
-      const p = priceCache.get(t.mint);
+      const p = tokenPrices.get(t.mint);
       if (p && p > 0) { total += p * t.balance; hasAny = true; }
     }
     return hasAny ? total : null;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  })();
+  }, [tokenPrices, xntBalance, splTokens, token2022s, brainsToken]);
 
   const xenBlocksWalletTokens: WalletTokenSnapshot[] = [
     ...(xntBalance !== null ? [{ mint: 'native-xnt', symbol: 'XNT', name: 'X1 Native Token', balance: xntBalance, logoUri: XNT_INFO.logoUri } as WalletTokenSnapshot] : []),

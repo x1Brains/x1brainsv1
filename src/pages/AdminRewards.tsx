@@ -7,6 +7,7 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, createTransferCheckedInstruction, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, getMint, getAccount, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { BRAINS_MINT, BRAINS_LOGO, XDEX_API, METADATA_PROGRAM_ID_STRING, XNT_INFO } from '../constants';
+import { usePrice } from '../components/TokenComponents';
 import { fetchOffChainLogo, resolveUri } from '../utils';
 import { TopBar, PageBackground, Footer } from '../components/UI';
 import { fetchLeaderboard } from '../components/BurnLeaderboard';
@@ -232,24 +233,8 @@ const short=(a:string)=>a.length>10?`${a.slice(0,4)}…${a.slice(-4)}`:a;
 const fmtN=(n:number,d=2)=>n.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 const fmtPts=(n:number)=>n>=1_000_000?`${(n/1e6).toFixed(2)}M`:n>=1_000?`${(n/1000).toFixed(1)}K`:n.toLocaleString();
 
-// ─── BRAINS PRICE (simple inline fetcher) ────────────────────────────────────
-let _admPriceCache:number|null=null;let _admPriceP:Promise<number|null>|null=null;
-function fetchAdmBrainsPrice():Promise<number|null>{
-  if(_admPriceCache!==null)return Promise.resolve(_admPriceCache);
-  if(!_admPriceP)_admPriceP=(async()=>{try{
-    const r=await fetch(`/api/xdex-price/api/token-price/prices?network=X1%20Mainnet&token_addresses=${BRAINS_MINT}`,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(10000)});
-    if(!r.ok)return null;const d=await r.json();let p:number|null=null;
-    if(d?.success&&Array.isArray(d?.data)){const it=d.data.find((i:any)=>i?.token_address===BRAINS_MINT);if(it?.price!=null&&Number(it.price)>0)p=Number(it.price);}
-    else if(typeof d?.[BRAINS_MINT]==='number')p=d[BRAINS_MINT]>0?d[BRAINS_MINT]:null;
-    if(p)_admPriceCache=p;return p;
-  }catch{return null;}})();
-  return _admPriceP;
-}
-function useAdmBrainsPrice():number|null{
-  const[p,setP]=useState<number|null>(_admPriceCache);
-  useEffect(()=>{fetchAdmBrainsPrice().then(v=>{if(v!==null)setP(v);});},[]);
-  return p;
-}
+// ─── PRICES — use centralized live price system ──────────────────────────────
+const XNT_MINT_ADDR='So11111111111111111111111111111111111111112';
 
 const TIER_C:Record<number,{l:string;c:string;bg:string;bd:string}>={1:{l:'Tier 1 — +1.50% Amplifier',c:'#39ff88',bg:'rgba(57,255,136,.04)',bd:'rgba(57,255,136,.2)'},2:{l:'Tier 2 — +3.50% Amplifier',c:'#ffcc55',bg:'rgba(255,204,85,.04)',bd:'rgba(255,204,85,.2)'},3:{l:'Tier 3 — +5.50% Amplifier',c:'#ff5500',bg:'rgba(255,85,0,.04)',bd:'rgba(255,85,0,.2)'},4:{l:'Tier 4 — +8.88% Amplifier',c:'#cc00ff',bg:'rgba(204,0,255,.04)',bd:'rgba(204,0,255,.2)'}};
 
@@ -428,7 +413,8 @@ const AdmPodiumPopup:FC<{wn:any;rank:number;onClose:()=>void}>=({wn,rank,onClose
 
 // ─── WINNERS TAB — Podium + LIVE week leaderboard ────────────────────────────
 const WinnersTab:FC<{w:WConfig;logs:ChallengeLog[];isMobile:boolean;connection:any;onDeleteLog?:(idx:number)=>void}>=({w,logs,isMobile,connection,onDeleteLog})=>{
-  const brainsPrice=useAdmBrainsPrice();
+  const brainsPrice=(usePrice(BRAINS_MINT) ?? null) as number|null;
+  const xntPrice=(usePrice(XNT_MINT_ADDR) ?? null) as number|null;
   const winners=w.winners||logs[0]?.winners||[];
   const sorted=[...winners].sort((a:any,b:any)=>a.place-b.place);
   const hasWinners=sorted.length>0;
@@ -661,7 +647,11 @@ const WinnersTab:FC<{w:WConfig;logs:ChallengeLog[];isMobile:boolean;connection:a
             const cl=r.place===0?'#ffd700':r.place===1?'#cc88ff':'#39ff88';
             const medal=['🥇','🥈','🥉'][r.place];
             const plabel=['1ST','2ND','3RD'][r.place];
-            const totalTokenUsd=brainsPrice?r.items.filter(it=>!it.isNFT&&it.token==='BRAINS').reduce((s,it)=>s+it.amount*brainsPrice,0):0;
+            const totalTokenUsd=r.items.filter(it=>!it.isNFT).reduce((s,it)=>{
+              if(it.token==='BRAINS'&&brainsPrice)return s+it.amount*brainsPrice;
+              if(it.token==='XNT'&&xntPrice)return s+it.amount*xntPrice;
+              return s;
+            },0);
             return(
               <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',marginBottom:6,background:`${cl}06`,borderLeft:`3px solid ${cl}`,borderRadius:8,border:`1px solid ${cl}18`,flexWrap:'wrap'}}>
                 <span style={{fontSize:16}}>{medal}</span>

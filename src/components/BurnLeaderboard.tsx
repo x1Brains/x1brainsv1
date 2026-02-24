@@ -8,6 +8,7 @@ import React, { FC, useEffect, useRef, useState, useCallback, useMemo } from 're
 import { createPortal } from 'react-dom';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { BRAINS_MINT, BRAINS_LOGO } from '../constants';
+import { usePrice as _usePrice } from '../components/TokenComponents';
 import { getCachedLabWorkMap, setSupabaseLabWorkMap, getSupabaseLabWorkMap } from '../lib/supabase';
 import { useIncTheme, ThemeToggle, injectThemeOverrides, type IncTheme, type ThemeName } from '../components/incineratorThemes';
 
@@ -43,191 +44,167 @@ interface MarketData {
   volume24h: number | null;
   fdv: number | null;
 }
-let _brainsPriceCache: number | null = null;
-let _brainsPricePromise: Promise<number | null> | null = null;
 let _marketDataCache: MarketData | null = null;
-let _marketDataPromise: Promise<MarketData | null> | null = null;
-
-function fetchBrainsPrice(): Promise<number | null> {
-  if (_brainsPriceCache !== null) return Promise.resolve(_brainsPriceCache);
-  if (!_brainsPricePromise) {
-    _brainsPricePromise = (async () => {
-      try {
-        const url = `/api/xdex-price/api/token-price/prices?network=X1%20Mainnet&token_addresses=${BRAINS_MINT}`;
-        const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10000) });
-        if (!res.ok) return null;
-        const data = await res.json();
-        let price: number | null = null;
-        if (data?.success === true && Array.isArray(data?.data)) {
-          const item = data.data.find((i: any) => i?.token_address === BRAINS_MINT);
-          if (item?.price != null && Number(item.price) > 0) price = Number(item.price);
-        } else if (typeof data?.[BRAINS_MINT] === 'number') { price = data[BRAINS_MINT] > 0 ? data[BRAINS_MINT] : null; }
-        if (price) _brainsPriceCache = price;
-        return price;
-      } catch { return null; }
-    })();
-  }
-  return _brainsPricePromise;
-}
+let _marketDataTs = 0;
+const MARKET_TTL = 30_000;
 
 // XNT wrapped native token address on X1
-const XNT_WRAPPED = 'So11111111111111111111111111111111111111112'; // or actual X1 wrapped native
+const XNT_WRAPPED = 'So11111111111111111111111111111111111111112';
 
-function fetchMarketData(): Promise<MarketData | null> {
-  if (_marketDataCache !== null) return Promise.resolve(_marketDataCache);
-  if (!_marketDataPromise) {
-    _marketDataPromise = (async () => {
-      const md: MarketData = { price:null,marketCap:null,liquidity:null,change5m:null,change1h:null,change24h:null,volume24h:null,fdv:null };
-      const H = { Accept:'application/json' };
-      const T = AbortSignal.timeout(12000);
+async function fetchMarketData(): Promise<MarketData | null> {
+  // Return cached if fresh
+  if (_marketDataCache && (Date.now() - _marketDataTs) < MARKET_TTL) return _marketDataCache;
 
-      // ── 1. Get price from token-price endpoint ──
-      try {
-        const r = await fetch(`/api/xdex-price/api/token-price/price?network=mainnet&address=${BRAINS_MINT}`, { headers:H, signal:T });
-        if (r.ok) {
-          const d = await r.json();
-          const p = d?.price ?? d?.data?.price ?? (typeof d === 'number' ? d : null);
-          if (p != null && Number(p) > 0) { md.price = Number(p); if (!_brainsPriceCache) _brainsPriceCache = md.price; }
+  const md: MarketData = { price:null,marketCap:null,liquidity:null,change5m:null,change1h:null,change24h:null,volume24h:null,fdv:null };
+  const H = { Accept:'application/json' };
+  const T = AbortSignal.timeout(12000);
+
+  // ── 1. Get price from token-price endpoint ──
+  try {
+    const r = await fetch(`/api/xdex-price/api/token-price/price?network=mainnet&address=${BRAINS_MINT}`, { headers:H, signal:T });
+    if (r.ok) {
+      const d = await r.json();
+      const p = d?.price ?? d?.data?.price ?? (typeof d === 'number' ? d : null);
+      if (p != null && Number(p) > 0) md.price = Number(p);
+    }
+  } catch {}
+
+  // Fallback price
+  if (!md.price) {
+    try {
+      const r = await fetch(`/api/xdex-price/api/token-price/prices?network=X1%20Mainnet&token_addresses=${BRAINS_MINT}`, { headers:H, signal:T });
+      if (r.ok) {
+        const data = await r.json();
+        if (data?.success && Array.isArray(data?.data)) {
+          const item = data.data.find((i: any) => i?.token_address === BRAINS_MINT);
+          if (item?.price != null && Number(item.price) > 0) md.price = Number(item.price);
         }
-      } catch {}
-
-      // Fallback price from the existing prices endpoint
-      if (!md.price) {
-        try {
-          const r = await fetch(`/api/xdex-price/api/token-price/prices?network=X1%20Mainnet&token_addresses=${BRAINS_MINT}`, { headers:H, signal:T });
-          if (r.ok) {
-            const data = await r.json();
-            if (data?.success && Array.isArray(data?.data)) {
-              const item = data.data.find((i: any) => i?.token_address === BRAINS_MINT);
-              if (item?.price != null && Number(item.price) > 0) { md.price = Number(item.price); if (!_brainsPriceCache) _brainsPriceCache = md.price; }
-            }
-          }
-        } catch {}
       }
-
-      // ── 2. Get pool data (liquidity, volume, reserves) ──
-      // Try pool list first to find the BRAINS pool
-      try {
-        const r = await fetch(`/api/xdex-price/api/xendex/pool/list?network=mainnet`, { headers:H, signal:T });
-        if (r.ok) {
-          const d = await r.json();
-          const pools = Array.isArray(d) ? d : (d?.data ?? d?.pools ?? []);
-          // Find pool containing BRAINS mint
-          const brainsPool = pools.find((p: any) => {
-            const t0 = p.token_0_address ?? p.token0 ?? p.tokenA ?? '';
-            const t1 = p.token_1_address ?? p.token1 ?? p.tokenB ?? '';
-            return t0 === BRAINS_MINT || t1 === BRAINS_MINT;
-          });
-          if (brainsPool) {
-            const liq = brainsPool.liquidity ?? brainsPool.total_liquidity ?? brainsPool.tvl ?? brainsPool.liquidity_usd;
-            if (liq != null) md.liquidity = Number(liq);
-            const vol = brainsPool.volume_24h ?? brainsPool.volume24h ?? brainsPool.volume ?? brainsPool.daily_volume;
-            if (vol != null) md.volume24h = Number(vol);
-            // Price changes from pool data
-            const c5 = brainsPool.price_change_5m ?? brainsPool.priceChange5m;
-            const c1h = brainsPool.price_change_1h ?? brainsPool.priceChange1h ?? brainsPool.price_change_1hr;
-            const c24 = brainsPool.price_change_24h ?? brainsPool.priceChange24h;
-            if (c5 != null) md.change5m = Number(c5);
-            if (c1h != null) md.change1h = Number(c1h);
-            if (c24 != null) md.change24h = Number(c24);
-
-            // If pool has an address, try to get more detail
-            const poolAddr = brainsPool.address ?? brainsPool.pool_address ?? brainsPool.id;
-            if (poolAddr && (!md.liquidity || !md.volume24h)) {
-              try {
-                const pr = await fetch(`/api/xdex-price/api/xendex/pool/${poolAddr}?network=mainnet`, { headers:H, signal:T });
-                if (pr.ok) {
-                  const pd = await pr.json();
-                  const pdd = pd?.data ?? pd;
-                  if (!md.liquidity) { const l2 = pdd?.liquidity ?? pdd?.tvl ?? pdd?.total_liquidity; if (l2) md.liquidity = Number(l2); }
-                  if (!md.volume24h) { const v2 = pdd?.volume_24h ?? pdd?.volume24h ?? pdd?.daily_volume; if (v2) md.volume24h = Number(v2); }
-                  if (!md.change5m) { const x = pdd?.price_change_5m ?? pdd?.priceChange5m; if (x != null) md.change5m = Number(x); }
-                  if (!md.change1h) { const x = pdd?.price_change_1h ?? pdd?.priceChange1h; if (x != null) md.change1h = Number(x); }
-                  if (!md.change24h) { const x = pdd?.price_change_24h ?? pdd?.priceChange24h; if (x != null) md.change24h = Number(x); }
-                }
-              } catch {}
-            }
-          }
-        }
-      } catch {}
-
-      // ── 3. Get pool status for additional volume/stats ──
-      if (!md.volume24h || !md.liquidity) {
-        try {
-          const r = await fetch(`/api/xdex-price/api/xendex/pool/status?network=mainnet`, { headers:H, signal:T });
-          if (r.ok) {
-            const d = await r.json();
-            const pools = Array.isArray(d) ? d : (d?.data ?? d?.pools ?? []);
-            const bp = pools.find((p: any) => {
-              const t0 = p.token_0_address ?? p.token0 ?? '';
-              const t1 = p.token_1_address ?? p.token1 ?? '';
-              return t0 === BRAINS_MINT || t1 === BRAINS_MINT;
-            });
-            if (bp) {
-              if (!md.liquidity) { const l = bp.liquidity ?? bp.tvl; if (l) md.liquidity = Number(l); }
-              if (!md.volume24h) { const v = bp.volume_24h ?? bp.volume24h; if (v) md.volume24h = Number(v); }
-              if (!md.change24h) { const c = bp.price_change_24h ?? bp.priceChange24h; if (c != null) md.change24h = Number(c); }
-            }
-          }
-        } catch {}
-      }
-
-      // ── 4. Try chart/price endpoint for price change data ──
-      if (md.change5m == null || md.change1h == null || md.change24h == null) {
-        try {
-          const r = await fetch(`/api/xdex-price/api/xendex/chart/price?network=mainnet&address=${BRAINS_MINT}`, { headers:H, signal:T });
-          if (r.ok) {
-            const d = await r.json();
-            const points = Array.isArray(d) ? d : (d?.data ?? d?.prices ?? d?.chart ?? []);
-            if (points.length > 1) {
-              // Compute price changes from chart points
-              const now = Date.now() / 1000;
-              const latest = points[points.length - 1];
-              const latestPrice = Number(latest?.price ?? latest?.close ?? latest?.p ?? latest?.[1] ?? 0);
-              if (latestPrice > 0) {
-                const findPriceAt = (secsAgo: number) => {
-                  const target = now - secsAgo;
-                  let closest = points[0];
-                  let minDiff = Infinity;
-                  for (const pt of points) {
-                    const ts = Number(pt?.timestamp ?? pt?.time ?? pt?.t ?? pt?.[0] ?? 0);
-                    const diff = Math.abs(ts - target);
-                    if (diff < minDiff) { minDiff = diff; closest = pt; }
-                  }
-                  return Number(closest?.price ?? closest?.close ?? closest?.p ?? closest?.[1] ?? 0);
-                };
-                if (md.change5m == null) { const p5 = findPriceAt(300); if (p5 > 0) md.change5m = ((latestPrice - p5) / p5) * 100; }
-                if (md.change1h == null) { const p1h = findPriceAt(3600); if (p1h > 0) md.change1h = ((latestPrice - p1h) / p1h) * 100; }
-                if (md.change24h == null) { const p24 = findPriceAt(86400); if (p24 > 0) md.change24h = ((latestPrice - p24) / p24) * 100; }
-                // Use chart latest price if we still don't have one
-                if (!md.price) { md.price = latestPrice; if (!_brainsPriceCache) _brainsPriceCache = latestPrice; }
-              }
-            }
-          }
-        } catch {}
-      }
-
-      // ── 5. Compute derived values ──
-      // Market cap = price × circulating (passed via component, but estimate with 8.88M total)
-      if (md.price && !md.marketCap) md.marketCap = md.price * 8_880_000; // overridden in component with real supply
-      if (md.price && !md.fdv) md.fdv = md.price * 8_880_000;
-
-      _marketDataCache = md;
-      return md;
-    })();
+    } catch {}
   }
-  return _marketDataPromise;
+
+  // ── 2. Get pool data (liquidity, volume, reserves) ──
+  try {
+    const r = await fetch(`/api/xdex-price/api/xendex/pool/list?network=mainnet`, { headers:H, signal:T });
+    if (r.ok) {
+      const d = await r.json();
+      const pools = Array.isArray(d) ? d : (d?.data ?? d?.pools ?? []);
+      const brainsPool = pools.find((p: any) => {
+        const t0 = p.token_0_address ?? p.token0 ?? p.tokenA ?? '';
+        const t1 = p.token_1_address ?? p.token1 ?? p.tokenB ?? '';
+        return t0 === BRAINS_MINT || t1 === BRAINS_MINT;
+      });
+      if (brainsPool) {
+        const liq = brainsPool.liquidity ?? brainsPool.total_liquidity ?? brainsPool.tvl ?? brainsPool.liquidity_usd;
+        if (liq != null) md.liquidity = Number(liq);
+        const vol = brainsPool.volume_24h ?? brainsPool.volume24h ?? brainsPool.volume ?? brainsPool.daily_volume;
+        if (vol != null) md.volume24h = Number(vol);
+        const c5 = brainsPool.price_change_5m ?? brainsPool.priceChange5m;
+        const c1h = brainsPool.price_change_1h ?? brainsPool.priceChange1h ?? brainsPool.price_change_1hr;
+        const c24 = brainsPool.price_change_24h ?? brainsPool.priceChange24h;
+        if (c5 != null) md.change5m = Number(c5);
+        if (c1h != null) md.change1h = Number(c1h);
+        if (c24 != null) md.change24h = Number(c24);
+
+        const poolAddr = brainsPool.address ?? brainsPool.pool_address ?? brainsPool.id;
+        if (poolAddr && (!md.liquidity || !md.volume24h)) {
+          try {
+            const pr = await fetch(`/api/xdex-price/api/xendex/pool/${poolAddr}?network=mainnet`, { headers:H, signal:T });
+            if (pr.ok) {
+              const pd = await pr.json();
+              const pdd = pd?.data ?? pd;
+              if (!md.liquidity) { const l2 = pdd?.liquidity ?? pdd?.tvl ?? pdd?.total_liquidity; if (l2) md.liquidity = Number(l2); }
+              if (!md.volume24h) { const v2 = pdd?.volume_24h ?? pdd?.volume24h ?? pdd?.daily_volume; if (v2) md.volume24h = Number(v2); }
+              if (!md.change5m) { const x = pdd?.price_change_5m ?? pdd?.priceChange5m; if (x != null) md.change5m = Number(x); }
+              if (!md.change1h) { const x = pdd?.price_change_1h ?? pdd?.priceChange1h; if (x != null) md.change1h = Number(x); }
+              if (!md.change24h) { const x = pdd?.price_change_24h ?? pdd?.priceChange24h; if (x != null) md.change24h = Number(x); }
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch {}
+
+  // ── 3. Get pool status for additional volume/stats ──
+  if (!md.volume24h || !md.liquidity) {
+    try {
+      const r = await fetch(`/api/xdex-price/api/xendex/pool/status?network=mainnet`, { headers:H, signal:T });
+      if (r.ok) {
+        const d = await r.json();
+        const pools = Array.isArray(d) ? d : (d?.data ?? d?.pools ?? []);
+        const bp = pools.find((p: any) => {
+          const t0 = p.token_0_address ?? p.token0 ?? '';
+          const t1 = p.token_1_address ?? p.token1 ?? '';
+          return t0 === BRAINS_MINT || t1 === BRAINS_MINT;
+        });
+        if (bp) {
+          if (!md.liquidity) { const l = bp.liquidity ?? bp.tvl; if (l) md.liquidity = Number(l); }
+          if (!md.volume24h) { const v = bp.volume_24h ?? bp.volume24h; if (v) md.volume24h = Number(v); }
+          if (!md.change24h) { const c = bp.price_change_24h ?? bp.priceChange24h; if (c != null) md.change24h = Number(c); }
+        }
+      }
+    } catch {}
+  }
+
+  // ── 4. Try chart/price endpoint for price change data ──
+  if (md.change5m == null || md.change1h == null || md.change24h == null) {
+    try {
+      const r = await fetch(`/api/xdex-price/api/xendex/chart/price?network=mainnet&address=${BRAINS_MINT}`, { headers:H, signal:T });
+      if (r.ok) {
+        const d = await r.json();
+        const points = Array.isArray(d) ? d : (d?.data ?? d?.prices ?? d?.chart ?? []);
+        if (points.length > 1) {
+          const now = Date.now() / 1000;
+          const latest = points[points.length - 1];
+          const latestPrice = Number(latest?.price ?? latest?.close ?? latest?.p ?? latest?.[1] ?? 0);
+          if (latestPrice > 0) {
+            const findPriceAt = (secsAgo: number) => {
+              const target = now - secsAgo;
+              let closest = points[0];
+              let minDiff = Infinity;
+              for (const pt of points) {
+                const ts = Number(pt?.timestamp ?? pt?.time ?? pt?.t ?? pt?.[0] ?? 0);
+                const diff = Math.abs(ts - target);
+                if (diff < minDiff) { minDiff = diff; closest = pt; }
+              }
+              return Number(closest?.price ?? closest?.close ?? closest?.p ?? closest?.[1] ?? 0);
+            };
+            if (md.change5m == null) { const p5 = findPriceAt(300); if (p5 > 0) md.change5m = ((latestPrice - p5) / p5) * 100; }
+            if (md.change1h == null) { const p1h = findPriceAt(3600); if (p1h > 0) md.change1h = ((latestPrice - p1h) / p1h) * 100; }
+            if (md.change24h == null) { const p24 = findPriceAt(86400); if (p24 > 0) md.change24h = ((latestPrice - p24) / p24) * 100; }
+            if (!md.price) md.price = latestPrice;
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // ── 5. Compute derived values ──
+  if (md.price && !md.marketCap) md.marketCap = md.price * 8_880_000;
+  if (md.price && !md.fdv) md.fdv = md.price * 8_880_000;
+
+  _marketDataCache = md;
+  _marketDataTs = Date.now();
+  return md;
 }
 
 function useBrainsPrice(): number | null {
-  const [price, setPrice] = useState<number | null>(_brainsPriceCache);
-  useEffect(() => { fetchBrainsPrice().then(p => { if (p !== null) setPrice(p); }); }, []);
-  return price;
+  // Use centralized live price from TokenComponents
+  const p = _usePrice(BRAINS_MINT);
+  return p ?? null;
 }
 
 function useMarketData(): MarketData | null {
   const [md, setMd] = useState<MarketData | null>(_marketDataCache);
-  useEffect(() => { fetchMarketData().then(d => { if (d) setMd(d); }); }, []);
+  useEffect(() => {
+    // Initial fetch
+    fetchMarketData().then(d => { if (d) setMd(d); });
+    // Refresh every 30s
+    const id = setInterval(() => {
+      fetchMarketData().then(d => { if (d) setMd(d); });
+    }, MARKET_TTL);
+    return () => clearInterval(id);
+  }, []);
   return md;
 }
 

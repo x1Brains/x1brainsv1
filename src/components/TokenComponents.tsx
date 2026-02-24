@@ -27,89 +27,106 @@ export interface WalletTokenSnapshot {
 export const KNOWN_TOKENS: Record<string, { name: string; symbol: string }> = {};
 
 // ─────────────────────────────────────────────
-// GLOBAL PRICE CACHE
-// Shared across all card instances so we don't
-// fire duplicate requests for the same mint.
+// LIVE PRICE SYSTEM — 30s TTL, auto-refresh
 // ─────────────────────────────────────────────
-export const priceCache  = new Map<string, number | null>(); // null = confirmed no price
-const priceWaiters = new Map<string, Array<() => void>>(); // callbacks waiting on a fetch
+const PRICE_TTL = 30_000; // refresh every 30s
+interface PriceEntry { price: number | null; ts: number }
+const _priceStore = new Map<string, PriceEntry>();
+const _priceInflight = new Map<string, Promise<void>>();
+// Global listeners for reactive updates
+const _priceListeners = new Set<() => void>();
+function _notifyPriceListeners() { _priceListeners.forEach(fn => fn()); }
+
+// Legacy export — consumers reading priceCache.get(mint) get the number|null
+export const priceCache = {
+  get(mint: string): number | null | undefined {
+    const e = _priceStore.get(mint);
+    return e ? e.price : undefined;
+  },
+  has(mint: string): boolean { return _priceStore.has(mint); },
+  get size() { return _priceStore.size; },
+};
+
+function _parsePrice(data: any, mint: string): number | null {
+  if (data?.success === true && Array.isArray(data?.data)) {
+    const item = data.data.find((i: any) => i?.token_address === mint);
+    if (item?.price != null && Number.isFinite(Number(item.price)) && Number(item.price) > 0)
+      return Number(item.price);
+  }
+  if (Array.isArray(data)) {
+    const item = data.find((i: any) => (i?.token_address ?? i?.mint ?? i?.address) === mint);
+    if (item?.price != null && Number.isFinite(Number(item.price)) && Number(item.price) > 0)
+      return Number(item.price);
+  }
+  if (typeof data?.[mint] === 'number' && data[mint] > 0) return data[mint];
+  if (data?.[mint] && typeof data[mint] === 'object') {
+    const raw = data[mint]?.price ?? data[mint]?.usd ?? data[mint]?.value ?? null;
+    if (raw != null && Number.isFinite(Number(raw)) && Number(raw) > 0) return Number(raw);
+  }
+  return null;
+}
 
 async function fetchSinglePrice(mint: string): Promise<void> {
-  // Already cached
-  if (priceCache.has(mint)) return;
+  // Fresh enough — skip
+  const cached = _priceStore.get(mint);
+  if (cached && (Date.now() - cached.ts) < PRICE_TTL) return;
 
-  // Already in-flight — queue up and wait
-  if (priceWaiters.has(mint)) {
-    return new Promise(resolve => priceWaiters.get(mint)!.push(resolve));
-  }
+  // Already in-flight — wait for it
+  const existing = _priceInflight.get(mint);
+  if (existing) return existing;
 
-  // Start fetch
-  priceWaiters.set(mint, []);
-  try {
-    const url = `/api/xdex-price/api/token-price/prices?network=X1%20Mainnet&token_addresses=${mint}`;
-    const res = await fetch(url, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(10000),
-    });
-
-    if (!res.ok) { priceCache.set(mint, null); return; }
-
-    const data = await res.json();
-    console.log('[XDex Price] raw for', mint.slice(0,8), JSON.stringify(data).slice(0, 300));
-
-    let price: number | null = null;
-
-    if (data?.success === true && Array.isArray(data?.data)) {
-      const item = data.data.find((i: any) => i?.token_address === mint);
-      if (item?.price != null && Number.isFinite(Number(item.price)) && Number(item.price) > 0) {
-        price = Number(item.price);
-      }
+  const p = (async () => {
+    try {
+      const url = `/api/xdex-price/api/token-price/prices?network=X1%20Mainnet&token_addresses=${mint}`;
+      const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10000) });
+      if (!res.ok) { _priceStore.set(mint, { price: null, ts: Date.now() }); return; }
+      const data = await res.json();
+      const price = _parsePrice(data, mint);
+      _priceStore.set(mint, { price, ts: Date.now() });
+    } catch {
+      // Keep old price if we had one, just update ts to avoid hammering
+      const old = _priceStore.get(mint);
+      _priceStore.set(mint, { price: old?.price ?? null, ts: Date.now() });
+    } finally {
+      _priceInflight.delete(mint);
+      _notifyPriceListeners();
     }
-    else if (Array.isArray(data)) {
-      const item = data.find((i: any) => (i?.token_address ?? i?.mint ?? i?.address) === mint);
-      if (item?.price != null && Number.isFinite(Number(item.price)) && Number(item.price) > 0) {
-        price = Number(item.price);
-      }
-    }
-    else if (typeof data?.[mint] === 'number') {
-      price = data[mint] > 0 ? data[mint] : null;
-    }
-    else if (data?.[mint] && typeof data[mint] === 'object') {
-      const raw = data[mint]?.price ?? data[mint]?.usd ?? data[mint]?.value ?? null;
-      price = raw != null && Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
-    }
-
-    console.log('[XDex Price] parsed for', mint.slice(0,8), price);
-    priceCache.set(mint, price);
-  } catch (err) {
-    console.warn('[XDex Price] fetch failed for', mint.slice(0,8), err);
-    priceCache.set(mint, null);
-  } finally {
-    const waiters = priceWaiters.get(mint) ?? [];
-    priceWaiters.delete(mint);
-    waiters.forEach(fn => fn());
-  }
+  })();
+  _priceInflight.set(mint, p);
+  return p;
 }
 
 // ─────────────────────────────────────────────
-// usePrice — self-contained hook per card
+// usePrice — live hook per card, auto-refreshes
 // ─────────────────────────────────────────────
-function usePrice(mint: string): number | null | undefined {
-  const [price, setPrice] = useState<number | null | undefined>(() =>
-    priceCache.has(mint) ? priceCache.get(mint) : undefined
-  );
+export function usePrice(mint: string): number | null | undefined {
+  const [price, setPrice] = useState<number | null | undefined>(() => {
+    const e = _priceStore.get(mint);
+    return e ? e.price : undefined;
+  });
   const mounted = useRef(true);
 
   useEffect(() => {
     mounted.current = true;
-    if (priceCache.has(mint)) {
-      setPrice(priceCache.get(mint));
-      return;
-    }
-    fetchSinglePrice(mint).then(() => {
-      if (mounted.current) setPrice(priceCache.get(mint) ?? null);
-    });
-    return () => { mounted.current = false; };
+    // Subscribe to global price updates
+    const listener = () => {
+      if (!mounted.current) return;
+      const e = _priceStore.get(mint);
+      if (e) setPrice(e.price);
+    };
+    _priceListeners.add(listener);
+
+    // Fetch immediately
+    fetchSinglePrice(mint).then(listener);
+
+    // Refresh every 30s
+    const interval = setInterval(() => { fetchSinglePrice(mint); }, PRICE_TTL);
+
+    return () => {
+      mounted.current = false;
+      _priceListeners.delete(listener);
+      clearInterval(interval);
+    };
   }, [mint]);
 
   return price;
@@ -498,7 +515,7 @@ export const TokenCard: FC<{
 // ─────────────────────────────────────────────
 export { XenBlocksPanel } from './XenBlocksPanel';
 
-// Batch-fetch prices for multiple mints — triggers fetchSinglePrice for each, returns live Map
+// Batch-fetch prices for all mints — live, auto-refreshes every 30s
 export function useTokenPrices(mints: string[]): Map<string, number> {
   const [prices, setPrices] = useState<Map<string, number>>(new Map());
   const mintsKey = mints.join(',');
@@ -507,27 +524,39 @@ export function useTokenPrices(mints: string[]): Map<string, number> {
     if (mints.length === 0) return;
     let mounted = true;
 
-    // Kick off all fetches (deduped via priceWaiters/priceCache inside fetchSinglePrice)
-    const run = async () => {
-      // Fetch in small batches to avoid overwhelming the API
-      const batch = 5;
-      for (let i = 0; i < mints.length; i += batch) {
-        const chunk = mints.slice(i, i + batch);
-        await Promise.allSettled(chunk.map(m => fetchSinglePrice(m)));
-        if (!mounted) return;
-      }
-      // Collect results
+    const collect = () => {
       if (!mounted) return;
       const result = new Map<string, number>();
       for (const m of mints) {
-        const p = priceCache.get(m);
-        if (p != null && p > 0) result.set(m, p);
+        const e = _priceStore.get(m);
+        if (e?.price != null && e.price > 0) result.set(m, e.price);
       }
       setPrices(result);
     };
-    run();
 
-    return () => { mounted = false; };
+    // Subscribe to live updates
+    _priceListeners.add(collect);
+
+    // Initial fetch — batch in groups of 5
+    const fetchAll = async () => {
+      const batch = 5;
+      for (let i = 0; i < mints.length; i += batch) {
+        if (!mounted) return;
+        const chunk = mints.slice(i, i + batch);
+        await Promise.allSettled(chunk.map(m => fetchSinglePrice(m)));
+      }
+      collect();
+    };
+    fetchAll();
+
+    // Refresh all every 30s
+    const interval = setInterval(fetchAll, PRICE_TTL);
+
+    return () => {
+      mounted = false;
+      _priceListeners.delete(collect);
+      clearInterval(interval);
+    };
   }, [mintsKey]);
 
   return prices;
