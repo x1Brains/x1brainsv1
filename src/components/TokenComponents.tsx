@@ -498,7 +498,37 @@ export const TokenCard: FC<{
 // ─────────────────────────────────────────────
 export { XenBlocksPanel } from './XenBlocksPanel';
 
-// Keep useTokenPrices exported so Portfolio.tsx import doesn't break
-export function useTokenPrices(_mints: string[]): Map<string, number> {
-  return new Map();
+// Batch-fetch prices for multiple mints — triggers fetchSinglePrice for each, returns live Map
+export function useTokenPrices(mints: string[]): Map<string, number> {
+  const [prices, setPrices] = useState<Map<string, number>>(new Map());
+  const mintsKey = mints.join(',');
+
+  useEffect(() => {
+    if (mints.length === 0) return;
+    let mounted = true;
+
+    // Kick off all fetches (deduped via priceWaiters/priceCache inside fetchSinglePrice)
+    const run = async () => {
+      // Fetch in small batches to avoid overwhelming the API
+      const batch = 5;
+      for (let i = 0; i < mints.length; i += batch) {
+        const chunk = mints.slice(i, i + batch);
+        await Promise.allSettled(chunk.map(m => fetchSinglePrice(m)));
+        if (!mounted) return;
+      }
+      // Collect results
+      if (!mounted) return;
+      const result = new Map<string, number>();
+      for (const m of mints) {
+        const p = priceCache.get(m);
+        if (p != null && p > 0) result.set(m, p);
+      }
+      setPrices(result);
+    };
+    run();
+
+    return () => { mounted = false; };
+  }, [mintsKey]);
+
+  return prices;
 }
