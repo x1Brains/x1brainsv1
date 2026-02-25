@@ -6,14 +6,21 @@
 
 import { useEffect, useState, useCallback } from "react";
 
+// ─── RESPONSIVE ──────────────────────────────────────────────────────────────
+function useIsMobile() {
+  const [m, setM] = useState(typeof window !== 'undefined' ? window.innerWidth < 640 : false);
+  useEffect(() => { const h = () => setM(window.innerWidth < 640); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
+  return m;
+}
+
 // ─── DATA SOURCE — GitHub Gist JSON ──────────────────────────────────────────
 // jacklevin74 regenerates the JSON and pushes to this Gist whenever scores update.
 // Full registry — all citizens:
 const GIST_ALL = "https://gist.githubusercontent.com/jacklevin74/d4c429c3d31e190247fd79b00d92f350/raw/cyberdyne.json";
 
-// Cache-bust: append timestamp so GitHub CDN doesn't serve stale
+// Cache-bust disabled — Gist raw URLs may not support query params
 const fetchJSON = (url: string) =>
-  fetch(`${url}?t=${Date.now()}`, { headers: { Accept: "application/json" } });
+  fetch(url, { headers: { Accept: "application/json" }, mode: "cors" });
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 interface Contribution {
@@ -86,6 +93,11 @@ const KF = `
   input:focus{outline:none!important;border-color:rgba(0,255,229,.5)!important}
   button{transition:opacity .15s;cursor:pointer}
   button:hover{opacity:.8}
+  @media(max-width:640px){
+    input,select,textarea{font-size:16px!important}
+    button{min-height:44px}
+  }
+  * { -webkit-tap-highlight-color: transparent; }
 `;
 const MONO = "'Share Tech Mono', monospace";
 const ORB  = "'Orbitron', monospace";
@@ -109,44 +121,48 @@ const Pill = ({ label, color }: { label:string; color:string }) => (
   <span style={{ fontSize:9, padding:"2px 8px", borderRadius:2, background:`${color}18`, border:`1px solid ${color}40`, color, letterSpacing:".1em", fontFamily:MONO }}>{label}</span>
 );
 
-const Stat = ({ label, value, sub, color="#e0f0ff", dot }: { label:string; value:string; sub?:string; color?:string; dot?:boolean }) => (
-  <div style={{ background:"rgba(255,255,255,.03)", border:"1px solid rgba(255,255,255,.07)", borderRadius:4, padding:"12px 16px" }}>
-    <div style={{ fontSize:9, letterSpacing:".3em", color:"#4a7a8a", textTransform:"uppercase", marginBottom:6, fontFamily:MONO }}>{label}</div>
-    <div style={{ display:"flex", alignItems:"center", gap:7 }}>
-      {dot !== undefined && <div style={{ width:7, height:7, borderRadius:"50%", flexShrink:0, background:dot?"#00ffe5":"#333", boxShadow:dot?"0 0 6px #00ffe5":"none" }} />}
-      <span style={{ fontFamily:ORB, fontSize:16, fontWeight:700, color }}>{value}</span>
+const Stat = ({ label, value, sub, color="#e0f0ff", dot }: { label:string; value:string; sub?:string; color?:string; dot?:boolean }) => {
+  const mob = typeof window !== 'undefined' && window.innerWidth < 640;
+  return (
+    <div style={{ background:"rgba(255,255,255,.03)", border:"1px solid rgba(255,255,255,.07)", borderRadius:4, padding:mob?"10px 12px":"12px 16px" }}>
+      <div style={{ fontSize:mob?8:9, letterSpacing:".3em", color:"#4a7a8a", textTransform:"uppercase", marginBottom:mob?4:6, fontFamily:MONO }}>{label}</div>
+      <div style={{ display:"flex", alignItems:"center", gap:mob?5:7 }}>
+        {dot !== undefined && <div style={{ width:7, height:7, borderRadius:"50%", flexShrink:0, background:dot?"#00ffe5":"#333", boxShadow:dot?"0 0 6px #00ffe5":"none" }} />}
+        <span style={{ fontFamily:ORB, fontSize:mob?13:16, fontWeight:700, color, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{value}</span>
+      </div>
+      {sub && <div style={{ fontSize:mob?8:9, color:"#4a7a8a", marginTop:mob?3:4, fontFamily:MONO }}>{sub}</div>}
     </div>
-    {sub && <div style={{ fontSize:9, color:"#4a7a8a", marginTop:4, fontFamily:MONO }}>{sub}</div>}
-  </div>
-);
+  );
+};
 
 // ─── CITIZEN PROFILE CARD ─────────────────────────────────────────────────────
-function ProfileCard({ c, onClose }: { c: Citizen; onClose?: () => void }) {
+function ProfileCard({ c, onClose, isMobile: mob }: { c: Citizen; onClose?: () => void; isMobile?: boolean }) {
   const t       = tc(c.tier);
   const passport = c.verified ?? c.passport_status ?? c.passport_active ?? false;
+  const isMobile = mob ?? (typeof window !== 'undefined' && window.innerWidth < 640);
 
   return (
     <div style={{ background:"#070f15", border:`1px solid ${t.glow}30`, borderRadius:8, overflow:"hidden", boxShadow:`0 0 40px ${t.glow}08`, animation:"fadeUp .3s ease" }}>
       {/* ── Header ── */}
-      <div style={{ padding:"24px 28px 18px", background:`linear-gradient(135deg,${t.bg},transparent)`, borderBottom:`1px solid ${t.glow}15` }}>
+      <div style={{ padding:isMobile?"16px 16px 12px":"24px 28px 18px", background:`linear-gradient(135deg,${t.bg},transparent)`, borderBottom:`1px solid ${t.glow}15` }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
-          <div style={{ minWidth:0 }}>
+          <div style={{ minWidth:0, flex:1 }}>
             <Badge tier={c.tier} />
-            <div style={{ fontFamily:ORB, fontSize:22, fontWeight:900, color:"#e0f0ff", letterSpacing:".06em", margin:"10px 0 4px" }}>{c.handle || c.username}</div>
-            <div style={{ fontFamily:MONO, fontSize:10, color:"#4a7a8a" }}>@{c.username}</div>
-            <div style={{ fontFamily:MONO, fontSize:10, color:"#4a7a8a", wordBreak:"break-all", marginTop:2 }}>{c.wallet || "No wallet on file"}</div>
+            <div style={{ fontFamily:ORB, fontSize:isMobile?16:22, fontWeight:900, color:"#e0f0ff", letterSpacing:".06em", margin:"8px 0 3px", wordBreak:"break-word" }}>{c.handle || c.username}</div>
+            <div style={{ fontFamily:MONO, fontSize:isMobile?9:10, color:"#4a7a8a" }}>@{c.username}</div>
+            <div style={{ fontFamily:MONO, fontSize:isMobile?8:10, color:"#4a7a8a", wordBreak:"break-all", marginTop:2 }}>{c.wallet || "No wallet on file"}</div>
           </div>
-          <div style={{ textAlign:"right", flexShrink:0, marginLeft:16 }}>
-            <div style={{ fontFamily:ORB, fontSize:28, fontWeight:900, color:c.rank<=3?"#ffd700":"#4a7a8a" }}>{medal(c.rank)}</div>
+          <div style={{ textAlign:"right", flexShrink:0, marginLeft:isMobile?8:16 }}>
+            <div style={{ fontFamily:ORB, fontSize:isMobile?20:28, fontWeight:900, color:c.rank<=3?"#ffd700":"#4a7a8a" }}>{medal(c.rank)}</div>
             <div style={{ fontFamily:MONO, fontSize:9, color:"#4a7a8a", marginTop:2 }}>RANK #{c.rank}</div>
           </div>
         </div>
       </div>
 
       {/* ── Body ── */}
-      <div style={{ padding:"20px 28px" }}>
+      <div style={{ padding:isMobile?"14px 16px":"20px 28px" }}>
         {/* Stats */}
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))", gap:10, marginBottom:20 }}>
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(auto-fit,minmax(130px,1fr))", gap:isMobile?6:10, marginBottom:16 }}>
           <Stat label="Score"    value={`+${c.score?.toLocaleString()}`}       color={t.text} />
           <Stat label="Rank"     value={`#${c.rank}`}                           color={t.text} />
           <Stat label="Verified" value={passport?"VERIFIED":"UNVERIFIED"}       color={passport?"#00ffe5":"#555"} dot={passport} />
@@ -159,12 +175,12 @@ function ProfileCard({ c, onClose }: { c: Citizen; onClose?: () => void }) {
             <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#4a7a8a", marginBottom:8 }}>CONTRIBUTIONS ({c.contributions.length})</div>
             <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
               {c.contributions.map((ct, i) => (
-                <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontSize:11, padding:"8px 12px", background:"rgba(255,255,255,.03)", border:"1px solid rgba(255,255,255,.06)", borderRadius:3, color:"#8aabbc", fontFamily:MONO }}>
+                <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:isMobile?"flex-start":"center", flexDirection:isMobile?"column":"row", fontSize:isMobile?10:11, padding:isMobile?"8px 10px":"8px 12px", background:"rgba(255,255,255,.03)", border:"1px solid rgba(255,255,255,.06)", borderRadius:3, color:"#8aabbc", fontFamily:MONO, gap:isMobile?4:0 }}>
                   <div style={{ flex:1, minWidth:0 }}>
                     <span style={{ color:"#e0f0ff" }}>▸ {ct.item}</span>
                     {ct.date && <span style={{ color:"#3a5a6a", marginLeft:8, fontSize:9 }}>{ct.date}</span>}
                   </div>
-                  <span style={{ fontFamily:ORB, fontSize:11, fontWeight:700, color:t.text, marginLeft:12, flexShrink:0 }}>+{ct.points}</span>
+                  <span style={{ fontFamily:ORB, fontSize:isMobile?10:11, fontWeight:700, color:t.text, marginLeft:isMobile?0:12, flexShrink:0 }}>+{ct.points}</span>
                 </div>
               ))}
             </div>
@@ -198,6 +214,7 @@ function ProfileCard({ c, onClose }: { c: Citizen; onClose?: () => void }) {
 
 // ─── LOOKUP PANEL ─────────────────────────────────────────────────────────────
 function LookupPanel({ citizens }: { citizens: Citizen[] }) {
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
   const [query,       setQuery]       = useState("");
   const [result,      setResult]      = useState<Citizen | null>(null);
   const [loading,     setLoading]     = useState(false);
@@ -247,19 +264,19 @@ function LookupPanel({ citizens }: { citizens: Citizen[] }) {
 
       {/* Input row */}
       <div style={{ position:"relative", marginBottom:8 }}>
-        <div style={{ display:"flex", gap:8 }}>
+        <div style={{ display:"flex", gap:8, flexDirection:isMobile?"column":"row" }}>
           <input
             value={query}
             onChange={e => { setQuery(e.target.value); setResult(null); setErr(""); setShowDrop(true); }}
             onKeyDown={e => { if (e.key === "Enter") lookup(query); if (e.key === "Escape") setShowDrop(false); }}
             onFocus={() => setShowDrop(true)}
-            placeholder="Username  or  X1 wallet address…"
-            style={{ flex:1, background:"rgba(255,255,255,.04)", border:"1px solid rgba(0,255,229,.25)", borderRadius:4, padding:"13px 16px", color:"#e0f0ff", fontFamily:MONO, fontSize:13 }}
+            placeholder={isMobile?"Username or wallet…":"Username  or  X1 wallet address…"}
+            style={{ flex:1, background:"rgba(255,255,255,.04)", border:"1px solid rgba(0,255,229,.25)", borderRadius:4, padding:isMobile?"11px 14px":"13px 16px", color:"#e0f0ff", fontFamily:MONO, fontSize:isMobile?12:13 }}
           />
           <button
             onClick={() => lookup(query)}
             disabled={loading || !query.trim()}
-            style={{ background:"rgba(0,255,229,.1)", border:"1px solid rgba(0,255,229,.3)", color:"#00ffe5", padding:"13px 24px", fontFamily:MONO, fontSize:11, letterSpacing:".2em", borderRadius:4, flexShrink:0, opacity:(!query.trim()||loading)?0.4:1 }}
+            style={{ background:"rgba(0,255,229,.1)", border:"1px solid rgba(0,255,229,.3)", color:"#00ffe5", padding:isMobile?"11px 20px":"13px 24px", fontFamily:MONO, fontSize:11, letterSpacing:".2em", borderRadius:4, flexShrink:0, opacity:(!query.trim()||loading)?0.4:1 }}
           >
             {loading ? "…" : "SEARCH"}
           </button>
@@ -267,22 +284,22 @@ function LookupPanel({ citizens }: { citizens: Citizen[] }) {
 
         {/* Autocomplete */}
         {showDrop && suggestions.length > 0 && !result && (
-          <div style={{ position:"absolute", top:"calc(100% + 4px)", left:0, right:90, zIndex:50, background:"#070f15", border:"1px solid rgba(0,255,229,.2)", borderRadius:4, overflow:"hidden", boxShadow:"0 8px 32px rgba(0,0,0,.5)" }}>
+          <div style={{ position:"absolute", top:"calc(100% + 4px)", left:0, right:0, zIndex:50, background:"#070f15", border:"1px solid rgba(0,255,229,.2)", borderRadius:4, overflow:"hidden", boxShadow:"0 8px 32px rgba(0,0,0,.5)" }}>
             {suggestions.map(c => (
               <div
                 key={c.username}
                 onClick={() => { setQuery(c.username); lookup(c.username); }}
-                style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 14px", cursor:"pointer", borderBottom:"1px solid rgba(255,255,255,.04)", transition:"background .15s" }}
+                style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:isMobile?"10px 12px":"10px 14px", cursor:"pointer", borderBottom:"1px solid rgba(255,255,255,.04)", transition:"background .15s", gap:8 }}
                 onMouseEnter={e => (e.currentTarget.style.background="rgba(0,255,229,.07)")}
                 onMouseLeave={e => (e.currentTarget.style.background="transparent")}
               >
-                <div>
-                  <span style={{ fontFamily:ORB, fontSize:12, color:"#e0f0ff" }}>{c.username}</span>
-                  <span style={{ fontFamily:MONO, fontSize:9, color:"#4a7a8a", marginLeft:10 }}>{sw(c.wallet ?? "")}</span>
+                <div style={{ minWidth:0, overflow:"hidden" }}>
+                  <span style={{ fontFamily:ORB, fontSize:isMobile?10:12, color:"#e0f0ff" }}>{c.handle || c.username}</span>
+                  {!isMobile && <span style={{ fontFamily:MONO, fontSize:9, color:"#4a7a8a", marginLeft:10 }}>{sw(c.wallet ?? "")}</span>}
                 </div>
-                <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                <div style={{ display:"flex", gap:8, alignItems:"center", flexShrink:0 }}>
                   <Badge tier={c.tier} />
-                  <span style={{ fontFamily:ORB, fontSize:11, color:tc(c.tier).text }}>+{c.score}</span>
+                  <span style={{ fontFamily:ORB, fontSize:isMobile?10:11, color:tc(c.tier).text }}>+{c.score}</span>
                 </div>
               </div>
             ))}
@@ -310,7 +327,8 @@ function LookupPanel({ citizens }: { citizens: Citizen[] }) {
 }
 
 // ─── LEADERBOARD ROW ─────────────────────────────────────────────────────────
-function LeaderRow({ c, onClick, idx }: { c: Citizen; onClick: () => void; idx: number }) {
+function LeaderRow({ c, onClick, idx, isMobile: mob }: { c: Citizen; onClick: () => void; idx: number; isMobile?: boolean }) {
+  const isMobile = mob ?? (typeof window !== 'undefined' && window.innerWidth < 640);
   const [hov, setHov] = useState(false);
   const t = tc(c.tier);
   return (
@@ -319,32 +337,34 @@ function LeaderRow({ c, onClick, idx }: { c: Citizen; onClick: () => void; idx: 
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
-        display:"grid", gridTemplateColumns:"52px 1fr auto 90px", alignItems:"center", gap:14,
-        padding:"13px 18px", borderRadius:4, cursor:"pointer", transition:"all .2s",
+        display:"grid", gridTemplateColumns:isMobile?"36px 1fr 60px":"52px 1fr auto 90px", alignItems:"center", gap:isMobile?8:14,
+        padding:isMobile?"10px 12px":"13px 18px", borderRadius:4, cursor:"pointer", transition:"all .2s",
         background:hov?"rgba(0,255,229,.06)":c.rank<=3?"rgba(0,255,229,.03)":"rgba(255,255,255,.02)",
         border:`1px solid ${hov?t.glow:c.rank<=3?"rgba(0,255,229,.18)":"rgba(255,255,255,.06)"}`,
         boxShadow:hov?`0 0 20px ${t.glow}15`:"none",
         animation:`slideIn .3s ease ${Math.min(idx*0.04,0.5)}s both`,
       }}
     >
-      <div style={{ fontFamily:ORB, fontSize:c.rank<=3?20:12, fontWeight:700, textAlign:"center", color:c.rank===1?"#ffd700":c.rank===2?"#c0c0c0":c.rank===3?"#cd7f32":"#4a7a8a" }}>
+      <div style={{ fontFamily:ORB, fontSize:c.rank<=3?(isMobile?16:20):(isMobile?10:12), fontWeight:700, textAlign:"center", color:c.rank===1?"#ffd700":c.rank===2?"#c0c0c0":c.rank===3?"#cd7f32":"#4a7a8a" }}>
         {medal(c.rank)}
       </div>
-      <div>
-        <div style={{ fontFamily:ORB, fontSize:13, fontWeight:700, color:"#e0f0ff", letterSpacing:".04em" }}>{c.handle || c.username}</div>
-        <div style={{ display:"flex", gap:5, marginTop:4, flexWrap:"wrap", alignItems:"center" }}>
-          {c.contributions?.slice(0,2).map((ct,i) => <Pill key={i} label={ct.item.split("—")[0].trim().slice(0,25)} color={t.text} />)}
-          <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}>
+      <div style={{ minWidth:0 }}>
+        <div style={{ fontFamily:ORB, fontSize:isMobile?11:13, fontWeight:700, color:"#e0f0ff", letterSpacing:".04em", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.handle || c.username}</div>
+        <div style={{ display:"flex", gap:4, marginTop:3, flexWrap:"wrap", alignItems:"center" }}>
+          {!isMobile && c.contributions?.slice(0,2).map((ct,i) => <Pill key={i} label={ct.item.split("—")[0].trim().slice(0,25)} color={t.text} />)}
+          <Badge tier={c.tier} />
+          <span style={{ display:"inline-flex", alignItems:"center", gap:3 }}>
             <span style={{ width:5, height:5, borderRadius:"50%", background:c.verified?"#00ffe5":"#2a3a4a", boxShadow:c.verified?"0 0 5px #00ffe5":"none", display:"inline-block" }} />
-            <span style={{ fontSize:9, color:"#3a6a7a", letterSpacing:".12em", fontFamily:MONO }}>{c.verified?"VERIFIED":"UNVERIFIED"}</span>
+            {!isMobile && <span style={{ fontSize:9, color:"#3a6a7a", letterSpacing:".12em", fontFamily:MONO }}>{c.verified?"VERIFIED":"UNVERIFIED"}</span>}
           </span>
         </div>
       </div>
-      <div style={{ textAlign:"right" }}>
-        <Badge tier={c.tier} />
-        <div style={{ fontSize:9, color:"#4a7a8a", marginTop:4, fontFamily:MONO }}>{sw(c.wallet ?? "")}</div>
-      </div>
-      <div style={{ fontFamily:ORB, fontSize:15, fontWeight:900, color:t.text, textAlign:"right", textShadow:`0 0 10px ${t.glow}70` }}>
+      {!isMobile && (
+        <div style={{ textAlign:"right" }}>
+          <div style={{ fontSize:9, color:"#4a7a8a", fontFamily:MONO }}>{sw(c.wallet ?? "")}</div>
+        </div>
+      )}
+      <div style={{ fontFamily:ORB, fontSize:isMobile?12:15, fontWeight:900, color:t.text, textAlign:"right", textShadow:`0 0 10px ${t.glow}70` }}>
         +{c.score.toLocaleString()}
       </div>
     </div>
@@ -390,6 +410,7 @@ function RegCard({ c, onClick, idx }: { c: Citizen; onClick: () => void; idx: nu
 
 // ─── STATS BAR ────────────────────────────────────────────────────────────────
 function StatsBar({ citizens, health }: { citizens: Citizen[]; health: ApiHealth | null }) {
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
   if (!citizens.length) return null;
   const passports  = citizens.filter(c => c.verified).length;
   const totalScore = citizens.reduce((s, c) => s + (c.score || 0), 0);
@@ -397,7 +418,7 @@ function StatsBar({ citizens, health }: { citizens: Citizen[]; health: ApiHealth
   citizens.forEach(c => { const t = cleanTier(c.tier)||"UNKNOWN"; tierMap[t] = (tierMap[t]??0)+1; });
   const topTier = Object.entries(tierMap).sort((a,b)=>b[1]-a[1])[0];
   return (
-    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:10, marginBottom:32 }}>
+    <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(auto-fit,minmax(140px,1fr))", gap:isMobile?8:10, marginBottom:32 }}>
       <Stat label="Total Citizens"   value={String(health?.citizens_count ?? citizens.length)} color="#00ffe5" />
       <Stat label="Verified Wallets" value={String(passports)} sub={`${Math.round(passports/citizens.length*100)}% of registry`} color="#00ffe5" />
       <Stat label="Total Score Pool" value={`+${totalScore.toLocaleString()}`} color="#ffd700" />
@@ -409,6 +430,7 @@ function StatsBar({ citizens, health }: { citizens: Citizen[]; health: ApiHealth
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function CyberdyneUnlimited() {
+  const isMobile = useIsMobile();
   const [citizens,    setCitizens]    = useState<Citizen[]>([]);
   const [leaderboard, setLeaderboard] = useState<Citizen[]>([]);
   const [filtered,    setFiltered]    = useState<Citizen[]>([]);
@@ -508,7 +530,7 @@ export default function CyberdyneUnlimited() {
       {/* Scanline */}
       <div style={{ position:"fixed", top:0, left:0, right:0, height:2, background:"rgba(0,255,229,.08)", animation:"scan 8s linear infinite", pointerEvents:"none", zIndex:1 }} />
 
-      <div style={{ position:"relative", zIndex:2, maxWidth:1200, margin:"0 auto", padding:"36px 24px 80px" }}>
+      <div style={{ position:"relative", zIndex:2, maxWidth:1200, margin:"0 auto", padding:isMobile?"20px 12px 60px":"36px 24px 80px" }}>
 
         {/* ── HEADER ── */}
         <header style={{ textAlign:"center", marginBottom:40, animation:"fadeUp .5s ease" }}>
@@ -518,17 +540,20 @@ export default function CyberdyneUnlimited() {
           <div style={{ fontSize:10, letterSpacing:".35em", color:"#004455", textTransform:"uppercase", marginBottom:18, fontFamily:MONO }}>
             Imperial Citizen Registry // Live Neural Uplink
           </div>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:18, flexWrap:"wrap", fontSize:11, color:"#4a7a8a", letterSpacing:".1em" }}>
-            <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}>
-              <span style={{ width:8, height:8, borderRadius:"50%", display:"inline-block", background:apiAlive===null?"#888":apiAlive?"#00ffe5":"#ff4444", boxShadow:apiAlive?"0 0 8px #00ffe5":apiAlive===false?"0 0 8px #ff4444":"none", animation:apiAlive?"pulse 2s ease infinite":"none" }} />
-              {apiAlive===null?"PINGING…":apiAlive?"API ONLINE":"API OFFLINE"}
-            </span>
-            <span style={{ color:"#1a3040" }}>|</span>
-            {/* ✅ FIX: wrapped (citizens.length || "…") in parens to avoid ?? + || mixing error */}
-            <span>CITIZENS: <span style={{ color:"#00ffe5" }}>{health?.citizens_count ?? (citizens.length || "…")}</span></span>
-            <span style={{ color:"#1a3040" }}>|</span>
-            <span>LIVE // GITHUB DATA</span>
-            <button onClick={fetchAll} style={{ background:"none", border:"1px solid rgba(0,255,229,.2)", color:"#00ffe5", padding:"4px 14px", fontFamily:MONO, fontSize:10, letterSpacing:".2em", borderRadius:2 }}>↺ REFRESH</button>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:isMobile?6:18, flexWrap:"wrap", fontSize:isMobile?9:11, color:"#4a7a8a", letterSpacing:".1em", flexDirection:isMobile?"column":"row" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:isMobile?8:18, flexWrap:"wrap", justifyContent:"center" }}>
+              <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}>
+                <span style={{ width:8, height:8, borderRadius:"50%", display:"inline-block", background:apiAlive===null?"#888":apiAlive?"#00ffe5":"#ff4444", boxShadow:apiAlive?"0 0 8px #00ffe5":apiAlive===false?"0 0 8px #ff4444":"none", animation:apiAlive?"pulse 2s ease infinite":"none" }} />
+                {apiAlive===null?"PINGING…":apiAlive?"API ONLINE":"API OFFLINE"}
+              </span>
+              <span style={{ color:"#1a3040" }}>|</span>
+              {/* ✅ FIX: wrapped (citizens.length || "…") in parens to avoid ?? + || mixing error */}
+              <span>CITIZENS: <span style={{ color:"#00ffe5" }}>{health?.citizens_count ?? (citizens.length || "…")}</span></span>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:isMobile?8:18 }}>
+              <span>LIVE // GITHUB DATA</span>
+              <button onClick={fetchAll} style={{ background:"none", border:"1px solid rgba(0,255,229,.2)", color:"#00ffe5", padding:"4px 14px", fontFamily:MONO, fontSize:10, letterSpacing:".2em", borderRadius:2 }}>↺ REFRESH</button>
+            </div>
           </div>
         </header>
 
@@ -538,7 +563,7 @@ export default function CyberdyneUnlimited() {
         {/* ── TABS ── */}
         <div style={{ display:"flex", marginBottom:28, borderBottom:"1px solid rgba(0,255,229,.1)" }}>
           {TABS.map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)} style={{ background:"none", border:"none", borderBottom:tab===t.key?"2px solid #00ffe5":"2px solid transparent", color:tab===t.key?"#00ffe5":"#4a7a8a", padding:"10px 22px", fontFamily:ORB, fontSize:10, letterSpacing:".22em", textTransform:"uppercase", transition:"all .2s", marginBottom:-1 }}>
+            <button key={t.key} onClick={() => setTab(t.key)} style={{ background:"none", border:"none", borderBottom:tab===t.key?"2px solid #00ffe5":"2px solid transparent", color:tab===t.key?"#00ffe5":"#4a7a8a", padding:isMobile?"8px 0":"10px 22px", fontFamily:ORB, fontSize:isMobile?8:10, letterSpacing:isMobile?".08em":".22em", textTransform:"uppercase", transition:"all .2s", marginBottom:-1, flex:isMobile?1:"unset", textAlign:"center" }}>
               {t.label}
             </button>
           ))}
@@ -558,7 +583,7 @@ export default function CyberdyneUnlimited() {
               <>
                 <div style={{ fontFamily:ORB, fontSize:12, fontWeight:700, letterSpacing:".3em", color:"#00ffe5", marginBottom:4 }}>◈ TOP 3 CITIZENS</div>
                 <Rule />
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:12 }}>
+                <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(auto-fit,minmax(280px,1fr))", gap:12 }}>
                   {leaderboard.slice(0,3).map(c => (
                     <div key={c.username} onClick={() => setSelected(c)} style={{ cursor:"pointer" }}>
                       <ProfileCard c={c} />
@@ -577,13 +602,13 @@ export default function CyberdyneUnlimited() {
             <Rule />
             <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:24 }}>
               {leaderboard.length > 0
-                ? leaderboard.map((c, i) => <LeaderRow key={c.username} c={c} idx={i} onClick={() => setSelected(c)} />)
+                ? leaderboard.map((c, i) => <LeaderRow key={c.username} c={c} idx={i} onClick={() => setSelected(c)} isMobile={isMobile} />)
                 : <div style={{ textAlign:"center", color:"#4a7a8a", padding:48, fontFamily:MONO, fontSize:12 }}>NO LEADERBOARD DATA — API MAY BE OFFLINE</div>
               }
             </div>
-            <div style={{ background:"rgba(255,255,255,.02)", border:"1px solid rgba(255,255,255,.06)", borderRadius:4, padding:"14px 18px" }}>
+            <div style={{ background:"rgba(255,255,255,.02)", border:"1px solid rgba(255,255,255,.06)", borderRadius:4, padding:isMobile?"12px 14px":"14px 18px" }}>
               <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#4a7a8a", marginBottom:10 }}>IMPERIAL TIER CLASSIFICATION</div>
-              <div style={{ display:"flex", flexWrap:"wrap", gap:14 }}>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:isMobile?10:14 }}>
                 {Object.entries(TIERS).filter(([k]) => k!=="DEFAULT").map(([name, col]) => (
                   <div key={name} style={{ display:"flex", alignItems:"center", gap:6 }}>
                     <div style={{ width:6, height:6, borderRadius:"50%", background:col.glow, boxShadow:`0 0 5px ${col.glow}` }} />
@@ -598,21 +623,23 @@ export default function CyberdyneUnlimited() {
         {/* ── REGISTRY TAB ── */}
         {!loading && tab === "registry" && (
           <div style={{ animation:"fadeUp .4s ease" }}>
-            <div style={{ display:"flex", gap:10, marginBottom:20, flexWrap:"wrap", alignItems:"center" }}>
+            <div style={{ display:"flex", gap:isMobile?8:10, marginBottom:20, flexWrap:"wrap", alignItems:"center", flexDirection:isMobile?"column":"row" }}>
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="SEARCH // USERNAME · WALLET · TIER · SKILL…"
-                style={{ flex:1, minWidth:220, background:"rgba(255,255,255,.04)", border:"1px solid rgba(0,255,229,.2)", borderRadius:4, padding:"10px 14px", color:"#e0f0ff", fontFamily:MONO, fontSize:13 }}
+                placeholder={isMobile?"SEARCH // NAME · WALLET · TIER…":"SEARCH // USERNAME · WALLET · TIER · SKILL…"}
+                style={{ flex:1, minWidth:isMobile?"100%":220, background:"rgba(255,255,255,.04)", border:"1px solid rgba(0,255,229,.2)", borderRadius:4, padding:isMobile?"10px 12px":"10px 14px", color:"#e0f0ff", fontFamily:MONO, fontSize:isMobile?11:13, width:isMobile?"100%":"auto" }}
               />
-              <div style={{ fontFamily:ORB, fontSize:10, padding:"6px 14px", background:"rgba(0,255,229,.06)", border:"1px solid rgba(0,255,229,.2)", borderRadius:3, color:"#00ffe5", letterSpacing:".2em", whiteSpace:"nowrap" }}>
-                {filtered.length} / {citizens.length}
+              <div style={{ display:"flex", gap:8, alignItems:"center", width:isMobile?"100%":"auto", justifyContent:isMobile?"space-between":"flex-start" }}>
+                <div style={{ fontFamily:ORB, fontSize:10, padding:"6px 14px", background:"rgba(0,255,229,.06)", border:"1px solid rgba(0,255,229,.2)", borderRadius:3, color:"#00ffe5", letterSpacing:".2em", whiteSpace:"nowrap" }}>
+                  {filtered.length} / {citizens.length}
+                </div>
+                {search && <button onClick={() => setSearch("")} style={{ background:"none", border:"1px solid rgba(255,255,255,.1)", color:"#4a7a8a", padding:"6px 12px", fontFamily:MONO, fontSize:10, borderRadius:3 }}>CLEAR</button>}
               </div>
-              {search && <button onClick={() => setSearch("")} style={{ background:"none", border:"1px solid rgba(255,255,255,.1)", color:"#4a7a8a", padding:"6px 12px", fontFamily:MONO, fontSize:10, borderRadius:3 }}>CLEAR</button>}
             </div>
             <div style={{ fontFamily:ORB, fontSize:12, fontWeight:700, letterSpacing:".3em", color:"#00ffe5", marginBottom:4 }}>IMPERIAL REGISTRY</div>
             <Rule />
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))", gap:10 }}>
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill,minmax(260px,1fr))", gap:10 }}>
               {filtered.length > 0
                 ? filtered.map((c, i) => <RegCard key={c.username} c={c} idx={i} onClick={() => setSelected(c)} />)
                 : <div style={{ gridColumn:"1/-1", textAlign:"center", color:"#4a7a8a", padding:48, fontFamily:MONO, fontSize:12 }}>NO CITIZENS MATCH "{search}"</div>
@@ -624,9 +651,9 @@ export default function CyberdyneUnlimited() {
 
       {/* ── MODAL ── */}
       {selected && (
-        <div onClick={() => setSelected(null)} style={{ position:"fixed", inset:0, background:"rgba(0,5,10,.92)", backdropFilter:"blur(8px)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
-          <div onClick={e => e.stopPropagation()} style={{ maxWidth:640, width:"100%", maxHeight:"90vh", overflowY:"auto" }}>
-            <ProfileCard c={selected} onClose={() => setSelected(null)} />
+        <div onClick={() => setSelected(null)} style={{ position:"fixed", inset:0, background:"rgba(0,5,10,.92)", backdropFilter:"blur(8px)", zIndex:200, display:"flex", alignItems:isMobile?"flex-start":"center", justifyContent:"center", padding:isMobile?"16px 10px":"20px", overflowY:"auto" }}>
+          <div onClick={e => e.stopPropagation()} style={{ maxWidth:640, width:"100%", maxHeight:isMobile?"none":"90vh", overflowY:isMobile?"visible":"auto", marginTop:isMobile?12:0, marginBottom:isMobile?40:0 }}>
+            <ProfileCard c={selected} onClose={() => setSelected(null)} isMobile={isMobile} />
           </div>
         </div>
       )}
