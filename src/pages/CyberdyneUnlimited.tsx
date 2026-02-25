@@ -16,18 +16,37 @@ const fetchJSON = (url: string) =>
   fetch(`${url}?t=${Date.now()}`, { headers: { Accept: "application/json" } });
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
+interface Contribution {
+  date:   string | null;
+  item:   string;
+  points: number;
+}
+
 interface Citizen {
   username:         string;
+  handle:           string;
   wallet:           string | null;
   score:            number;
   tier:             string;
   rank:             number;
+  verified:         boolean;
+  contributions:    Contribution[];
+  // Legacy compat — mapped from real data
   skills:           string[];
   passport_active:  boolean;
   passport_status?: boolean;
   telegram_id?:     number | null;
   projects?:        any[];
   last_updated?:    string;
+}
+
+interface GistMeta {
+  last_updated:    string;
+  total_citizens:  number;
+  total_score:     number;
+  source:          string;
+  version:         string;
+  description:     string;
 }
 
 interface ApiHealth {
@@ -39,14 +58,14 @@ interface ApiHealth {
 
 // ─── TIER STYLES ─────────────────────────────────────────────────────────────
 const TIERS: Record<string, { glow: string; bg: string; text: string }> = {
-  HARMONIC:  { glow: "#00ffe5", bg: "rgba(0,255,229,.10)",   text: "#00ffe5" },
-  MECHANIC:  { glow: "#00ffe5", bg: "rgba(0,255,229,.10)",   text: "#00ffe5" },
-  SOVEREIGN: { glow: "#ffd700", bg: "rgba(255,215,0,.10)",   text: "#ffd700" },
-  SENTINEL:  { glow: "#ff6b35", bg: "rgba(255,107,53,.10)",  text: "#ff6b35" },
-  INITIATE:  { glow: "#a78bfa", bg: "rgba(167,139,250,.10)", text: "#a78bfa" },
-  DEFAULT:   { glow: "#4ade80", bg: "rgba(74,222,128,.10)",  text: "#4ade80" },
+  COSMIC:          { glow: "#ffd700", bg: "rgba(255,215,0,.10)",   text: "#ffd700" },
+  HARMONIC_MASTER: { glow: "#ff6b35", bg: "rgba(255,107,53,.10)",  text: "#ff6b35" },
+  HARMONIC:        { glow: "#00ffe5", bg: "rgba(0,255,229,.10)",   text: "#00ffe5" },
+  ENTRAINED:       { glow: "#a78bfa", bg: "rgba(167,139,250,.10)", text: "#a78bfa" },
+  INITIATE:        { glow: "#4ade80", bg: "rgba(74,222,128,.10)",  text: "#4ade80" },
+  DEFAULT:         { glow: "#4ade80", bg: "rgba(74,222,128,.10)",  text: "#4ade80" },
 };
-const tc        = (tier = "") => { const k = Object.keys(TIERS).find(k => tier.toUpperCase().includes(k)); return k ? TIERS[k] : TIERS.DEFAULT; };
+const tc        = (tier = "") => { const k = Object.keys(TIERS).find(k => tier.toUpperCase().replace(/\s+/g,"_").includes(k)); return k ? TIERS[k] : TIERS.DEFAULT; };
 const cleanTier = (t = "") => t.replace(/[^\w\s]/g, "").trim().split("(")[0].trim();
 const sw        = (w = "") => w && w.length > 12 ? `${w.slice(0,5)}…${w.slice(-5)}` : (w || "—");
 const medal     = (r: number) => r === 1 ? "🥇" : r === 2 ? "🥈" : r === 3 ? "🥉" : `#${r}`;
@@ -104,7 +123,7 @@ const Stat = ({ label, value, sub, color="#e0f0ff", dot }: { label:string; value
 // ─── CITIZEN PROFILE CARD ─────────────────────────────────────────────────────
 function ProfileCard({ c, onClose }: { c: Citizen; onClose?: () => void }) {
   const t       = tc(c.tier);
-  const passport = c.passport_status ?? c.passport_active ?? false;
+  const passport = c.verified ?? c.passport_status ?? c.passport_active ?? false;
 
   return (
     <div style={{ background:"#070f15", border:`1px solid ${t.glow}30`, borderRadius:8, overflow:"hidden", boxShadow:`0 0 40px ${t.glow}08`, animation:"fadeUp .3s ease" }}>
@@ -113,8 +132,9 @@ function ProfileCard({ c, onClose }: { c: Citizen; onClose?: () => void }) {
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
           <div style={{ minWidth:0 }}>
             <Badge tier={c.tier} />
-            <div style={{ fontFamily:ORB, fontSize:22, fontWeight:900, color:"#e0f0ff", letterSpacing:".06em", margin:"10px 0 4px" }}>{c.username}</div>
-            <div style={{ fontFamily:MONO, fontSize:10, color:"#4a7a8a", wordBreak:"break-all" }}>{c.wallet || "No wallet on file"}</div>
+            <div style={{ fontFamily:ORB, fontSize:22, fontWeight:900, color:"#e0f0ff", letterSpacing:".06em", margin:"10px 0 4px" }}>{c.handle || c.username}</div>
+            <div style={{ fontFamily:MONO, fontSize:10, color:"#4a7a8a" }}>@{c.username}</div>
+            <div style={{ fontFamily:MONO, fontSize:10, color:"#4a7a8a", wordBreak:"break-all", marginTop:2 }}>{c.wallet || "No wallet on file"}</div>
           </div>
           <div style={{ textAlign:"right", flexShrink:0, marginLeft:16 }}>
             <div style={{ fontFamily:ORB, fontSize:28, fontWeight:900, color:c.rank<=3?"#ffd700":"#4a7a8a" }}>{medal(c.rank)}</div>
@@ -129,30 +149,22 @@ function ProfileCard({ c, onClose }: { c: Citizen; onClose?: () => void }) {
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))", gap:10, marginBottom:20 }}>
           <Stat label="Score"    value={`+${c.score?.toLocaleString()}`}       color={t.text} />
           <Stat label="Rank"     value={`#${c.rank}`}                           color={t.text} />
-          <Stat label="Passport" value={passport?"ACTIVE":"INACTIVE"}           color={passport?"#00ffe5":"#555"} dot={passport} />
-          {c.last_updated && (
-            <Stat label="Last Updated" value={c.last_updated.slice(0,10)} sub={c.last_updated.slice(11,19)+" UTC"} color="#8aabbc" />
-          )}
+          <Stat label="Verified" value={passport?"VERIFIED":"UNVERIFIED"}       color={passport?"#00ffe5":"#555"} dot={passport} />
+          <Stat label="Contributions" value={String(c.contributions?.length ?? 0)} sub={`${c.contributions?.reduce((s,ct) => s + ct.points, 0) ?? 0} pts total`} color="#8aabbc" />
         </div>
 
-        {/* Skills */}
-        {!!c.skills?.length && (
+        {/* Contributions */}
+        {!!c.contributions?.length && (
           <div style={{ marginBottom:16 }}>
-            <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#4a7a8a", marginBottom:8 }}>SKILL MODULES ({c.skills.length})</div>
-            <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-              {c.skills.map(s => <Pill key={s} label={s} color={t.text} />)}
-            </div>
-          </div>
-        )}
-
-        {/* Projects */}
-        {!!c.projects?.length && (
-          <div style={{ marginBottom:16 }}>
-            <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#4a7a8a", marginBottom:8 }}>PROJECTS LOGGED ({c.projects.length})</div>
+            <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#4a7a8a", marginBottom:8 }}>CONTRIBUTIONS ({c.contributions.length})</div>
             <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
-              {c.projects.map((p, i) => (
-                <div key={i} style={{ fontSize:11, padding:"6px 12px", background:"rgba(255,255,255,.03)", border:"1px solid rgba(255,255,255,.06)", borderRadius:3, color:"#8aabbc", fontFamily:MONO }}>
-                  ▸ {typeof p === "string" ? p : JSON.stringify(p)}
+              {c.contributions.map((ct, i) => (
+                <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontSize:11, padding:"8px 12px", background:"rgba(255,255,255,.03)", border:"1px solid rgba(255,255,255,.06)", borderRadius:3, color:"#8aabbc", fontFamily:MONO }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <span style={{ color:"#e0f0ff" }}>▸ {ct.item}</span>
+                    {ct.date && <span style={{ color:"#3a5a6a", marginLeft:8, fontSize:9 }}>{ct.date}</span>}
+                  </div>
+                  <span style={{ fontFamily:ORB, fontSize:11, fontWeight:700, color:t.text, marginLeft:12, flexShrink:0 }}>+{ct.points}</span>
                 </div>
               ))}
             </div>
@@ -200,6 +212,7 @@ function LookupPanel({ citizens }: { citizens: Citizen[] }) {
     setSuggestions(
       citizens.filter(c =>
         c.username.toLowerCase().includes(q) ||
+        (c.handle ?? "").toLowerCase().includes(q) ||
         (c.wallet ?? "").toLowerCase().startsWith(q)
       ).slice(0, 7)
     );
@@ -216,6 +229,7 @@ function LookupPanel({ citizens }: { citizens: Citizen[] }) {
     // Search from already-loaded citizens (no API call needed)
     const found = citizens.find(c =>
       c.username.toLowerCase() === q ||
+      (c.handle ?? "").toLowerCase() === q ||
       (c.wallet ?? "").toLowerCase() === q
     );
     if (found) {
@@ -317,12 +331,12 @@ function LeaderRow({ c, onClick, idx }: { c: Citizen; onClick: () => void; idx: 
         {medal(c.rank)}
       </div>
       <div>
-        <div style={{ fontFamily:ORB, fontSize:13, fontWeight:700, color:"#e0f0ff", letterSpacing:".04em" }}>{c.username}</div>
+        <div style={{ fontFamily:ORB, fontSize:13, fontWeight:700, color:"#e0f0ff", letterSpacing:".04em" }}>{c.handle || c.username}</div>
         <div style={{ display:"flex", gap:5, marginTop:4, flexWrap:"wrap", alignItems:"center" }}>
-          {c.skills?.slice(0,3).map(s => <Pill key={s} label={s} color={t.text} />)}
+          {c.contributions?.slice(0,2).map((ct,i) => <Pill key={i} label={ct.item.split("—")[0].trim().slice(0,25)} color={t.text} />)}
           <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}>
-            <span style={{ width:5, height:5, borderRadius:"50%", background:(c.passport_active||c.passport_status)?"#00ffe5":"#2a3a4a", boxShadow:(c.passport_active||c.passport_status)?"0 0 5px #00ffe5":"none", display:"inline-block" }} />
-            <span style={{ fontSize:9, color:"#3a6a7a", letterSpacing:".12em", fontFamily:MONO }}>PASSPORT</span>
+            <span style={{ width:5, height:5, borderRadius:"50%", background:c.verified?"#00ffe5":"#2a3a4a", boxShadow:c.verified?"0 0 5px #00ffe5":"none", display:"inline-block" }} />
+            <span style={{ fontSize:9, color:"#3a6a7a", letterSpacing:".12em", fontFamily:MONO }}>{c.verified?"VERIFIED":"UNVERIFIED"}</span>
           </span>
         </div>
       </div>
@@ -355,7 +369,7 @@ function RegCard({ c, onClick, idx }: { c: Citizen; onClick: () => void; idx: nu
     >
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:9 }}>
         <div style={{ minWidth:0 }}>
-          <div style={{ fontFamily:ORB, fontSize:12, fontWeight:700, color:"#e0f0ff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.username}</div>
+          <div style={{ fontFamily:ORB, fontSize:12, fontWeight:700, color:"#e0f0ff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.handle || c.username}</div>
           <div style={{ fontSize:9, color:"#4a7a8a", fontFamily:MONO, marginTop:2 }}>{sw(c.wallet ?? "")}</div>
         </div>
         <span style={{ fontFamily:ORB, fontSize:12, fontWeight:700, color:c.rank<=3?"#ffd700":"#4a7a8a", flexShrink:0, marginLeft:8 }}>{medal(c.rank)}</span>
@@ -377,7 +391,7 @@ function RegCard({ c, onClick, idx }: { c: Citizen; onClick: () => void; idx: nu
 // ─── STATS BAR ────────────────────────────────────────────────────────────────
 function StatsBar({ citizens, health }: { citizens: Citizen[]; health: ApiHealth | null }) {
   if (!citizens.length) return null;
-  const passports  = citizens.filter(c => c.passport_active || c.passport_status).length;
+  const passports  = citizens.filter(c => c.verified).length;
   const totalScore = citizens.reduce((s, c) => s + (c.score || 0), 0);
   const tierMap: Record<string, number> = {};
   citizens.forEach(c => { const t = cleanTier(c.tier)||"UNKNOWN"; tierMap[t] = (tierMap[t]??0)+1; });
@@ -385,7 +399,7 @@ function StatsBar({ citizens, health }: { citizens: Citizen[]; health: ApiHealth
   return (
     <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:10, marginBottom:32 }}>
       <Stat label="Total Citizens"   value={String(health?.citizens_count ?? citizens.length)} color="#00ffe5" />
-      <Stat label="Passports Active" value={String(passports)} sub={`${Math.round(passports/citizens.length*100)}% of registry`} color="#00ffe5" />
+      <Stat label="Verified Wallets" value={String(passports)} sub={`${Math.round(passports/citizens.length*100)}% of registry`} color="#00ffe5" />
       <Stat label="Total Score Pool" value={`+${totalScore.toLocaleString()}`} color="#ffd700" />
       <Stat label="Top Tier"         value={topTier?.[0]??"—"} sub={`${topTier?.[1]??0} citizens`} color="#00ffe5" />
       <Stat label="Data Source"       value={health?.status==="healthy"?"SYNCED":"OFFLINE"} sub={health?.timestamp ? `Updated ${new Date(health.timestamp).toLocaleString()}` : undefined} color={health?.status==="healthy"?"#00ffe5":"#ff4444"} dot={health?.status==="healthy"} />
@@ -414,15 +428,33 @@ export default function CyberdyneUnlimited() {
       if (!r.ok) throw new Error(`Gist fetch failed: HTTP ${r.status}`);
       const data = await r.json();
 
-      // Parse citizens array — handle jacklevin's format: { citizens, meta, tiers }
-      const all: Citizen[] = Array.isArray(data) ? data
+      // Parse citizens array from jacklevin's format
+      const raw: any[] = Array.isArray(data) ? data
         : Array.isArray(data.citizens) ? data.citizens
         : Array.isArray(data.leaderboard) ? data.leaderboard
         : [];
 
-      if (all.length === 0) throw new Error("No citizens found in JSON");
+      if (raw.length === 0) throw new Error("No citizens found in JSON");
 
-      // Assign ranks if not present (sort by score desc)
+      // Map to our Citizen interface
+      const all: Citizen[] = raw.map((c: any) => ({
+        username:        c.username ?? c.handle ?? "unknown",
+        handle:          c.handle ?? c.username ?? "unknown",
+        wallet:          c.wallet || null,
+        score:           c.score ?? 0,
+        tier:            c.tier ?? "INITIATE",
+        rank:            c.rank ?? 0,
+        verified:        c.verified ?? false,
+        contributions:   Array.isArray(c.contributions) ? c.contributions : [],
+        // Compat fields
+        skills:          Array.isArray(c.skills) ? c.skills : (Array.isArray(c.contributions) ? c.contributions.map((ct: any) => ct.item?.split("—")[0]?.trim()).filter(Boolean).slice(0, 4) : []),
+        passport_active: c.verified ?? c.passport_active ?? false,
+        passport_status: c.verified ?? c.passport_status ?? false,
+        projects:        Array.isArray(c.projects) ? c.projects : (Array.isArray(c.contributions) ? c.contributions.map((ct: any) => ct.item) : []),
+        last_updated:    c.last_updated ?? null,
+      }));
+
+      // Sort by score desc, assign ranks if missing
       const sorted = [...all].sort((a, b) => (b.score || 0) - (a.score || 0));
       sorted.forEach((c, i) => { if (!c.rank) c.rank = i + 1; });
 
@@ -454,9 +486,10 @@ export default function CyberdyneUnlimited() {
     const q = search.toLowerCase();
     setFiltered(citizens.filter(c =>
       c.username.toLowerCase().includes(q) ||
+      (c.handle ?? "").toLowerCase().includes(q) ||
       (c.wallet ?? "").toLowerCase().includes(q) ||
       c.tier.toLowerCase().includes(q) ||
-      c.skills?.some(s => s.toLowerCase().includes(q))
+      c.contributions?.some(ct => ct.item.toLowerCase().includes(q))
     ));
   }, [search, citizens]);
 
