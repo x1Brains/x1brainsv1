@@ -23,7 +23,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://xbchrxxfnzhsbpncfiar.supabase.co https://rpc.mainnet.x1.xyz https://api.xdex.xyz https://app.xdex.xyz http://jack-nucbox-m6-ultra.tail515dc.ts.net:8773 https://gateway.pinata.cloud https://ipfs.io https://cloudflare-ipfs.com https://dweb.link https://nftstorage.link https://raw.githubusercontent.com https://mint.xdex.xyz https://arweave.net https://x1punks.xyz https://apexfaucet.xyz https://explorer.xenblocks.io https://xenblocks.io; img-src 'self' data: blob: https: http:; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'"
+          "value": "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://xbchrxxfnzhsbpncfiar.supabase.co https://rpc.mainnet.x1.xyz https://api.xdex.xyz https://app.xdex.xyz http://jack-nucbox-m6-ultra.tail515dc.ts.net:8773 https://gateway.pinata.cloud https://ipfs.io https://cloudflare-ipfs.com https://dweb.link https://nftstorage.link https://raw.githubusercontent.com https://gist.githubusercontent.com https://mint.xdex.xyz https://arweave.net https://x1punks.xyz https://apexfaucet.xyz https://explorer.xenblocks.io https://xenblocks.io; img-src 'self' data: blob: https: http:; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'"
         }
       ]
     }
