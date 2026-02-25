@@ -381,6 +381,8 @@ function LeaderRow({ c, onClick, idx, isMobile: mob }: { c: Citizen; onClick: ()
 function RegCard({ c, onClick, idx }: { c: Citizen; onClick: () => void; idx: number }) {
   const [hov, setHov] = useState(false);
   const t = tc(c.tier);
+  // Use skills if available, otherwise contribution items
+  const pills: string[] = (c.skills?.length ? c.skills : c.contributions?.map(ct => ct.item) ?? []).filter(Boolean);
   return (
     <div
       onClick={onClick}
@@ -393,22 +395,34 @@ function RegCard({ c, onClick, idx }: { c: Citizen; onClick: () => void; idx: nu
         animation:`fadeUp .3s ease ${Math.min(idx*0.012,0.4)}s both`,
       }}
     >
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:9 }}>
-        <div style={{ minWidth:0 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+        <div style={{ minWidth:0, flex:1 }}>
           <div style={{ fontFamily:ORB, fontSize:12, fontWeight:700, color:"#e0f0ff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.handle || c.username}</div>
+          {c.handle && c.username && c.handle !== c.username && (
+            <div style={{ fontSize:9, color:"#3a6a7a", fontFamily:MONO, marginTop:1 }}>@{c.username}</div>
+          )}
           <div style={{ fontSize:9, color:"#4a7a8a", fontFamily:MONO, marginTop:2 }}>{sw(c.wallet ?? "")}</div>
         </div>
         <span style={{ fontFamily:ORB, fontSize:12, fontWeight:700, color:c.rank<=3?"#ffd700":"#4a7a8a", flexShrink:0, marginLeft:8 }}>{medal(c.rank)}</span>
       </div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-        <Badge tier={c.tier} />
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:pills.length ? 0 : 0 }}>
+        <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+          <Badge tier={c.tier} />
+          <span style={{ display:"inline-flex", alignItems:"center", gap:3 }}>
+            <span style={{ width:5, height:5, borderRadius:"50%", background:c.verified?"#00ffe5":"#2a3a4a", boxShadow:c.verified?"0 0 5px #00ffe5":"none", display:"inline-block" }} />
+            <span style={{ fontSize:8, color:c.verified?"#4a8a7a":"#2a3a4a", letterSpacing:".1em", fontFamily:MONO }}>{c.verified?"VERIFIED":"UNVERIFIED"}</span>
+          </span>
+        </div>
         <span style={{ fontFamily:ORB, fontWeight:700, color:t.text, fontSize:13 }}>+{c.score.toLocaleString()}</span>
       </div>
-      {!!c.skills?.length && (
+      {pills.length > 0 && (
         <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginTop:9 }}>
-          {c.skills.slice(0,3).map(s => <Pill key={s} label={s} color={t.text} />)}
-          {c.skills.length > 3 && <span style={{ fontSize:9, color:"#4a7a8a", fontFamily:MONO }}>+{c.skills.length-3}</span>}
+          {pills.slice(0,3).map(s => <Pill key={s} label={s} color={t.text} />)}
+          {pills.length > 3 && <span style={{ fontSize:9, color:"#4a7a8a", fontFamily:MONO }}>+{pills.length-3}</span>}
         </div>
+      )}
+      {pills.length === 0 && (
+        <div style={{ marginTop:9, fontSize:9, color:"#1a3040", fontFamily:MONO, letterSpacing:".15em", fontStyle:"italic" }}>NO CONTRIBUTIONS ON FILE</div>
       )}
     </div>
   );
