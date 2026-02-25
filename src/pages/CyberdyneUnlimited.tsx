@@ -465,8 +465,9 @@ export default function CyberdyneUnlimited() {
 
       if (raw.length === 0) throw new Error("No citizens found in JSON");
 
-      // Map to our Citizen interface
+      // Map to our Citizen interface — preserve all original fields from jack's JSON
       const all: Citizen[] = raw.map((c: any) => ({
+        ...c,  // Pass through ALL original fields first
         username:        c.username ?? c.handle ?? "unknown",
         handle:          c.handle ?? c.username ?? "unknown",
         wallet:          c.wallet || null,
@@ -475,8 +476,8 @@ export default function CyberdyneUnlimited() {
         rank:            c.rank ?? 0,
         verified:        c.verified ?? false,
         contributions:   Array.isArray(c.contributions) ? c.contributions : [],
-        // Compat fields
-        skills:          Array.isArray(c.skills) ? c.skills : (Array.isArray(c.contributions) ? c.contributions.map((ct: any) => ct.item?.split("—")[0]?.trim()).filter(Boolean).slice(0, 4) : []),
+        // Compat: use jack's skills if present & non-empty, else derive from contributions
+        skills:          (Array.isArray(c.skills) && c.skills.length > 0) ? c.skills : (Array.isArray(c.contributions) ? c.contributions.map((ct: any) => ct.item).filter(Boolean) : []),
         passport_active: c.verified ?? c.passport_active ?? false,
         passport_status: c.verified ?? c.passport_status ?? false,
         projects:        Array.isArray(c.projects) ? c.projects : (Array.isArray(c.contributions) ? c.contributions.map((ct: any) => ct.item) : []),
