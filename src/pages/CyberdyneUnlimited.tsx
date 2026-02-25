@@ -6,14 +6,10 @@
 
 import { useEffect, useState, useCallback } from "react";
 
-// ─── DATA SOURCE — GitHub Raw JSON ────────────────────────────────────────────
-// The other project pushes cyberdyne.json to this public repo.
-// Update GITHUB_USER and GITHUB_REPO to match the actual repo.
-// File format: { version, updated_at, citizens: [...] }
-const GITHUB_USER = "x1Brains";          // ← change to actual GitHub username
-const GITHUB_REPO = "cyberdyne-data";     // ← change to actual repo name
-const GITHUB_FILE = "cyberdyne.json";
-const GITHUB_RAW  = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/${GITHUB_FILE}`;
+// ─── DATA SOURCE — GitHub Gist JSON ──────────────────────────────────────────
+// jacklevin74 regenerates the JSON and pushes to this Gist whenever scores update.
+// Full registry — all citizens:
+const GIST_ALL = "https://gist.githubusercontent.com/jacklevin74/d4c429c3d31e190247fd79b00d92f350/raw/cyberdyne.json";
 
 // Cache-bust: append timestamp so GitHub CDN doesn't serve stale
 const fetchJSON = (url: string) =>
@@ -414,13 +410,14 @@ export default function CyberdyneUnlimited() {
     setLoading(true); setErr("");
 
     try {
-      const r = await fetchJSON(GITHUB_RAW);
-      if (!r.ok) throw new Error(`GitHub fetch failed: HTTP ${r.status}`);
+      const r = await fetchJSON(GIST_ALL);
+      if (!r.ok) throw new Error(`Gist fetch failed: HTTP ${r.status}`);
       const data = await r.json();
 
-      // Parse citizens array from the JSON
+      // Parse citizens array — handle jacklevin's format: { citizens, meta, tiers }
       const all: Citizen[] = Array.isArray(data) ? data
         : Array.isArray(data.citizens) ? data.citizens
+        : Array.isArray(data.leaderboard) ? data.leaderboard
         : [];
 
       if (all.length === 0) throw new Error("No citizens found in JSON");
@@ -433,12 +430,13 @@ export default function CyberdyneUnlimited() {
       setFiltered(sorted);
       setLeaderboard(sorted.slice(0, 25));
 
-      // Build health info from the data itself
+      // Build health info from meta or data fields
+      const meta = data.meta ?? {};
       setHealth({
         status: "healthy",
-        citizens_count: sorted.length,
-        version: data.version ?? "1.0",
-        timestamp: data.updated_at ?? new Date().toISOString(),
+        citizens_count: meta.total_citizens ?? sorted.length,
+        version: meta.version ?? data.version ?? "1.0",
+        timestamp: meta.generated_at ?? meta.updated_at ?? data.updated_at ?? new Date().toISOString(),
       });
       setApiAlive(true);
 
