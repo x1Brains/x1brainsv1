@@ -6,17 +6,18 @@
 
 import { useEffect, useState, useCallback } from "react";
 
-// ─── API CONFIG ───────────────────────────────────────────────────────────────
-// Update BASE when tunnel URL changes (jack-emperor restarts localtunnel)
-const BASE      = "https://fifty-rules-watch.loca.lt";
-const EP_HEALTH = `${BASE}/api/health`;
-const EP_ALL    = `${BASE}/api/citizens`;
-const EP_BOARD  = (n = 25) => `${BASE}/api/leaderboard?limit=${n}`;
-const EP_USER   = (id: string) => `${BASE}/api/citizen/${encodeURIComponent(id)}`;
+// ─── DATA SOURCE — GitHub Raw JSON ────────────────────────────────────────────
+// The other project pushes cyberdyne.json to this public repo.
+// Update GITHUB_USER and GITHUB_REPO to match the actual repo.
+// File format: { version, updated_at, citizens: [...] }
+const GITHUB_USER = "x1Brains";          // ← change to actual GitHub username
+const GITHUB_REPO = "cyberdyne-data";     // ← change to actual repo name
+const GITHUB_FILE = "cyberdyne.json";
+const GITHUB_RAW  = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/${GITHUB_FILE}`;
 
-// LocalTunnel bypass + JSON accept headers
-const ltFetch = (url: string) =>
-  fetch(url, { headers: { "bypass-tunnel-reminder": "true", "Accept": "application/json" } });
+// Cache-bust: append timestamp so GitHub CDN doesn't serve stale
+const fetchJSON = (url: string) =>
+  fetch(`${url}?t=${Date.now()}`, { headers: { Accept: "application/json" } });
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 interface Citizen {
@@ -209,25 +210,24 @@ function LookupPanel({ citizens }: { citizens: Citizen[] }) {
   }, [query, citizens, result]);
 
   const lookup = async (id: string) => {
-    const q = id.trim();
+    const q = id.trim().toLowerCase();
     if (!q) return;
     setLoading(true);
     setErr("");
     setResult(null);
     setSuggestions([]);
     setShowDrop(false);
-    try {
-      const res = await ltFetch(EP_USER(q));
-      if (!res.ok) {
-        if (res.status === 404) throw new Error(`"${q}" not found in the Imperial Registry`);
-        throw new Error(`Server error: HTTP ${res.status}`);
-      }
-      setResult(await res.json());
-    } catch (e: any) {
-      setErr(e.message);
-    } finally {
-      setLoading(false);
+    // Search from already-loaded citizens (no API call needed)
+    const found = citizens.find(c =>
+      c.username.toLowerCase() === q ||
+      (c.wallet ?? "").toLowerCase() === q
+    );
+    if (found) {
+      setResult(found);
+    } else {
+      setErr(`"${id.trim()}" not found in the Imperial Registry`);
     }
+    setLoading(false);
   };
 
   return (
@@ -392,7 +392,7 @@ function StatsBar({ citizens, health }: { citizens: Citizen[]; health: ApiHealth
       <Stat label="Passports Active" value={String(passports)} sub={`${Math.round(passports/citizens.length*100)}% of registry`} color="#00ffe5" />
       <Stat label="Total Score Pool" value={`+${totalScore.toLocaleString()}`} color="#ffd700" />
       <Stat label="Top Tier"         value={topTier?.[0]??"—"} sub={`${topTier?.[1]??0} citizens`} color="#00ffe5" />
-      <Stat label="API"              value={health?.status?.toUpperCase()??"OFFLINE"} color={health?.status==="healthy"?"#00ffe5":"#ff4444"} dot={health?.status==="healthy"} />
+      <Stat label="Data Source"       value={health?.status==="healthy"?"SYNCED":"OFFLINE"} sub={health?.timestamp ? `Updated ${new Date(health.timestamp).toLocaleString()}` : undefined} color={health?.status==="healthy"?"#00ffe5":"#ff4444"} dot={health?.status==="healthy"} />
     </div>
   );
 }
@@ -413,31 +413,39 @@ export default function CyberdyneUnlimited() {
   const fetchAll = useCallback(async () => {
     setLoading(true); setErr("");
 
-    // Health
     try {
-      const r = await ltFetch(EP_HEALTH);
-      if (r.ok) { setHealth(await r.json()); setApiAlive(true); }
-      else setApiAlive(false);
-    } catch { setApiAlive(false); }
+      const r = await fetchJSON(GITHUB_RAW);
+      if (!r.ok) throw new Error(`GitHub fetch failed: HTTP ${r.status}`);
+      const data = await r.json();
 
-    // Leaderboard top 25
-    try {
-      const r = await ltFetch(EP_BOARD(25));
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const d = await r.json();
-      const rows: Citizen[] = Array.isArray(d) ? d : Array.isArray(d.citizens) ? d.citizens : Array.isArray(d.leaderboard) ? d.leaderboard : [];
-      setLeaderboard(rows);
-    } catch (e: any) { setErr(`Leaderboard: ${e.message}`); }
+      // Parse citizens array from the JSON
+      const all: Citizen[] = Array.isArray(data) ? data
+        : Array.isArray(data.citizens) ? data.citizens
+        : [];
 
-    // Full registry
-    try {
-      const r = await ltFetch(EP_ALL);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const d = await r.json();
-      const all: Citizen[] = Array.isArray(d.citizens) ? d.citizens : [];
-      setCitizens(all);
-      setFiltered(all);
-    } catch (e: any) { setErr(p => p ? `${p} | Registry: ${e.message}` : `Registry: ${e.message}`); }
+      if (all.length === 0) throw new Error("No citizens found in JSON");
+
+      // Assign ranks if not present (sort by score desc)
+      const sorted = [...all].sort((a, b) => (b.score || 0) - (a.score || 0));
+      sorted.forEach((c, i) => { if (!c.rank) c.rank = i + 1; });
+
+      setCitizens(sorted);
+      setFiltered(sorted);
+      setLeaderboard(sorted.slice(0, 25));
+
+      // Build health info from the data itself
+      setHealth({
+        status: "healthy",
+        citizens_count: sorted.length,
+        version: data.version ?? "1.0",
+        timestamp: data.updated_at ?? new Date().toISOString(),
+      });
+      setApiAlive(true);
+
+    } catch (e: any) {
+      setErr(e.message);
+      setApiAlive(false);
+    }
 
     setLoading(false);
   }, []);
@@ -488,7 +496,7 @@ export default function CyberdyneUnlimited() {
             {/* ✅ FIX: wrapped (citizens.length || "…") in parens to avoid ?? + || mixing error */}
             <span>CITIZENS: <span style={{ color:"#00ffe5" }}>{health?.citizens_count ?? (citizens.length || "…")}</span></span>
             <span style={{ color:"#1a3040" }}>|</span>
-            <span>LIVE // NO CACHE</span>
+            <span>LIVE // GITHUB DATA</span>
             <button onClick={fetchAll} style={{ background:"none", border:"1px solid rgba(0,255,229,.2)", color:"#00ffe5", padding:"4px 14px", fontFamily:MONO, fontSize:10, letterSpacing:".2em", borderRadius:2 }}>↺ REFRESH</button>
           </div>
         </header>
