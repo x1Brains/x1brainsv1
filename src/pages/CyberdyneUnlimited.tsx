@@ -56,6 +56,12 @@ interface GistMeta {
   description:     string;
 }
 
+interface TierMeta {
+  min_score:   number;
+  xnt_reward:  number;
+  count?:      number;
+}
+
 interface ApiHealth {
   status:          string;
   citizens_count:  number;
@@ -440,7 +446,8 @@ export default function CyberdyneUnlimited() {
   const [loading,     setLoading]     = useState(true);
   const [err,         setErr]         = useState("");
   const [apiAlive,    setApiAlive]    = useState<boolean | null>(null);
-  const [tab,         setTab]         = useState<"lookup"|"leaderboard"|"registry">("lookup");
+  const [tab,         setTab]         = useState<"lookup"|"leaderboard"|"registry"|"analytics">("lookup");
+  const [tierMeta,    setTierMeta]    = useState<Record<string, TierMeta>>({});
 
   const fetchAll = useCallback(async () => {
     setLoading(true); setErr("");
@@ -484,6 +491,25 @@ export default function CyberdyneUnlimited() {
       setFiltered(sorted);
       setLeaderboard(sorted.slice(0, 25));
 
+      // Parse tier metadata from JSON (xnt_reward, min_score)
+      const rawTiers = data.tiers ?? {};
+      const tierCounts: Record<string, number> = {};
+      sorted.forEach(c => { const t = c.tier?.toUpperCase().replace(/\s+/g,"_") || "INITIATE"; tierCounts[t] = (tierCounts[t] ?? 0) + 1; });
+      const parsedTierMeta: Record<string, TierMeta> = {};
+      for (const [name, val] of Object.entries(rawTiers) as [string, any][]) {
+        parsedTierMeta[name] = {
+          min_score:  val.min_score ?? 0,
+          xnt_reward: val.xnt_reward ?? 0,
+          count:      tierCounts[name] ?? 0,
+        };
+      }
+      // If JSON didn't have tiers, build from hardcoded thresholds
+      if (Object.keys(parsedTierMeta).length === 0) {
+        const defaults: [string, number, number][] = [["COSMIC",3000,500],["HARMONIC_MASTER",1000,200],["HARMONIC",250,100],["ENTRAINED",50,50],["INITIATE",0,0]];
+        defaults.forEach(([n,ms,xr]) => { parsedTierMeta[n] = { min_score:ms, xnt_reward:xr, count:tierCounts[n]??0 }; });
+      }
+      setTierMeta(parsedTierMeta);
+
       // Build health info from meta or data fields
       const meta = data.meta ?? {};
       setHealth({
@@ -519,6 +545,7 @@ export default function CyberdyneUnlimited() {
     { key:"lookup",      label:"◎ LOOKUP" },
     { key:"leaderboard", label:"◈ LEADERBOARD" },
     { key:"registry",    label:"◉ REGISTRY" },
+    { key:"analytics",   label:"◆ ANALYTICS" },
   ] as const;
 
   return (
@@ -645,6 +672,191 @@ export default function CyberdyneUnlimited() {
                 : <div style={{ gridColumn:"1/-1", textAlign:"center", color:"#4a7a8a", padding:48, fontFamily:MONO, fontSize:12 }}>NO CITIZENS MATCH "{search}"</div>
               }
             </div>
+          </div>
+        )}
+
+        {/* ── ANALYTICS TAB ── */}
+        {!loading && tab === "analytics" && (
+          <div style={{ animation:"fadeUp .4s ease" }}>
+
+            {/* ─── TIER BREAKDOWN ─── */}
+            <div style={{ fontFamily:ORB, fontSize:12, fontWeight:700, letterSpacing:".3em", color:"#00ffe5", marginBottom:4 }}>◆ IMPERIAL TIER BREAKDOWN</div>
+            <Rule />
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(auto-fit,minmax(200px,1fr))", gap:isMobile?10:14, marginBottom:40 }}>
+              {(["COSMIC","HARMONIC_MASTER","HARMONIC","ENTRAINED","INITIATE"] as const).map(tierName => {
+                const t = tc(tierName);
+                const meta = tierMeta[tierName];
+                const count = meta?.count ?? citizens.filter(c => c.tier?.toUpperCase().replace(/\s+/g,"_") === tierName).length;
+                const pct = citizens.length ? Math.round(count / citizens.length * 100) : 0;
+                return (
+                  <div key={tierName} style={{ background:`linear-gradient(135deg,${t.bg},rgba(255,255,255,.02))`, border:`1px solid ${t.glow}30`, borderRadius:6, padding:isMobile?"16px":"20px", position:"relative", overflow:"hidden" }}>
+                    {/* Glow accent */}
+                    <div style={{ position:"absolute", top:0, left:0, right:0, height:2, background:`linear-gradient(90deg,${t.glow},transparent)` }} />
+
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+                      <div>
+                        <div style={{ fontFamily:ORB, fontSize:isMobile?11:13, fontWeight:900, color:t.text, letterSpacing:".08em" }}>{tierName.replace("_"," ")}</div>
+                        <div style={{ fontFamily:MONO, fontSize:9, color:"#4a7a8a", marginTop:3, letterSpacing:".15em" }}>{meta?.min_score != null ? `${meta.min_score.toLocaleString()}+ PTS` : "—"}</div>
+                      </div>
+                      <div style={{ textAlign:"right" }}>
+                        <div style={{ fontFamily:ORB, fontSize:isMobile?18:22, fontWeight:900, color:t.text }}>{count}</div>
+                        <div style={{ fontFamily:MONO, fontSize:9, color:"#4a7a8a" }}>{pct}%</div>
+                      </div>
+                    </div>
+
+                    {/* Distribution bar */}
+                    <div style={{ height:4, background:"rgba(255,255,255,.06)", borderRadius:2, overflow:"hidden", marginBottom:12 }}>
+                      <div style={{ height:"100%", width:`${pct}%`, background:t.glow, borderRadius:2, boxShadow:`0 0 8px ${t.glow}50`, transition:"width .6s ease" }} />
+                    </div>
+
+                    {/* XNT Reward */}
+                    {meta?.xnt_reward != null && meta.xnt_reward > 0 && (
+                      <div style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 10px", background:"rgba(255,255,255,.03)", border:"1px solid rgba(255,255,255,.06)", borderRadius:3 }}>
+                        <span style={{ fontFamily:MONO, fontSize:9, color:"#4a7a8a", letterSpacing:".2em" }}>REWARD</span>
+                        <span style={{ fontFamily:ORB, fontSize:isMobile?12:14, fontWeight:700, color:t.text }}>{meta.xnt_reward} XNT</span>
+                      </div>
+                    )}
+                    {meta?.xnt_reward === 0 && (
+                      <div style={{ fontFamily:MONO, fontSize:9, color:"#2a3a4a", letterSpacing:".15em", padding:"8px 10px" }}>NO REWARD ALLOCATION</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* ─── STATS & ANALYTICS ─── */}
+            <div style={{ fontFamily:ORB, fontSize:12, fontWeight:700, letterSpacing:".3em", color:"#00ffe5", marginBottom:4 }}>◆ NETWORK ANALYTICS</div>
+            <Rule />
+
+            {/* Score distribution */}
+            <div style={{ marginBottom:32 }}>
+              <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#4a7a8a", marginBottom:12 }}>SCORE DISTRIBUTION</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+                {citizens.slice(0, isMobile ? 10 : 15).map((c, i) => {
+                  const maxScore = citizens[0]?.score || 1;
+                  const pct = Math.max(2, (c.score / maxScore) * 100);
+                  const t = tc(c.tier);
+                  return (
+                    <div key={c.username} style={{ display:"flex", alignItems:"center", gap:isMobile?8:12 }}>
+                      <div style={{ fontFamily:MONO, fontSize:isMobile?8:9, color:"#4a7a8a", width:isMobile?20:24, textAlign:"right", flexShrink:0 }}>#{c.rank}</div>
+                      <div style={{ fontFamily:ORB, fontSize:isMobile?9:10, color:"#e0f0ff", width:isMobile?80:120, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flexShrink:0 }}>{c.handle || c.username}</div>
+                      <div style={{ flex:1, height:isMobile?10:12, background:"rgba(255,255,255,.04)", borderRadius:2, overflow:"hidden", position:"relative" }}>
+                        <div style={{ height:"100%", width:`${pct}%`, background:`linear-gradient(90deg,${t.glow}80,${t.glow}30)`, borderRadius:2, transition:"width .5s ease", animation:`slideIn .3s ease ${i*0.03}s both` }} />
+                      </div>
+                      <div style={{ fontFamily:ORB, fontSize:isMobile?9:10, color:t.text, width:isMobile?45:55, textAlign:"right", flexShrink:0 }}>+{c.score.toLocaleString()}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Key metrics row */}
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)", gap:isMobile?8:12, marginBottom:32 }}>
+              {(() => {
+                const scores = citizens.map(c => c.score);
+                const avg = scores.length ? Math.round(scores.reduce((a,b) => a+b, 0) / scores.length) : 0;
+                const median = scores.length ? scores.sort((a,b) => a-b)[Math.floor(scores.length/2)] : 0;
+                const totalContributions = citizens.reduce((s,c) => s + (c.contributions?.length ?? 0), 0);
+                const verifiedPct = citizens.length ? Math.round(citizens.filter(c => c.verified).length / citizens.length * 100) : 0;
+                return [
+                  { label:"AVG SCORE", value:`+${avg.toLocaleString()}`, color:"#00ffe5" },
+                  { label:"MEDIAN SCORE", value:`+${median.toLocaleString()}`, color:"#00ffe5" },
+                  { label:"TOTAL CONTRIBUTIONS", value:String(totalContributions), color:"#ffd700" },
+                  { label:"VERIFIED RATE", value:`${verifiedPct}%`, color:verifiedPct >= 75 ? "#00ffe5" : "#ff6b35" },
+                ];
+              })().map(s => <Stat key={s.label} label={s.label} value={s.value} color={s.color} />)}
+            </div>
+
+            {/* Top Contributors */}
+            <div style={{ marginBottom:32 }}>
+              <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#4a7a8a", marginBottom:12 }}>TOP CONTRIBUTORS BY SUBMISSIONS</div>
+              <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:8 }}>
+                {[...citizens].sort((a,b) => (b.contributions?.length ?? 0) - (a.contributions?.length ?? 0)).slice(0, 6).map((c, i) => {
+                  const t = tc(c.tier);
+                  return (
+                    <div key={c.username} onClick={() => setSelected(c)} style={{ display:"flex", alignItems:"center", gap:isMobile?10:14, padding:isMobile?"12px":"14px 18px", background:"rgba(255,255,255,.02)", border:"1px solid rgba(255,255,255,.06)", borderRadius:4, cursor:"pointer", transition:"all .2s" }}
+                      onMouseEnter={e => { e.currentTarget.style.background = "rgba(0,255,229,.05)"; e.currentTarget.style.borderColor = t.glow + "40"; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,.02)"; e.currentTarget.style.borderColor = "rgba(255,255,255,.06)"; }}
+                    >
+                      <div style={{ fontFamily:ORB, fontSize:isMobile?14:16, fontWeight:700, color:i<3?"#ffd700":"#4a7a8a", width:28, textAlign:"center", flexShrink:0 }}>{medal(i+1)}</div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontFamily:ORB, fontSize:isMobile?10:12, fontWeight:700, color:"#e0f0ff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.handle || c.username}</div>
+                        <div style={{ fontFamily:MONO, fontSize:9, color:"#4a7a8a", marginTop:2 }}>{c.contributions?.length ?? 0} contributions · +{c.contributions?.reduce((s,ct) => s + ct.points, 0) ?? 0} pts</div>
+                      </div>
+                      <Badge tier={c.tier} />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* ─── CONTRIBUTION TIMELINE ─── */}
+            <div style={{ fontFamily:ORB, fontSize:12, fontWeight:700, letterSpacing:".3em", color:"#00ffe5", marginBottom:4 }}>◆ CONTRIBUTION TIMELINE</div>
+            <Rule />
+            <div style={{ position:"relative", paddingLeft:isMobile?20:32 }}>
+              {/* Timeline line */}
+              <div style={{ position:"absolute", left:isMobile?8:14, top:0, bottom:0, width:2, background:"linear-gradient(180deg,#00ffe530,#00ffe508)" }} />
+
+              {(() => {
+                // Gather all contributions with citizen info, sort by date desc
+                const allContribs = citizens.flatMap(c =>
+                  (c.contributions ?? []).map(ct => ({ ...ct, citizen: c }))
+                ).sort((a, b) => {
+                  if (!a.date && !b.date) return 0;
+                  if (!a.date) return 1;
+                  if (!b.date) return -1;
+                  return b.date.localeCompare(a.date);
+                }).slice(0, isMobile ? 15 : 25);
+
+                // Group by date
+                const grouped: Record<string, typeof allContribs> = {};
+                allContribs.forEach(ct => {
+                  const key = ct.date || "Unknown Date";
+                  if (!grouped[key]) grouped[key] = [];
+                  grouped[key].push(ct);
+                });
+
+                return Object.entries(grouped).map(([date, items], gi) => (
+                  <div key={date} style={{ marginBottom:24, animation:`fadeUp .3s ease ${gi*0.05}s both` }}>
+                    {/* Date node */}
+                    <div style={{ display:"flex", alignItems:"center", gap:isMobile?10:14, marginBottom:10, position:"relative" }}>
+                      <div style={{ position:"absolute", left:isMobile?-16:-24, width:10, height:10, borderRadius:"50%", background:"#00ffe5", boxShadow:"0 0 8px #00ffe550", border:"2px solid #050a0e" }} />
+                      <div style={{ fontFamily:ORB, fontSize:isMobile?10:11, fontWeight:700, color:"#00ffe5", letterSpacing:".15em" }}>
+                        {date === "Unknown Date" ? "DATE PENDING" : new Date(date + "T00:00:00").toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" })}
+                      </div>
+                      <div style={{ fontFamily:MONO, fontSize:9, color:"#2a4a5a" }}>{items.length} {items.length===1?"entry":"entries"}</div>
+                    </div>
+
+                    {/* Entries for this date */}
+                    <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                      {items.map((ct, ci) => {
+                        const t = tc(ct.citizen.tier);
+                        return (
+                          <div key={ci} onClick={() => setSelected(ct.citizen)} style={{ display:"flex", alignItems:isMobile?"flex-start":"center", flexDirection:isMobile?"column":"row", gap:isMobile?6:0, justifyContent:"space-between", padding:isMobile?"10px 12px":"10px 16px", background:"rgba(255,255,255,.02)", border:"1px solid rgba(255,255,255,.05)", borderRadius:4, cursor:"pointer", transition:"all .15s" }}
+                            onMouseEnter={e => { e.currentTarget.style.background = "rgba(0,255,229,.04)"; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,.02)"; }}
+                          >
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ fontFamily:MONO, fontSize:isMobile?10:11, color:"#e0f0ff" }}>▸ {ct.item}</div>
+                              <div style={{ display:"flex", gap:8, alignItems:"center", marginTop:4, flexWrap:"wrap" }}>
+                                <span style={{ fontFamily:ORB, fontSize:9, color:t.text }}>{ct.citizen.handle || ct.citizen.username}</span>
+                                <Badge tier={ct.citizen.tier} />
+                              </div>
+                            </div>
+                            <div style={{ fontFamily:ORB, fontSize:isMobile?12:13, fontWeight:700, color:t.text, flexShrink:0, marginLeft:isMobile?0:16 }}>+{ct.points}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ));
+              })()}
+
+              {citizens.flatMap(c => c.contributions ?? []).length === 0 && (
+                <div style={{ textAlign:"center", color:"#4a7a8a", padding:48, fontFamily:MONO, fontSize:12 }}>NO CONTRIBUTION DATA AVAILABLE</div>
+              )}
+            </div>
+
           </div>
         )}
       </div>
