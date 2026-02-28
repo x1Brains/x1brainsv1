@@ -1201,7 +1201,7 @@ const LbRow: FC<{ entry: BurnerEntry; rank: number; isYou: boolean; delay: numbe
       {!isMobile && (
       <div style={{ textAlign:'right', position:'relative', zIndex:1 }}>
         <div style={{ fontFamily:'Orbitron, monospace', fontSize:10, color:isF?'#f0ecf4':'#c8dce8' }}>{entry.txCount}</div>
-        <div style={{ fontFamily:'Sora, sans-serif', fontSize:7, color:'#dde4ec', marginTop:1 }}>TXS</div>
+        <div style={{ fontFamily:'Sora, sans-serif', fontSize:7, color:'#b8c4d0', marginTop:1 }}>TXS</div>
       </div>
       )}
     </div>
@@ -1321,12 +1321,12 @@ const MyScoreCard: FC<{
                 <div style={{ position:'relative', zIndex:1 }}>
                   <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:4, marginBottom:8 }}>
                     <span style={{ fontSize:12, filter:`drop-shadow(0 0 3px ${s.color}44)` }}>{s.icon}</span>
-                    <span style={{ fontFamily:'Sora, sans-serif', fontSize:7, color:isF?'#f0ecf4':s.color, letterSpacing:2, fontWeight:700 }}>{s.label}</span>
+                    <span style={{ fontFamily:'Sora, sans-serif', fontSize:7, color:s.color, letterSpacing:2, fontWeight:700 }}>{s.label}</span>
                   </div>
-                  <div key={isF?'f':'v'} style={{ fontFamily:'Rajdhani, sans-serif', fontSize:s.big?(isMobile?20:26):(isMobile?18:22), fontWeight:900, lineHeight:1, letterSpacing:1, marginBottom:4, background:s.grad||s.color, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', filter:`drop-shadow(0 0 5px ${s.color}22)` }}>
+                  <div key={isF?'f':'v'} style={{ fontFamily:'Rajdhani, sans-serif', fontSize:s.big?(isMobile?20:26):(isMobile?18:22), fontWeight:900, lineHeight:1, letterSpacing:1, marginBottom:4, color:'#b8c4d0' }}>
                     {s.value}
                   </div>
-                  <div style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:isF?'#b8b0c0':'#b0bcc8', letterSpacing:1 }}>{s.sub}</div>
+                  <div style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:'#a0aab8', letterSpacing:1 }}>{s.sub}</div>
                 </div>
               </div>
             ))}
@@ -1353,7 +1353,7 @@ const MyScoreCard: FC<{
               {next ? (
                 <>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                    <span style={{ fontFamily:'Sora, sans-serif', fontSize:9, color:'#dde4ec' }}>
+                    <span style={{ fontFamily:'Sora, sans-serif', fontSize:9, color:'#b8c4d0' }}>
                       <span style={{ color:tier.neon, fontWeight:700 }}>{tier.label}</span>
                       <span style={{ color:'#e8eef4', margin:'0 6px' }}>→</span>
                       <span style={{ color:next.neon, fontWeight:700 }}>{next.label}</span>
@@ -1368,16 +1368,16 @@ const MyScoreCard: FC<{
                   </div>
                   <div style={{ display:'flex', justifyContent:'space-between', marginTop:5 }}>
                     <span style={{ fontFamily:'Sora, sans-serif', fontSize:9, fontWeight:700, color:`${tier.neon}` }}>{tierPct.toFixed(1)}%</span>
-                    <span style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:'#dde4ec' }}>{entry.points.toLocaleString()} / {next.min.toLocaleString()} PTS</span>
+                    <span style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:'#b8c4d0' }}>{entry.points.toLocaleString()} / {next.min.toLocaleString()} PTS</span>
                   </div>
                 </>
               ) : (
-                <div style={{ fontFamily:'Orbitron, monospace', fontSize:14, color:'#ffffff', letterSpacing:3, textShadow:'none' }}>☠️ MAX TIER ACHIEVED</div>
+                <div style={{ fontFamily:'Orbitron, monospace', fontSize:14, color:'#b8c4d0', letterSpacing:3, textShadow:'none' }}>☠️ MAX TIER ACHIEVED</div>
               )}
             </div>
             <div style={{ flexShrink:0, textAlign:'right' }}>
               <div style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:isF?'#b8b0c0':'#b0bcc8', letterSpacing:2, marginBottom:4 }}>TOTAL PTS</div>
-              <div key={isF?'f':'v'} style={{ fontFamily:'Rajdhani, sans-serif', fontSize:isMobile?18:26, fontWeight:900, lineHeight:1, background:isF?'linear-gradient(135deg,#ffbb33,#ffffffcc,#ffbb33)':'linear-gradient(135deg,#5ec99a,#88ddb8,#4db88a)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', filter:isF?'drop-shadow(0 0 4px rgba(255,187,51,.15))':'drop-shadow(0 0 4px rgba(57,255,136,.12))' }}>{fmtPts(entry.points)}</div>
+              <div key={isF?'f':'v'} style={{ fontFamily:'Rajdhani, sans-serif', fontSize:isMobile?18:26, fontWeight:900, lineHeight:1, color:'#b8c4d0' }}>{fmtPts(entry.points)}</div>
             </div>
           </div>
         </div>
@@ -1403,8 +1403,8 @@ const MyScoreCard: FC<{
                     <span style={{ fontSize:12 }}>{s.icon}</span>
                     <span style={{ fontFamily:'Sora, sans-serif', fontSize:7, color:s.color, letterSpacing:2, fontWeight:700 }}>{s.label}</span>
                   </div>
-                  <div style={{ fontFamily:'Rajdhani, sans-serif', fontSize:isMobile?18:22, fontWeight:900, color:s.color, lineHeight:1, letterSpacing:1, marginBottom:4 }}>{s.value}</div>
-                  <div style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:isF?'#b8b0c0':'#b0bcc8', letterSpacing:1 }}>{s.sub}</div>
+                  <div style={{ fontFamily:'Rajdhani, sans-serif', fontSize:isMobile?18:22, fontWeight:900, color:'#b8c4d0', lineHeight:1, letterSpacing:1, marginBottom:4 }}>{s.value}</div>
+                  <div style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:'#a0aab8', letterSpacing:1 }}>{s.sub}</div>
                 </div>
               </div>
             ))}
@@ -1626,10 +1626,10 @@ export const BurnLeaderboard: FC<Props> = ({
 
         {/* ═══ FIRE HERO OVERLAY — minimal fire accents (fire only) ═══ */}
         {isF && <>
-          {/* Radial fire bloom — subtle */}
-          <div style={{ position:'absolute', top:'5%', left:'50%', transform:'translateX(-50%)', width:'70%', height:'60%', borderRadius:'50%', background:'radial-gradient(ellipse,rgba(255,34,34,.04) 0%,rgba(255,102,0,.02) 30%,transparent 60%)', animation:'lb-stat-breathe 3.5s ease-in-out infinite', pointerEvents:'none', zIndex:2, willChange:'opacity' }} />
-          {/* Bottom fire glow band */}
-          <div style={{ position:'absolute', bottom:0, left:0, right:0, height:2, background:'linear-gradient(90deg,transparent 2%,#cc330022 15%,#ff440044 40%,#ff660055 50%,#ff440044 60%,#cc330022 85%,transparent 98%)', backgroundSize:'200% 100%', animation:'lb-fire-border 3.5s ease infinite', pointerEvents:'none', zIndex:10, willChange:'background-position' }} />
+          {/* Radial fire bloom — subtle, static */}
+          <div style={{ position:'absolute', top:'5%', left:'50%', transform:'translateX(-50%)', width:'70%', height:'60%', borderRadius:'50%', background:'radial-gradient(ellipse,rgba(255,34,34,.04) 0%,rgba(255,102,0,.02) 30%,transparent 60%)', pointerEvents:'none', zIndex:2 }} />
+          {/* Bottom fire glow band — static */}
+          <div style={{ position:'absolute', bottom:0, left:0, right:0, height:2, background:'linear-gradient(90deg,transparent 2%,#cc330022 15%,#ff440044 40%,#ff660055 50%,#ff440044 60%,#cc330022 85%,transparent 98%)', pointerEvents:'none', zIndex:10 }} />
         </>}
 
         {/* Extra: Diagonal energy traces (Vegas only; fire has these in HeroBg) */}
@@ -1645,20 +1645,16 @@ export const BurnLeaderboard: FC<Props> = ({
         <div style={{ position:'relative', zIndex:5, padding:isMobile?'18px 16px 14px':'22px 24px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10, borderBottom:isF?'1px solid rgba(255,34,34,.06)':'1px solid rgba(140,60,255,.1)', background:isF?'linear-gradient(90deg,rgba(255,34,34,.025),rgba(255,102,0,.015),rgba(255,187,51,.008),transparent)':'linear-gradient(90deg,rgba(140,60,255,.03),rgba(255,140,0,.02),rgba(57,255,136,.02),transparent)', overflow:'hidden' }}>
           {/* Fire header background layers (fire only) */}
           {isF && <>
-            {/* Animated fire gradient sweep */}
-            <div style={{ position:'absolute', inset:0, background:'linear-gradient(90deg,rgba(255,34,34,.02),rgba(255,102,0,.03),rgba(255,187,51,.02),rgba(255,102,0,.025),rgba(255,34,34,.015))', backgroundSize:'300% 100%', animation:'lb-fire-header 8s ease infinite', pointerEvents:'none', willChange:'background-position' }} />
-            {/* Bottom fire edge */}
-            <div style={{ position:'absolute', bottom:0, left:0, right:0, height:2, background:'linear-gradient(90deg,transparent 5%,#ff222233 25%,#ff660055 50%,#ff222033 75%,transparent 95%)', backgroundSize:'200% 100%', animation:'lb-fire-border 3s ease infinite', pointerEvents:'none', zIndex:8, willChange:'background-position' }} />
-            {/* Header embers — 4 only */}
-            {[0,1,2,3].map(i => (
-              <div key={`he-${i}`} style={{ position:'absolute', bottom:0, left:`${10+i*25}%`, width:2, height:2, borderRadius:'50%', background:['#ff2222','#ff6600','#ffbb33','#ff4400'][i], opacity:0, animation:`lb-header-ember ${1.8+i*0.5}s ease-in ${i*0.4}s infinite`, pointerEvents:'none', zIndex:7, willChange:'transform,opacity' }} />
-            ))}
+            {/* Static fire gradient */}
+            <div style={{ position:'absolute', inset:0, background:'linear-gradient(90deg,rgba(255,34,34,.02),rgba(255,102,0,.03),rgba(255,187,51,.02),rgba(255,102,0,.025),rgba(255,34,34,.015))', pointerEvents:'none' }} />
+            {/* Bottom fire edge — static */}
+            <div style={{ position:'absolute', bottom:0, left:0, right:0, height:2, background:'linear-gradient(90deg,transparent 5%,#ff222233 25%,#ff660055 50%,#ff222033 75%,transparent 95%)', pointerEvents:'none', zIndex:8 }} />
           </>}
           <div style={{ display:'flex', alignItems:'center', gap:16, position:'relative', zIndex:6 }}>
             {/* Orbital rings with BRAINS logo center — fire version has pulsing fire glow */}
             <div style={{ position:'relative', width:isMobile?48:58, height:isMobile?48:58, flexShrink:0 }}>
               {/* Fire ring glow behind orbital (fire only) */}
-              {isF && <div style={{ position:'absolute', inset:-6, borderRadius:'50%', background:'radial-gradient(circle,rgba(255,34,34,.12) 0%,rgba(255,102,0,.06) 40%,transparent 70%)', animation:'lb-stat-breathe 2.5s ease-in-out infinite', pointerEvents:'none' }} />}
+              {isF && <div style={{ position:'absolute', inset:-6, borderRadius:'50%', background:'radial-gradient(circle,rgba(255,34,34,.12) 0%,rgba(255,102,0,.06) 40%,transparent 70%)', pointerEvents:'none' }} />}
               {/* Outer ring */}
               <div style={{ position:'absolute', inset:0, borderRadius:'50%', border:isF?'1.5px solid rgba(255,34,34,.2)':'1.5px solid rgba(255,140,0,.12)', animation:'lb-spin 12s linear infinite' }}>
                 <div style={{ position:'absolute', top:-2, left:'50%', width:4, height:4, borderRadius:'50%', background:isF?'#ff2222':'#ff9933', boxShadow:isF?'0 0 4px rgba(255,34,34,.3)':'0 0 3px rgba(255,153,51,.3)' }} />
@@ -1681,15 +1677,8 @@ export const BurnLeaderboard: FC<Props> = ({
               {/* INCINERATOR PROTOCOL — fire mode gets flaming text effect */}
               <div key={`title-${themeName}`} style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?16:22, fontWeight:900, letterSpacing:4, position:'relative', background:isF?'linear-gradient(90deg,#c83838,#c85030,#c87040,#d4a050,#e0d8d0,#d4b860,#c87040)':'linear-gradient(90deg,#5bb8d4,#9070b8,#c07ad4,#d4884f,#d4b84f)', backgroundSize:isF?'200% 100%':undefined, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', filter:isF?'drop-shadow(0 0 6px rgba(255,34,34,.2))':'drop-shadow(0 0 5px rgba(140,60,255,.1))', animation:isF?'lb-grad-shift 6s ease infinite':undefined }}>
                 INCINERATOR PROTOCOL
-                {/* Fire text shadow overlay (fire only) — creates the flame glow effect */}
-                {isF && <span style={{ position:'absolute', inset:0, fontFamily:'inherit', fontSize:'inherit', fontWeight:'inherit', letterSpacing:'inherit', color:'transparent', WebkitTextStroke:'0.5px rgba(255,102,0,.08)', animation:'lb-flame-text 2.5s ease infinite', pointerEvents:'none' }}>INCINERATOR PROTOCOL</span>}
               </div>
-              {/* Flickering flame tips under the text (fire only) */}
-              {isF && <div style={{ display:'flex', gap:2, marginTop:1, height:4, overflow:'hidden' }}>
-                {Array.from({length:18},(_,i)=>i).map(i => (
-                  <div key={`ft-${i}`} style={{ width:isMobile?3:4, height:3+Math.random()*3, borderRadius:'1px 1px 0 0', background:`linear-gradient(180deg,${['#ff2222','#ff4400','#ff6600','#ffbb33','#ffdd44'][i%5]}88,transparent)`, animation:`lb-flame-wave ${0.4+Math.random()*0.6}s ease-in-out ${Math.random()*0.5}s infinite`, transformOrigin:'bottom center', opacity:0.5+Math.random()*0.4 }} />
-                ))}
-              </div>}
+              {/* Flame tips removed for cleaner look */}
               <div style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:isF?'#b8b0c0':'#7a99aa', letterSpacing:3, marginTop:isF?1:3 }}>
                 ALL · TIME · ON · CHAIN
               </div>
@@ -1727,20 +1716,20 @@ export const BurnLeaderboard: FC<Props> = ({
               {/* Heat shimmer (fire) / Shimmer sweep (vegas) */}
               <div style={{ position:'absolute', inset:0, background:`linear-gradient(90deg,transparent,${s.color}06,${isF?'rgba(255,255,255,.02),':''}transparent)`, backgroundSize:'300% 100%', animation:'none', pointerEvents:'none' }} />
               {/* Stat breathe pulse (fire only) */}
-              {isF && <div style={{ position:'absolute', inset:0, background:`radial-gradient(ellipse at center,${s.color}04,transparent 60%)`, animation:'lb-stat-breathe 3s ease-in-out infinite', pointerEvents:'none' }} />}
+              {isF && <div style={{ position:'absolute', inset:0, background:`radial-gradient(ellipse at center,${s.color}04,transparent 60%)`, pointerEvents:'none' }} />}
               {/* Content */}
               <div style={{ position:'relative', zIndex:1 }}>
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:5, marginBottom:10 }}>
                   <span style={{ fontSize:13, filter:`drop-shadow(0 0 4px ${s.color}55)` }}>{s.icon}</span>
-                  <span style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:isF?'#f0ecf4':s.color, letterSpacing:3, fontWeight:700 }}>{s.label}</span>
+                  <span style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:s.color, letterSpacing:3, fontWeight:700 }}>{s.label}</span>
                 </div>
-                <div key={`val-${i}-${themeName}`} style={{ fontFamily:'Rajdhani, sans-serif', fontSize:s.big?(isMobile?24:32):(isMobile?20:26), fontWeight:900, lineHeight:1, letterSpacing:1, marginBottom:5, background:s.grad||s.color, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', filter:`drop-shadow(0 0 6px ${s.color}33)` }}>
+                <div key={`val-${i}-${themeName}`} style={{ fontFamily:'Rajdhani, sans-serif', fontSize:s.big?(isMobile?24:32):(isMobile?20:26), fontWeight:900, lineHeight:1, letterSpacing:1, marginBottom:5, color:'#b8c4d0' }}>
                   {s.value === '——' ? (
-                    <span style={{ display:'inline-block', width:isMobile?60:80, height:s.big?(isMobile?24:32):(isMobile?20:26), borderRadius:4, background:`linear-gradient(90deg, ${s.color}10 25%, ${s.color}20 50%, ${s.color}10 75%)`, backgroundSize:'200% 100%', animation:'lb-skel-shimmer 1.8s ease-in-out infinite', WebkitTextFillColor:'initial', verticalAlign:'middle' }}>&nbsp;</span>
+                    <span style={{ display:'inline-block', width:isMobile?60:80, height:s.big?(isMobile?24:32):(isMobile?20:26), borderRadius:4, background:`linear-gradient(90deg, ${s.color}10 25%, ${s.color}20 50%, ${s.color}10 75%)`, backgroundSize:'200% 100%', animation:'lb-skel-shimmer 1.8s ease-in-out infinite', verticalAlign:'middle' }}>&nbsp;</span>
                   ) : s.value}
                 </div>
-                {s.usd && <div style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?13:16, fontWeight:900, marginBottom:5, marginTop:3, letterSpacing:1, padding:'5px 14px', background:isF?'linear-gradient(135deg,rgba(255,187,51,.08),rgba(255,102,0,.04))':'linear-gradient(135deg,rgba(57,255,136,.07),rgba(0,200,255,.03))', border:isF?'1px solid rgba(255,187,51,.18)':'1px solid rgba(57,255,136,.15)', borderRadius:8, display:'inline-block', color:isF?'#ffffff':'#39ff88', textShadow:isF?'0 0 6px rgba(255,187,51,.2)':'0 0 6px rgba(57,255,136,.2)' }}>{s.usd}</div>}
-                <div style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:isF?'#b8b0c0':'#b0bcc8', letterSpacing:2 }}>{s.sub}</div>
+                {s.usd && <div style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?13:16, fontWeight:900, marginBottom:5, marginTop:3, letterSpacing:1, padding:'5px 14px', background:isF?'linear-gradient(135deg,rgba(57,255,136,.08),rgba(0,200,255,.04))':'linear-gradient(135deg,rgba(57,255,136,.07),rgba(0,200,255,.03))', border:isF?'1px solid rgba(57,255,136,.18)':'1px solid rgba(57,255,136,.15)', borderRadius:8, display:'inline-block', color:'#39ff88', textShadow:'0 0 6px rgba(57,255,136,.2)' }}>{s.usd}</div>}
+                <div style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:'#a0aab8', letterSpacing:2 }}>{s.sub}</div>
               </div>
             </div>
           ))}
@@ -1770,9 +1759,9 @@ export const BurnLeaderboard: FC<Props> = ({
                     <div style={{ position:'absolute', top:'20%', left:'50%', transform:'translate(-50%,0)', width:80, height:50, borderRadius:'50%', background:`radial-gradient(circle,${it.color}04,transparent 70%)`, pointerEvents:'none' }} />
                     <div style={{ position:'absolute', inset:0, background:`linear-gradient(90deg,transparent,${it.color}03,transparent)`, backgroundSize:'300% 100%', animation:'none', pointerEvents:'none' }} />
                     <div style={{ position:'relative', zIndex:1 }}>
-                      <div style={{ fontFamily:'Sora, sans-serif', fontSize:isMobile?7:8, color:isF?'#b8b0c0':'#7a99aa', letterSpacing:2, marginBottom:5 }}>{it.label}</div>
+                      <div style={{ fontFamily:'Sora, sans-serif', fontSize:isMobile?7:8, color:it.color, letterSpacing:2, marginBottom:5 }}>{it.label}</div>
                       {it.value ? (
-                        <div key={`mktv-${i}-${themeName}`} style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?16:20, fontWeight:900, background:it.grad, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', filter:`drop-shadow(0 0 5px ${it.color}22)` }}>{it.value}</div>
+                        <div key={`mktv-${i}-${themeName}`} style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?16:20, fontWeight:900, color:'#b8c4d0' }}>{it.value}</div>
                       ) : (
                         <div style={{ display:'flex', justifyContent:'center' }}><StatSkeleton width={isMobile?'60px':'80px'} isF={isF} /></div>
                       )}
@@ -2053,112 +2042,6 @@ export const BurnLeaderboard: FC<Props> = ({
           </div>
         </div>
 
-        {/* ── SUPPLY PROGRESS BAR ── */}
-        {globalBurned != null && (
-          <div style={{ position:'relative', zIndex:5, padding:isMobile?'14px 16px':'16px 24px', borderBottom:isF?'1px solid rgba(255,34,34,.06)':'1px solid rgba(57,255,136,.06)' }}>
-            {/* Header label */}
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                <span style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:'#8aacbb', letterSpacing:3 }}>SUPPLY INCINERATION PROGRESS</span>
-              </div>
-              <span style={{ fontFamily:'Orbitron, monospace', fontSize:11, fontWeight:900, color:'#ff9933', textShadow:'none' }}>{burnedPct.toFixed(3)}% BURNED</span>
-            </div>
-
-            {/* Main bar — empty track that fills from left with burns */}
-            <div style={{ position:'relative', height:isMobile?28:34, borderRadius:17, overflow:'hidden', background:isF?'rgba(10,10,12,.95)':'rgba(8,12,20,.95)', border:isF?'1px solid rgba(255,34,34,.12)':'1px solid rgba(57,255,136,.08)', boxShadow:'inset 0 2px 6px rgba(0,0,0,.4)' }}>
-              {/* Tick marks on the track */}
-              {[10,20,30,40,50,60,70,80,90].map(pct=>(
-                <div key={pct} style={{ position:'absolute', top:0, bottom:0, left:`${pct}%`, width:1, background:pct<=burnedPct?'rgba(255,140,0,.1)':(isF?'rgba(200,56,56,.03)':'rgba(57,255,136,.04)'), zIndex:1 }} />
-              ))}
-              {/* Filled portion — the burn progress */}
-              <div style={{ position:'absolute', top:2, left:2, bottom:2, width:`calc(${Math.max(burnedPct,.3)}% - 4px)`, borderRadius:14, background:'linear-gradient(90deg,#662200,#aa4400,#dd6600,#ff9933,#ffbb55)', boxShadow:'0 0 6px rgba(255,140,0,.15), inset 0 1px 2px rgba(255,255,255,.1)', transition:'width 2s cubic-bezier(.16,1,.3,1)', zIndex:2 }}>
-                {/* Inner glow shimmer */}
-                <div style={{ position:'absolute', inset:0, borderRadius:14, background:'linear-gradient(90deg,transparent 30%,rgba(255,255,255,.12) 50%,transparent 70%)', backgroundSize:'200% 100%', animation:'none' }} />
-                {/* Ember particles at the leading edge */}
-                <div style={{ position:'absolute', top:'15%', right:-1, bottom:'15%', width:3, borderRadius:2, background:'#ffdd88', boxShadow:'0 0 8px #ffbb55, 0 0 16px rgba(255,140,0,.6)', animation:'lb-pulse 1.5s ease infinite', zIndex:3 }} />
-              </div>
-              {/* Remaining empty space — subtle grid pattern */}
-              <div style={{ position:'absolute', top:2, bottom:2, left:`calc(${Math.max(burnedPct,.3)}% - 2px)`, right:2, borderRadius:'0 14px 14px 0', backgroundImage:isF?'repeating-linear-gradient(90deg,rgba(255,34,34,.02) 0px,rgba(255,34,34,.02) 1px,transparent 1px,transparent 8px)':'repeating-linear-gradient(90deg,rgba(57,255,136,.015) 0px,rgba(57,255,136,.015) 1px,transparent 1px,transparent 8px)', pointerEvents:'none' }} />
-              {/* Percentage label inside bar */}
-              {burnedPct>3&&<div style={{ position:'absolute', top:0, bottom:0, left:0, width:`${burnedPct}%`, display:'flex', alignItems:'center', justifyContent:'center', zIndex:4 }}>
-                <span style={{ fontFamily:'Sora, sans-serif', fontSize:isMobile?9:11, color:'#fff', fontWeight:800, textShadow:'0 1px 4px rgba(0,0,0,.8)', letterSpacing:1 }}>🔥 {burnedPct.toFixed(2)}%</span>
-              </div>}
-            </div>
-
-            {/* Scale markers below */}
-            <div style={{ display:'flex', justifyContent:'space-between', marginTop:6, position:'relative' }}>
-              <span style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:'#8aacbb' }}>0%</span>
-              <span style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:'#8aacbb' }}>25%</span>
-              <span style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:'#8aacbb' }}>50%</span>
-              <span style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:'#8aacbb' }}>75%</span>
-              <span style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:'#8aacbb' }}>100%</span>
-            </div>
-
-            {/* Stats row */}
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginTop:10 }}>
-              {[
-                { label:'🔥 BURNED', value:Math.round(globalBurned).toLocaleString(), color:'#ff9933', grad:'linear-gradient(135deg,#ff9933,#ffcc55)' },
-                { label:'◈ CIRCULATING', value:globalSupply != null ? Math.round(globalSupply).toLocaleString() : '—', color:isF?'#d4a050':'#78c8a0', grad:isF?'linear-gradient(135deg,#ffbb33,#ffffffcc,#ffbb33)':'linear-gradient(135deg,#5ec99a,#88ddbb)' },
-                { label:'📡 WALLETS', value:entries.length > 0 ? String(entries.length) : '—', color:isF?'#ff6600':'#cc88ff', grad:'linear-gradient(135deg,#cc88ff,#ee99ff)' },
-              ].map((s,i) => (
-                <div key={i} style={{ padding:'10px 10px', background:`linear-gradient(135deg,${s.color}08,transparent)`, border:`1px solid ${s.color}15`, borderRadius:8, textAlign:'center', position:'relative', overflow:'hidden' }}>
-                  <div style={{ position:'absolute', left:0, top:0, bottom:0, width:2, background:`linear-gradient(180deg,transparent,${s.color}55,transparent)` }} />
-                  <div style={{ position:'absolute', inset:0, background:`linear-gradient(90deg,transparent,${s.color}04,transparent)`, backgroundSize:'300% 100%', animation:'none', pointerEvents:'none' }} />
-                  <div style={{ position:'relative', zIndex:1 }}>
-                    <div style={{ fontFamily:'Sora, sans-serif', fontSize:7, color:isF?'#f0ecf4':'#c8dce8', letterSpacing:2, marginBottom:4 }}>{s.label}</div>
-                    <div style={{ fontFamily:'Rajdhani, sans-serif', fontSize:isMobile?13:15, fontWeight:800, color:s.color, textShadow:'none' }}>{s.value}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── FIRST & LAST BURN ── */}
-        {(firstEvt || lastEvt) && (
-          <div style={{ position:'relative', zIndex:5, padding:isMobile?'12px 14px':'14px 22px', display:'grid', gridTemplateColumns:isMobile?'1fr':'1fr 1fr', gap:isMobile?8:12 }}>
-            {[
-              { label:'FIRST BURN',  evt:firstEvt, icon:'🕯️', color:'#ffaa44', glowColor:'rgba(255,170,68,.15)' },
-              { label:'LATEST BURN', evt:lastEvt,  icon:'⚡',  color:isF?'#ff6600':'#aa44ff', glowColor:isF?'rgba(255,102,0,.15)':'rgba(170,68,255,.15)' },
-            ].map((row, i) => row.evt && (
-              <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'14px 18px', background:`linear-gradient(135deg,${row.color}08,${row.color}03)`, border:`1px solid ${row.color}20`, borderLeft:`3px solid ${row.color}55`, borderRadius:10, position:'relative', overflow:'hidden' }}>
-                {/* Shimmer */}
-                <div style={{ position:'absolute', inset:0, background:`linear-gradient(90deg,transparent,${row.color}05,transparent)`, backgroundSize:'300% 100%', animation:'none', pointerEvents:'none' }} />
-                {/* Bottom gradient line */}
-                <div style={{ position:'absolute', bottom:0, left:'5%', right:'5%', height:1, background:`linear-gradient(90deg,transparent,${row.color}44,transparent)` }} />
-                {/* Radial glow behind icon */}
-                <div style={{ position:'absolute', top:'50%', left:30, transform:'translate(-50%,-50%)', width:80, height:80, borderRadius:'50%', background:`radial-gradient(circle,${row.glowColor},transparent 70%)`, pointerEvents:'none' }} />
-                <div style={{ position:'relative', width:40, height:40, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                  <div style={{ position:'absolute', inset:0, borderRadius:'50%', border:`1px solid ${row.color}33`, animation:`lb-spin ${6+i*2}s linear infinite` }} />
-                  <span style={{ fontSize:20, filter:`drop-shadow(0 0 8px ${row.glowColor})`, position:'relative', zIndex:1 }}>{row.icon}</span>
-                </div>
-                <div style={{ flex:1, minWidth:0, position:'relative', zIndex:1 }}>
-                  <div style={{ fontFamily:'Sora, sans-serif', fontSize:8, color:row.color, letterSpacing:3, fontWeight:700, marginBottom:3 }}>{row.label}</div>
-                  <div style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?11:13, fontWeight:800, color:'#ffffff', letterSpacing:0.5 }}>
-                    {fmtTs(row.evt.blockTime)}
-                    <span style={{ fontSize:9, color:`${row.color}cc`, marginLeft:7 }}>{fmtTime(row.evt.blockTime)}</span>
-                  </div>
-                  <div style={{ display:'flex', alignItems:'center', gap:4, marginTop:3 }}>
-                    <span style={{ fontFamily:'Orbitron, monospace', fontSize:10, fontWeight:700, color:'#ff9933', textShadow:'0 0 8px rgba(255,140,0,.35)' }}>🔥 {row.evt.amount.toLocaleString(undefined,{maximumFractionDigits:2})} BRAINS</span>
-                    {brainsPrice && <span style={{ fontFamily:'Orbitron, monospace', fontSize:10, color:isF?'#d4a050':'#78c8a0', fontWeight:700, textShadow:'0 0 6px rgba(57,255,136,.3)' }}>≈ ${(row.evt.amount * brainsPrice).toFixed(2)}</span>}
-                  </div>
-                </div>
-                {row.evt.sig && (
-                  <a href={`https://explorer.mainnet.x1.xyz/tx/${row.evt.sig}`} target="_blank" rel="noopener noreferrer" style={{
-                    display:'flex', flexDirection:'column', alignItems:'center', gap:2, flexShrink:0,
-                    fontFamily:'Sora, sans-serif', fontSize:8, color:row.color,
-                    textDecoration:'none', padding:'6px 10px',
-                    background:`${row.color}0c`, border:`1px solid ${row.color}25`, borderRadius:8,
-                    transition:'all 0.15s', position:'relative', zIndex:1,
-                  }}>
-                    <span style={{ fontSize:14 }}>↗</span>
-                    <span style={{ letterSpacing:2 }}>TX</span>
-                  </a>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* ══ MY SCORE CARD ══ */}
@@ -2334,7 +2217,7 @@ export const BurnLeaderboard: FC<Props> = ({
                 <div style={{ width:20, height:20, border:isF?'2px solid rgba(255,34,34,.2)':'2px solid rgba(140,60,255,.2)', borderTop:isF?'2px solid #ff6600':'2px solid #aa44ff', borderRadius:'50%', animation:'lb-spin .7s linear infinite', flexShrink:0 }} />
                 <div style={{ flex:1 }}>
                   <div style={{ fontFamily:'Orbitron, monospace', fontSize:10, color:isF?'#ff6600':'#cc88ff', letterSpacing:2, marginBottom:3 }}>SCANNING CHAIN…</div>
-                  <div style={{ fontFamily:'Sora, sans-serif', fontSize:11, color:'#dde4ec' }}>{lb.progress}</div>
+                  <div style={{ fontFamily:'Sora, sans-serif', fontSize:11, color:'#b8c4d0' }}>{lb.progress}</div>
                 </div>
                 {lb.batches > 0 && (
                   <div style={{ width:60, height:4, borderRadius:2, background:isF?'rgba(255,102,0,.1)':'rgba(140,60,255,.1)', overflow:'hidden' }}>
@@ -2411,7 +2294,7 @@ export const BurnLeaderboard: FC<Props> = ({
               </div>
               {!showAll && myRank && myRank > 10 && myEntry && (
                 <>
-                  <div style={{ textAlign:'center', padding:'10px 0', fontFamily:'Orbitron, monospace', fontSize:9, color:'#dde4ec', letterSpacing:3 }}>· · · · · ·</div>
+                  <div style={{ textAlign:'center', padding:'10px 0', fontFamily:'Orbitron, monospace', fontSize:9, color:'#b8c4d0', letterSpacing:3 }}>· · · · · ·</div>
                   <LbRow entry={myEntry} rank={myRank} isYou delay={0} isMobile={isMobile} />
                 </>
               )}
@@ -2428,7 +2311,7 @@ export const BurnLeaderboard: FC<Props> = ({
 
           {/* Empty state */}
           {!lb.loading && entries.length === 0 && !lb.error && (
-            <div style={{ textAlign:'center', padding:'40px 20px', fontFamily:'Orbitron, monospace', fontSize:11, color:'#dde4ec', letterSpacing:2 }}>
+            <div style={{ textAlign:'center', padding:'40px 20px', fontFamily:'Orbitron, monospace', fontSize:11, color:'#b8c4d0', letterSpacing:2 }}>
               NO BURN DATA FOUND
             </div>
           )}

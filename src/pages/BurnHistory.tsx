@@ -381,14 +381,6 @@ const BurnHistory: FC = () => {
         input:focus { border-color:rgba(255,120,40,0.5)!important; box-shadow:0 0 10px rgba(255,80,0,0.15); }
       `}</style>
 
-      {/* Atmospheric scanline */}
-      <div style={{
-        position: 'fixed', top: 0, left: 0, right: 0, height: 1,
-        background: 'rgba(255,80,0,0.18)',
-        animation: 'scanWipe 12s linear infinite',
-        pointerEvents: 'none', zIndex: 99,
-      }} />
-
       <div style={{ position: 'relative', zIndex: 1, maxWidth: 960, margin: '0 auto' }}>
 
         {/* ── FIRE PORTAL HEADER ── */}
