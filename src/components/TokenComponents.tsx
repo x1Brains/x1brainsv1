@@ -329,7 +329,9 @@ export const TokenCard: FC<{
   animDelay?: number;
   isLP?: boolean;
   usdPrice?: number | null;
-}> = ({ token, highlight, copiedAddress, onCopy, animDelay = 0, isLP = false }) => {
+  onSend?: (mint: string) => void;
+  sendActive?: boolean;
+}> = ({ token, highlight, copiedAddress, onCopy, animDelay = 0, isLP = false, onSend, sendActive = false }) => {
   const [lpInfo, setLpInfo] = useState<LPPoolInfo | null>(null);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -369,44 +371,44 @@ export const TokenCard: FC<{
 
   return (
     <div
-      style={{ background:bgGradient, border:`1px solid ${borderColor}`, borderRadius:14,
-        padding:'18px 20px', marginBottom:12,
+      style={{ background:bgGradient, border:`1px solid ${borderColor}`, borderRadius:12,
+        padding:'12px 16px', marginBottom:8,
         animation:`fadeUp 0.4s ease ${animDelay}s both`,
         transition:'transform 0.15s, box-shadow 0.2s',
         position:'relative', overflow:'hidden' }}
-      onMouseEnter={e => { const el = e.currentTarget as HTMLDivElement; el.style.transform='translateX(4px)'; el.style.boxShadow=`0 0 24px ${borderColor}28`; }}
+      onMouseEnter={e => { const el = e.currentTarget as HTMLDivElement; el.style.transform='translateX(3px)'; el.style.boxShadow=`0 0 18px ${borderColor}22`; }}
       onMouseLeave={e => { const el = e.currentTarget as HTMLDivElement; el.style.transform='translateX(0)'; el.style.boxShadow='none'; }}
     >
-      <div style={{ position:'absolute', top:0, left:0, width:4, height:'100%',
-        background:borderColor, opacity:highlight ? 1 : 0.65, borderRadius:'4px 0 0 4px' }} />
+      <div style={{ position:'absolute', top:0, left:0, width:3, height:'100%',
+        background:borderColor, opacity:highlight ? 1 : 0.65, borderRadius:'3px 0 0 3px' }} />
 
-      <div style={{ display:'flex', alignItems:'center', gap:16, paddingLeft:10 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:12, paddingLeft:8 }}>
 
         {/* LOGO */}
         {isLP ? (
-          <div style={{ position:'relative', width:58, height:58, flexShrink:0 }}>
-            <div style={{ position:'absolute', top:0, left:0, width:38, height:38, borderRadius:'50%',
+          <div style={{ position:'relative', width:46, height:46, flexShrink:0 }}>
+            <div style={{ position:'absolute', top:0, left:0, width:30, height:30, borderRadius:'50%',
               background:'linear-gradient(135deg,#00c98d,#00a572)', display:'flex', alignItems:'center',
-              justifyContent:'center', fontFamily:'Orbitron, monospace', fontSize:14, fontWeight:800,
+              justifyContent:'center', fontFamily:'Orbitron, monospace', fontSize:11, fontWeight:800,
               color:'#0a0e14', border:'2px solid #080c0f', zIndex:2 }}>
               {(lpInfo?.token1Symbol ?? displayedSymbol).charAt(0).toUpperCase()}
             </div>
-            <div style={{ position:'absolute', bottom:0, right:0, width:38, height:38, borderRadius:'50%',
+            <div style={{ position:'absolute', bottom:0, right:0, width:30, height:30, borderRadius:'50%',
               background:'linear-gradient(135deg,#00d4ff,#0090bb)', display:'flex', alignItems:'center',
-              justifyContent:'center', fontFamily:'Orbitron, monospace', fontSize:14, fontWeight:800,
+              justifyContent:'center', fontFamily:'Orbitron, monospace', fontSize:11, fontWeight:800,
               color:'#0a0e14', border:'2px solid #080c0f', zIndex:1 }}>
               {lpInfo ? lpInfo.token2Symbol.charAt(0).toUpperCase() : (displayedSymbol.charAt(1)||'?').toUpperCase()}
             </div>
           </div>
         ) : (
-          <TokenLogo token={{ ...token, symbol:displayedSymbol }} size={52} />
+          <TokenLogo token={{ ...token, symbol:displayedSymbol }} size={40} />
         )}
 
         {/* CENTER INFO */}
         <div style={{ flex:1, minWidth:0 }}>
 
-          <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:3, flexWrap:'wrap' }}>
-            <span style={{ fontFamily:'Orbitron, monospace', fontSize:17, fontWeight:700, color:accentColor }}>
+          <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:2, flexWrap:'wrap' }}>
+            <span style={{ fontFamily:'Orbitron, monospace', fontSize:14, fontWeight:700, color:accentColor }}>
               {cardSymbol}
             </span>
             {isLP && (
@@ -482,10 +484,10 @@ export const TokenCard: FC<{
         {/* RIGHT: BALANCE + USD */}
         <div style={{ textAlign:'right', flexShrink:0,
           display:'flex', flexDirection:'column', alignItems:'flex-end',
-          gap:4, minWidth:110 }}>
+          gap:3, minWidth:90 }}>
 
           <div style={{ fontFamily:'Orbitron, monospace', fontWeight:700, color:accentColor, lineHeight:1.1,
-            fontSize:token.balance >= 10_000_000 ? 14 : token.balance >= 10_000 ? 18 : 22 }}>
+            fontSize:token.balance >= 10_000_000 ? 11 : token.balance >= 10_000 ? 14 : 17 }}>
             {token.balance.toLocaleString(undefined, {
               minimumFractionDigits: 0,
               maximumFractionDigits: Math.min(token.decimals, 4),
@@ -506,6 +508,42 @@ export const TokenCard: FC<{
           0%,100%{opacity:.2} 50%{opacity:.5}
         }
       `}</style>
+
+      {/* ── SEND BUTTON ── */}
+      {onSend && (
+        <div style={{ paddingLeft:8, paddingTop:8, borderTop:'1px solid rgba(255,255,255,.04)', marginTop:8 }}>
+          <button
+            type="button"
+            onClick={e => { e.preventDefault(); e.stopPropagation(); onSend(token.mint); }}
+            style={{
+              display:'inline-flex', alignItems:'center', gap:5,
+              padding:'5px 12px',
+              background: sendActive ? 'rgba(255,140,0,.15)' : 'transparent',
+              border: `1px solid ${sendActive ? 'rgba(255,140,0,.5)' : 'rgba(255,140,0,.2)'}`,
+              borderRadius:6, cursor:'pointer', transition:'all .15s',
+              fontFamily:'Orbitron,monospace', fontSize:8, fontWeight:700,
+              letterSpacing:2, color: sendActive ? '#ff8c00' : '#7a9ab8',
+            }}
+            onMouseEnter={e => {
+              const b = e.currentTarget as HTMLButtonElement;
+              b.style.borderColor = 'rgba(255,140,0,.5)';
+              b.style.color = '#ff8c00';
+              b.style.background = 'rgba(255,140,0,.1)';
+            }}
+            onMouseLeave={e => {
+              const b = e.currentTarget as HTMLButtonElement;
+              b.style.borderColor = sendActive ? 'rgba(255,140,0,.5)' : 'rgba(255,140,0,.2)';
+              b.style.color = sendActive ? '#ff8c00' : '#7a9ab8';
+              b.style.background = sendActive ? 'rgba(255,140,0,.15)' : 'transparent';
+            }}
+          >
+            <svg width="9" height="9" viewBox="0 0 10 10" fill="none" style={{flexShrink:0}}>
+              <path d="M1 9L9 1M9 1H3M9 1V7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            {sendActive ? 'CANCEL' : 'SEND'}
+          </button>
+        </div>
+      )}
     </div>
   );
 };

@@ -43,6 +43,9 @@ import {
 import { TokenCard, TokenData, XenBlocksPanel, WalletTokenSnapshot, useTokenPrices } from '../components/TokenComponents';
 import { NFTGrid } from '../components/NFTComponents';
 import { BurnedBrainsBar, injectBurnStyles, walletBurnStats } from '../components/BurnedBrainsBar';
+import { SendPanel, SendHistoryRow, SavedAddress } from '../components/SendPanel';
+import { PortfolioChart, useDailySnapshot } from '../components/PortfolioChart';
+import type { SnapshotToken } from '../lib/supabase';
 
 // ─────────────────────────────────────────────
 // MOBILE HOOK — matches BurnedBrainsBar breakpoint (640px)
@@ -433,7 +436,7 @@ const ToggleRow: FC<ToggleRowProps> = ({ icon, label, count, countLabel, active,
         color: active && count > 0 ? color : '#3a5070', transition: 'color 0.25s' }}>
         {active && count > 0 ? 'ON' : 'OFF'}
       </span>
-      <button onClick={onToggle} disabled={count === 0}
+      <button type="button" onClick={onToggle} disabled={count === 0}
         style={{ position: 'relative', width: 46, height: 26, borderRadius: 13, border: 'none',
           cursor: count === 0 ? 'not-allowed' : 'pointer', outline: 'none', flexShrink: 0,
           opacity: count === 0 ? 0.3 : 1, transition: 'all 0.25s',
@@ -811,7 +814,9 @@ const BurnCelebrationPortfolio: FC<{ amount: string; newPts: number; totalPts: n
 };
 
 const Portfolio: FC = () => {
-  const { publicKey, signTransaction } = useWallet();
+  const { publicKey, signTransaction, signAllTransactions, wallet: walletAdapter } = useWallet();
+  // Compose a wallet object that SendPanel expects
+  const wallet = publicKey ? { publicKey, signTransaction, signAllTransactions } : null;
   const { connection }                 = useConnection();
   const isMobile                       = useIsMobile();
 
@@ -825,6 +830,7 @@ const Portfolio: FC = () => {
   const [loadingLabel, setLoadingLabel]       = useState('Scanning X1 chain...');
   const [copiedAddress, setCopiedAddress]     = useState<string | null>(null);
   const [hideZeroBalance, setHideZeroBalance] = useState(true);
+  const [hideUnpriced,    setHideUnpriced]    = useState(true);
   const [showSPL, setShowSPL]                 = useState(true);
   const [showT22, setShowT22]                 = useState(true);
   const [showLP, setShowLP]                   = useState(false);
@@ -843,6 +849,73 @@ const Portfolio: FC = () => {
   const [burnKey, setBurnKey]                 = useState(0);
   const [showCelebration, setShowCelebration] = useState<{amount:string;newPts:number;totalPts:number;labWorkPts:number;tierName:string;tierIcon:string}|null>(null);
 
+  // ── SEND FEATURE STATE ──────────────────────────────────────────────────────
+  const [activeSendMint,  setActiveSendMint]  = useState<string | null>(null);
+  const [savedAddresses,  setSavedAddresses]  = useState<SavedAddress[]>([]);
+  const [sendHistory,     setSendHistory]     = useState<SendHistoryRow[]>([]);
+  const [showSendHistory, setShowSendHistory] = useState(false);
+
+  // Load address book + send history when wallet connects
+  useEffect(() => {
+    if (!publicKey) { setSavedAddresses([]); setSendHistory([]); return; }
+    const addr = publicKey.toBase58();
+    (async () => {
+      try {
+        const { getSavedAddresses, getSendHistory } = await import('../lib/supabase');
+        const [addrs, hist] = await Promise.all([getSavedAddresses(addr), getSendHistory(addr)]);
+        setSavedAddresses(addrs.map(a => ({ id:a.id, wallet:a.saved_wallet, nickname:a.nickname, created_at:a.created_at })));
+        setSendHistory(hist);
+      } catch {}
+    })();
+  }, [publicKey]);
+
+  const handleSaveAddress = async (wallet: string, nickname: string) => {
+    if (!publicKey) return;
+    try {
+      const { insertSavedAddress, getSavedAddresses } = await import('../lib/supabase');
+      await insertSavedAddress({ owner_wallet: publicKey.toBase58(), saved_wallet: wallet, nickname });
+      const fresh = await getSavedAddresses(publicKey.toBase58());
+      setSavedAddresses(fresh.map(a => ({ id:a.id, wallet:a.saved_wallet, nickname:a.nickname, created_at:a.created_at })));
+    } catch {}
+  };
+
+  const handleDeleteAddress = async (id: string) => {
+    try {
+      const { deleteSavedAddress, getSavedAddresses } = await import('../lib/supabase');
+      await deleteSavedAddress(id);
+      if (publicKey) {
+        const fresh = await getSavedAddresses(publicKey.toBase58());
+        setSavedAddresses(fresh.map(a => ({ id:a.id, wallet:a.saved_wallet, nickname:a.nickname, created_at:a.created_at })));
+      }
+    } catch {}
+  };
+
+  const handleSendComplete = async (records: SendHistoryRow[]) => {
+    try {
+      const { insertSendRecord } = await import('../lib/supabase');
+      for (const r of records) {
+        await insertSendRecord({ from_wallet:r.from_wallet, to_wallet:r.to_wallet, mint:r.mint, symbol:r.symbol, amount:r.amount, tx_sig:r.tx_sig, sent_at:r.sent_at });
+      }
+      setSendHistory(prev => [...records, ...prev]);
+    } catch {}
+  };
+  // ── PORTFOLIO HISTORY STATE ────────────────────────────────────────────────
+  const [snapshots,      setSnapshots]      = useState<import('../lib/supabase').PortfolioSnapshot[]>([]);
+  const [snapsLoading,   setSnapsLoading]   = useState(false);
+
+  useEffect(() => {
+    if (!publicKey) { setSnapshots([]); return; }
+    setSnapsLoading(true);
+    (async () => {
+      try {
+        const { getPortfolioSnapshots } = await import('../lib/supabase');
+        const data = await getPortfolioSnapshots(publicKey.toBase58());
+        setSnapshots(data);
+      } catch {}
+      finally { setSnapsLoading(false); }
+    })();
+  }, [publicKey]);
+  // ─────────────────────────────────────────────────────────────────────────
   const burnRef      = useRef<HTMLDivElement>(null);
   const splRef       = useRef<HTMLDivElement>(null);
   const t22Ref       = useRef<HTMLDivElement>(null);
@@ -956,8 +1029,7 @@ const Portfolio: FC = () => {
         const balance = rawAmount !== null && rawAmount !== undefined
           ? rawAmount
           : (info.tokenAmount.uiAmountString ? parseFloat(info.tokenAmount.uiAmountString) : 0);
-        console.log('[Portfolio] raw account:', info.mint?.slice(0,8), '| uiAmount:', info.tokenAmount.uiAmount, '| uiAmountString:', info.tokenAmount.uiAmountString, '| balance:', balance, '| decimals:', info.tokenAmount.decimals);
-        if (balance < 0) return null;
+        if (balance < 0) return null; // skip negative balances only
         const mint = info.mint as string;
         const isLP = checkIsLP(mint, globalLPMints, walletLP);
         const meta = await resolveTokenMeta(connection, mint, xdexRegistry, metaplexCache, logoCache);
@@ -968,9 +1040,10 @@ const Portfolio: FC = () => {
         if (r.status !== 'fulfilled' || !r.value) continue;
         const t  = r.value;
         const td: TokenData = { mint: t.mint, balance: t.balance, decimals: t.decimals, isToken2022: t.isToken2022, name: t.name, symbol: t.symbol, logoUri: t.logoUri, metaUri: (t as any).metaUri, metaSource: t.metaSource };
-        // Detect NFTs early — before any metaSource filtering
-        // decimals=0 + balance=1 is the canonical NFT fingerprint on Solana
-        if (!t.isLP && t.mint !== BRAINS_MINT && t.decimals === 0 && t.balance === 1) {
+        // Detect NFTs — decimals=0 is the canonical NFT fingerprint on Solana
+        // Only include NFTs currently held (balance > 0) — sent/transferred NFTs are excluded
+        if (!t.isLP && t.mint !== BRAINS_MINT && t.decimals === 0) {
+          if (t.balance <= 0) continue; // skip NFTs no longer in wallet
           console.log('[Portfolio] NFT detected:', t.mint, '| name:', t.name, '| src:', t.metaSource, '| logoUri:', t.logoUri);
           // If no metaUri yet, fetch Metaplex PDA directly to get the raw metadata URI
           if (!td.metaUri && !td.logoUri) {
@@ -1086,6 +1159,28 @@ const Portfolio: FC = () => {
     ...(brainsToken ? [{ mint: brainsToken.mint, symbol: brainsToken.symbol, name: brainsToken.name, balance: brainsToken.balance, logoUri: brainsToken.logoUri } as WalletTokenSnapshot] : []),
   ];
 
+  // ── Snapshot tokens for portfolio history ─────────────────────────────────
+  const snapshotTokens: SnapshotToken[] = useMemo(() => {
+    const result: SnapshotToken[] = [];
+    const allT = [
+      ...(xntBalance !== null ? [{ mint: XNT_WRAPPED, symbol: 'XNT', balance: xntBalance }] : []),
+      ...splTokens.map(t => ({ mint: t.mint, symbol: t.symbol, balance: t.balance })),
+      ...token2022s.map(t => ({ mint: t.mint, symbol: t.symbol, balance: t.balance })),
+      ...(brainsToken ? [{ mint: brainsToken.mint, symbol: brainsToken.symbol, balance: brainsToken.balance }] : []),
+    ];
+    for (const t of allT) {
+      const price = tokenPrices.get(t.mint) ?? 0;
+      const usd   = price * t.balance;
+      if (usd > 0) result.push({ mint: t.mint, symbol: t.symbol, balance: t.balance, usd, price });
+    }
+    return result;
+  }, [tokenPrices, xntBalance, splTokens, token2022s, brainsToken]);
+
+  // Take a silent daily snapshot when portfolio loads with prices
+  // Pass total token count (not just priced ones) so the hook doesn't bail early
+  const allTokenCount = (xntBalance !== null ? 1 : 0) + splTokens.length + token2022s.length + (brainsToken ? 1 : 0);
+  useDailySnapshot(publicKey?.toBase58() ?? null, totalUSD, snapshotTokens, allTokenCount);
+
   // ─────────────────────────────────────────────
   // RENDER
   // ─────────────────────────────────────────────
@@ -1149,19 +1244,55 @@ const Portfolio: FC = () => {
                   burnKey={burnKey} isMobile={isMobile}
                 />
 
+                {/* ── PORTFOLIO HISTORY CHART ── */}
+                <PortfolioChart
+                  snapshots={snapshots}
+                  currentUSD={totalUSD}
+                  isMobile={isMobile}
+                  loading={snapsLoading}
+                />
+
                 {/* 1. Native XNT */}
                 <SectionHeader label="Native Token" color="#00d4ff" />
                 <TokenCard
                   token={{ mint: XNT_WRAPPED, name: 'X1 Native Token', symbol: 'XNT', balance: xntBalance ?? 0,
                     decimals: 9, isToken2022: false, metaSource: undefined, logoUri: XNT_INFO.logoUri }}
-                  highlight="native" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.05} usdPrice={tokenPrices.get(XNT_WRAPPED) ?? null}
+                  highlight="native" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.05}
+                  usdPrice={tokenPrices.get(XNT_WRAPPED) ?? null}
+                  onSend={() => setActiveSendMint(m => m === 'native-xnt' ? null : 'native-xnt')}
+                  sendActive={activeSendMint === 'native-xnt'}
                 />
+                {activeSendMint === 'native-xnt' && (
+                  <SendPanel
+                    token={{ mint:'native-xnt', name:'X1 Native Token', symbol:'XNT', balance:xntBalance??0, decimals:9, isToken2022:false }}
+                    wallet={wallet} connection={connection} isMobile={isMobile}
+                    savedAddresses={savedAddresses}
+                    onSaveAddress={handleSaveAddress}
+                    onDeleteAddress={handleDeleteAddress}
+                    onSendComplete={handleSendComplete}
+                    onClose={() => setActiveSendMint(null)}
+                  />
+                )}
 
                 {/* 2. BRAINS + burn */}
                 {brainsToken && (
                   <div ref={burnRef}>
                     <SectionHeader label="BRAINS Token" color="#ff8c00" />
-                    <TokenCard token={brainsToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.1} usdPrice={tokenPrices.get(brainsToken.mint) ?? null} />
+                    <TokenCard token={brainsToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.1}
+                      usdPrice={tokenPrices.get(brainsToken.mint) ?? null}
+                      onSend={() => setActiveSendMint(m => m === brainsToken.mint ? null : brainsToken.mint)}
+                      sendActive={activeSendMint === brainsToken.mint}
+                    />
+                    {activeSendMint === brainsToken.mint && (
+                      <SendPanel
+                        token={brainsToken} wallet={wallet} connection={connection} isMobile={isMobile}
+                        savedAddresses={savedAddresses}
+                        onSaveAddress={handleSaveAddress}
+                        onDeleteAddress={handleDeleteAddress}
+                        onSendComplete={handleSendComplete}
+                        onClose={() => setActiveSendMint(null)}
+                      />
+                    )}
 
                     <div style={{
                       background: 'linear-gradient(135deg,rgba(255,30,30,.12),rgba(200,0,0,.08),rgba(255,30,30,.04))',
@@ -1286,50 +1417,130 @@ const Portfolio: FC = () => {
                   </div>
                 )}
 
-                {/* ── Global Hide Zero Balance Toggle ── */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 10, gap: 10 }}>
-                  <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#6a8ea8', letterSpacing: 1.5 }}>HIDE ZERO BALANCE</span>
-                  <button onClick={() => setHideZeroBalance(v => !v)}
-                    style={{ position: 'relative', width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', outline: 'none', flexShrink: 0, transition: 'all 0.25s',
-                      background: hideZeroBalance ? 'linear-gradient(135deg,#ff8c00,#ffb700)' : 'rgba(255,255,255,.1)',
-                      boxShadow: hideZeroBalance ? '0 0 10px rgba(255,140,0,.4)' : 'none' }}>
-                    <span style={{ position: 'absolute', top: 2, left: hideZeroBalance ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left 0.25s', boxShadow: '0 1px 4px rgba(0,0,0,.4)' }} />
-                  </button>
+                {/* ── Filter Toggles ── */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 10, gap: 16, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#6a8ea8', letterSpacing: 1.5 }}>HIDE ZERO BALANCE</span>
+                    <button type="button" onClick={() => setHideZeroBalance(v => !v)}
+                      style={{ position: 'relative', width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', outline: 'none', flexShrink: 0, transition: 'all 0.25s',
+                        background: hideZeroBalance ? 'linear-gradient(135deg,#ff8c00,#ffb700)' : 'rgba(255,255,255,.1)',
+                        boxShadow: hideZeroBalance ? '0 0 10px rgba(255,140,0,.4)' : 'none' }}>
+                      <span style={{ position: 'absolute', top: 2, left: hideZeroBalance ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left 0.25s', boxShadow: '0 1px 4px rgba(0,0,0,.4)' }} />
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#6a8ea8', letterSpacing: 1.5 }}>HIDE UNPRICED</span>
+                    <button type="button" onClick={() => setHideUnpriced(v => !v)}
+                      style={{ position: 'relative', width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', outline: 'none', flexShrink: 0, transition: 'all 0.25s',
+                        background: hideUnpriced ? 'linear-gradient(135deg,#00d4ff,#00a0cc)' : 'rgba(255,255,255,.1)',
+                        boxShadow: hideUnpriced ? '0 0 10px rgba(0,212,255,.4)' : 'none' }}>
+                      <span style={{ position: 'absolute', top: 2, left: hideUnpriced ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left 0.25s', boxShadow: '0 1px 4px rgba(0,0,0,.4)' }} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* 3. SPL Tokens */}
                 {showSPL && (() => {
-                  const visible = splTokens.filter(t => t.metaSource !== 'fallback' && (!hideZeroBalance || t.balance > 0));
-                  const hidden  = splTokens.filter(t => t.metaSource !== 'fallback' && t.balance <= 0).length;
+                  const visible = splTokens
+                    .filter(t => !hideZeroBalance || t.balance > 0)
+                    .filter(t => !hideUnpriced || (tokenPrices.get(t.mint) ?? 0) > 0)
+                    .sort((a, b) => {
+                      const aKnown = a.metaSource !== 'fallback' ? 0 : 1;
+                      const bKnown = b.metaSource !== 'fallback' ? 0 : 1;
+                      if (aKnown !== bKnown) return aKnown - bKnown;
+                      return b.balance - a.balance;
+                    });
+                  const hidden = splTokens.filter(t => t.balance <= 0).length;
                   return visible.length > 0 ? (
                     <div ref={splRef}>
                       <SectionHeader label="SPL Tokens" count={visible.length} color="#ff8c00" hiddenCount={hideZeroBalance ? hidden : 0} />
-                      {visible.map((t, i) => <TokenCard key={t.mint} token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * i} usdPrice={tokenPrices.get(t.mint) ?? null} />)}
+                      {visible.map((t, i) => (
+                        <React.Fragment key={t.mint}>
+                          <TokenCard token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * i}
+                            usdPrice={tokenPrices.get(t.mint) ?? null}
+                            onSend={() => setActiveSendMint(m => m === t.mint ? null : t.mint)}
+                            sendActive={activeSendMint === t.mint}
+                          />
+                          {activeSendMint === t.mint && (
+                            <SendPanel token={t} wallet={wallet} connection={connection} isMobile={isMobile}
+                              savedAddresses={savedAddresses} onSaveAddress={handleSaveAddress}
+                              onDeleteAddress={handleDeleteAddress} onSendComplete={handleSendComplete}
+                              onClose={() => setActiveSendMint(null)}
+                            />
+                          )}
+                        </React.Fragment>
+                      ))}
                     </div>
                   ) : null;
                 })()}
 
                 {/* 4. Token-2022 */}
                 {showT22 && (() => {
-                  const visible = token2022s.filter(t => !hideZeroBalance || t.balance > 0);
+                  const visible = token2022s
+                    .filter(t => !hideZeroBalance || t.balance > 0)
+                    .filter(t => !hideUnpriced || (tokenPrices.get(t.mint) ?? 0) > 0);
                   const hidden  = token2022s.filter(t => t.balance <= 0).length;
                   return (brainsToken || token2022s.length > 0) ? (
                     <div ref={t22Ref}>
                       <SectionHeader label="Token-2022 Extensions" count={(brainsToken ? 1 : 0) + visible.length} color="#ffb700" hiddenCount={hideZeroBalance ? hidden : 0} />
-                      {brainsToken && <TokenCard token={brainsToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.05} usdPrice={tokenPrices.get(brainsToken.mint) ?? null} />}
-                      {visible.map((t, i) => <TokenCard key={t.mint} token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * (i + 1)} usdPrice={tokenPrices.get(t.mint) ?? null} />)}
+                      {brainsToken && (
+                        <React.Fragment>
+                          <TokenCard token={brainsToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.05}
+                            usdPrice={tokenPrices.get(brainsToken.mint) ?? null}
+                            onSend={() => setActiveSendMint(m => m === brainsToken.mint ? null : brainsToken.mint)}
+                            sendActive={activeSendMint === brainsToken.mint}
+                          />
+                          {activeSendMint === brainsToken.mint && (
+                            <SendPanel token={brainsToken} wallet={wallet} connection={connection} isMobile={isMobile}
+                              savedAddresses={savedAddresses} onSaveAddress={handleSaveAddress}
+                              onDeleteAddress={handleDeleteAddress} onSendComplete={handleSendComplete}
+                              onClose={() => setActiveSendMint(null)}
+                            />
+                          )}
+                        </React.Fragment>
+                      )}
+                      {visible.map((t, i) => (
+                        <React.Fragment key={t.mint}>
+                          <TokenCard token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * (i + 1)}
+                            usdPrice={tokenPrices.get(t.mint) ?? null}
+                            onSend={() => setActiveSendMint(m => m === t.mint ? null : t.mint)}
+                            sendActive={activeSendMint === t.mint}
+                          />
+                          {activeSendMint === t.mint && (
+                            <SendPanel token={t} wallet={wallet} connection={connection} isMobile={isMobile}
+                              savedAddresses={savedAddresses} onSaveAddress={handleSaveAddress}
+                              onDeleteAddress={handleDeleteAddress} onSendComplete={handleSendComplete}
+                              onClose={() => setActiveSendMint(null)}
+                            />
+                          )}
+                        </React.Fragment>
+                      ))}
                     </div>
                   ) : null;
                 })()}
 
                 {/* 5. LP Tokens */}
                 {showLP && (() => {
-                  const visible = lpTokens.filter(t => !hideZeroBalance || t.balance > 0);
-                  const hidden = lpTokens.filter(t => t.balance <= 0).length;
+                  const visible = lpTokens; // always show all LP tokens regardless of zero balance
                   return visible.length > 0 ? (
                   <div ref={lpRef}>
-                    <SectionHeader label="LP Tokens" count={visible.length} color="#00c98d" hiddenCount={hideZeroBalance ? hidden : 0} />
-                    {visible.map((t, i) => <TokenCard key={t.mint} token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * i} isLP={true} usdPrice={tokenPrices.get(t.mint) ?? null} />)}
+                    <SectionHeader label="LP Tokens" count={visible.length} color="#00c98d" />
+                    {visible.map((t, i) => (
+                      <React.Fragment key={t.mint}>
+                        <TokenCard token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * i}
+                          isLP={true} usdPrice={tokenPrices.get(t.mint) ?? null}
+                          onSend={() => setActiveSendMint(m => m === t.mint ? null : t.mint)}
+                          sendActive={activeSendMint === t.mint}
+                        />
+                        {activeSendMint === t.mint && (
+                          <SendPanel token={t} wallet={wallet} connection={connection} isMobile={isMobile}
+                            savedAddresses={savedAddresses} onSaveAddress={handleSaveAddress}
+                            onDeleteAddress={handleDeleteAddress} onSendComplete={handleSendComplete}
+                            onClose={() => setActiveSendMint(null)}
+                          />
+                        )}
+                      </React.Fragment>
+                    ))}
                   </div>
                   ) : null;
                 })()}
@@ -1403,6 +1614,53 @@ const Portfolio: FC = () => {
                       walletAddress={publicKey.toBase58()} connection={connection}
                       evmAddress={userEvmAddress || undefined} walletTokens={xenBlocksWalletTokens}
                     />
+                  </div>
+                )}
+
+                {/* ── SEND HISTORY ── */}
+                {sendHistory.length > 0 && (
+                  <div style={{ marginTop: 32, marginBottom: 8 }}>
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                        <span style={{ fontSize:14 }}>📤</span>
+                        <span style={{ fontFamily:'Orbitron,monospace', fontSize:11, fontWeight:700, color:'#ff8c00', letterSpacing:2 }}>
+                          SEND HISTORY
+                        </span>
+                        <span style={{ fontFamily:'Orbitron,monospace', fontSize:9, color:'#5a7a90',
+                          background:'rgba(255,140,0,.08)', border:'1px solid rgba(255,140,0,.2)',
+                          borderRadius:10, padding:'2px 8px' }}>{sendHistory.length}</span>
+                      </div>
+                      <button onClick={() => setShowSendHistory(v => !v)} style={{
+                        background:'rgba(255,255,255,.04)', border:'1px solid rgba(255,255,255,.1)',
+                        borderRadius:8, padding:'5px 12px', cursor:'pointer',
+                        fontFamily:'Orbitron,monospace', fontSize:8, color:'#6a8ea8', letterSpacing:1,
+                      }}>
+                        {showSendHistory ? '▲ HIDE' : '▼ SHOW'}
+                      </button>
+                    </div>
+
+                    {showSendHistory && (
+                      <div style={{ background:'linear-gradient(135deg,#0d1520,#0a1018)',
+                        border:'1px solid rgba(255,140,0,.15)', borderRadius:14, overflow:'hidden',
+                        animation:'fadeUp .3s ease both' }}>
+                        {/* Column headers */}
+                        <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr 80px' : '1fr 120px 100px 120px',
+                          gap:8, padding:'8px 14px', borderBottom:'1px solid rgba(255,255,255,.05)',
+                          background:'rgba(255,140,0,.03)' }}>
+                          {(isMobile ? ['SENT','TX'] : ['TOKEN · AMOUNT','TO','DATE','TX']).map(h => (
+                            <span key={h} style={{ fontFamily:'Orbitron,monospace', fontSize:7, color:'#5a7a90', letterSpacing:2 }}>{h}</span>
+                          ))}
+                        </div>
+                        {sendHistory.slice(0, 50).map((r, i) => (
+                          <SendHistoryRow key={r.id || i} record={r} isMobile={isMobile} />
+                        ))}
+                        {sendHistory.length > 50 && (
+                          <div style={{ padding:'10px 14px', fontFamily:'Sora,sans-serif', fontSize:11, color:'#3a5060', textAlign:'center' }}>
+                            Showing 50 of {sendHistory.length} — oldest hidden
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
