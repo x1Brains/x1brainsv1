@@ -16,7 +16,7 @@ function useIsMobile() {
 // ─── DATA SOURCE — GitHub Gist JSON ──────────────────────────────────────────
 // jacklevin74 regenerates the JSON and pushes to this Gist whenever scores update.
 // Full registry — all citizens:
-const GIST_ALL = "https://gist.githubusercontent.com/jacklevin74/d4c429c3d31e190247fd79b00d92f350/raw/cyberdyne.json";
+const GIST_ALL = "https://gist.githubusercontent.com/jacklevin74/f79f78f03a27aefbe0046bffcffb0432/raw/cyberdyne.json";
 
 // Cache-bust disabled — Gist raw URLs may not support query params
 const fetchJSON = (url: string) =>

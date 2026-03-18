@@ -505,42 +505,69 @@ export async function fetchLeaderboard(
   const mintPK  = new PublicKey(BRAINS_MINT);
   const mintStr = mintPK.toBase58();
   const totals  = new Map<string, { burned: number; txCount: number; events: BurnEvent[] }>();
-  const MAX_BATCHES = 8;
+  // Scan up to 500 pages of RPC history — stops naturally when chain start is reached
+  const MAX_BATCHES = 500;
 
-  // ── Pipeline: fetch sigs + parse in parallel ──
-  // Instead of fetching ALL sig pages first, then parsing,
-  // we start parsing each batch as soon as its sigs arrive.
+  // ── STEP 1: Load all stored burns from Supabase first ──────────────────────
+  // This gives us full history instantly without any RPC scanning.
+  try {
+    const { getAllBurnEvents } = await import('../lib/supabase');
+    const stored = await getAllBurnEvents();
+    if (stored.length > 0 && !signal.aborted) {
+      for (const row of stored) {
+        const ex = totals.get(row.wallet) ?? { burned: 0, txCount: 0, events: [] };
+        ex.burned  += row.amount;
+        ex.txCount += 1;
+        ex.events.push({ amount: row.amount, blockTime: row.block_time, sig: row.sig });
+        totals.set(row.wallet, ex);
+      }
+      // Emit immediately so UI shows full history right away
+      onUpdate(buildEntries(totals, ampWindows), `Loaded ${stored.length} burns from database`, 0);
+    }
+  } catch {}
+
+  if (signal.aborted) return buildEntries(totals, ampWindows);
+
+  // ── STEP 2: Scan RPC for NEW burns not yet in Supabase ──────────────────────
+  // Collect all sig strings already stored so we can skip duplicates fast.
+  const knownSigs = new Set<string>();
+  for (const [, entry] of totals) {
+    for (const ev of entry.events) knownSigs.add(ev.sig);
+  }
+
+  const newEvents: import('../lib/supabase').BurnEventRow[] = [];
   let before: string | undefined;
   let batchesDone = 0;
-  let totalPages = 0;
+  let hitKnown = false;
 
   for (let page = 0; page < MAX_BATCHES; page++) {
-    if (signal.aborted) break;
+    if (signal.aborted || hitKnown) break;
 
-    // Fetch signatures for this page
     const sigs = await connection.getSignaturesForAddress(mintPK, {
       limit: 100, ...(before ? { before } : {}),
     }).catch(() => []);
     if (!sigs.length) break;
-    totalPages++;
+
     before = sigs[sigs.length - 1].signature;
-    const sigStrs = sigs.map(s => s.signature);
 
-    // Parse this batch immediately — don't wait for more sig pages
-    onUpdate(
-      batchesDone > 0 ? buildEntries(totals, ampWindows) : [],
-      `Scanning batch ${page + 1}… ${totals.size} burners found`,
-      batchesDone
-    );
+    // If ALL sigs in this batch are already known we've caught up — stop RPC scan
+    const unknownSigs = sigs.filter(s => !knownSigs.has(s.signature));
+    if (unknownSigs.length === 0) { hitKnown = true; break; }
+    // If some are known, we only parse the unknown ones and then stop after
+    if (unknownSigs.length < sigs.length) hitKnown = true;
 
+    const sigStrs = unknownSigs.map(s => s.signature);
     const txBatch = await connection.getParsedTransactions(sigStrs, {
       maxSupportedTransactionVersion: 0, commitment: 'confirmed',
     }).catch(() => [] as (Awaited<ReturnType<typeof connection.getParsedTransactions>>[number])[]);
 
     if (signal.aborted) break;
 
-    for (const tx of txBatch) {
+    for (let i = 0; i < txBatch.length; i++) {
+      const tx = txBatch[i];
+      const sigInfo = unknownSigs[i];
       if (!tx || tx.meta?.err) continue;
+
       const allIxs: unknown[] = [...(tx.transaction.message.instructions ?? [])];
       for (const inn of tx.meta?.innerInstructions ?? []) allIxs.push(...(inn.instructions ?? []));
 
@@ -563,20 +590,34 @@ export async function fetchLeaderboard(
         const amount = uiAmt > 0 ? uiAmt : rawAmt / 1_000_000;
         if (amount <= 0) continue;
 
-        const blockTime = tx.blockTime ?? 0;
+        const sig       = tx.transaction.signatures?.[0] ?? sigInfo.signature;
+        const blockTime = tx.blockTime ?? sigInfo.blockTime ?? 0;
+
         const ex = totals.get(authority) ?? { burned: 0, txCount: 0, events: [] };
         ex.burned  += amount;
         ex.txCount += 1;
-        ex.events.push({ amount, blockTime, sig: tx.transaction.signatures?.[0] ?? '' });
+        ex.events.push({ amount, blockTime, sig });
         totals.set(authority, ex);
+
+        // Queue for Supabase upsert
+        newEvents.push({ sig, wallet: authority, amount, block_time: blockTime });
       }
     }
 
     batchesDone++;
-    const partialEntries = buildEntries(totals, ampWindows);
-    onUpdate(partialEntries, `Parsed ${batchesDone}/${totalPages} batches · ${totals.size} burners`, batchesDone);
+    if (newEvents.length > 0 || batchesDone % 5 === 0) {
+      onUpdate(buildEntries(totals, ampWindows), `Scanning for new burns… batch ${batchesDone} · ${newEvents.length} new found`, batchesDone);
+    }
 
     if (sigs.length < 100) break;
+  }
+
+  // ── STEP 3: Persist new burns to Supabase so next load is instant ──────────
+  if (newEvents.length > 0) {
+    try {
+      const { upsertBurnEvents } = await import('../lib/supabase');
+      await upsertBurnEvents(newEvents);
+    } catch {}
   }
 
   const final = buildEntries(totals, ampWindows);

@@ -299,8 +299,178 @@ export async function clearAllSubmissions(): Promise<Res> {
   catch (e: any) { return { success: false, error: e.message }; }
 }
 
+
 // ═════════════════════════════════════════════
-// 6. MIGRATION — one-time import from localStorage
+// 6. BURN EVENTS — on-chain burn tx ledger
+// Table: burn_events (sig TEXT PK, wallet TEXT, amount FLOAT8, block_time BIGINT)
+// ═════════════════════════════════════════════
+export interface BurnEventRow {
+  sig:        string;
+  wallet:     string;
+  amount:     number;
+  block_time: number;
+}
+
+/** Load all burn events from Supabase (public read) */
+export async function getAllBurnEvents(): Promise<BurnEventRow[]> {
+  if (!supabase) return [];
+  try {
+    const all: BurnEventRow[] = [];
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data, error } = await supabase
+        .from('burn_events')
+        .select('sig, wallet, amount, block_time')
+        .order('block_time', { ascending: false })
+        .range(from, from + PAGE - 1);
+      if (error || !data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    return all;
+  } catch { return []; }
+}
+
+/** Load burn events for a single wallet */
+export async function getBurnEventsForWallet(wallet: string): Promise<BurnEventRow[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from('burn_events')
+      .select('sig, wallet, amount, block_time')
+      .eq('wallet', wallet)
+      .order('block_time', { ascending: false });
+    if (error || !data) return [];
+    return data;
+  } catch { return []; }
+}
+
+/** Upsert new burn events — insert-or-ignore by sig PK */
+export async function upsertBurnEvents(events: BurnEventRow[]): Promise<void> {
+  if (!supabase || events.length === 0) return;
+  try {
+    await supabase
+      .from('burn_events')
+      .upsert(events, { onConflict: 'sig', ignoreDuplicates: true });
+  } catch {}
+}
+
+/** Get the most recent block_time stored (resume point for RPC scan) */
+export async function getLatestBurnBlockTime(): Promise<number> {
+  if (!supabase) return 0;
+  try {
+    const { data, error } = await supabase
+      .from('burn_events')
+      .select('block_time')
+      .order('block_time', { ascending: false })
+      .limit(1)
+      .single();
+    if (error || !data) return 0;
+    return data.block_time ?? 0;
+  } catch { return 0; }
+}
+
+// ═════════════════════════════════════════════
+// 7. PAGE VIEWS — visitor analytics
+// Table: page_views (id BIGSERIAL PK, path TEXT, referrer TEXT, country TEXT,
+//   city TEXT, region TEXT, device TEXT, browser TEXT, os TEXT,
+//   session_id TEXT, visited_at TIMESTAMPTZ)
+// ═════════════════════════════════════════════
+export interface PageViewRow {
+  path:       string;
+  referrer:   string;
+  country:    string;
+  city:       string;
+  region:     string;
+  device:     string;
+  browser:    string;
+  os:         string;
+  session_id: string;
+  visited_at: string;
+}
+
+export async function upsertPageView(row: PageViewRow): Promise<void> {
+  if (!supabase) return;
+  try { await supabase.from('page_views').insert(row); } catch {}
+}
+
+export async function getAllPageViews(): Promise<any[]> {
+  if (!supabase) return [];
+  try {
+    const all: any[] = [];
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data, error } = await supabase
+        .from('page_views')
+        .select('path, referrer, country, city, region, device, browser, os, session_id, visited_at')
+        .order('visited_at', { ascending: false })
+        .range(from, from + PAGE - 1);
+      if (error || !data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    return all;
+  } catch { return []; }
+}
+
+export async function getUniqueVisitorCount(): Promise<number> {
+  if (!supabase) return 0;
+  try {
+    const { data } = await supabase.from('page_views').select('session_id');
+    if (!data) return 0;
+    return new Set(data.map((r: any) => r.session_id)).size;
+  } catch { return 0; }
+}
+
+// ═════════════════════════════════════════════
+// 7b. SITE EVENTS — custom interaction tracking
+// Table: site_events (id BIGSERIAL PK, session_id TEXT, event_type TEXT,
+//   category TEXT, label TEXT, value TEXT, path TEXT, fired_at TIMESTAMPTZ)
+// event_type examples: tab_click, wallet_connect, wallet_disconnect,
+//   burn_tx_view, scroll_depth, button_click
+// ═════════════════════════════════════════════
+export interface SiteEventRow {
+  session_id:  string;
+  event_type:  string;
+  category:    string;
+  label:       string;
+  value?:      string;
+  path:        string;
+  fired_at:    string;
+}
+
+export async function insertSiteEvent(row: SiteEventRow): Promise<void> {
+  if (!supabase) return;
+  try { await supabase.from('site_events').insert(row); } catch {}
+}
+
+export async function getAllSiteEvents(): Promise<any[]> {
+  if (!supabase) return [];
+  try {
+    const all: any[] = [];
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data, error } = await supabase
+        .from('site_events')
+        .select('session_id, event_type, category, label, value, path, fired_at')
+        .order('fired_at', { ascending: false })
+        .range(from, from + PAGE - 1);
+      if (error || !data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    return all;
+  } catch { return []; }
+}
+
+// ═════════════════════════════════════════════
+// 8. MIGRATION — one-time import from localStorage
 // ═════════════════════════════════════════════
 export async function migrateAllToSupabase(): Promise<{ labwork: number; config: boolean; logs: number; announcements: number; submissions: number; errors: string[] }> {
   const errors: string[] = [];

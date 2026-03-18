@@ -222,7 +222,7 @@ async function _syncToSupabase(k:string,v:any){
   }catch(e){console.warn('[SB sync]',k,e);}
 }
 
-interface PrizeItem{token:string;amount:number;nftMint?:string;nftName?:string;nftImage?:string;isNFT?:boolean;}
+interface PrizeItem{token:string;amount:number;nftMint?:string;nftName?:string;nftImage?:string;isNFT?:boolean;mintAddress?:string;}
 interface Challenge{id:string;title:string;description:string;tier:1|2|3|4;type:string;target:number;icon:string;}
 interface Winner{address:string;prizes:PrizeItem[];ampPct:number;weeklyPts:number;weeklyBurned?:number;place:number;}
 interface WConfig{weekId:string;startDate:string;endDate:string;challenges:Challenge[];prizes:[PrizeItem[],PrizeItem[],PrizeItem[]];status:string;winners?:Winner[];sendReceipts?:SendReceipt[];}
@@ -295,11 +295,11 @@ const NFTThumb:FC<{nft:WNFT;size?:string}>=({nft,size='100%'})=>{
 
 const PrizeEd:FC<{items:PrizeItem[];onChange:(v:PrizeItem[])=>void;wTks:WTk[];wNfts:WNFT[];xntBal:number}>=({items,onChange,wTks,wNfts,xntBal})=>{
   const[showNfts,setShowNfts]=useState(false);
-  const[adding,setAdding]=useState<{symbol:string;name:string;balance:number;logoUri?:string}|null>(null);
+  const[adding,setAdding]=useState<{symbol:string;name:string;balance:number;logoUri?:string;mint:string}|null>(null);
   const[addAmt,setAddAmt]=useState('');
   const amtRef=useRef<HTMLInputElement>(null);
 
-  const confirmAdd=()=>{if(!adding)return;const v=parseFloat(addAmt);if(v>0){onChange([...items,{token:adding.symbol,amount:v}]);setAdding(null);setAddAmt('');}};
+  const confirmAdd=()=>{if(!adding)return;const v=parseFloat(addAmt);if(v>0){onChange([...items,{token:adding.symbol,amount:v,mintAddress:adding.mint}]);setAdding(null);setAddAmt('');}};
 
   return(<div>
     {/* Current prize items */}
@@ -329,11 +329,11 @@ const PrizeEd:FC<{items:PrizeItem[];onChange:(v:PrizeItem[])=>void;wTks:WTk[];wN
     {/* Token buttons from wallet */}
     {!adding&&<div style={{marginTop:8}}><span style={{fontFamily:'Orbitron,monospace',fontSize:7,color:'#cc88ff',letterSpacing:2}}>ADD TOKEN FROM YOUR WALLET (click to add)</span>
       <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:6}}>
-        <button onClick={()=>{setAdding({symbol:'XNT',name:'X1 Native Token',balance:xntBal,logoUri:XNT_INFO?.logoUri});setAddAmt('');}}
+        <button onClick={()=>{setAdding({symbol:'XNT',name:'X1 Native Token',balance:xntBal,logoUri:XNT_INFO?.logoUri,mint:'XNT'});setAddAmt('');}}
           style={{display:'flex',alignItems:'center',gap:4,padding:'6px 10px',background:'rgba(0,204,255,.04)',border:'1px solid rgba(0,204,255,.15)',borderRadius:6,cursor:'pointer',color:'#00ccff',fontFamily:'Sora,sans-serif',fontSize:9}}>
           {XNT_INFO?.logoUri?<img src={XNT_INFO.logoUri} alt="" style={{width:14,height:14,borderRadius:'50%'}}/>:<span>💎</span>} <b>XNT</b> <span style={{fontSize:8,color:'#556677'}}>{fmtN(xntBal,2)}</span>
         </button>
-        {wTks.map(tk=>(<button key={tk.mint} onClick={()=>{setAdding({symbol:tk.symbol,name:tk.name,balance:tk.balance,logoUri:tk.logoUri});setAddAmt('');}}
+        {wTks.map(tk=>(<button key={tk.mint} onClick={()=>{setAdding({symbol:tk.symbol,name:tk.name,balance:tk.balance,logoUri:tk.logoUri,mint:tk.mint});setAddAmt('');}}
           style={{display:'flex',alignItems:'center',gap:4,padding:'6px 10px',background:'rgba(140,60,255,.04)',border:'1px solid rgba(140,60,255,.12)',borderRadius:6,cursor:'pointer',color:'#e0e8f0',fontFamily:'Sora,sans-serif',fontSize:9}}>
           {tk.logoUri?<img src={tk.logoUri} alt="" style={{width:14,height:14,borderRadius:'50%'}}/>:<span>🪙</span>} <b style={{fontFamily:'Orbitron,monospace',fontSize:8}}>{tk.symbol}</b> <span style={{fontSize:8,color:'#556677'}}>{fmtN(tk.balance,2)}</span>
         </button>))}
@@ -979,8 +979,25 @@ const AdminRewards:FC=()=>{
           setSendLog(l=>[...l,`  📦 Added ${item.amount} XNT to batch`]);
 
         } else {
-          const tkData=wTks.find(t=>t.symbol===item.token);
+          // ── TOKEN LOOKUP — mint address takes priority over symbol ──────────
+          // 1. If prize item has a stored mintAddress, use that directly
+          // 2. BRAINS symbol always forces BRAINS_MINT constant (never old token)
+          // 3. Fall back to symbol match only as last resort
+          let tkData: WTk | undefined;
+          if(item.mintAddress && item.mintAddress !== 'XNT'){
+            tkData = wTks.find(t => t.mint === item.mintAddress);
+          }
+          if(!tkData && item.token === 'BRAINS'){
+            tkData = wTks.find(t => t.mint === BRAINS_MINT);
+          }
+          if(!tkData){
+            tkData = wTks.find(t => t.symbol === item.token);
+          }
           if(!tkData){setSendLog(l=>[...l,`  ⚠️ Token ${item.token} not found in wallet, skipping`]);continue;}
+
+          // Safety log — confirm exact mint being sent
+          setSendLog(l=>[...l,`  🔍 Sending ${item.token} from mint: ${tkData.mint.slice(0,8)}…${tkData.mint.slice(-6)}`]);
+
           const mintPk=new PublicKey(tkData.mint);
           const progId=tkData.is2022?TOKEN_2022_PROGRAM_ID:TOKEN_PROGRAM_ID;
           const sAta=getAssociatedTokenAddressSync(mintPk,wallet.publicKey,false,progId,ASSOCIATED_TOKEN_PROGRAM_ID);
@@ -1017,10 +1034,27 @@ const AdminRewards:FC=()=>{
     }catch{
       setSendLog(l=>[...l,`⏳ ${placeLabel}: TX submitted (${sig}...) — check explorer if not confirmed yet`]);
     }
-    // Save receipt to w.sendReceipts
+    // Save receipt to w.sendReceipts (localStorage + Supabase)
     const placeNum=placeLabel.includes('1st')?0:placeLabel.includes('2nd')?1:2;
     const receipt:SendReceipt={place:placeNum,wallet:form.wallet,items:form.items,txSig:sig,timestamp:new Date().toISOString()};
-    setW((x:any)=>{const r=[...(x.sendReceipts||[]),receipt];const u={...x,sendReceipts:r};saveJ(LS_W,u);return u;});
+    setW((x:any)=>{
+      const r=[...(x.sendReceipts||[]),receipt];
+      const u={...x,sendReceipts:r};
+      saveJ(LS_W,u);
+      // Persist to Supabase so RewardsSeason sees paid status immediately
+      (async()=>{
+        try{
+          const sb=await import('../lib/supabase');
+          await sb.saveWeeklyConfig(u);
+          const cl=await sb.getChallengeLogs();
+          const match=cl.find((l:any)=>l.weekId===u.weekId);
+          if(match){await sb.updateChallengeLog(u.weekId,{sendReceipts:r});}
+          sb.invalidateChallengeLogsCache();
+          sb.invalidateWeeklyConfigCache();
+        }catch{}
+      })();
+      return u;
+    });
   };
 
   const sendAllPrizes=async()=>{
@@ -1223,7 +1257,7 @@ const AdminRewards:FC=()=>{
   const isPaused=w.status==='paused';
   const isLocked=isActive; // When active, everything is locked — must pause to edit
 
-  const tabs=[{k:'weekly',l:'⚡ WEEK',c:'#39ff88'},{k:'prizes',l:'🏆 PRIZES',c:'#ffd700'},{k:'winners',l:'🏅 WINNERS',c:'#ff9933'},{k:'control',l:'🎮 CONTROL',c:'#ff4466'},{k:'send',l:'💸 SEND',c:'#ff9933'},{k:'labwork',l:'🧪 LAB WORK',c:'#00ccff'},{k:'announce',l:'📢 NEWS',c:'#ffcc55'},{k:'logs',l:'📜 LOGS',c:'#cc88ff'},{k:'database',l:'🗄️ DATABASE',c:'#bf5af2'}];
+  const tabs=[{k:'weekly',l:'⚡ WEEK',c:'#39ff88'},{k:'prizes',l:'🏆 PRIZES',c:'#ffd700'},{k:'winners',l:'🏅 WINNERS',c:'#ff9933'},{k:'control',l:'🎮 CONTROL',c:'#ff4466'},{k:'send',l:'💸 SEND',c:'#ff9933'},{k:'labwork',l:'🧪 LAB WORK',c:'#00ccff'},{k:'announce',l:'📢 NEWS',c:'#ffcc55'},{k:'logs',l:'📜 LOGS',c:'#cc88ff'},{k:'database',l:'🗄️ DATABASE',c:'#bf5af2'},{k:'analytics',l:'📊 ANALYTICS',c:'#39ff88'}];
 
   return(
     <div style={{minHeight:'100vh',background:'#080c10',padding:isMobile?'70px 10px 40px':'90px 24px 40px',position:'relative',overflow:'hidden'}}>
@@ -2132,6 +2166,40 @@ const AdminRewards:FC=()=>{
           </div>
 
         </div></div>}
+
+        {/* ── ANALYTICS TAB ── */}
+        {tab==='analytics'&&<div style={{animation:'adm-fade .3s ease both'}}>
+          <Tl i="📊" t="SITE ANALYTICS" c="#39ff88" />
+
+          <div style={{...pan('rgba(57,255,136,.15)'),textAlign:'center',padding:'36px 24px'}}>
+            <GridBg />
+            <div style={{position:'relative',zIndex:1}}>
+              <div style={{fontSize:56,marginBottom:16,filter:'drop-shadow(0 0 20px rgba(57,255,136,.4))'}}>📊</div>
+              <div style={{fontFamily:'Orbitron,monospace',fontSize:isMobile?16:22,fontWeight:900,letterSpacing:3,marginBottom:10,background:'linear-gradient(135deg,#cc88ff,#ff9933,#39ff88)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>
+                X1BRAINS ANALYTICS DASHBOARD
+              </div>
+              <div style={{fontFamily:'Sora,sans-serif',fontSize:13,color:'#8899aa',maxWidth:500,margin:'0 auto 24px',lineHeight:1.7}}>
+                Track visitors, page views, traffic sources, geographic distribution, device breakdown, and peak usage times — all stored in your Supabase database.
+              </div>
+
+              <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center',marginBottom:28}}>
+                {['👁️ Page Views','👤 Unique Visitors','🌍 Geo Location','📱 Device Types','🌐 Browsers','🔗 Traffic Sources','🌡️ Hour Heatmap','📈 Daily Trends'].map(f=>(
+                  <span key={f} style={{fontFamily:'Orbitron,monospace',fontSize:8,color:'#39ff88',padding:'4px 10px',background:'rgba(57,255,136,.06)',border:'1px solid rgba(57,255,136,.15)',borderRadius:20,letterSpacing:1}}>{f}</span>
+                ))}
+              </div>
+
+              <button
+                onClick={()=>window.open('/x9b7r41ns/analytics','_blank')}
+                style={{padding:'14px 40px',background:'linear-gradient(135deg,#39ff88,#00c96e)',border:'none',borderRadius:12,color:'#04060f',fontFamily:'Orbitron,monospace',fontSize:12,fontWeight:900,letterSpacing:3,cursor:'pointer',boxShadow:'0 4px 24px rgba(57,255,136,.3)',transition:'all .2s'}}
+                onMouseEnter={e=>{(e.currentTarget as HTMLButtonElement).style.transform='translateY(-2px)';(e.currentTarget as HTMLButtonElement).style.boxShadow='0 8px 32px rgba(57,255,136,.45)';}}
+                onMouseLeave={e=>{(e.currentTarget as HTMLButtonElement).style.transform='translateY(0)';(e.currentTarget as HTMLButtonElement).style.boxShadow='0 4px 24px rgba(57,255,136,.3)';}}
+              >
+                📊 OPEN ANALYTICS DASHBOARD ↗
+              </button>
+            </div>
+          </div>
+
+        </div>}
 
       </div><Footer />
     </div>
