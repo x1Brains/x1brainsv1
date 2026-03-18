@@ -131,7 +131,31 @@ async function scanBurnHistory(
   const mintPubkey = new PublicKey(BRAINS_MINT);
   const mintStr    = mintPubkey.toBase58();
   const divisor    = Math.pow(10, decimals);
+  const walletStr  = walletPubkey.toBase58();
 
+  const allTxs: BurnTx[] = [];
+  let runningTotal = 0;
+
+  // ── STEP 1: Load stored burns for this wallet from Supabase ─────────────────
+  const knownSigs = new Set<string>();
+  try {
+    const { getBurnEventsForWallet } = await import('../lib/supabase');
+    const stored = await getBurnEventsForWallet(walletStr);
+    for (const row of stored) {
+      allTxs.push({ signature: row.sig, amount: row.amount, timestamp: row.block_time, slot: 0 });
+      runningTotal += row.amount;
+      knownSigs.add(row.sig);
+    }
+    if (stored.length > 0) {
+      // Sort descending by timestamp for display
+      allTxs.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+      onProgress([...allTxs], runningTotal, false);
+    }
+  } catch {}
+
+  if (signal.aborted) { onProgress(allTxs, runningTotal, true); return; }
+
+  // ── STEP 2: Scan RPC for any NEW burns not yet in Supabase ──────────────────
   let ataAddress: PublicKey | null = null;
   try {
     ataAddress = getAssociatedTokenAddressSync(mintPubkey, walletPubkey, false, TOKEN_2022_PROGRAM_ID);
@@ -145,8 +169,7 @@ async function scanBurnHistory(
     }
   } catch { scanAddress = walletPubkey; }
 
-  const allTxs: BurnTx[] = [];
-  let runningTotal = 0;
+  const newEvents: { sig: string; wallet: string; amount: number; block_time: number }[] = [];
   let before: string | undefined;
 
   while (true) {
@@ -157,16 +180,20 @@ async function scanBurnHistory(
       ...(before ? { before } : {}),
     });
 
-    if (!sigs.length) { onProgress(allTxs, runningTotal, true); return; }
+    if (!sigs.length) { onProgress(allTxs, runningTotal, true); break; }
+
+    // Stop scanning once we hit sigs we already know about
+    const unknownSigs = sigs.filter(s => !knownSigs.has(s.signature));
+    if (unknownSigs.length === 0) { onProgress(allTxs, runningTotal, true); break; }
 
     const txs = await connection.getParsedTransactions(
-      sigs.map(s => s.signature),
+      unknownSigs.map(s => s.signature),
       { maxSupportedTransactionVersion: 0, commitment: 'confirmed' },
     );
 
     for (let i = 0; i < txs.length; i++) {
       const tx  = txs[i];
-      const sig = sigs[i];
+      const sig = unknownSigs[i];
       if (!tx || tx.meta?.err) continue;
 
       const allIxs: unknown[] = [...(tx.transaction.message.instructions ?? [])];
@@ -182,9 +209,8 @@ async function scanBurnHistory(
         const info = parsed.info as Record<string, unknown> | undefined;
         if (!info || (info.mint as string) !== mintStr) continue;
 
-        const walletStr   = walletPubkey.toBase58();
-        const ataStr      = ataAddress?.toBase58();
         const accountKeys = (tx.transaction.message.accountKeys ?? []) as Array<{ pubkey?: { toBase58?: () => string } }>;
+        const ataStr = ataAddress?.toBase58();
 
         const isOurs = (e: { mint?: string; owner?: string; accountIndex?: number }) => {
           if (e.mint !== mintStr) return false;
@@ -213,17 +239,30 @@ async function scanBurnHistory(
         }
 
         if (amount > 0) {
+          const blockTime = sig.blockTime ?? null;
           runningTotal += amount;
-          allTxs.push({ signature: sig.signature, amount, timestamp: sig.blockTime ?? null, slot: sig.slot });
+          allTxs.push({ signature: sig.signature, amount, timestamp: blockTime, slot: sig.slot });
+          knownSigs.add(sig.signature);
+          newEvents.push({ sig: sig.signature, wallet: walletStr, amount, block_time: blockTime ?? 0 });
           break;
         }
       }
     }
 
+    allTxs.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
     onProgress([...allTxs], runningTotal, false);
-    const done = sigs.length < 100;
-    if (done) { onProgress([...allTxs], runningTotal, true); return; }
+
+    const done = sigs.length < 100 || unknownSigs.length < sigs.length;
+    if (done) { onProgress([...allTxs], runningTotal, true); break; }
     before = sigs[sigs.length - 1].signature;
+  }
+
+  // ── STEP 3: Persist newly found burns to Supabase ───────────────────────────
+  if (newEvents.length > 0) {
+    try {
+      const { upsertBurnEvents } = await import('../lib/supabase');
+      await upsertBurnEvents(newEvents);
+    } catch {}
   }
 }
 
