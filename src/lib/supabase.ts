@@ -470,6 +470,143 @@ export async function getAllSiteEvents(): Promise<any[]> {
 }
 
 // ═════════════════════════════════════════════
+// 9. SEND HISTORY — token send ledger per wallet
+// Table: send_history (id UUID PK, from_wallet TEXT, to_wallet TEXT,
+//   mint TEXT, symbol TEXT, amount FLOAT8, tx_sig TEXT, sent_at TIMESTAMPTZ)
+// ═════════════════════════════════════════════
+export interface SendHistoryRow {
+  id:          string;
+  from_wallet: string;
+  to_wallet:   string;
+  mint:        string;
+  symbol:      string;
+  amount:      number;
+  tx_sig:      string;
+  sent_at:     string;
+}
+
+export async function insertSendRecord(row: Omit<SendHistoryRow, 'id'>): Promise<void> {
+  if (!supabase) return;
+  try { await supabase.from('send_history').insert(row); } catch {}
+}
+
+export async function getSendHistory(fromWallet: string): Promise<SendHistoryRow[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from('send_history')
+      .select('*')
+      .eq('from_wallet', fromWallet)
+      .order('sent_at', { ascending: false })
+      .limit(100);
+    if (error || !data) return [];
+    return data;
+  } catch { return []; }
+}
+
+// ═════════════════════════════════════════════
+// 10. SAVED ADDRESSES — address book per wallet
+// Table: saved_addresses (id UUID PK, owner_wallet TEXT,
+//   saved_wallet TEXT, nickname TEXT, created_at TIMESTAMPTZ)
+// ═════════════════════════════════════════════
+export interface SavedAddressRow {
+  id:           string;
+  owner_wallet: string;
+  saved_wallet: string;
+  nickname:     string;
+  created_at:   string;
+}
+
+export async function getSavedAddresses(ownerWallet: string): Promise<SavedAddressRow[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from('saved_addresses')
+      .select('*')
+      .eq('owner_wallet', ownerWallet)
+      .order('created_at', { ascending: false });
+    if (error || !data) return [];
+    return data;
+  } catch { return []; }
+}
+
+export async function insertSavedAddress(row: Omit<SavedAddressRow, 'id' | 'created_at'>): Promise<void> {
+  if (!supabase) return;
+  try { await supabase.from('saved_addresses').insert(row); } catch {}
+}
+
+export async function deleteSavedAddress(id: string): Promise<void> {
+  if (!supabase) return;
+  try { await supabase.from('saved_addresses').delete().eq('id', id); } catch {}
+}
+
+// ═════════════════════════════════════════════
+// 11. PORTFOLIO SNAPSHOTS — daily balance history
+// Table: portfolio_snapshots (id UUID PK, wallet TEXT,
+//   snapshot_date DATE, total_usd FLOAT8,
+//   token_breakdown JSONB, created_at TIMESTAMPTZ)
+// ═════════════════════════════════════════════
+export interface PortfolioSnapshot {
+  id?:              string;
+  wallet:           string;
+  snapshot_date:    string;   // YYYY-MM-DD
+  total_usd:        number;
+  token_breakdown:  SnapshotToken[];
+  created_at?:      string;
+}
+
+export interface SnapshotToken {
+  mint:    string;
+  symbol:  string;
+  balance: number;
+  usd:     number;
+  price:   number;
+}
+
+/** Upsert today's snapshot — always overwrites with the latest (most complete) data */
+export async function upsertPortfolioSnapshot(snap: PortfolioSnapshot): Promise<void> {
+  if (!supabase) return;
+  try {
+    // First check if we already have a snapshot for today
+    const { data: existing } = await supabase
+      .from('portfolio_snapshots')
+      .select('total_usd')
+      .eq('wallet', snap.wallet)
+      .eq('snapshot_date', snap.snapshot_date)
+      .single();
+
+    // Only overwrite if new value is higher (more prices loaded) or no snapshot yet
+    if (existing && snap.total_usd <= existing.total_usd) return;
+
+    await supabase
+      .from('portfolio_snapshots')
+      .upsert(
+        {
+          wallet:          snap.wallet,
+          snapshot_date:   snap.snapshot_date,
+          total_usd:       snap.total_usd,
+          token_breakdown: snap.token_breakdown,
+        },
+        { onConflict: 'wallet,snapshot_date', ignoreDuplicates: false }
+      );
+  } catch {}
+}
+
+/** Load all snapshots for a wallet, ordered oldest → newest */
+export async function getPortfolioSnapshots(wallet: string): Promise<PortfolioSnapshot[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from('portfolio_snapshots')
+      .select('wallet, snapshot_date, total_usd, token_breakdown, created_at')
+      .eq('wallet', wallet)
+      .order('snapshot_date', { ascending: true });
+    if (error || !data) return [];
+    return data as PortfolioSnapshot[];
+  } catch { return []; }
+}
+
+// ═════════════════════════════════════════════
 // 8. MIGRATION — one-time import from localStorage
 // ═════════════════════════════════════════════
 export async function migrateAllToSupabase(): Promise<{ labwork: number; config: boolean; logs: number; announcements: number; submissions: number; errors: string[] }> {

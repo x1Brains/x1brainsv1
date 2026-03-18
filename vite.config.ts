@@ -33,18 +33,34 @@ export default defineConfig({
         "font-src 'self' https://fonts.gstatic.com",
         [
           "connect-src 'self'",
-          "http://jack-nucbox-m6-ultra.tail515dc.ts.net:8773",
+          // X1 / Solana RPC
           "https://rpc.mainnet.x1.xyz",
+          // xDex
           "https://api.xdex.xyz",
           "https://app.xdex.xyz",
+          "https://mint.xdex.xyz",
+          // IPFS gateways
           "https://gateway.pinata.cloud",
           "https://ipfs.io",
           "https://cloudflare-ipfs.com",
           "https://dweb.link",
           "https://nftstorage.link",
+          // Metadata sources
           "https://raw.githubusercontent.com",
-          "https://mint.xdex.xyz",
+          "https://gist.githubusercontent.com",
+          "https://arweave.net",
+          "https://*.arweave.net",
+          "https://x1punks.xyz",
+          "https://apexfaucet.xyz",
+          "https://xenblocks.io",
+          "https://explorer.xenblocks.io",
+          "https://corsproxy.io",
+          // Supabase
           "https://xbchrxxfnzhsbpncfiar.supabase.co",
+          // Analytics geo
+          "https://ipapi.co",
+          // Imperial API
+          "http://jack-nucbox-m6-ultra.tail515dc.ts.net:8773",
         ].join(' '),
         "img-src 'self' data: blob: https: http:",
         "worker-src 'self' blob:",
@@ -71,8 +87,7 @@ export default defineConfig({
           return 'https://' + host;
         },
       },
-      // ── Imperial API — CORS enabled, direct fetch. No proxy needed. ──────
-      // Keeping this as a fallback in case CORS is ever restricted.
+      // ── Imperial API ─────────────────────────────────────────────────────
       '/imperial': {
         target: 'http://jack-nucbox-m6-ultra.tail515dc.ts.net:8773',
         changeOrigin: true,
