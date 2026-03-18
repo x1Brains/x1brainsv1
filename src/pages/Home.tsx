@@ -283,6 +283,58 @@ const Home: FC = () => {
             )}
           </div>
 
+          {/* ── CYBERDYNE UNLIMITED ── */}
+          <div
+            style={{
+              position: 'relative',
+              background: 'linear-gradient(135deg, #0d1520, #0a1018)',
+              border: '1px solid #39ff8830',
+              borderRadius: 16,
+              padding: '28px 24px',
+              cursor: 'pointer',
+              animation: 'fadeUp 0.5s ease 0.2s both',
+              overflow: 'hidden',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            }}
+            onClick={() => navigate('/cyberdyne')}
+            onMouseEnter={e => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = '#39ff88'; el.style.transform = 'translateY(-6px)'; el.style.boxShadow = '0 16px 50px rgba(0,0,0,0.5), 0 0 30px #39ff8820'; }}
+            onMouseLeave={e => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = '#39ff8830'; el.style.transform = 'translateY(0)'; el.style.boxShadow = 'none'; }}
+          >
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, transparent, #39ff88, transparent)', opacity: 0.6 }} />
+            <div style={{ position: 'absolute', top: -40, right: -40, width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle, #39ff8812 0%, transparent 70%)', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 60, background: 'linear-gradient(180deg, transparent, rgba(57,255,136,0.03))', pointerEvents: 'none' }} />
+
+            <div style={{ fontSize: 40, marginBottom: 18, display: 'block', filter: 'drop-shadow(0 0 12px #39ff8860)' }}>⚔️</div>
+
+            <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 16, fontWeight: 900, letterSpacing: 3, color: '#39ff88', marginBottom: 6, textTransform: 'uppercase' }}>
+              CYBERDYNE UNLIMITED
+            </div>
+
+            <p style={{ fontSize: 13, color: '#7a9ab8', lineHeight: 1.7, marginBottom: 16 }}>
+              The Imperial Citizen Registry — look up X1 citizens by username or wallet, explore tier rankings, contribution history, verified wallets, and climb the live Cyberdyne leaderboard.
+            </p>
+
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+              {[
+                { text: '🔍 LOOKUP',      color: '#39ff88' },
+                { text: '🏅 TIERS',       color: '#ffb700' },
+                { text: '🏆 LEADERBOARD', color: '#bf5af2' },
+                { text: '📊 ANALYTICS',   color: '#00d4ff' },
+              ].map(tag => (
+                <span key={tag.text} style={{
+                  fontFamily: 'Orbitron, monospace', fontSize: 7, fontWeight: 700, letterSpacing: 1,
+                  color: tag.color, background: `${tag.color}10`, border: `1px solid ${tag.color}20`,
+                  borderRadius: 5, padding: '3px 8px',
+                }}>{tag.text}</span>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#39ff88', letterSpacing: 2, fontWeight: 700 }}>ENTER</span>
+              <span style={{ color: '#39ff88', fontSize: 12 }}>→</span>
+            </div>
+          </div>
+
           {/* ── LAB WORK 🧪 — Custom multi-link card ── */}
           <div
             style={{
@@ -291,7 +343,7 @@ const Home: FC = () => {
               border: '1px solid #ff8c0030',
               borderRadius: 16,
               padding: '28px 24px',
-              animation: 'fadeUp 0.5s ease 0.2s both',
+              animation: 'fadeUp 0.5s ease 0.3s both',
               overflow: 'hidden',
             }}
           >
@@ -362,7 +414,7 @@ const Home: FC = () => {
               borderRadius: 16,
               padding: '28px 24px',
               cursor: 'pointer',
-              animation: 'fadeUp 0.5s ease 0.3s both',
+              animation: 'fadeUp 0.5s ease 0.4s both',
               overflow: 'hidden',
               transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             }}
@@ -403,60 +455,6 @@ const Home: FC = () => {
             </div>
           </div>
 
-          {/* ── CYBERDYNE UNLIMITED ── */}
-          <div
-            style={{
-              position: 'relative',
-              background: 'linear-gradient(135deg, #0d1520, #0a1018)',
-              border: '1px solid #39ff8830',
-              borderRadius: 16,
-              padding: '28px 24px',
-              cursor: 'pointer',
-              animation: 'fadeUp 0.5s ease 0.4s both',
-              overflow: 'hidden',
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            }}
-            onClick={() => navigate('/cyberdyne')}
-            onMouseEnter={e => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = '#39ff88'; el.style.transform = 'translateY(-6px)'; el.style.boxShadow = '0 16px 50px rgba(0,0,0,0.5), 0 0 30px #39ff8820'; }}
-            onMouseLeave={e => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = '#39ff8830'; el.style.transform = 'translateY(0)'; el.style.boxShadow = 'none'; }}
-          >
-            {/* Top accent line */}
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, transparent, #39ff88, transparent)', opacity: 0.6 }} />
-            {/* Ambient glow */}
-            <div style={{ position: 'absolute', top: -40, right: -40, width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle, #39ff8812 0%, transparent 70%)', pointerEvents: 'none' }} />
-            {/* Corner accent */}
-            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 60, background: 'linear-gradient(180deg, transparent, rgba(57,255,136,0.03))', pointerEvents: 'none' }} />
-
-            <div style={{ fontSize: 40, marginBottom: 18, display: 'block', filter: 'drop-shadow(0 0 12px #39ff8860)' }}>⚔️</div>
-
-            <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 16, fontWeight: 900, letterSpacing: 3, color: '#39ff88', marginBottom: 6, textTransform: 'uppercase' }}>
-              CYBERDYNE
-            </div>
-
-            <p style={{ fontSize: 13, color: '#7a9ab8', lineHeight: 1.7, marginBottom: 16 }}>
-              The X1 Brains citizen registry — explore XenBlocks miners, validator nodes, tier rankings, and the live Cyberdyne leaderboard.
-            </p>
-
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
-              {[
-                { text: '⛏️ MINERS',     color: '#39ff88' },
-                { text: '🏅 TIERS',      color: '#ffb700' },
-                { text: '📡 NODES',      color: '#00d4ff' },
-                { text: '🏆 LEADERBOARD', color: '#bf5af2' },
-              ].map(tag => (
-                <span key={tag.text} style={{
-                  fontFamily: 'Orbitron, monospace', fontSize: 7, fontWeight: 700, letterSpacing: 1,
-                  color: tag.color, background: `${tag.color}10`, border: `1px solid ${tag.color}20`,
-                  borderRadius: 5, padding: '3px 8px',
-                }}>{tag.text}</span>
-              ))}
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#39ff88', letterSpacing: 2, fontWeight: 700 }}>ENTER</span>
-              <span style={{ color: '#39ff88', fontSize: 12 }}>→</span>
-            </div>
-          </div>
 
         </div>
 
