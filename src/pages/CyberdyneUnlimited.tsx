@@ -95,7 +95,7 @@ const KF = `
   ::-webkit-scrollbar{width:4px}
   ::-webkit-scrollbar-track{background:#050a0e}
   ::-webkit-scrollbar-thumb{background:#00ffe530;border-radius:2px}
-  input::placeholder{color:#2a4a5a}
+  input::placeholder{color:#7aaabb}
   input:focus{outline:none!important;border-color:rgba(0,255,229,.5)!important}
   button{transition:opacity .15s;cursor:pointer}
   button:hover{opacity:.8}
@@ -131,12 +131,12 @@ const Stat = ({ label, value, sub, color="#e0f0ff", dot }: { label:string; value
   const mob = typeof window !== 'undefined' && window.innerWidth < 640;
   return (
     <div style={{ background:"rgba(255,255,255,.03)", border:"1px solid rgba(255,255,255,.07)", borderRadius:4, padding:mob?"10px 12px":"12px 16px" }}>
-      <div style={{ fontSize:mob?8:9, letterSpacing:".3em", color:"#4a7a8a", textTransform:"uppercase", marginBottom:mob?4:6, fontFamily:MONO }}>{label}</div>
+      <div style={{ fontSize:mob?8:9, letterSpacing:".3em", color:"#7aabbf", textTransform:"uppercase", marginBottom:mob?4:6, fontFamily:MONO }}>{label}</div>
       <div style={{ display:"flex", alignItems:"center", gap:mob?5:7 }}>
         {dot !== undefined && <div style={{ width:7, height:7, borderRadius:"50%", flexShrink:0, background:dot?"#00ffe5":"#333", boxShadow:dot?"0 0 6px #00ffe5":"none" }} />}
         <span style={{ fontFamily:ORB, fontSize:mob?13:16, fontWeight:700, color, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{value}</span>
       </div>
-      {sub && <div style={{ fontSize:mob?8:9, color:"#4a7a8a", marginTop:mob?3:4, fontFamily:MONO }}>{sub}</div>}
+      {sub && <div style={{ fontSize:mob?8:9, color:"#7aabbf", marginTop:mob?3:4, fontFamily:MONO }}>{sub}</div>}
     </div>
   );
 };
@@ -155,12 +155,12 @@ function ProfileCard({ c, onClose, isMobile: mob }: { c: Citizen; onClose?: () =
           <div style={{ minWidth:0, flex:1 }}>
             <Badge tier={c.tier} />
             <div style={{ fontFamily:ORB, fontSize:isMobile?16:22, fontWeight:900, color:"#e0f0ff", letterSpacing:".06em", margin:"8px 0 3px", wordBreak:"break-word" }}>{c.handle || c.username}</div>
-            <div style={{ fontFamily:MONO, fontSize:isMobile?9:10, color:"#4a7a8a" }}>@{c.username}</div>
-            <div style={{ fontFamily:MONO, fontSize:isMobile?8:10, color:"#4a7a8a", wordBreak:"break-all", marginTop:2 }}>{c.wallet || "No wallet on file"}</div>
+            <div style={{ fontFamily:MONO, fontSize:isMobile?9:10, color:"#7aabbf" }}>@{c.username}</div>
+            <div style={{ fontFamily:MONO, fontSize:isMobile?8:10, color:"#7aabbf", wordBreak:"break-all", marginTop:2 }}>{c.wallet || "No wallet on file"}</div>
           </div>
           <div style={{ textAlign:"right", flexShrink:0, marginLeft:isMobile?8:16 }}>
-            <div style={{ fontFamily:ORB, fontSize:isMobile?20:28, fontWeight:900, color:c.rank<=3?"#ffd700":"#4a7a8a" }}>{medal(c.rank)}</div>
-            <div style={{ fontFamily:MONO, fontSize:9, color:"#4a7a8a", marginTop:2 }}>RANK #{c.rank}</div>
+            <div style={{ fontFamily:ORB, fontSize:isMobile?20:28, fontWeight:900, color:c.rank<=3?"#ffd700":"#7aabbf" }}>{medal(c.rank)}</div>
+            <div style={{ fontFamily:MONO, fontSize:9, color:"#7aabbf", marginTop:2 }}>RANK #{c.rank}</div>
           </div>
         </div>
       </div>
@@ -178,13 +178,13 @@ function ProfileCard({ c, onClose, isMobile: mob }: { c: Citizen; onClose?: () =
         {/* Contributions */}
         {!!c.contributions?.length && (
           <div style={{ marginBottom:16 }}>
-            <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#4a7a8a", marginBottom:8 }}>CONTRIBUTIONS ({c.contributions.length})</div>
+            <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#7aabbf", marginBottom:8 }}>CONTRIBUTIONS ({c.contributions.length})</div>
             <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
               {c.contributions.map((ct, i) => (
                 <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:isMobile?"flex-start":"center", flexDirection:isMobile?"column":"row", fontSize:isMobile?10:11, padding:isMobile?"8px 10px":"8px 12px", background:"rgba(255,255,255,.03)", border:"1px solid rgba(255,255,255,.06)", borderRadius:3, color:"#8aabbc", fontFamily:MONO, gap:isMobile?4:0 }}>
                   <div style={{ flex:1, minWidth:0 }}>
                     <span style={{ color:"#e0f0ff" }}>▸ {ct.item}</span>
-                    {ct.date && <span style={{ color:"#3a5a6a", marginLeft:8, fontSize:9 }}>{ct.date}</span>}
+                    {ct.date && <span style={{ color:"#6a9aaa", marginLeft:8, fontSize:9 }}>{ct.date}</span>}
                   </div>
                   <span style={{ fontFamily:ORB, fontSize:isMobile?10:11, fontWeight:700, color:t.text, marginLeft:isMobile?0:12, flexShrink:0 }}>+{ct.points}</span>
                 </div>
@@ -196,9 +196,9 @@ function ProfileCard({ c, onClose, isMobile: mob }: { c: Citizen; onClose?: () =
         {/* Full wallet */}
         {c.wallet && (
           <div style={{ marginBottom:16 }}>
-            <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#4a7a8a", marginBottom:6 }}>WALLET ADDRESS</div>
+            <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#7aabbf", marginBottom:6 }}>WALLET ADDRESS</div>
             <div
-              style={{ fontFamily:MONO, fontSize:10, color:"#4a7a8a", wordBreak:"break-all", padding:"8px 12px", background:"rgba(255,255,255,.02)", border:"1px solid rgba(255,255,255,.05)", borderRadius:3, cursor:"pointer" }}
+              style={{ fontFamily:MONO, fontSize:10, color:"#7aabbf", wordBreak:"break-all", padding:"8px 12px", background:"rgba(255,255,255,.02)", border:"1px solid rgba(255,255,255,.05)", borderRadius:3, cursor:"pointer" }}
               title="Click to copy"
               onClick={() => navigator.clipboard?.writeText(c.wallet!)}
             >
@@ -301,7 +301,7 @@ function LookupPanel({ citizens }: { citizens: Citizen[] }) {
               >
                 <div style={{ minWidth:0, overflow:"hidden" }}>
                   <span style={{ fontFamily:ORB, fontSize:isMobile?10:12, color:"#e0f0ff" }}>{c.handle || c.username}</span>
-                  {!isMobile && <span style={{ fontFamily:MONO, fontSize:9, color:"#4a7a8a", marginLeft:10 }}>{sw(c.wallet ?? "")}</span>}
+                  {!isMobile && <span style={{ fontFamily:MONO, fontSize:9, color:"#7aabbf", marginLeft:10 }}>{sw(c.wallet ?? "")}</span>}
                 </div>
                 <div style={{ display:"flex", gap:8, alignItems:"center", flexShrink:0 }}>
                   <Badge tier={c.tier} />
@@ -313,7 +313,7 @@ function LookupPanel({ citizens }: { citizens: Citizen[] }) {
         )}
       </div>
 
-      <div style={{ fontFamily:MONO, fontSize:10, color:"#2a4a5a", letterSpacing:".1em", marginBottom:24 }}>
+      <div style={{ fontFamily:MONO, fontSize:10, color:"#5a8a9a", letterSpacing:".1em", marginBottom:24 }}>
         Search by <span style={{ color:"#00ffe540" }}>username</span> (e.g. x1brains) or full <span style={{ color:"#00ffe540" }}>X1 wallet address</span> — results fetched live
       </div>
 
@@ -351,7 +351,7 @@ function LeaderRow({ c, onClick, idx, isMobile: mob }: { c: Citizen; onClick: ()
         animation:`slideIn .3s ease ${Math.min(idx*0.04,0.5)}s both`,
       }}
     >
-      <div style={{ fontFamily:ORB, fontSize:c.rank<=3?(isMobile?16:20):(isMobile?10:12), fontWeight:700, textAlign:"center", color:c.rank===1?"#ffd700":c.rank===2?"#c0c0c0":c.rank===3?"#cd7f32":"#4a7a8a" }}>
+      <div style={{ fontFamily:ORB, fontSize:c.rank<=3?(isMobile?16:20):(isMobile?10:12), fontWeight:700, textAlign:"center", color:c.rank===1?"#ffd700":c.rank===2?"#c0c0c0":c.rank===3?"#cd7f32":"#7aabbf" }}>
         {medal(c.rank)}
       </div>
       <div style={{ minWidth:0 }}>
@@ -360,14 +360,14 @@ function LeaderRow({ c, onClick, idx, isMobile: mob }: { c: Citizen; onClick: ()
           {!isMobile && c.contributions?.slice(0,2).map((ct,i) => <Pill key={i} label={ct.item.split("—")[0].trim().slice(0,25)} color={t.text} />)}
           <Badge tier={c.tier} />
           <span style={{ display:"inline-flex", alignItems:"center", gap:3 }}>
-            <span style={{ width:5, height:5, borderRadius:"50%", background:c.verified?"#00ffe5":"#2a3a4a", boxShadow:c.verified?"0 0 5px #00ffe5":"none", display:"inline-block" }} />
+            <span style={{ width:5, height:5, borderRadius:"50%", background:c.verified?"#00ffe5":"#4a6a7a", boxShadow:c.verified?"0 0 5px #00ffe5":"none", display:"inline-block" }} />
             {!isMobile && <span style={{ fontSize:9, color:"#3a6a7a", letterSpacing:".12em", fontFamily:MONO }}>{c.verified?"VERIFIED":"UNVERIFIED"}</span>}
           </span>
         </div>
       </div>
       {!isMobile && (
         <div style={{ textAlign:"right" }}>
-          <div style={{ fontSize:9, color:"#4a7a8a", fontFamily:MONO }}>{sw(c.wallet ?? "")}</div>
+          <div style={{ fontSize:9, color:"#7aabbf", fontFamily:MONO }}>{sw(c.wallet ?? "")}</div>
         </div>
       )}
       <div style={{ fontFamily:ORB, fontSize:isMobile?12:15, fontWeight:900, color:t.text, textAlign:"right", textShadow:`0 0 10px ${t.glow}70` }}>
@@ -401,16 +401,16 @@ function RegCard({ c, onClick, idx }: { c: Citizen; onClick: () => void; idx: nu
           {c.handle && c.username && c.handle !== c.username && (
             <div style={{ fontSize:9, color:"#3a6a7a", fontFamily:MONO, marginTop:1 }}>@{c.username}</div>
           )}
-          <div style={{ fontSize:9, color:"#4a7a8a", fontFamily:MONO, marginTop:2 }}>{sw(c.wallet ?? "")}</div>
+          <div style={{ fontSize:9, color:"#7aabbf", fontFamily:MONO, marginTop:2 }}>{sw(c.wallet ?? "")}</div>
         </div>
-        <span style={{ fontFamily:ORB, fontSize:12, fontWeight:700, color:c.rank<=3?"#ffd700":"#4a7a8a", flexShrink:0, marginLeft:8 }}>{medal(c.rank)}</span>
+        <span style={{ fontFamily:ORB, fontSize:12, fontWeight:700, color:c.rank<=3?"#ffd700":"#7aabbf", flexShrink:0, marginLeft:8 }}>{medal(c.rank)}</span>
       </div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:pills.length ? 0 : 0 }}>
         <div style={{ display:"flex", gap:6, alignItems:"center" }}>
           <Badge tier={c.tier} />
           <span style={{ display:"inline-flex", alignItems:"center", gap:3 }}>
-            <span style={{ width:5, height:5, borderRadius:"50%", background:c.verified?"#00ffe5":"#2a3a4a", boxShadow:c.verified?"0 0 5px #00ffe5":"none", display:"inline-block" }} />
-            <span style={{ fontSize:8, color:c.verified?"#4a8a7a":"#2a3a4a", letterSpacing:".1em", fontFamily:MONO }}>{c.verified?"VERIFIED":"UNVERIFIED"}</span>
+            <span style={{ width:5, height:5, borderRadius:"50%", background:c.verified?"#00ffe5":"#4a6a7a", boxShadow:c.verified?"0 0 5px #00ffe5":"none", display:"inline-block" }} />
+            <span style={{ fontSize:8, color:c.verified?"#4a8a7a":"#4a6a7a", letterSpacing:".1em", fontFamily:MONO }}>{c.verified?"VERIFIED":"UNVERIFIED"}</span>
           </span>
         </div>
         <span style={{ fontFamily:ORB, fontWeight:700, color:t.text, fontSize:13 }}>+{c.score.toLocaleString()}</span>
@@ -418,11 +418,11 @@ function RegCard({ c, onClick, idx }: { c: Citizen; onClick: () => void; idx: nu
       {pills.length > 0 && (
         <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginTop:9 }}>
           {pills.slice(0,3).map(s => <Pill key={s} label={s} color={t.text} />)}
-          {pills.length > 3 && <span style={{ fontSize:9, color:"#4a7a8a", fontFamily:MONO }}>+{pills.length-3}</span>}
+          {pills.length > 3 && <span style={{ fontSize:9, color:"#7aabbf", fontFamily:MONO }}>+{pills.length-3}</span>}
         </div>
       )}
       {pills.length === 0 && (
-        <div style={{ marginTop:9, fontSize:9, color:"#1a3040", fontFamily:MONO, letterSpacing:".15em", fontStyle:"italic" }}>NO CONTRIBUTIONS ON FILE</div>
+        <div style={{ marginTop:9, fontSize:9, color:"#4a7a8a", fontFamily:MONO, letterSpacing:".15em", fontStyle:"italic" }}>NO CONTRIBUTIONS ON FILE</div>
       )}
     </div>
   );
@@ -564,7 +564,7 @@ export default function CyberdyneUnlimited() {
   ] as const;
 
   return (
-    <div style={{ minHeight:"100vh", background:"#050a0e", fontFamily:MONO, color:"#c8d8e8", position:"relative", overflow:"hidden" }}>
+    <div style={{ minHeight:"100vh", background:"#050a0e", fontFamily:MONO, color:"#d8eaf4", position:"relative", overflow:"hidden" }}>
       <style>{KF}</style>
 
       {/* Grid */}
@@ -579,16 +579,16 @@ export default function CyberdyneUnlimited() {
           <div style={{ fontFamily:ORB, fontSize:"clamp(22px,5vw,48px)", fontWeight:900, letterSpacing:".1em", lineHeight:1.1, marginBottom:8, background:"linear-gradient(135deg,#00ffe5,#0077ff,#00ffe5)", backgroundSize:"200% 200%", animation:"shimmer 4s ease infinite", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>
             CYBERDYNE UNLIMITED
           </div>
-          <div style={{ fontSize:10, letterSpacing:".35em", color:"#004455", textTransform:"uppercase", marginBottom:18, fontFamily:MONO }}>
+          <div style={{ fontSize:10, letterSpacing:".35em", color:"#5aaabb", textTransform:"uppercase", marginBottom:18, fontFamily:MONO }}>
             Imperial Citizen Registry // Live Neural Uplink
           </div>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:isMobile?6:18, flexWrap:"wrap", fontSize:isMobile?9:11, color:"#4a7a8a", letterSpacing:".1em", flexDirection:isMobile?"column":"row" }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:isMobile?6:18, flexWrap:"wrap", fontSize:isMobile?9:11, color:"#7aabbf", letterSpacing:".1em", flexDirection:isMobile?"column":"row" }}>
             <div style={{ display:"flex", alignItems:"center", gap:isMobile?8:18, flexWrap:"wrap", justifyContent:"center" }}>
               <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}>
                 <span style={{ width:8, height:8, borderRadius:"50%", display:"inline-block", background:apiAlive===null?"#888":apiAlive?"#00ffe5":"#ff4444", boxShadow:apiAlive?"0 0 8px #00ffe5":apiAlive===false?"0 0 8px #ff4444":"none", animation:apiAlive?"pulse 2s ease infinite":"none" }} />
                 {apiAlive===null?"PINGING…":apiAlive?"API ONLINE":"API OFFLINE"}
               </span>
-              <span style={{ color:"#1a3040" }}>|</span>
+              <span style={{ color:"#4a7a8a" }}>|</span>
               {/* ✅ FIX: wrapped (citizens.length || "…") in parens to avoid ?? + || mixing error */}
               <span>CITIZENS: <span style={{ color:"#00ffe5" }}>{health?.citizens_count ?? (citizens.length || "…")}</span></span>
             </div>
@@ -605,7 +605,7 @@ export default function CyberdyneUnlimited() {
         {/* ── TABS ── */}
         <div style={{ display:"flex", marginBottom:28, borderBottom:"1px solid rgba(0,255,229,.1)" }}>
           {TABS.map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)} style={{ background:"none", border:"none", borderBottom:tab===t.key?"2px solid #00ffe5":"2px solid transparent", color:tab===t.key?"#00ffe5":"#4a7a8a", padding:isMobile?"8px 0":"10px 22px", fontFamily:ORB, fontSize:isMobile?8:10, letterSpacing:isMobile?".08em":".22em", textTransform:"uppercase", transition:"all .2s", marginBottom:-1, flex:isMobile?1:"unset", textAlign:"center" }}>
+            <button key={t.key} onClick={() => setTab(t.key)} style={{ background:"none", border:"none", borderBottom:tab===t.key?"2px solid #00ffe5":"2px solid transparent", color:tab===t.key?"#00ffe5":"#7aabbf", padding:isMobile?"8px 0":"10px 22px", fontFamily:ORB, fontSize:isMobile?8:10, letterSpacing:isMobile?".08em":".22em", textTransform:"uppercase", transition:"all .2s", marginBottom:-1, flex:isMobile?1:"unset", textAlign:"center" }}>
               {t.label}
             </button>
           ))}
@@ -625,12 +625,86 @@ export default function CyberdyneUnlimited() {
               <>
                 <div style={{ fontFamily:ORB, fontSize:12, fontWeight:700, letterSpacing:".3em", color:"#00ffe5", marginBottom:4 }}>◈ TOP 3 CITIZENS</div>
                 <Rule />
-                <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(auto-fit,minmax(280px,1fr))", gap:12 }}>
-                  {leaderboard.slice(0,3).map(c => (
-                    <div key={c.username} onClick={() => setSelected(c)} style={{ cursor:"pointer" }}>
-                      <ProfileCard c={c} />
-                    </div>
-                  ))}
+                <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)", gap:isMobile?10:14, marginBottom:8 }}>
+                  {leaderboard.slice(0,3).map((c, idx) => {
+                    const t = tc(c.tier);
+                    const rankColor = idx===0?"#ffd700":idx===1?"#c0c0c0":"#cd7f32";
+                    const contribs = (c.contributions ?? []).slice(0, 3);
+                    return (
+                      <div
+                        key={c.username}
+                        onClick={() => setSelected(c)}
+                        style={{
+                          position:"relative", overflow:"hidden",
+                          background:`linear-gradient(135deg,${t.bg},rgba(5,10,14,.95))`,
+                          border:`1px solid ${t.glow}35`,
+                          borderTop:`2px solid ${t.glow}80`,
+                          borderRadius:8, padding:isMobile?"16px":"20px 18px",
+                          cursor:"pointer", transition:"all .2s",
+                          animation:`fadeUp .4s ease ${idx*0.08}s both`,
+                        }}
+                        onMouseEnter={e => { const el=e.currentTarget as HTMLDivElement; el.style.borderColor=`${t.glow}70`; el.style.transform="translateY(-3px)"; el.style.boxShadow=`0 8px 32px ${t.glow}15`; }}
+                        onMouseLeave={e => { const el=e.currentTarget as HTMLDivElement; el.style.borderColor=`${t.glow}35`; el.style.transform="translateY(0)"; el.style.boxShadow="none"; }}
+                      >
+                        {/* Rank medal */}
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+                          <div style={{ fontFamily:ORB, fontSize:isMobile?20:26, fontWeight:900, color:rankColor, lineHeight:1, textShadow:`0 0 12px ${rankColor}60` }}>
+                            {medal(c.rank)}
+                          </div>
+                          <div style={{ textAlign:"right" }}>
+                            <div style={{ fontFamily:ORB, fontSize:isMobile?14:18, fontWeight:900, color:t.text, textShadow:`0 0 10px ${t.glow}50` }}>
+                              +{c.score.toLocaleString()}
+                            </div>
+                            <div style={{ fontFamily:MONO, fontSize:8, color:"#7aaabb", marginTop:2, letterSpacing:".1em" }}>SCORE</div>
+                          </div>
+                        </div>
+
+                        {/* Name + handle */}
+                        <div style={{ marginBottom:10 }}>
+                          <div style={{ fontFamily:ORB, fontSize:isMobile?13:15, fontWeight:700, color:"#e8f4ff", letterSpacing:".04em", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                            {c.handle || c.username}
+                          </div>
+                          {c.handle && c.username && c.handle !== c.username && (
+                            <div style={{ fontFamily:MONO, fontSize:9, color:"#6a9aaa", marginTop:2 }}>@{c.username}</div>
+                          )}
+                        </div>
+
+                        {/* Tier + verified */}
+                        <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:12, flexWrap:"wrap" }}>
+                          <Badge tier={c.tier} />
+                          {c.verified && (
+                            <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}>
+                              <span style={{ width:5, height:5, borderRadius:"50%", background:"#00ffe5", boxShadow:"0 0 5px #00ffe5", display:"inline-block" }} />
+                              <span style={{ fontFamily:MONO, fontSize:8, color:"#00ffe5", letterSpacing:".1em" }}>VERIFIED</span>
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Top 3 contributions */}
+                        {contribs.length > 0 && (
+                          <div style={{ display:"flex", flexDirection:"column", gap:5, marginBottom:12 }}>
+                            {contribs.map((ct, ci) => (
+                              <div key={ci} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, padding:"6px 10px", background:"rgba(255,255,255,.04)", borderRadius:4, border:"1px solid rgba(255,255,255,.06)" }}>
+                                <span style={{ fontFamily:MONO, fontSize:isMobile?9:10, color:"#c0d8e8", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}>▸ {ct.item.split("—")[0].trim().slice(0,30)}</span>
+                                <span style={{ fontFamily:ORB, fontSize:9, fontWeight:700, color:t.text, flexShrink:0 }}>+{ct.points}</span>
+                              </div>
+                            ))}
+                            {(c.contributions?.length ?? 0) > 3 && (
+                              <div style={{ fontFamily:MONO, fontSize:9, color:"#7aaabb", letterSpacing:".1em", paddingLeft:4 }}>
+                                +{(c.contributions?.length ?? 0) - 3} more contributions
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Click hint */}
+                        <div style={{ display:"flex", alignItems:"center", gap:5, borderTop:"1px solid rgba(255,255,255,.05)", paddingTop:10 }}>
+                          <span style={{ fontFamily:MONO, fontSize:9, color:`${t.text}80`, letterSpacing:".15em" }}>VIEW FULL PROFILE</span>
+                          <span style={{ color:`${t.text}80`, fontSize:10 }}>→</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </>
             )}
@@ -645,11 +719,11 @@ export default function CyberdyneUnlimited() {
             <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:24 }}>
               {leaderboard.length > 0
                 ? leaderboard.map((c, i) => <LeaderRow key={c.username} c={c} idx={i} onClick={() => setSelected(c)} isMobile={isMobile} />)
-                : <div style={{ textAlign:"center", color:"#4a7a8a", padding:48, fontFamily:MONO, fontSize:12 }}>NO LEADERBOARD DATA — API MAY BE OFFLINE</div>
+                : <div style={{ textAlign:"center", color:"#7aabbf", padding:48, fontFamily:MONO, fontSize:12 }}>NO LEADERBOARD DATA — API MAY BE OFFLINE</div>
               }
             </div>
             <div style={{ background:"rgba(255,255,255,.02)", border:"1px solid rgba(255,255,255,.06)", borderRadius:4, padding:isMobile?"12px 14px":"14px 18px" }}>
-              <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#4a7a8a", marginBottom:10 }}>IMPERIAL TIER CLASSIFICATION</div>
+              <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#7aabbf", marginBottom:10 }}>IMPERIAL TIER CLASSIFICATION</div>
               <div style={{ display:"flex", flexWrap:"wrap", gap:isMobile?10:14 }}>
                 {Object.entries(TIERS).filter(([k]) => k!=="DEFAULT").map(([name, col]) => (
                   <div key={name} style={{ display:"flex", alignItems:"center", gap:6 }}>
@@ -676,7 +750,7 @@ export default function CyberdyneUnlimited() {
                 <div style={{ fontFamily:ORB, fontSize:10, padding:"6px 14px", background:"rgba(0,255,229,.06)", border:"1px solid rgba(0,255,229,.2)", borderRadius:3, color:"#00ffe5", letterSpacing:".2em", whiteSpace:"nowrap" }}>
                   {filtered.length} / {citizens.length}
                 </div>
-                {search && <button onClick={() => setSearch("")} style={{ background:"none", border:"1px solid rgba(255,255,255,.1)", color:"#4a7a8a", padding:"6px 12px", fontFamily:MONO, fontSize:10, borderRadius:3 }}>CLEAR</button>}
+                {search && <button onClick={() => setSearch("")} style={{ background:"none", border:"1px solid rgba(255,255,255,.1)", color:"#7aabbf", padding:"6px 12px", fontFamily:MONO, fontSize:10, borderRadius:3 }}>CLEAR</button>}
               </div>
             </div>
             <div style={{ fontFamily:ORB, fontSize:12, fontWeight:700, letterSpacing:".3em", color:"#00ffe5", marginBottom:4 }}>IMPERIAL REGISTRY</div>
@@ -684,7 +758,7 @@ export default function CyberdyneUnlimited() {
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill,minmax(260px,1fr))", gap:10 }}>
               {filtered.length > 0
                 ? filtered.map((c, i) => <RegCard key={c.username} c={c} idx={i} onClick={() => setSelected(c)} />)
-                : <div style={{ gridColumn:"1/-1", textAlign:"center", color:"#4a7a8a", padding:48, fontFamily:MONO, fontSize:12 }}>NO CITIZENS MATCH "{search}"</div>
+                : <div style={{ gridColumn:"1/-1", textAlign:"center", color:"#7aabbf", padding:48, fontFamily:MONO, fontSize:12 }}>NO CITIZENS MATCH "{search}"</div>
               }
             </div>
           </div>
@@ -711,11 +785,11 @@ export default function CyberdyneUnlimited() {
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
                       <div>
                         <div style={{ fontFamily:ORB, fontSize:isMobile?11:13, fontWeight:900, color:t.text, letterSpacing:".08em" }}>{tierName.replace("_"," ")}</div>
-                        <div style={{ fontFamily:MONO, fontSize:9, color:"#4a7a8a", marginTop:3, letterSpacing:".15em" }}>{meta?.min_score != null ? `${meta.min_score.toLocaleString()}+ PTS` : "—"}</div>
+                        <div style={{ fontFamily:MONO, fontSize:9, color:"#7aabbf", marginTop:3, letterSpacing:".15em" }}>{meta?.min_score != null ? `${meta.min_score.toLocaleString()}+ PTS` : "—"}</div>
                       </div>
                       <div style={{ textAlign:"right" }}>
                         <div style={{ fontFamily:ORB, fontSize:isMobile?18:22, fontWeight:900, color:t.text }}>{count}</div>
-                        <div style={{ fontFamily:MONO, fontSize:9, color:"#4a7a8a" }}>{pct}%</div>
+                        <div style={{ fontFamily:MONO, fontSize:9, color:"#7aabbf" }}>{pct}%</div>
                       </div>
                     </div>
 
@@ -727,12 +801,12 @@ export default function CyberdyneUnlimited() {
                     {/* XNT Reward */}
                     {meta?.xnt_reward != null && meta.xnt_reward > 0 && (
                       <div style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 10px", background:"rgba(255,255,255,.03)", border:"1px solid rgba(255,255,255,.06)", borderRadius:3 }}>
-                        <span style={{ fontFamily:MONO, fontSize:9, color:"#4a7a8a", letterSpacing:".2em" }}>REWARD</span>
+                        <span style={{ fontFamily:MONO, fontSize:9, color:"#7aabbf", letterSpacing:".2em" }}>REWARD</span>
                         <span style={{ fontFamily:ORB, fontSize:isMobile?12:14, fontWeight:700, color:t.text }}>{meta.xnt_reward} XNT</span>
                       </div>
                     )}
                     {meta?.xnt_reward === 0 && (
-                      <div style={{ fontFamily:MONO, fontSize:9, color:"#2a3a4a", letterSpacing:".15em", padding:"8px 10px" }}>NO REWARD ALLOCATION</div>
+                      <div style={{ fontFamily:MONO, fontSize:9, color:"#4a6a7a", letterSpacing:".15em", padding:"8px 10px" }}>NO REWARD ALLOCATION</div>
                     )}
                   </div>
                 );
@@ -745,7 +819,7 @@ export default function CyberdyneUnlimited() {
 
             {/* Score distribution */}
             <div style={{ marginBottom:32 }}>
-              <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#4a7a8a", marginBottom:12 }}>SCORE DISTRIBUTION</div>
+              <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#7aabbf", marginBottom:12 }}>SCORE DISTRIBUTION</div>
               <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
                 {citizens.slice(0, isMobile ? 10 : 15).map((c, i) => {
                   const maxScore = citizens[0]?.score || 1;
@@ -753,7 +827,7 @@ export default function CyberdyneUnlimited() {
                   const t = tc(c.tier);
                   return (
                     <div key={c.username} style={{ display:"flex", alignItems:"center", gap:isMobile?8:12 }}>
-                      <div style={{ fontFamily:MONO, fontSize:isMobile?8:9, color:"#4a7a8a", width:isMobile?20:24, textAlign:"right", flexShrink:0 }}>#{c.rank}</div>
+                      <div style={{ fontFamily:MONO, fontSize:isMobile?8:9, color:"#7aabbf", width:isMobile?20:24, textAlign:"right", flexShrink:0 }}>#{c.rank}</div>
                       <div style={{ fontFamily:ORB, fontSize:isMobile?9:10, color:"#e0f0ff", width:isMobile?80:120, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flexShrink:0 }}>{c.handle || c.username}</div>
                       <div style={{ flex:1, height:isMobile?10:12, background:"rgba(255,255,255,.04)", borderRadius:2, overflow:"hidden", position:"relative" }}>
                         <div style={{ height:"100%", width:`${pct}%`, background:`linear-gradient(90deg,${t.glow}80,${t.glow}30)`, borderRadius:2, transition:"width .5s ease", animation:`slideIn .3s ease ${i*0.03}s both` }} />
@@ -784,7 +858,7 @@ export default function CyberdyneUnlimited() {
 
             {/* Top Contributors */}
             <div style={{ marginBottom:32 }}>
-              <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#4a7a8a", marginBottom:12 }}>TOP CONTRIBUTORS BY SUBMISSIONS</div>
+              <div style={{ fontFamily:MONO, fontSize:9, letterSpacing:".3em", color:"#7aabbf", marginBottom:12 }}>TOP CONTRIBUTORS BY SUBMISSIONS</div>
               <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:8 }}>
                 {[...citizens].sort((a,b) => (b.contributions?.length ?? 0) - (a.contributions?.length ?? 0)).slice(0, 6).map((c, i) => {
                   const t = tc(c.tier);
@@ -793,10 +867,10 @@ export default function CyberdyneUnlimited() {
                       onMouseEnter={e => { e.currentTarget.style.background = "rgba(0,255,229,.05)"; e.currentTarget.style.borderColor = t.glow + "40"; }}
                       onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,.02)"; e.currentTarget.style.borderColor = "rgba(255,255,255,.06)"; }}
                     >
-                      <div style={{ fontFamily:ORB, fontSize:isMobile?14:16, fontWeight:700, color:i<3?"#ffd700":"#4a7a8a", width:28, textAlign:"center", flexShrink:0 }}>{medal(i+1)}</div>
+                      <div style={{ fontFamily:ORB, fontSize:isMobile?14:16, fontWeight:700, color:i<3?"#ffd700":"#7aabbf", width:28, textAlign:"center", flexShrink:0 }}>{medal(i+1)}</div>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ fontFamily:ORB, fontSize:isMobile?10:12, fontWeight:700, color:"#e0f0ff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.handle || c.username}</div>
-                        <div style={{ fontFamily:MONO, fontSize:9, color:"#4a7a8a", marginTop:2 }}>{c.contributions?.length ?? 0} contributions · +{c.contributions?.reduce((s,ct) => s + ct.points, 0) ?? 0} pts</div>
+                        <div style={{ fontFamily:MONO, fontSize:9, color:"#7aabbf", marginTop:2 }}>{c.contributions?.length ?? 0} contributions · +{c.contributions?.reduce((s,ct) => s + ct.points, 0) ?? 0} pts</div>
                       </div>
                       <Badge tier={c.tier} />
                     </div>
@@ -839,7 +913,7 @@ export default function CyberdyneUnlimited() {
                       <div style={{ fontFamily:ORB, fontSize:isMobile?10:11, fontWeight:700, color:"#00ffe5", letterSpacing:".15em" }}>
                         {date === "Unknown Date" ? "DATE PENDING" : new Date(date + "T00:00:00").toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" })}
                       </div>
-                      <div style={{ fontFamily:MONO, fontSize:9, color:"#2a4a5a" }}>{items.length} {items.length===1?"entry":"entries"}</div>
+                      <div style={{ fontFamily:MONO, fontSize:9, color:"#5a8a9a" }}>{items.length} {items.length===1?"entry":"entries"}</div>
                     </div>
 
                     {/* Entries for this date */}
@@ -868,7 +942,7 @@ export default function CyberdyneUnlimited() {
               })()}
 
               {citizens.flatMap(c => c.contributions ?? []).length === 0 && (
-                <div style={{ textAlign:"center", color:"#4a7a8a", padding:48, fontFamily:MONO, fontSize:12 }}>NO CONTRIBUTION DATA AVAILABLE</div>
+                <div style={{ textAlign:"center", color:"#7aabbf", padding:48, fontFamily:MONO, fontSize:12 }}>NO CONTRIBUTION DATA AVAILABLE</div>
               )}
             </div>
 
