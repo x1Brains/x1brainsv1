@@ -392,7 +392,7 @@ async function resolveTokenMeta(
   if (override) return { name: override.name, symbol: override.symbol, logoUri: XNT_INFO.logoUri, metaSource: 'xdex' };
   const mplex = await tryMetaplexPDA(connection, mint);
   if (mplex) return mplex;
-  return { name: `${mint.slice(0, 6)}…${mint.slice(-4)}`, symbol: mint.slice(0, 5).toUpperCase(), logoUri: undefined, metaSource: 'fallback' };
+  return { name: `${mint.slice(0, 6)}…${mint.slice(-4)}`, symbol: mint, logoUri: undefined, metaSource: 'fallback' };
 }
 
 // ─────────────────────────────────────────────
@@ -988,7 +988,6 @@ const Portfolio: FC = () => {
   const loadTokens = async () => {
     if (!publicKey) return;
     setLoading(true);
-    console.warn("🔥 LOAD TOKENS RUNNING v" + Date.now());
     try {
       setLoadingLabel('Loading wallet data...');
       const [lamR, wlpR, splR] = await Promise.allSettled([
@@ -1021,7 +1020,6 @@ const Portfolio: FC = () => {
       const logoCache     = new Map<string, string | undefined>();
       const spl: TokenData[] = [], t2022: TokenData[] = [], lp: TokenData[] = [];
       let brains: TokenData | null = null;
-      console.log('[Portfolio] Total accounts to process:', allAccounts.length);
       const results = await Promise.allSettled(allAccounts.map(async acc => {
         const info    = acc.account.data.parsed.info;
         // NFTs with decimals=0 sometimes return uiAmount=null — use uiAmountString fallback
@@ -1044,7 +1042,6 @@ const Portfolio: FC = () => {
         // Only include NFTs currently held (balance > 0) — sent/transferred NFTs are excluded
         if (!t.isLP && t.mint !== BRAINS_MINT && t.decimals === 0) {
           if (t.balance <= 0) continue; // skip NFTs no longer in wallet
-          console.log('[Portfolio] NFT detected:', t.mint, '| name:', t.name, '| src:', t.metaSource, '| logoUri:', t.logoUri);
           // If no metaUri yet, fetch Metaplex PDA directly to get the raw metadata URI
           if (!td.metaUri && !td.logoUri) {
             try {
@@ -1072,14 +1069,13 @@ const Portfolio: FC = () => {
                   const uL = view.getUint32(o, true); o += 4;
                   if (uL > 0 && uL <= 500 && o + uL <= raw.length) {
                     const uri = new TextDecoder().decode(raw.slice(o, o + uL)).split('\x00').join('').trim();
-                    console.log('[Portfolio] NFT PDA URI for', t.mint.slice(0,8), ':', uri);
                     if (uri.startsWith('http') || uri.startsWith('ipfs://') || uri.startsWith('ar://')) {
                       td.metaUri = uri;
                     }
                   }
                 }
               }
-            } catch(e) { console.warn('[Portfolio] NFT PDA fetch failed:', e); }
+            } catch { }
           }
           nfts.push(td);
         } else if (t.isLP)                      lp.push(td);
@@ -1116,7 +1112,7 @@ const Portfolio: FC = () => {
       setShowCelebration({ amount: amount.toLocaleString(), newPts: earnedPts, totalPts: projectedTotal, labWorkPts: currentLabWork, tierName: projTier.name, tierIcon: projTier.icon });
       setBurnKey(k => k + 1);
       setBurnAmount('');
-      setTimeout(() => loadTokens(), 2000);
+      setTimeout(() => loadTokens(), 4000);
     } catch (err: any) { setBurnError(err.message || 'Failed to burn tokens'); }
     finally { setBurning(false); }
   };
@@ -1160,7 +1156,12 @@ const Portfolio: FC = () => {
   ];
 
   // ── Snapshot tokens for portfolio history ─────────────────────────────────
+  // ── Snapshot tokens for portfolio history ─────────────────────────────────
+  // Guard: only snapshot once prices are loaded AND symbols are resolved.
+  // Filtering out raw mint addresses prevents them being saved to Supabase.
   const snapshotTokens: SnapshotToken[] = useMemo(() => {
+    if (tokenPrices.size === 0) return []; // prices not ready yet
+    const isMintAddr = (s: string) => !s || (s.length >= 32 && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(s));
     const result: SnapshotToken[] = [];
     const allT = [
       ...(xntBalance !== null ? [{ mint: XNT_WRAPPED, symbol: 'XNT', balance: xntBalance }] : []),
@@ -1169,6 +1170,7 @@ const Portfolio: FC = () => {
       ...(brainsToken ? [{ mint: brainsToken.mint, symbol: brainsToken.symbol, balance: brainsToken.balance }] : []),
     ];
     for (const t of allT) {
+      if (isMintAddr(t.symbol)) continue; // skip unresolved symbols
       const price = tokenPrices.get(t.mint) ?? 0;
       const usd   = price * t.balance;
       if (usd > 0) result.push({ mint: t.mint, symbol: t.symbol, balance: t.balance, usd, price });
@@ -1176,9 +1178,17 @@ const Portfolio: FC = () => {
     return result;
   }, [tokenPrices, xntBalance, splTokens, token2022s, brainsToken]);
 
-  // Take a silent daily snapshot when portfolio loads with prices
-  // Pass total token count (not just priced ones) so the hook doesn't bail early
-  const allTokenCount = (xntBalance !== null ? 1 : 0) + splTokens.length + token2022s.length + (brainsToken ? 1 : 0);
+  // Take a silent daily snapshot when portfolio loads with prices.
+  // allTokenCount uses resolved-symbol count so the hook waits for metadata.
+  const allTokenCount = useMemo(() => {
+    const isMintAddr = (s: string) => !s || (s.length >= 32 && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(s));
+    return (
+      (xntBalance !== null ? 1 : 0) +
+      splTokens.filter(t => !isMintAddr(t.symbol)).length +
+      token2022s.filter(t => !isMintAddr(t.symbol)).length +
+      (brainsToken && !isMintAddr(brainsToken.symbol) ? 1 : 0)
+    );
+  }, [xntBalance, splTokens, token2022s, brainsToken]);
   useDailySnapshot(publicKey?.toBase58() ?? null, totalUSD, snapshotTokens, allTokenCount);
 
   // ─────────────────────────────────────────────
