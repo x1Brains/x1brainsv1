@@ -502,7 +502,12 @@ export const PortfolioChart: FC<PortfolioChartProps> = ({ snapshots, currentUSD,
                       {/* Symbol */}
                       <div style={{ fontFamily:'Orbitron,monospace', fontSize:10,
                         fontWeight:700, color:c, overflow:'hidden', textOverflow:'ellipsis',
-                        whiteSpace:'nowrap' }}>{t.symbol}</div>
+                        whiteSpace:'nowrap' }}>
+                        {t.symbol && t.symbol.length < 44 && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(t.symbol)
+                          ? t.symbol
+                          : `${t.mint.slice(0,5)}…${t.mint.slice(-4)}`
+                        }
+                      </div>
 
                       {/* Bar */}
                       <div style={{ height:4, background:'rgba(255,255,255,.06)', borderRadius:2, overflow:'hidden' }}>
@@ -567,7 +572,11 @@ export function useDailySnapshot(
           wallet,
           snapshot_date:   today(),
           total_usd:       totalUSD,
-          token_breakdown: tokens, // save whatever prices we have at this point
+          token_breakdown: tokens.filter(t =>
+            t.symbol &&
+            t.symbol.length < 44 &&
+            !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(t.symbol)
+          ),
         });
       } catch {}
     }, 8000);
