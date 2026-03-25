@@ -837,6 +837,7 @@ const Portfolio: FC = () => {
   const [showT22, setShowT22]                 = useState(true);
   const [showLP, setShowLP]                   = useState(false);
   const [showNFT, setShowNFT]                 = useState(true);
+  const [nftLimit, setNftLimit]               = useState<5 | 10 | 20 | 'all'>(5);
   const [activeSection, setActiveSection]     = useState('top');
   const [xdexRegistry, setXdexRegistry]       = useState<Map<string, XDexMintInfo>>(new Map());
   const [globalLPMints, setGlobalLPMints]     = useState<Set<string>>(new Set(HARDCODED_LP_MINTS));
@@ -1656,12 +1657,79 @@ const Portfolio: FC = () => {
                 {showNFT && nftTokens.length > 0 && (
                   <div ref={nftRef}>
                     <SectionHeader label="NFT Collection" count={nftTokens.length} color="#bf5af2" />
+
+                    {/* ── Show count toggle ── */}
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
+                      <div style={{ fontFamily:'Orbitron,monospace', fontSize:8, color:'#6a5a80', letterSpacing:2 }}>
+                        SHOWING {nftLimit === 'all' ? nftTokens.length : Math.min(nftLimit, nftTokens.length)} OF {nftTokens.length}
+                      </div>
+                      <div style={{ display:'flex', gap:6 }}>
+                        {([5, 10, 20, 'all'] as const).map(opt => {
+                          const active = nftLimit === opt;
+                          const label  = opt === 'all' ? 'ALL' : String(opt);
+                          return (
+                            <button
+                              key={label}
+                              onClick={() => setNftLimit(opt)}
+                              style={{
+                                padding:'4px 12px', borderRadius:6, cursor:'pointer',
+                                fontFamily:'Orbitron,monospace', fontSize:8, fontWeight:700, letterSpacing:1,
+                                transition:'all .15s',
+                                background: active ? 'rgba(191,90,242,.2)'  : 'rgba(255,255,255,.04)',
+                                border:     active ? '1px solid rgba(191,90,242,.5)' : '1px solid rgba(255,255,255,.08)',
+                                color:      active ? '#bf5af2' : '#4a6070',
+                              }}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
                     <NFTGrid
-                      nfts={nftTokens}
+                      nfts={nftLimit === 'all' ? nftTokens : nftTokens.slice(0, nftLimit)}
                       isMobile={isMobile}
                       copiedAddress={copiedAddress}
                       onCopy={copyAddress}
                     />
+
+                    {/* Show more / show less footer */}
+                    {nftTokens.length > 5 && (
+                      <div style={{ display:'flex', justifyContent:'center', gap:8, marginTop:-8, marginBottom:24 }}>
+                        {nftLimit !== 'all' && nftTokens.length > nftLimit && (
+                          <button
+                            onClick={() => setNftLimit(nftLimit === 5 ? 10 : nftLimit === 10 ? 20 : 'all')}
+                            style={{
+                              padding:'8px 20px', borderRadius:8, cursor:'pointer',
+                              background:'rgba(191,90,242,.08)', border:'1px solid rgba(191,90,242,.25)',
+                              fontFamily:'Orbitron,monospace', fontSize:8, fontWeight:700,
+                              color:'#bf5af2', letterSpacing:1.5, transition:'all .2s',
+                            }}
+                            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background='rgba(191,90,242,.16)'; }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background='rgba(191,90,242,.08)'; }}
+                          >
+                            ▼ SHOW {nftLimit === 5 ? '10' : nftLimit === 10 ? '20' : 'ALL'}
+                            {` (${nftTokens.length - (nftLimit as number)} MORE)`}
+                          </button>
+                        )}
+                        {nftLimit !== 5 && (
+                          <button
+                            onClick={() => setNftLimit(5)}
+                            style={{
+                              padding:'8px 20px', borderRadius:8, cursor:'pointer',
+                              background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.08)',
+                              fontFamily:'Orbitron,monospace', fontSize:8, fontWeight:700,
+                              color:'#4a6070', letterSpacing:1.5, transition:'all .2s',
+                            }}
+                            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background='rgba(255,255,255,.07)'; }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background='rgba(255,255,255,.03)'; }}
+                          >
+                            ▲ SHOW LESS
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 

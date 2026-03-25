@@ -579,6 +579,28 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3500); };
 
+  // ── Social URL opener — works in regular browsers AND restricted WebViews ──
+  // Backpack and other in-app browsers block window.open() for external social URLs.
+  // Strategy: try window.open → try location.href → fall back to clipboard copy.
+  const openSocialUrl = useCallback((url: string, platform: 'X' | 'Telegram', text: string) => {
+    // Try window.open first (works in most browsers)
+    try {
+      const w = window.open(url, '_blank');
+      if (w) return; // success
+    } catch {}
+
+    // Fallback 1: location.href — works in many in-app WebViews
+    try {
+      window.location.href = url;
+      return;
+    } catch {}
+
+    // Fallback 2: clipboard copy with clear instructions
+    navigator.clipboard.writeText(text)
+      .then(() => flash(`⚠ ${platform} couldn't be opened from this browser. Text copied — paste it into ${platform} manually.`))
+      .catch(() => flash(`⚠ ${platform} couldn't be opened. Open ${platform} and paste your text manually.`));
+  }, []);
+
   // ── Export handler — called from FormatPicker ──────────────────────────────
   const handleExport = useCallback(async (fmt: ExportFormat) => {
     setBusy(true);
@@ -612,14 +634,20 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
 
       if (isForX) {
         setTimeout(() => {
-          window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(buildText())}`, '_blank');
+          openSocialUrl(
+            `https://x.com/intent/tweet?text=${encodeURIComponent(buildText())}`,
+            'X', buildText()
+          );
         }, 800);
         flash('✓ Image saved! Attach it in X when the compose window opens.');
       }
 
       if (isForTg) {
         setTimeout(() => {
-          window.open(`https://t.me/share/url?url=https://x1brains.io&text=${encodeURIComponent(buildText())}`, '_blank');
+          openSocialUrl(
+            `https://t.me/share/url?url=https://x1brains.io&text=${encodeURIComponent(buildText())}`,
+            'Telegram', buildText()
+          );
         }, 800);
         flash('✓ Image saved! Attach it in Telegram when the share dialog opens.');
       }
@@ -632,12 +660,18 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
   }, [picker, totalUSD, change24h, change24hUSD, topHoldings, burnPts, burnTier, walletAddress, blurAmounts, anonMode, buildText]);
 
   const shareToXTextOnly       = useCallback(() => {
-    window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(buildText())}`, '_blank');
-  }, [buildText]);
+    openSocialUrl(
+      `https://x.com/intent/tweet?text=${encodeURIComponent(buildText())}`,
+      'X', buildText()
+    );
+  }, [buildText, openSocialUrl]);
 
   const shareToTelegramTextOnly = useCallback(() => {
-    window.open(`https://t.me/share/url?url=https://x1brains.io&text=${encodeURIComponent(buildText())}`, '_blank');
-  }, [buildText]);
+    openSocialUrl(
+      `https://t.me/share/url?url=https://x1brains.io&text=${encodeURIComponent(buildText())}`,
+      'Telegram', buildText()
+    );
+  }, [buildText, openSocialUrl]);
 
   const copyText = useCallback(async () => {
     try { await navigator.clipboard.writeText(buildText()); flash('✓ Copied to clipboard!'); }
