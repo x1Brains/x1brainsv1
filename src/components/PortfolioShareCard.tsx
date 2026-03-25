@@ -250,6 +250,56 @@ function buildSVGCard(opts: {
 </svg>`;
 }
 
+// ─── DOWNLOAD FILE — works in regular browsers AND restricted WebViews ────────
+// Android WebViews (Backpack etc.) block createObjectURL blob downloads.
+// Strategy:
+//   1. navigator.share (Web Share API) — native mobile save/share sheet, best UX
+//   2. base64 data URI <a download> — works in WebViews that block blob URLs
+//   3. blob URL <a download> — standard browser fallback
+async function downloadFile(blob: Blob, filename: string, mimeType: string): Promise<void> {
+  // Strategy 1: Web Share API — triggers native iOS/Android share sheet
+  // This is the only method that reliably saves files in in-app browsers
+  if (navigator.share && navigator.canShare) {
+    try {
+      const file = new File([blob], filename, { type: mimeType });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'X1 Brains Portfolio Card' });
+        return;
+      }
+    } catch (e: any) {
+      // User cancelled share sheet — not an error, just return
+      if (e?.name === 'AbortError') return;
+      // Otherwise fall through to next strategy
+    }
+  }
+
+  // Strategy 2: base64 data URI — works in WebViews that block blob URLs
+  try {
+    const reader = new FileReader();
+    const dataUri = await new Promise<string>((res, rej) => {
+      reader.onload  = () => res(reader.result as string);
+      reader.onerror = () => rej(new Error('FileReader failed'));
+      reader.readAsDataURL(blob);
+    });
+    const a    = document.createElement('a');
+    a.href     = dataUri;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    return;
+  } catch {}
+
+  // Strategy 3: blob URL — works in standard browsers
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement('a');
+  a.href    = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 // ─── RASTERIZE SVG → PNG or JPEG ─────────────────────────────────────────────
 // Converts the SVG card string to a raster image via <img>+<canvas>.
 // No html2canvas, no CORS, no DOM quirks — always works in every browser.
@@ -580,22 +630,39 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3500); };
 
   // ── Social URL opener — works in regular browsers AND restricted WebViews ──
-  // Backpack and other in-app browsers block window.open() for external social URLs.
-  // Strategy: try window.open → try location.href → fall back to clipboard copy.
+  // Backpack blocks x.com/intent/tweet but CAN open twitter:// deep links
+  // and t.me:// links if the native app is installed.
   const openSocialUrl = useCallback((url: string, platform: 'X' | 'Telegram', text: string) => {
-    // Try window.open first (works in most browsers)
+    const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    // For X on mobile: try native twitter:// deep link first — Backpack can
+    // hand this off to the Twitter/X app even when blocking x.com web URLs
+    if (platform === 'X' && isMobileDevice) {
+      try {
+        const twitterDeep = `twitter://post?message=${encodeURIComponent(text)}`;
+        window.location.href = twitterDeep;
+        // Give the deep link 1.5s to open; if app not installed it silently fails
+        setTimeout(() => {
+          // Fallback to web URL after delay
+          try { window.open(url, '_blank'); } catch {}
+        }, 1500);
+        return;
+      } catch {}
+    }
+
+    // Strategy 1: window.open — works in Chrome, Safari, Samsung Internet
     try {
       const w = window.open(url, '_blank');
-      if (w) return; // success
+      if (w) return;
     } catch {}
 
-    // Fallback 1: location.href — works in many in-app WebViews
+    // Strategy 2: location.href — works in many in-app WebViews (Telegram uses this)
     try {
       window.location.href = url;
       return;
     } catch {}
 
-    // Fallback 2: clipboard copy with clear instructions
+    // Strategy 3: clipboard copy with clear instructions
     navigator.clipboard.writeText(text)
       .then(() => flash(`⚠ ${platform} couldn't be opened from this browser. Text copied — paste it into ${platform} manually.`))
       .catch(() => flash(`⚠ ${platform} couldn't be opened. Open ${platform} and paste your text manually.`));
@@ -616,17 +683,12 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
 
       if (fmt === 'svg') {
         const blob = new Blob([svgString], { type: 'image/svg+xml' });
-        const url  = URL.createObjectURL(blob);
-        const a    = document.createElement('a');
-        a.download = `${filename}.svg`; a.href = url; a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        await downloadFile(blob, `${filename}.svg`, 'image/svg+xml');
         flash('✓ Card saved as SVG!');
       } else {
+        const mime = fmt === 'jpeg' ? 'image/jpeg' : 'image/png';
         const blob = await svgToRaster(svgString, fmt);
-        const url  = URL.createObjectURL(blob);
-        const a    = document.createElement('a');
-        a.download = `${filename}.${fmt}`; a.href = url; a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        await downloadFile(blob, `${filename}.${fmt}`, mime);
         flash(`✓ Card saved as ${fmt.toUpperCase()}!`);
       }
 
