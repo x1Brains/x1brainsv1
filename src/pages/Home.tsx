@@ -229,14 +229,13 @@ const Home: FC = () => {
               border: '1px solid #00d4ff30',
               borderRadius: 16,
               padding: '28px 24px',
-              cursor: connected ? 'pointer' : 'default',
+              cursor: 'pointer',
               animation: 'fadeUp 0.5s ease 0.1s both',
               overflow: 'hidden',
               transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-              opacity: connected ? 1 : 0.65,
             }}
-            onClick={() => connected && navigate('/portfolio')}
-            onMouseEnter={e => { if (connected) { const el = e.currentTarget; el.style.borderColor = '#00d4ff'; el.style.transform = 'translateY(-6px)'; el.style.boxShadow = '0 16px 50px rgba(0,0,0,0.5), 0 0 30px #00d4ff20'; }}}
+            onClick={() => navigate('/portfolio')}
+            onMouseEnter={e => { const el = e.currentTarget; el.style.borderColor = '#00d4ff'; el.style.transform = 'translateY(-6px)'; el.style.boxShadow = '0 16px 50px rgba(0,0,0,0.5), 0 0 30px #00d4ff20'; }}
             onMouseLeave={e => { const el = e.currentTarget; el.style.borderColor = '#00d4ff30'; el.style.transform = 'translateY(0)'; el.style.boxShadow = 'none'; }}
           >
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, transparent, #00d4ff, transparent)', opacity: 0.6 }} />
@@ -276,9 +275,15 @@ const Home: FC = () => {
                 <span style={{ color: '#00d4ff', fontSize: 12 }}>→</span>
               </div>
             ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 10 }}>🔒</span>
-                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#5c7a90', letterSpacing: 2 }}>CONNECT WALLET TO ACCESS</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#00d4ff', letterSpacing: 2, fontWeight: 700 }}>ENTER</span>
+                  <span style={{ color: '#00d4ff', fontSize: 12 }}>→</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 10 }}>👁</span>
+                  <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 7, color: '#5c7a90', letterSpacing: 1.5 }}>WATCH ANY WALLET — NO LOGIN NEEDED</span>
+                </div>
               </div>
             )}
           </div>

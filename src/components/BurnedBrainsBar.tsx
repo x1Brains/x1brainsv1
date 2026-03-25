@@ -235,10 +235,16 @@ const StatTile: FC<{
 // ─────────────────────────────────────────────
 // COMPONENT
 // ─────────────────────────────────────────────
-export const BurnedBrainsBar: FC = () => {
+export const BurnedBrainsBar: FC<{ overrideAddress?: string }> = ({ overrideAddress }) => {
   const { connection }  = useConnection();
   const { publicKey }   = useWallet();
   const isMobile        = useIsMobile();
+
+  // In watch mode Portfolio passes the watched wallet address.
+  // Fall back to connected wallet if no override is given.
+  const effectiveKey: PublicKey | null = overrideAddress
+    ? (() => { try { return new PublicKey(overrideAddress); } catch { return null; } })()
+    : publicKey;
 
   const [state, setState]           = useState<SupplyState>({ currentSupply:null, burned:null, loading:true, error:false, lastUpdated:null });
   const [flash, setFlash]           = useState(false);
@@ -272,14 +278,14 @@ export const BurnedBrainsBar: FC = () => {
   }, [connection]);
 
   const scanWalletBurns = useCallback(async () => {
-    if (!connection || !publicKey) return;
+    if (!connection || !effectiveKey) return;
     burnAbortRef.current?.abort();
     const ctrl = new AbortController();
     burnAbortRef.current = ctrl;
     setWalletBurn(prev => ({ ...prev, amount: prev.amount ?? 0, loading:true, error:false }));
     try {
       await streamWalletBurnTotal(
-        connection, publicKey, decimalsRef.current, ctrl.signal,
+        connection, effectiveKey, decimalsRef.current, ctrl.signal,
         (runningTotal, done) => {
           if (!mountedRef.current || ctrl.signal.aborted) return;
           setWalletBurn({ amount:runningTotal, loading:!done, error:false, decimals:decimalsRef.current, scannedAt: done ? new Date() : null });
@@ -289,7 +295,7 @@ export const BurnedBrainsBar: FC = () => {
       if (!mountedRef.current || burnAbortRef.current?.signal.aborted) return;
       setWalletBurn(prev => ({ ...prev, loading:false, error:true }));
     }
-  }, [connection, publicKey]);
+  }, [connection, effectiveKey]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -299,7 +305,7 @@ export const BurnedBrainsBar: FC = () => {
   }, [fetchSupply]);
 
   useEffect(() => {
-    if (!publicKey) {
+    if (!effectiveKey) {
       burnAbortRef.current?.abort();
       setWalletBurn({ amount:null, loading:false, error:false, decimals:6, scannedAt:null });
       if (burnScanRef.current) clearInterval(burnScanRef.current);
@@ -308,7 +314,7 @@ export const BurnedBrainsBar: FC = () => {
     scanWalletBurns();
     burnScanRef.current = setInterval(scanWalletBurns, BURN_SCAN_INTERVAL);
     return () => { burnAbortRef.current?.abort(); if (burnScanRef.current) clearInterval(burnScanRef.current); };
-  }, [scanWalletBurns, publicKey]);
+  }, [scanWalletBurns, effectiveKey]);
 
   // ── Derived values ────────────────────────────────────────────────────────
   const burned       = Math.round(state.burned        ?? 0);
@@ -319,7 +325,7 @@ export const BurnedBrainsBar: FC = () => {
   const walletPct    = INITIAL_SUPPLY > 0 ? (walletAmount / INITIAL_SUPPLY) * 100 : 0;
 
   // Lab Work + LB Points — fetch from Supabase, fallback to localStorage
-  const walletAddr   = publicKey?.toBase58() ?? '';
+  const walletAddr   = effectiveKey?.toBase58() ?? '';
   const [labWorkPts, setLabWorkPts] = useState(0);
   useEffect(() => {
     if (!walletAddr) { setLabWorkPts(0); return; }
@@ -562,12 +568,12 @@ export const BurnedBrainsBar: FC = () => {
                 Your Burns
               </div>
               <div style={{ fontFamily:'Orbitron, monospace', fontSize:8, color:'#ddbbff', letterSpacing:1, textTransform:'uppercase', marginTop:2 }}>
-                {publicKey ? '🔗 All-Time' : '🔒 Connect Wallet'}
+                {effectiveKey ? '🔗 All-Time' : '🔒 Connect Wallet'}
               </div>
             </div>
             {/* Scan badge — inline on mobile */}
             <div style={{ marginLeft:'auto', display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
-              {publicKey ? (
+              {effectiveKey ? (
                 <>
                   <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(14,14,14,.97)', border:`1px solid ${walletBurn.error ? 'rgba(120,30,30,.8)' : 'rgba(100,0,120,.6)'}`, borderRadius:6, padding:'3px 9px' }}>
                     <span style={{ fontSize:11 }}>{walletBurn.loading ? '🔄' : walletBurn.error ? '⚠️' : '🔍'}</span>
@@ -589,7 +595,7 @@ export const BurnedBrainsBar: FC = () => {
           </div>
 
           {/* Amount */}
-          {!publicKey ? (
+          {!effectiveKey ? (
             <div style={{ fontFamily:'Orbitron, monospace', fontSize:22, fontWeight:800, color:'#3a2a42', letterSpacing:1.5 }}>——</div>
           ) : walletBurn.error ? (
             <div style={{ fontFamily:'Orbitron, monospace', fontSize:13, fontWeight:700, color:'#883333' }}>scan failed</div>
@@ -629,7 +635,7 @@ export const BurnedBrainsBar: FC = () => {
             <div>
               <div style={{ fontFamily:'Orbitron, monospace', fontSize:13, fontWeight:800, color:'#ff9944', letterSpacing:2.5, textTransform:'uppercase', marginBottom:4, whiteSpace:'nowrap', textShadow:'0 0 12px rgba(255,120,40,.6)' }}>Your Burns</div>
               <div style={{ fontFamily:'Orbitron, monospace', fontSize:10, fontWeight:600, color:'#ddbbff', letterSpacing:1.5, whiteSpace:'nowrap', textTransform:'uppercase' }}>
-                {publicKey ? '🔗 Connected Wallet · All-Time' : '🔒 Connect Wallet to View'}
+                {effectiveKey ? '🔗 Connected Wallet · All-Time' : '🔒 Connect Wallet to View'}
               </div>
             </div>
           </div>
@@ -652,7 +658,7 @@ export const BurnedBrainsBar: FC = () => {
                 </>
               )}
             </div>
-            {publicKey && walletAmount > 0 && !walletBurn.error && (
+            {effectiveKey && walletAmount > 0 && !walletBurn.error && (
               <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                 <div style={{ flex:1, height:4, borderRadius:2, overflow:'hidden', background:'rgba(80,0,80,.25)', border:'1px solid rgba(160,40,180,.15)' }}>
                   <div style={{ height:'100%', width:`${Math.min(walletPct * 20, 100)}%`, background:'linear-gradient(90deg,#4a006a,#aa00cc,#e040f0)', borderRadius:2, transition:'width 1.2s cubic-bezier(.16,1,.3,1)', minWidth: walletPct > 0 ? 3 : 0 }} />
@@ -687,7 +693,7 @@ export const BurnedBrainsBar: FC = () => {
       )}
 
       {/* ── ROW 5: LB Points · Lab Work · Tier Badge ── */}
-      {publicKey && (
+      {effectiveKey && (
         <>
           <div style={{ position:'relative', zIndex:1, margin:'0 14px', height:1, background:'linear-gradient(90deg,transparent,rgba(0,204,255,.18) 25%,rgba(0,204,255,.18) 75%,transparent)' }} />
           {isMobile ? (
