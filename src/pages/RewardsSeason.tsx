@@ -207,14 +207,22 @@ const LabWorkSection: FC<{ isMobile: boolean }> = ({ isMobile }) => {
   const removeLink = (i: number) => setForm(p => ({ ...p, links: p.links.filter((_, idx) => idx !== i) }));
   const updateLink = (i: number, val: string) => setForm(p => ({ ...p, links: p.links.map((l, idx) => idx === i ? val : l) }));
 
-  const submit = () => {
+  const submit = async () => {
     if (!form.address.trim()) { setMsg('⚠️ Enter your wallet address'); setTimeout(() => setMsg(''), 3000); return; }
     const cleanLinks = form.links.map(l => l.trim()).filter(Boolean);
     if (cleanLinks.length === 0 && !form.description.trim()) { setMsg('⚠️ Add at least one link or description'); setTimeout(() => setMsg(''), 3000); return; }
     const entry: LWSubmission = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), address: form.address.trim(), category: form.category, links: cleanLinks, description: form.description.trim(), date: new Date().toISOString(), status: 'pending' };
     const updated = [entry, ...submissions];
     setSubmissions(updated);
+    // Persist locally — always works even without Supabase
     try { localStorage.setItem(LS_LW_SUBMISSIONS, JSON.stringify(updated)); } catch {}
+    // Also send to Supabase so submissions survive cache clears and device switches
+    try {
+      const { addSubmission } = await import('../lib/supabase');
+      await addSubmission({ address: entry.address, category: entry.category, links: entry.links, description: entry.description });
+    } catch {
+      // Supabase save failed — submission still exists in localStorage, admin can migrate later
+    }
     setForm(p => ({ ...p, links: [''], description: '' }));
     setMsg('✅ Submitted! Admin will review and award LB Points.');
     setTimeout(() => setMsg(''), 4000);
@@ -406,16 +414,31 @@ const RewardsSeason:FC=()=>{
   },[]);
 
   // Refresh from Supabase every 15s
+  // Uses lightweight field checks instead of JSON.stringify to avoid:
+  //   - Expensive serialization of large objects every 15s
+  //   - False negatives when key ordering differs between objects
   useEffect(()=>{const id=setInterval(async()=>{
     try{
       const sb=await import('../lib/supabase');
       sb.invalidateWeeklyConfigCache();sb.invalidateChallengeLogsCache();sb.invalidateAnnouncementsCache();
       const[wc,cl,an]=await Promise.all([sb.getWeeklyConfig(),sb.getChallengeLogs(),sb.getAnnouncements()]);
-      if(wc&&wc.weekId)setW((prev:any)=>JSON.stringify(prev)!==JSON.stringify(wc)?wc as WConfig:prev);
-      if(cl.length>0)setLogs((prev:any)=>JSON.stringify(prev)!==JSON.stringify(cl)?cl as ChallengeLog[]:prev);
-      if(an.length>0)setAnns((prev:any)=>JSON.stringify(prev)!==JSON.stringify(an)?an as Ann[]:prev);
+      if(wc&&wc.weekId)setW((prev:any)=>{
+        // Only re-render if weekId, status, or updatedAt changed — avoids full serialization
+        const changed=prev.weekId!==wc.weekId||prev.status!==wc.status||prev.endDate!==wc.endDate;
+        return changed?wc as WConfig:prev;
+      });
+      if(cl.length>0)setLogs((prev:any)=>{
+        // Compare by length + most recent weekId — cheap and accurate enough
+        const changed=prev.length!==cl.length||(cl[0]?.weekId&&prev[0]?.weekId!==cl[0].weekId);
+        return changed?cl as ChallengeLog[]:prev;
+      });
+      if(an.length>0)setAnns((prev:any)=>{
+        const changed=prev.length!==an.length||(an[0]?.id&&prev[0]?.id!==an[0].id);
+        return changed?an as Ann[]:prev;
+      });
     }catch{
-      const fresh=loadJ('brains_weekly_config',null);if(fresh&&JSON.stringify(fresh)!==JSON.stringify(w))setW(fresh);
+      const fresh=loadJ('brains_weekly_config',null);
+      if(fresh)setW((prev:any)=>prev.weekId!==fresh.weekId||prev.status!==fresh.status?fresh:prev);
     }
   },15000);return()=>clearInterval(id);},[]);
 

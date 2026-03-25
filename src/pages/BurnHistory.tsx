@@ -322,6 +322,15 @@ const BurnHistory: FC = () => {
   const [decimals,   setDecimals]   = useState(6);
   const [labWorkPts, setLabWorkPts] = useState(0);
 
+  // Refs declared before any effect that reads them.
+  const abortRef   = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true); // true by default, set false on unmount
+
+  // Single cleanup: mark unmounted + abort in-flight scans
+  useEffect(() => {
+    return () => { mountedRef.current = false; abortRef.current?.abort(); };
+  }, []);
+
   // Fetch lab work points from Supabase for connected wallet
   useEffect(() => {
     if (!publicKey) { setLabWorkPts(0); return; }
@@ -343,8 +352,6 @@ const BurnHistory: FC = () => {
       });
   }, [publicKey]);
 
-  const abortRef   = useRef<AbortController | null>(null);
-  const mountedRef = useRef(true);
 
   useEffect(() => {
     if (!connection) return;
@@ -376,10 +383,6 @@ const BurnHistory: FC = () => {
     }
   }, [connection, publicKey, decimals]);
 
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; abortRef.current?.abort(); };
-  }, []);
 
   useEffect(() => {
     if (!publicKey) {

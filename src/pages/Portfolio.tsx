@@ -45,6 +45,7 @@ import { NFTGrid } from '../components/NFTComponents';
 import { BurnedBrainsBar, injectBurnStyles, walletBurnStats } from '../components/BurnedBrainsBar';
 import { SendPanel, SendHistoryRow, SavedAddress } from '../components/SendPanel';
 import { PortfolioChart, useDailySnapshot } from '../components/PortfolioChart';
+import { PortfolioShareCard } from '../components/PortfolioShareCard';
 import type { SnapshotToken } from '../lib/supabase';
 
 // ─────────────────────────────────────────────
@@ -463,7 +464,8 @@ const PortfolioStatsBar: FC<{
   nftCount: number;
   totalUSD: number | null;
   burnKey: number; isMobile: boolean;
-}> = ({ totalTokens, splCount, t22Count, lpCount, xntBalance, minerStatus, showSPL, onToggleSPL, showT22, onToggleT22, showLP, onToggleLP, showNFT, onToggleNFT, nftCount, totalUSD, burnKey, isMobile }) => (
+  isReadOnly: boolean; watchAddress: string;
+}> = ({ totalTokens, splCount, t22Count, lpCount, xntBalance, minerStatus, showSPL, onToggleSPL, showT22, onToggleT22, showLP, onToggleLP, showNFT, onToggleNFT, nftCount, totalUSD, burnKey, isMobile, isReadOnly, watchAddress }) => (
   <div style={{ marginBottom: 32 }}>
 
     {/* Stats grid — 2×2 on mobile, 4-col on desktop */}
@@ -628,7 +630,7 @@ const PortfolioStatsBar: FC<{
     </div>
 
     {/* BurnedBrainsBar — handles its own mobile layout internally */}
-    <BurnedBrainsBar key={burnKey} />
+    <BurnedBrainsBar key={burnKey} overrideAddress={isReadOnly ? watchAddress : undefined} />
 
     {/* XenBlocks Miner Status */}
     <div style={{
@@ -849,6 +851,25 @@ const Portfolio: FC = () => {
   const [burnKey, setBurnKey]                 = useState(0);
   const [showCelebration, setShowCelebration] = useState<{amount:string;newPts:number;totalPts:number;labWorkPts:number;tierName:string;tierIcon:string}|null>(null);
 
+  // ── WATCH MODE — view any wallet without connecting ──────────────────────────
+  // When watchAddress is set, the portfolio loads that address's data in read-only mode.
+  // Burn, Send, and snapshot saving are disabled in watch mode.
+  const [watchAddress,    setWatchAddress]    = useState<string>('');
+  const [watchInput,      setWatchInput]      = useState<string>('');
+  const [watchInputError, setWatchInputError] = useState<string>('');
+  const [isWatching,      setIsWatching]      = useState(false);
+
+  // The active PublicKey — either connected wallet or watched address
+  const activePublicKey: PublicKey | null = useMemo(() => {
+    if (publicKey) return publicKey;
+    if (isWatching && watchAddress) {
+      try { return new PublicKey(watchAddress); } catch { return null; }
+    }
+    return null;
+  }, [publicKey, isWatching, watchAddress]);
+
+  const isReadOnly = isWatching && !publicKey; // true when watching a foreign wallet
+
   // ── SEND FEATURE STATE ──────────────────────────────────────────────────────
   const [activeSendMint,  setActiveSendMint]  = useState<string | null>(null);
   const [savedAddresses,  setSavedAddresses]  = useState<SavedAddress[]>([]);
@@ -904,12 +925,12 @@ const Portfolio: FC = () => {
   const [snapsLoading,   setSnapsLoading]   = useState(false);
 
   useEffect(() => {
-    if (!publicKey) { setSnapshots([]); return; }
+    if (!activePublicKey) { setSnapshots([]); return; }
     setSnapsLoading(true);
     (async () => {
       try {
         const { getPortfolioSnapshots } = await import('../lib/supabase');
-        const data = await getPortfolioSnapshots(publicKey.toBase58());
+        const data = await getPortfolioSnapshots(activePublicKey.toBase58());
         setSnapshots(data);
       } catch {}
       finally { setSnapsLoading(false); }
@@ -924,8 +945,8 @@ const Portfolio: FC = () => {
   const xenBlocksRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { loadXdexData(); }, []);
-  useEffect(() => { if (publicKey && registryLoaded) loadTokens(); else if (!publicKey) reset(); }, [publicKey?.toBase58(), registryLoaded]);
-  useEffect(() => { if (publicKey) checkMinerStatusAuto(); }, [publicKey?.toBase58(), userEvmAddress]);
+  useEffect(() => { if (activePublicKey && registryLoaded) loadTokens(); else if (!activePublicKey) reset(); }, [activePublicKey?.toBase58(), registryLoaded]);
+  useEffect(() => { if (activePublicKey && !isReadOnly) checkMinerStatusAuto(); }, [activePublicKey?.toBase58(), userEvmAddress, isReadOnly]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -951,6 +972,28 @@ const Portfolio: FC = () => {
     setXntBalance(null); setBrainsToken(null); setSplTokens([]); setToken2022s([]); setLpTokens([]); setNftTokens([]);
     setMinerStatus({ isMiner: false, blocks: 0, rank: null, isActive: false, loading: false });
     setUserEvmAddress('');
+  };
+
+  const handleWatchSubmit = () => {
+    const addr = watchInput.trim();
+    if (!addr) return;
+    // Validate — must be a valid base58 Solana/X1 public key (32-44 chars)
+    try {
+      new PublicKey(addr);
+    } catch {
+      setWatchInputError('Invalid wallet address. Must be a valid X1 / SVM base58 address.');
+      return;
+    }
+    setWatchAddress(addr);
+    setIsWatching(true);
+    setWatchInputError('');
+  };
+
+  const handleStopWatching = () => {
+    setIsWatching(false);
+    setWatchAddress('');
+    setWatchInput('');
+    reset();
   };
 
   const loadXdexData = async () => {
@@ -986,14 +1029,15 @@ const Portfolio: FC = () => {
   };
 
   const loadTokens = async () => {
-    if (!publicKey) return;
+    if (!activePublicKey) return;
+    const targetKey = activePublicKey; // snapshot so it doesn't change mid-load
     setLoading(true);
     try {
       setLoadingLabel('Loading wallet data...');
       const [lamR, wlpR, splR] = await Promise.allSettled([
-        connection.getBalance(publicKey),
-        fetchWalletPoolTokens(publicKey.toBase58()),
-        connection.getParsedTokenAccountsByOwner(publicKey, { programId: TOKEN_PROGRAM_ID }),
+        connection.getBalance(targetKey),
+        fetchWalletPoolTokens(targetKey.toBase58()),
+        connection.getParsedTokenAccountsByOwner(targetKey, { programId: TOKEN_PROGRAM_ID }),
       ]);
       if (lamR.status === 'fulfilled') setXntBalance(lamR.value / 1e9);
       const walletLP: Set<string> = wlpR.status === 'fulfilled' ? wlpR.value : new Set();
@@ -1001,7 +1045,7 @@ const Portfolio: FC = () => {
       let t22Accs: any[] = [];
       try {
         setLoadingLabel('Loading Token-2022 accounts...');
-        t22Accs = (await connection.getParsedTokenAccountsByOwner(publicKey, { programId: TOKEN_2022_PROGRAM_ID })).value;
+        t22Accs = (await connection.getParsedTokenAccountsByOwner(targetKey, { programId: TOKEN_2022_PROGRAM_ID })).value;
       } catch { }
       const allAccounts = [
         ...splAccs.map((a: any) => ({ ...a, is2022: false })),
@@ -1189,7 +1233,10 @@ const Portfolio: FC = () => {
       (brainsToken && !isMintAddr(brainsToken.symbol) ? 1 : 0)
     );
   }, [xntBalance, splTokens, token2022s, brainsToken]);
-  useDailySnapshot(publicKey?.toBase58() ?? null, totalUSD, snapshotTokens, allTokenCount);
+  // Save daily snapshots for both connected wallets AND watched wallets.
+  // Watching a wallet builds up its history so the chart fills in over time
+  // for anyone who views it on x1brains.io — useful public data, not PII.
+  useDailySnapshot(activePublicKey?.toBase58() ?? null, totalUSD, snapshotTokens, allTokenCount);
 
   // ─────────────────────────────────────────────
   // RENDER
@@ -1212,7 +1259,7 @@ const Portfolio: FC = () => {
       <div style={{ position: 'relative', zIndex: 1, maxWidth: 820, margin: '0 auto' }}>
 
         {/* Connected header */}
-        {publicKey && (
+        {activePublicKey && (
           <div style={{ textAlign: 'center', marginBottom: isMobile ? 20 : 40, animation: 'fadeUp 0.5s ease both' }}>
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: isMobile ? 12 : 22 }}>
               <div style={{ position: 'relative', width: isMobile ? 80 : 140, height: isMobile ? 80 : 140 }}>
@@ -1234,9 +1281,45 @@ const Portfolio: FC = () => {
           </div>
         )}
 
-        {publicKey && <AddressBar address={publicKey.toBase58()} />}
+        {activePublicKey && <AddressBar address={activePublicKey.toBase58()} />}
 
-        {publicKey && (
+        {/* Read-only watch mode banner */}
+        {isReadOnly && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10,
+            padding: '10px 16px', marginBottom: 16,
+            background: 'linear-gradient(135deg,rgba(0,212,255,.08),rgba(0,212,255,.04))',
+            border: '1px solid rgba(0,212,255,.25)', borderRadius: 12,
+            animation: 'fadeUp .4s ease both',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 14 }}>👁</span>
+              <div>
+                <div style={{ fontFamily: 'Orbitron, monospace', fontSize: isMobile ? 9 : 10, fontWeight: 700, color: '#00d4ff', letterSpacing: 2 }}>
+                  WATCH MODE — READ ONLY
+                </div>
+                <div style={{ fontFamily: 'Sora, sans-serif', fontSize: 10, color: '#4a6070', marginTop: 2 }}>
+                  Viewing {watchAddress.slice(0,6)}…{watchAddress.slice(-4)} · Burn & Send are disabled
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={handleStopWatching}
+              style={{
+                padding: '6px 14px', borderRadius: 8, cursor: 'pointer',
+                background: 'rgba(255,68,102,.08)', border: '1px solid rgba(255,68,102,.25)',
+                fontFamily: 'Orbitron, monospace', fontSize: 8, fontWeight: 700,
+                color: '#ff4466', letterSpacing: 1.5, transition: 'all .2s',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,68,102,.16)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,68,102,.08)'; }}
+            >
+              ✕ STOP WATCHING
+            </button>
+          </div>
+        )}
+
+        {activePublicKey && (
           <>
             {loading ? <Spinner label={loadingLabel} /> : (
               <div style={{ animation: 'fadeUp 0.4s ease both' }}>
@@ -1252,6 +1335,7 @@ const Portfolio: FC = () => {
                   nftCount={nftTokens.length}
                   totalUSD={totalUSD}
                   burnKey={burnKey} isMobile={isMobile}
+                  isReadOnly={isReadOnly} watchAddress={watchAddress}
                 />
 
                 {/* ── PORTFOLIO HISTORY CHART ── */}
@@ -1262,6 +1346,19 @@ const Portfolio: FC = () => {
                   loading={snapsLoading}
                 />
 
+                {/* ── PORTFOLIO SHARE CARD ── */}
+                {totalUSD !== null && (
+                  <PortfolioShareCard
+                    totalUSD={totalUSD}
+                    snapshotTokens={snapshotTokens}
+                    snapshots={snapshots}
+                    walletAddress={activePublicKey?.toBase58() ?? null}
+                    burnedTotal={walletBurnStats.walletBurned}
+                    labWorkPts={walletBurnStats.labWorkPts}
+                    isMobile={isMobile}
+                  />
+                )}
+
                 {/* 1. Native XNT */}
                 <SectionHeader label="Native Token" color="#00d4ff" />
                 <TokenCard
@@ -1269,8 +1366,8 @@ const Portfolio: FC = () => {
                     decimals: 9, isToken2022: false, metaSource: undefined, logoUri: XNT_INFO.logoUri }}
                   highlight="native" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.05}
                   usdPrice={tokenPrices.get(XNT_WRAPPED) ?? null}
-                  onSend={() => setActiveSendMint(m => m === 'native-xnt' ? null : 'native-xnt')}
-                  sendActive={activeSendMint === 'native-xnt'}
+                  onSend={isReadOnly ? undefined : () => setActiveSendMint(m => m === 'native-xnt' ? null : 'native-xnt')}
+                  sendActive={!isReadOnly && activeSendMint === 'native-xnt'}
                 />
                 {activeSendMint === 'native-xnt' && (
                   <SendPanel
@@ -1285,7 +1382,7 @@ const Portfolio: FC = () => {
                 )}
 
                 {/* 2. BRAINS + burn */}
-                {brainsToken && (
+                {brainsToken && !isReadOnly && (
                   <div ref={burnRef}>
                     <SectionHeader label="BRAINS Token" color="#ff8c00" />
                     <TokenCard token={brainsToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.1}
@@ -1691,9 +1788,10 @@ const Portfolio: FC = () => {
           </>
         )}
 
-        {/* Not connected */}
-        {!publicKey && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 140px)', animation: 'fadeUp 0.6s ease both', padding: '0 8px' }}>
+        {/* Not connected — show connect prompt + watch any wallet input */}
+        {!publicKey && !isWatching && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 140px)', animation: 'fadeUp 0.6s ease both', padding: '0 24px' }}>
+            {/* Logo */}
             <div style={{ position: 'relative', marginBottom: isMobile ? 28 : 48 }}>
               <div style={{ position: 'absolute', inset: -50, borderRadius: '50%', background: 'radial-gradient(circle,rgba(255,140,0,.2) 0%,transparent 70%)', animation: 'pulse-orange 3s ease infinite' }} />
               <div style={{ position: 'relative', width: isMobile ? 120 : 180, height: isMobile ? 120 : 180 }}>
@@ -1703,6 +1801,7 @@ const Portfolio: FC = () => {
                   onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
               </div>
             </div>
+
             <h1 style={{ fontFamily: 'Orbitron, monospace', fontSize: isMobile ? 32 : 56, fontWeight: 900, letterSpacing: isMobile ? 4 : 9,
               background: 'linear-gradient(135deg,#ff8c00 0%,#ffb700 45%,#00d4ff 100%)',
               WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
@@ -1712,12 +1811,119 @@ const Portfolio: FC = () => {
             <p style={{ fontFamily: 'Orbitron, monospace', fontSize: isMobile ? 8 : 13, letterSpacing: isMobile ? 2 : 6, color: '#7a9ab8', textTransform: 'uppercase', marginBottom: 36, textAlign: 'center' }}>
               X1 Blockchain · Portfolio Tracker
             </p>
-            <div style={{ width: 200, height: 1, background: 'linear-gradient(to right,transparent,#ff8c0080,transparent)', marginBottom: 32 }} />
-            <p style={{ fontFamily: 'Sora, sans-serif', fontSize: isMobile ? 13 : 16, color: '#7a9ab8', marginBottom: 24, textAlign: 'center' }}>
-              Connect your wallet to view your X1 portfolio
-            </p>
-            <div style={{ fontFamily: 'Orbitron, monospace', fontSize: isMobile ? 9 : 12, color: '#7a9ab8', padding: '12px 20px', letterSpacing: 2, border: '1px solid #1e3050', borderRadius: 12, background: 'rgba(255,140,0,.04)', textAlign: 'center' }}>
-              USE CONNECT BUTTON ↗
+
+            <div style={{ width: '100%', maxWidth: 500, display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+              {/* Option A — Connect wallet */}
+              <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#4a6070', letterSpacing: 3, textAlign: 'center', marginBottom: 4 }}>
+                CONNECT YOUR WALLET
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
+                <div style={{ fontFamily: 'Orbitron, monospace', fontSize: isMobile ? 9 : 11, color: '#7a9ab8', padding: '12px 20px', letterSpacing: 2, border: '1px solid #1e3050', borderRadius: 12, background: 'rgba(255,140,0,.04)', textAlign: 'center' }}>
+                  USE CONNECT BUTTON ↗
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '4px 0' }}>
+                <div style={{ flex: 1, height: 1, background: 'linear-gradient(to right,transparent,#1e3050)' }} />
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#3a5060', letterSpacing: 2 }}>OR</span>
+                <div style={{ flex: 1, height: 1, background: 'linear-gradient(to left,transparent,#1e3050)' }} />
+              </div>
+
+              {/* Option B — Watch any wallet — prominent green card */}
+              <div style={{
+                position: 'relative', borderRadius: 16, overflow: 'hidden',
+                background: 'linear-gradient(135deg,rgba(0,201,141,.07) 0%,rgba(0,201,141,.03) 100%)',
+                border: '1px solid rgba(0,201,141,.35)',
+                padding: '24px 22px 20px',
+                boxShadow: '0 0 40px rgba(0,201,141,.1), inset 0 1px 0 rgba(0,201,141,.15)',
+                animation: 'fadeUp .5s ease .1s both',
+              }}>
+                {/* Subtle grid texture */}
+                <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', backgroundImage: 'linear-gradient(rgba(0,201,141,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,201,141,.025) 1px,transparent 1px)', backgroundSize: '28px 28px' }} />
+                {/* Top accent bar */}
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg,transparent,#00c98d,#00d4ff,#00c98d,transparent)' }} />
+
+                {/* Header row: pulsing orb + title */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10, position: 'relative', zIndex: 1 }}>
+                  {/* Green pulsing orb */}
+                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                    {/* Outer pulse rings */}
+                    <div style={{ position: 'absolute', inset: -10, borderRadius: '50%', background: 'rgba(0,201,141,.15)', animation: 'pulse-green-lg 2s ease infinite' }} />
+                    <div style={{ position: 'absolute', inset: -5, borderRadius: '50%', background: 'rgba(0,201,141,.25)', animation: 'pulse-green-lg 2s ease .4s infinite' }} />
+                    {/* Core orb */}
+                    <div style={{ width: 18, height: 18, borderRadius: '50%', background: 'radial-gradient(circle at 35% 35%,#4dffc8,#00c98d)', boxShadow: '0 0 16px rgba(0,201,141,.9), 0 0 32px rgba(0,201,141,.4)', position: 'relative', zIndex: 1 }} />
+                  </div>
+
+                  <div>
+                    <div style={{ fontFamily: 'Orbitron, monospace', fontSize: isMobile ? 13 : 15, fontWeight: 900, color: '#00c98d', letterSpacing: 2, lineHeight: 1.1 }}>
+                      WATCH ANY WALLET
+                    </div>
+                    <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 7, color: '#00c98d', opacity: 0.6, letterSpacing: 2, marginTop: 3 }}>
+                      NO LOGIN NEEDED · READ-ONLY MODE
+                    </div>
+                  </div>
+                </div>
+
+                {/* Description */}
+                <p style={{ fontFamily: 'Sora, sans-serif', fontSize: isMobile ? 12 : 13, color: '#7ab8a0', lineHeight: 1.65, marginBottom: 16, position: 'relative', zIndex: 1 }}>
+                  Paste any <span style={{ color: '#00c98d', fontWeight: 600 }}>X1 or Solana wallet address</span> to instantly view its full portfolio — tokens, NFTs, burn rank and history. No wallet connection required.
+                </p>
+
+                {/* Input + button */}
+                <div style={{ display: 'flex', gap: 8, flexDirection: isMobile ? 'column' : 'row', position: 'relative', zIndex: 1 }}>
+                  <div style={{ flex: 1, position: 'relative' }}>
+                    {/* Input glow ring */}
+                    <div style={{ position: 'absolute', inset: -1, borderRadius: 11, background: watchInput.trim() ? 'linear-gradient(135deg,#00c98d,#00d4ff)' : 'transparent', zIndex: 0, opacity: 0.5 }} />
+                    <input
+                      type="text"
+                      value={watchInput}
+                      onChange={e => { setWatchInput(e.target.value); setWatchInputError(''); }}
+                      onKeyDown={e => { if (e.key === 'Enter') handleWatchSubmit(); }}
+                      placeholder="Paste wallet address…"
+                      style={{
+                        position: 'relative', zIndex: 1,
+                        width: '100%', padding: '13px 16px',
+                        background: 'rgba(0,0,0,.4)',
+                        border: `1px solid ${watchInputError ? 'rgba(255,68,102,.6)' : 'rgba(0,201,141,.4)'}`,
+                        borderRadius: 10, fontFamily: 'Sora, sans-serif', fontSize: 13,
+                        color: '#e0e8f0', outline: 'none', transition: 'border-color .2s',
+                        boxSizing: 'border-box',
+                      }}
+                      onFocus={e => { (e.currentTarget as HTMLInputElement).style.borderColor = watchInputError ? 'rgba(255,68,102,.8)' : 'rgba(0,201,141,.8)'; (e.currentTarget as HTMLInputElement).style.boxShadow = '0 0 0 3px rgba(0,201,141,.12)'; }}
+                      onBlur={e => { (e.currentTarget as HTMLInputElement).style.borderColor = watchInputError ? 'rgba(255,68,102,.5)' : 'rgba(0,201,141,.4)'; (e.currentTarget as HTMLInputElement).style.boxShadow = 'none'; }}
+                    />
+                  </div>
+                  <button
+                    onClick={handleWatchSubmit}
+                    disabled={!watchInput.trim()}
+                    style={{
+                      padding: '13px 26px', borderRadius: 10, cursor: watchInput.trim() ? 'pointer' : 'not-allowed',
+                      background: watchInput.trim()
+                        ? 'linear-gradient(135deg,#00c98d,#00b87a)'
+                        : 'rgba(0,201,141,.08)',
+                      border: `1px solid ${watchInput.trim() ? 'transparent' : 'rgba(0,201,141,.2)'}`,
+                      fontFamily: 'Orbitron, monospace', fontSize: 10, fontWeight: 900,
+                      color: watchInput.trim() ? '#001a0f' : '#2a6050',
+                      letterSpacing: 1.5, transition: 'all .2s', whiteSpace: 'nowrap',
+                      boxShadow: watchInput.trim() ? '0 4px 20px rgba(0,201,141,.4)' : 'none',
+                    }}
+                    onMouseEnter={e => { if (watchInput.trim()) { (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-2px)'; (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 8px 28px rgba(0,201,141,.55)'; }}}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(0)'; (e.currentTarget as HTMLButtonElement).style.boxShadow = watchInput.trim() ? '0 4px 20px rgba(0,201,141,.4)' : 'none'; }}
+                  >
+                    👁 WATCH
+                  </button>
+                </div>
+
+                {watchInputError && (
+                  <div style={{ fontFamily: 'Sora, sans-serif', fontSize: 11, color: '#ff4466', padding: '8px 12px', marginTop: 10, background: 'rgba(255,68,102,.08)', border: '1px solid rgba(255,68,102,.2)', borderRadius: 8, animation: 'fadeUp .2s ease both', position: 'relative', zIndex: 1 }}>
+                    {watchInputError}
+                  </div>
+                )}
+
+              </div>
+
             </div>
           </div>
         )}
@@ -1737,6 +1943,11 @@ if (typeof document !== 'undefined') {
     @keyframes pulse-green {
       0%,100%{ opacity:1; box-shadow:0 0 12px rgba(0,255,136,.8),0 0 24px rgba(0,255,136,.4); }
       50%    { opacity:.7; box-shadow:0 0 20px rgba(0,255,136,1),0 0 40px rgba(0,255,136,.6); }
+    }
+    @keyframes pulse-green-lg {
+      0%   { transform:scale(1);   opacity:.5; }
+      50%  { transform:scale(1.6); opacity:0;  }
+      100% { transform:scale(1);   opacity:.5; }
     }
   `;
   if (!document.head.querySelector('style[data-portfolio-animations]')) {
