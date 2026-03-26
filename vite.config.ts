@@ -33,12 +33,15 @@ export default defineConfig({
         "font-src 'self' https://fonts.gstatic.com",
         [
           "connect-src 'self'",
-          // X1 / Solana RPC
+          // X1 / Solana RPC — both https and wss required for WebSocket subscriptions
           "https://rpc.mainnet.x1.xyz",
+          "wss://rpc.mainnet.x1.xyz",
           // xDex
           "https://api.xdex.xyz",
           "https://app.xdex.xyz",
           "https://mint.xdex.xyz",
+          // X1Cats API
+          "https://api.x1app.fyi",
           // IPFS gateways
           "https://gateway.pinata.cloud",
           "https://ipfs.io",
@@ -57,6 +60,7 @@ export default defineConfig({
           "https://corsproxy.io",
           // Supabase
           "https://xbchrxxfnzhsbpncfiar.supabase.co",
+          "wss://xbchrxxfnzhsbpncfiar.supabase.co",
           // Analytics geo
           "https://ipapi.co",
           // Imperial API
