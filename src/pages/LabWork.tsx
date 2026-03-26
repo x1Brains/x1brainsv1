@@ -278,27 +278,35 @@ const calcCancelFee   = (p: number)     => Math.floor(p * CANCEL_FEE_NUMERATOR /
 const calcSellerCut   = (p: number)     => p - calcFee(p);
 const xntToLamports   = (x: string)     => Math.round(parseFloat(x) * LAMPORTS_PER_SOL);
 
-// Send a transaction bypassing Backpack's internal simulation.
-// Backpack ignores skipPreflight from dApps and simulates internally — this causes
-// "Plugin Closed" when the program is new/unknown. Using signTransaction + sendRawTransaction
-// skips Backpack's simulation entirely and sends signed bytes directly to the RPC.
+// Send transaction - tries signTransaction first to bypass wallet simulation,
+// falls back to sendTransaction if sign fails.
 async function sendTx(
   tx: Transaction,
   connection: any,
   sendTransaction: any,
   signTransaction?: ((tx: Transaction) => Promise<Transaction>) | null,
 ): Promise<string> {
-  // Try signTransaction first — bypasses Backpack simulation
   if (signTransaction) {
-    const signed = await signTransaction(tx);
-    return connection.sendRawTransaction(signed.serialize(), {
-      skipPreflight:       true,
-      preflightCommitment: 'confirmed',
-      maxRetries:          5,
-    });
+    try {
+      const signed = await signTransaction(tx);
+      return connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight:       true,
+        preflightCommitment: 'confirmed',
+        maxRetries:          5,
+      });
+    } catch (signErr: any) {
+      console.warn('signTransaction failed, falling back to sendTransaction:', signErr?.message ?? signErr);
+      // If user explicitly rejected, don't fall through
+      const msg = signErr?.message ?? '';
+      if (msg.includes('User rejected') || msg.includes('rejected') || msg.includes('denied')) throw signErr;
+      // Otherwise fall through to sendTransaction
+    }
   }
-  // Fallback
-  return sendTransaction(tx, connection, { skipPreflight: true, maxRetries: 5 });
+  return sendTransaction(tx, connection, {
+    skipPreflight:       true,
+    preflightCommitment: 'confirmed',
+    maxRetries:          5,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1155,7 +1163,12 @@ const SellPanel: FC<{
       const [listingPda] = getListingPda(nftMint);
       const [escrowPda]  = getEscrowPda(nftMint);
       const [escrowAuth] = getEscrowAuthPda(nftMint);
-      const tokenProgram = selected.isToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+
+      // Detect actual token program from mint account owner on-chain
+      // (isToken2022 flag may be wrong - ground truth is the mint's owner)
+      const mintInfo = await connection.getAccountInfo(nftMint);
+      const tokenProgram = mintInfo?.owner?.equals(TOKEN_2022_PROGRAM_ID)
+        ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
       const sellerAta    = getAssociatedTokenAddressSync(nftMint, publicKey, false, tokenProgram);
 
       // Precompute EVERYTHING before triggering wallet — avoids Plugin Closed timeout
@@ -1183,6 +1196,17 @@ const SellPanel: FC<{
       tx.recentBlockhash = blockhash;
       tx.feePayer = publicKey;
 
+      // Debug — log everything so we can verify on-chain
+      console.log('list_nft debug:', {
+        mint: nftMint.toBase58(),
+        tokenProgram: tokenProgram.toBase58(),
+        sellerAta: sellerAta.toBase58(),
+        escrowPda: escrowPda.toBase58(),
+        escrowAuth: escrowAuth.toBase58(),
+        listingPda: listingPda.toBase58(),
+        isT22: mintInfo?.owner?.equals(TOKEN_2022_PROGRAM_ID),
+      });
+
       // Now open wallet — everything is ready
       setStatus('Awaiting wallet approval…');
       const sig = await sendTx(tx, connection, sendTransaction, signTransaction);
@@ -1202,7 +1226,9 @@ const SellPanel: FC<{
       setSelected(null); setPrice('');
       setTimeout(() => { setStatus(''); onListed(); }, 2500);
     } catch (e: any) {
-      setStatus(`❌ ${e?.message?.slice(0,90) ?? 'Transaction failed'}`);
+      console.error('list_nft error:', e);
+      const msg = e?.message ?? e?.logs?.join(' ') ?? JSON.stringify(e) ?? 'Transaction failed';
+      setStatus(`❌ ${msg.slice(0, 120)}`);
     } finally { setPending(false); }
   };
 
@@ -1377,7 +1403,11 @@ const LabWork: FC = () => {
       const [listingPda] = getListingPda(nftMint);
       const [escrowPda]  = getEscrowPda(nftMint);
       const [escrowAuth] = getEscrowAuthPda(nftMint);
-      const tokenProgram = listing.nftData?.isToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+
+      // Detect token program from mint owner
+      const mintInfo = await connection.getAccountInfo(nftMint);
+      const tokenProgram = mintInfo?.owner?.equals(TOKEN_2022_PROGRAM_ID)
+        ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
       const buyerAta     = getAssociatedTokenAddressSync(nftMint, publicKey, false, tokenProgram);
       // Precompute everything before wallet prompt
       const disc = await discriminatorAsync('buy_nft');
@@ -1434,7 +1464,11 @@ const LabWork: FC = () => {
       const [listingPda] = getListingPda(nftMint);
       const [escrowPda]  = getEscrowPda(nftMint);
       const [escrowAuth] = getEscrowAuthPda(nftMint);
-      const tokenProgram = listing.nftData?.isToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+
+      // Detect token program from mint owner
+      const mintInfo = await connection.getAccountInfo(nftMint);
+      const tokenProgram = mintInfo?.owner?.equals(TOKEN_2022_PROGRAM_ID)
+        ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
       const sellerAta    = getAssociatedTokenAddressSync(nftMint, publicKey, false, tokenProgram);
       // Precompute everything before wallet prompt
       const disc = await discriminatorAsync('delist_nft');
