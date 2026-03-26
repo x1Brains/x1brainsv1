@@ -47,6 +47,7 @@ pub mod labwork_marketplace {
         listing.created_at    = Clock::get()?.unix_timestamp;
         listing.bump          = ctx.bumps.listing;
         listing.escrow_bump   = ctx.bumps.escrow_token_account;
+        listing.escrow_auth_bump = ctx.bumps.escrow_authority;
 
         // Copy values before mutable borrow ends
         let listing_key  = listing.key();
@@ -117,21 +118,21 @@ pub mod labwork_marketplace {
         }
 
         // Return NFT from escrow → seller's token account
-        // Escrow PDA is the authority — use seeds to sign
+        // escrow_authority PDA signs for the transfer
         let mint_key = nft_mint.key();
-        let seeds: &[&[u8]] = &[
-            b"escrow",
+        let auth_seeds: &[&[u8]] = &[
+            b"escrow_auth",
             mint_key.as_ref(),
-            &[listing.escrow_bump],
+            &[listing.escrow_auth_bump],
         ];
-        let signer = &[seeds];
+        let signer = &[auth_seeds];
 
         let cpi_ctx = CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
             Transfer {
                 from:      ctx.accounts.escrow_token_account.to_account_info(),
                 to:        ctx.accounts.seller_token_account.to_account_info(),
-                authority: ctx.accounts.escrow_token_account.to_account_info(),
+                authority: ctx.accounts.escrow_authority.to_account_info(),
             },
             signer,
         );
@@ -199,19 +200,19 @@ pub mod labwork_marketplace {
 
         // Transfer NFT: escrow → buyer token account
         let mint_key = nft_mint.key();
-        let seeds: &[&[u8]] = &[
-            b"escrow",
+        let auth_seeds: &[&[u8]] = &[
+            b"escrow_auth",
             mint_key.as_ref(),
-            &[listing.escrow_bump],
+            &[listing.escrow_auth_bump],
         ];
-        let signer = &[seeds];
+        let signer = &[auth_seeds];
 
         let cpi_ctx = CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
             Transfer {
                 from:      ctx.accounts.escrow_token_account.to_account_info(),
                 to:        ctx.accounts.buyer_token_account.to_account_info(),
-                authority: ctx.accounts.escrow_token_account.to_account_info(),
+                authority: ctx.accounts.escrow_authority.to_account_info(),
             },
             signer,
         );
@@ -273,17 +274,17 @@ pub mod labwork_marketplace {
 #[account]
 #[derive(Default)]
 pub struct ListingAccount {
-    pub seller:       Pubkey,   // 32
-    pub nft_mint:     Pubkey,   // 32
-    pub price:        u64,      //  8  — in lamports (XNT native)
-    pub created_at:   i64,      //  8
-    pub bump:         u8,       //  1
-    pub escrow_bump:  u8,       //  1
+    pub seller:           Pubkey,   // 32
+    pub nft_mint:         Pubkey,   // 32
+    pub price:            u64,      //  8
+    pub created_at:       i64,      //  8
+    pub bump:             u8,       //  1
+    pub escrow_bump:      u8,       //  1
+    pub escrow_auth_bump: u8,       //  1
 }
-// Total: 8 (discriminator) + 82 = 90 bytes
 
 impl ListingAccount {
-    pub const LEN: usize = 8 + 32 + 32 + 8 + 8 + 1 + 1;
+    pub const LEN: usize = 8 + 32 + 32 + 8 + 8 + 1 + 1 + 1;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -310,18 +311,26 @@ pub struct ListNft<'info> {
 
     /// PDA token account that holds the NFT in escrow while listed
     #[account(
-        init_if_needed,
+        init,
         payer = seller,
         token::mint      = nft_mint,
-        token::authority = escrow_token_account, // self-custodied PDA
+        token::authority = escrow_authority,
         seeds = [b"escrow", nft_mint.key().as_ref()],
         bump,
     )]
     pub escrow_token_account: Account<'info, TokenAccount>,
 
+    /// Authority PDA for the escrow token account
+    /// CHECK: This is a PDA used only as authority
+    #[account(
+        seeds = [b"escrow_auth", nft_mint.key().as_ref()],
+        bump,
+    )]
+    pub escrow_authority: AccountInfo<'info>,
+
     /// Listing state account
     #[account(
-        init_if_needed,
+        init,
         payer = seller,
         space = ListingAccount::LEN,
         seeds = [b"listing", nft_mint.key().as_ref()],
@@ -362,6 +371,14 @@ pub struct DelistNft<'info> {
         bump  = listing.escrow_bump,
     )]
     pub escrow_token_account: Account<'info, TokenAccount>,
+
+    /// Authority PDA for the escrow
+    /// CHECK: PDA used as token authority
+    #[account(
+        seeds = [b"escrow_auth", listing.nft_mint.as_ref()],
+        bump  = listing.escrow_auth_bump,
+    )]
+    pub escrow_authority: AccountInfo<'info>,
 
     /// Listing account — closed on delist, rent returned to seller
     #[account(
@@ -410,6 +427,14 @@ pub struct BuyNft<'info> {
         bump  = listing.escrow_bump,
     )]
     pub escrow_token_account: Account<'info, TokenAccount>,
+
+    /// Authority PDA for the escrow
+    /// CHECK: PDA used as token authority
+    #[account(
+        seeds = [b"escrow_auth", listing.nft_mint.as_ref()],
+        bump  = listing.escrow_auth_bump,
+    )]
+    pub escrow_authority: AccountInfo<'info>,
 
     /// Listing account — closed on purchase, rent returned to seller
     #[account(

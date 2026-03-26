@@ -66,6 +66,37 @@
           }
         },
         {
+          "name": "escrow_authority",
+          "docs": [
+            "Authority PDA for the escrow"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "listing.nft_mint",
+                "account": "ListingAccount"
+              }
+            ]
+          }
+        },
+        {
           "name": "listing",
           "docs": [
             "Listing account — closed on purchase, rent returned to seller"
@@ -177,6 +208,37 @@
           }
         },
         {
+          "name": "escrow_authority",
+          "docs": [
+            "Authority PDA for the escrow"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "listing.nft_mint",
+                "account": "ListingAccount"
+              }
+            ]
+          }
+        },
+        {
           "name": "listing",
           "docs": [
             "Listing account — closed on delist, rent returned to seller"
@@ -270,6 +332,36 @@
                   114,
                   111,
                   119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "nft_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow_authority",
+          "docs": [
+            "Authority PDA for the escrow token account"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104
                 ]
               },
               {
@@ -520,6 +612,10 @@
           },
           {
             "name": "escrow_bump",
+            "type": "u8"
+          },
+          {
+            "name": "escrow_auth_bump",
             "type": "u8"
           }
         ]
