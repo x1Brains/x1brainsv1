@@ -258,7 +258,18 @@ interface Listing {
   nftData?:   NFTData;
 }
 type PageMode  = 'gallery' | 'market';
-type MarketTab = 'browse' | 'mylistings' | 'sell';
+type MarketTab = 'browse' | 'mylistings' | 'sell' | 'activity';
+
+interface TradeLog {
+  sig:       string;
+  type:      'list' | 'buy' | 'delist';
+  nftMint:   string;
+  price?:    number;
+  seller?:   string;
+  buyer?:    string;
+  timestamp: number;
+  nftData?:  NFTData;
+}
 
 // ─────────────────────────────────────────────────────────────────
 //  UTILITY HELPERS
@@ -555,7 +566,8 @@ const StatusBox: FC<{ msg: string }> = ({ msg }) => {
     background: ok ? 'rgba(0,201,141,.08)' : err ? 'rgba(255,50,50,.08)' : 'rgba(0,212,255,.06)',
     border:`1px solid ${ok ? 'rgba(0,201,141,.3)' : err ? 'rgba(255,50,50,.3)' : 'rgba(0,212,255,.2)'}`,
     fontFamily:'Sora,sans-serif', fontSize:11,
-    color: ok ? '#00c98d' : err ? '#ff6666' : '#00d4ff' }}>{msg}</div>;
+    color: ok ? '#00c98d' : err ? '#ff6666' : '#00d4ff' }}
+    dangerouslySetInnerHTML={{ __html: msg }} />;
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -1226,7 +1238,7 @@ const SellPanel: FC<{
         if (conf === 'confirmed' || conf === 'finalized') { confirmed = true; break; }
       }
       if (!confirmed) throw new Error(`Timed out. Check tx: ${sig}`);
-      setStatus(`✅ Listed! Tx: ${sig.slice(0,20)}…`);
+      setStatus(`✅ Listed! <a href="https://explorer.mainnet.x1.xyz/tx/${sig}" target="_blank" rel="noopener" style="color:#00d4ff;text-decoration:underline">View Tx ↗</a>`);
       setSelected(null); setPrice('');
       setTimeout(() => { setStatus(''); onListed(); }, 2500);
     } catch (e: any) {
@@ -1325,6 +1337,145 @@ const SellPanel: FC<{
 };
 
 // ═════════════════════════════════════════════════════════════════
+//  LIST NFT MODAL — popup when clicking "List for Sale"
+// ═════════════════════════════════════════════════════════════════
+const ListModal: FC<{
+  nft:            NFTData;
+  connection:     any;
+  publicKey:      PublicKey | null;
+  sendTransaction: any;
+  signTransaction: ((tx: Transaction) => Promise<Transaction>) | null | undefined;
+  onClose:        () => void;
+  onListed:       () => void;
+}> = ({ nft, connection, publicKey, sendTransaction, signTransaction, onClose, onListed }) => {
+  const [price, setPrice]   = useState('');
+  const [status, setStatus] = useState('');
+  const [pending, setPending] = useState(false);
+
+  const fee     = price ? calcFee(xntToLamports(price))         : 0;
+  const receive = price ? calcSellerCut(xntToLamports(price))   : 0;
+
+  const handleList = async () => {
+    if (!publicKey || !price) return;
+    const lamports = xntToLamports(price);
+    if (isNaN(lamports) || lamports <= 0) { setStatus('❌ Enter a valid price'); return; }
+    setPending(true); setStatus('Preparing…');
+    try {
+      const nftMint    = new PublicKey(nft.mint);
+      const [salePda]  = getSalePda(nftMint, publicKey);
+      const [vaultPda] = getVaultPda(nftMint, publicKey);
+      const sellerAta  = getAssociatedTokenAddressSync(nftMint, publicKey);
+      const disc       = await discriminatorAsync('list_nft');
+      const priceData  = Buffer.alloc(8);
+      priceData.writeBigUInt64LE(BigInt(lamports));
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+      const ix = {
+        programId: getMarketplaceProgramId(),
+        keys: [
+          { pubkey: publicKey,               isSigner:true,  isWritable:true  },
+          { pubkey: nftMint,                 isSigner:false, isWritable:false },
+          { pubkey: sellerAta,               isSigner:false, isWritable:true  },
+          { pubkey: vaultPda,                isSigner:false, isWritable:true  },
+          { pubkey: salePda,                 isSigner:false, isWritable:true  },
+          { pubkey: TOKEN_PROGRAM_ID,        isSigner:false, isWritable:false },
+          { pubkey: SystemProgram.programId, isSigner:false, isWritable:false },
+          { pubkey: SYSVAR_RENT_PUBKEY,      isSigner:false, isWritable:false },
+        ],
+        data: Buffer.concat([disc, priceData]),
+      };
+      const tx = new Transaction().add(ix as any);
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = publicKey;
+      setStatus('Awaiting wallet approval…');
+      const sig = await sendTx(tx, connection, sendTransaction, signTransaction);
+      setStatus('Confirming…');
+      let confirmed = false;
+      for (let i = 0; i < 40; i++) {
+        if (i > 0) await new Promise(r => setTimeout(r, 1500));
+        const st = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
+        const conf = st?.value?.confirmationStatus;
+        const err  = st?.value?.err;
+        if (err) throw new Error('On-chain error: ' + JSON.stringify(err));
+        if (conf === 'confirmed' || conf === 'finalized') { confirmed = true; break; }
+      }
+      if (!confirmed) throw new Error(`Timed out. Check tx: ${sig}`);
+      setStatus(`✅ Listed! <a href="https://explorer.mainnet.x1.xyz/tx/${sig}" target="_blank" rel="noopener" style="color:#00d4ff">View Tx ↗</a>`);
+      setTimeout(() => { onListed(); onClose(); }, 2500);
+    } catch (e: any) {
+      console.error('list error:', e);
+      setStatus(`❌ ${e?.message?.slice(0,120) ?? 'Failed'}`);
+    } finally { setPending(false); }
+  };
+
+  return createPortal(
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+         onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background:'#0a1628', border:'1px solid rgba(0,212,255,.2)', borderRadius:16, padding:28, width:'100%', maxWidth:420, fontFamily:'Sora,sans-serif' }}>
+
+        {/* Header */}
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+          <span style={{ fontFamily:'Orbitron,monospace', fontSize:13, fontWeight:700, color:'#00d4ff', letterSpacing:2 }}>🏷️ LIST FOR SALE</span>
+          <button onClick={onClose} disabled={pending} style={{ background:'none', border:'none', color:'#4a6a8a', fontSize:18, cursor:'pointer', lineHeight:1 }}>✕</button>
+        </div>
+
+        {/* NFT Preview */}
+        <div style={{ display:'flex', gap:14, marginBottom:20, padding:14, background:'rgba(0,212,255,.04)', border:'1px solid rgba(0,212,255,.1)', borderRadius:12 }}>
+          {nft.image && <img src={nft.image} alt={nft.name} style={{ width:72, height:72, borderRadius:8, objectFit:'cover', flexShrink:0, imageRendering:'pixelated' }} />}
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontFamily:'Orbitron,monospace', fontSize:11, fontWeight:700, color:'#e0f0ff', marginBottom:4, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{nft.name}</div>
+            <div style={{ fontSize:10, color:'#4a6a8a', marginBottom:6 }}>{nft.symbol}</div>
+            <div style={{ fontSize:9, color:'#3a5a7a', fontFamily:'monospace', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{nft.mint.slice(0,16)}…</div>
+            {nft.attributes?.slice(0,3).map((a,i) => (
+              <span key={i} style={{ display:'inline-block', fontSize:8, background:'rgba(0,212,255,.08)', border:'1px solid rgba(0,212,255,.15)', borderRadius:4, padding:'1px 5px', marginRight:4, marginTop:4, color:'#4a9ab8' }}>
+                {a.trait_type}: {a.value}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Price Input */}
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontSize:10, color:'#4a6a8a', marginBottom:6, letterSpacing:1, fontFamily:'Orbitron,monospace' }}>SET LISTING PRICE</div>
+          <div style={{ position:'relative' }}>
+            <input value={price} onChange={e => setPrice(e.target.value)} type="number" min="0" step="0.1" placeholder="0.00"
+              disabled={pending}
+              style={{ width:'100%', padding:'12px 48px 12px 14px', background:'rgba(255,255,255,.04)', border:'1px solid rgba(0,212,255,.2)', borderRadius:10, color:'#e0f0ff', fontSize:16, fontFamily:'Orbitron,monospace', outline:'none', boxSizing:'border-box' }} />
+            <span style={{ position:'absolute', right:14, top:'50%', transform:'translateY(-50%)', fontSize:11, color:'#00d4ff', fontFamily:'Orbitron,monospace', fontWeight:700 }}>XNT</span>
+          </div>
+        </div>
+
+        {/* Fee breakdown */}
+        {price && Number(price) > 0 && (
+          <div style={{ marginBottom:16, padding:'10px 14px', background:'rgba(0,0,0,.2)', borderRadius:8, fontSize:10 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', color:'#4a6a8a', marginBottom:4 }}>
+              <span>LISTING PRICE</span><span style={{ color:'#e0f0ff' }}>{price} XNT</span>
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', color:'#4a6a8a', marginBottom:4 }}>
+              <span>PLATFORM FEE (1.888%)</span><span style={{ color:'#ff9944' }}>{lamportsToXnt(fee)} XNT</span>
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', color:'#4a6a8a', borderTop:'1px solid rgba(255,255,255,.06)', paddingTop:4, marginTop:4 }}>
+              <span>YOU RECEIVE</span><span style={{ color:'#00c98d', fontWeight:700 }}>{lamportsToXnt(receive)} XNT</span>
+            </div>
+          </div>
+        )}
+
+        <StatusBox msg={status} />
+
+        {/* Actions */}
+        <div style={{ display:'flex', gap:10 }}>
+          <button onClick={onClose} disabled={pending} style={{ flex:1, padding:'12px 0', background:'rgba(255,255,255,.04)', border:'1px solid rgba(255,255,255,.1)', borderRadius:10, cursor:pending?'not-allowed':'pointer', fontFamily:'Orbitron,monospace', fontSize:9, fontWeight:700, color:'#7a9ab8', opacity:pending?.5:1 }}>CANCEL</button>
+          <button onClick={handleList} disabled={pending || !price || Number(price)<=0}
+            style={{ flex:2, padding:'12px 0', background:'linear-gradient(135deg,rgba(0,212,255,.2),rgba(0,212,255,.08))', border:'1px solid rgba(0,212,255,.4)', borderRadius:10, cursor:(pending||!price||Number(price)<=0)?'not-allowed':'pointer', fontFamily:'Orbitron,monospace', fontSize:10, fontWeight:700, color:'#00d4ff', opacity:(pending||!price||Number(price)<=0)?.5:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+            {pending ? <><div style={{ width:12, height:12, borderRadius:'50%', border:'2px solid rgba(0,212,255,.2)', borderTop:'2px solid #00d4ff', animation:'spin 0.8s linear infinite' }} />LISTING…</> : '🏷️ LIST NFT FOR SALE'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+// ═════════════════════════════════════════════════════════════════
 //  MAIN PAGE COMPONENT
 // ═════════════════════════════════════════════════════════════════
 const LabWork: FC = () => {
@@ -1335,6 +1486,7 @@ const LabWork: FC = () => {
   // Page state
   const [pageMode, setPageMode]     = useState<PageMode>('gallery');
   const [marketTab, setMarketTab]   = useState<MarketTab>('browse');
+  const [showListModal, setShowListModal] = useState(false);
 
   // Gallery state
   const [nfts, setNfts]             = useState<NFTData[]>([]);
@@ -1352,6 +1504,8 @@ const LabWork: FC = () => {
   const [confirmTarget, setConfirmTarget]     = useState<{ listing: Listing; mode: 'buy' | 'delist' } | null>(null);
   const [txStatus, setTxStatus]               = useState('');
   const [txPending, setTxPending]             = useState(false);
+  const [tradeLogs, setTradeLogs]             = useState<TradeLog[]>([]);
+  const [loadingActivity, setLoadingActivity] = useState(false);
 
   // ── Load wallet NFTs ──────────────────────────────────────────
   useEffect(() => {
@@ -1382,7 +1536,63 @@ const LabWork: FC = () => {
     setListings(enriched); setLoadingListings(false);
   }, [connection]);
 
+  const loadActivity = useCallback(async () => {
+    setLoadingActivity(true);
+    try {
+      const progId = getMarketplaceProgramId();
+      const sigs = await connection.getSignaturesForAddress(progId, { limit: 50 });
+      const crypto = await import('crypto' as any).catch(() => null);
+      const listDisc   = Buffer.from((await discriminatorAsync('list_nft'))).toString('hex');
+      const buyDisc    = Buffer.from((await discriminatorAsync('buy_nft'))).toString('hex');
+      const delistDisc = Buffer.from((await discriminatorAsync('cancel_listing'))).toString('hex');
+
+      const logs: TradeLog[] = [];
+      for (const s of sigs) {
+        if (s.err) continue;
+        try {
+          const tx = await connection.getParsedTransaction(s.signature, { maxSupportedTransactionVersion: 0 });
+          if (!tx) continue;
+          const ts = tx.blockTime ?? 0;
+          const ixs = tx.transaction?.message?.instructions ?? [];
+          for (const ix of ixs as any[]) {
+            if (ix.programId?.toBase58?.() !== progId.toBase58()) continue;
+            const dataHex = ix.data ? Buffer.from(ix.data, 'base64').toString('hex') : '';
+            const disc8 = dataHex.slice(0, 16);
+            let type: TradeLog['type'] | null = null;
+            if (disc8 === listDisc)   type = 'list';
+            if (disc8 === buyDisc)    type = 'buy';
+            if (disc8 === delistDisc) type = 'delist';
+            if (!type) continue;
+            const accs = ix.accounts ?? [];
+            const mint = accs[1]?.toBase58?.() ?? accs[1] ?? '';
+            const seller = type === 'buy' ? (accs[5]?.toBase58?.() ?? '') : (accs[0]?.toBase58?.() ?? '');
+            const buyer  = type === 'buy' ? (accs[0]?.toBase58?.() ?? '') : undefined;
+            // Parse price from data for list
+            let price: number | undefined;
+            if (type === 'list' && dataHex.length >= 32) {
+              const priceBuf = Buffer.from(dataHex.slice(16, 32), 'hex');
+              price = Number(priceBuf.readBigUInt64LE(0));
+            }
+            logs.push({ sig: s.signature, type, nftMint: mint, price, seller, buyer, timestamp: ts });
+          }
+        } catch { continue; }
+      }
+      // Enrich with NFT metadata (top 20 only)
+      const enriched = await Promise.all(logs.slice(0, 20).map(async log => {
+        if (!log.nftMint) return log;
+        try {
+          const base: NFTData = { mint: log.nftMint, name: log.nftMint.slice(0,8)+'…', symbol:'', balance:1, decimals:0, isToken2022:false };
+          const nftData = await enrichNFT(base);
+          return { ...log, nftData };
+        } catch { return log; }
+      }));
+      setTradeLogs([...enriched, ...logs.slice(20)]);
+    } catch { }
+    setLoadingActivity(false);
+  }, [connection]);
+
   useEffect(() => { if (pageMode === 'market') loadListings(); }, [pageMode]);
+  useEffect(() => { if (marketTab === 'activity') loadActivity(); }, [marketTab]);
 
   // ── Gallery select ────────────────────────────────────────────
   const handleSelect = useCallback(async (nft: NFTData) => {
@@ -1393,7 +1603,7 @@ const LabWork: FC = () => {
 
   // ── "List this" shortcut from gallery modal ───────────────────
   const handleListFromGallery = (nft: NFTData) => {
-    setPrelistNft(nft); setPageMode('market'); setMarketTab('sell');
+    setPrelistNft(nft); setShowListModal(true);
   };
 
   // ── BUY transaction ───────────────────────────────────────────
@@ -1444,7 +1654,7 @@ const LabWork: FC = () => {
         if (conf === 'confirmed' || conf === 'finalized') { confirmed = true; break; }
       }
       if (!confirmed) throw new Error(`Timed out. Check tx: ${sig}`);
-      setTxStatus(`✅ NFT purchased! Tx: ${sig.slice(0,20)}…`);
+      setTxStatus(`✅ NFT purchased! <a href="https://explorer.mainnet.x1.xyz/tx/${sig}" target="_blank" rel="noopener" style="color:#00d4ff;text-decoration:underline">View Tx ↗</a>`);
       setTimeout(() => { setConfirmTarget(null); setTxStatus(''); loadListings(); }, 2500);
     } catch (e: any) {
       setTxStatus(`❌ ${e?.message?.slice(0,120) ?? 'Transaction failed'}`);
@@ -1494,7 +1704,7 @@ const LabWork: FC = () => {
         if (conf === 'confirmed' || conf === 'finalized') { confirmed = true; break; }
       }
       if (!confirmed) throw new Error(`Timed out. Check tx: ${sig}`);
-      setTxStatus(`✅ Delisted! Tx: ${sig.slice(0,20)}…`);
+      setTxStatus(`✅ Delisted! <a href="https://explorer.mainnet.x1.xyz/tx/${sig}" target="_blank" rel="noopener" style="color:#00d4ff;text-decoration:underline">View Tx ↗</a>`);
       setTimeout(() => { setConfirmTarget(null); setTxStatus(''); loadListings(); }, 2000);
     } catch (e: any) {
       setTxStatus(`❌ ${e?.message?.slice(0,120) ?? 'Transaction failed'}`);
@@ -1541,10 +1751,16 @@ const LabWork: FC = () => {
             X1 BLOCKCHAIN · NFT SCANNER & MARKETPLACE
           </div>
           <h1 style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 22 : 38, fontWeight:900,
-            letterSpacing: isMobile ? 3 : 6, margin:'0 0 10px', lineHeight:1.1, textTransform:'uppercase',
-            background:'linear-gradient(135deg,#00d4ff 0%,#bf5af2 50%,#00c98d 100%)',
-            WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text' }}>
-            X1 LAB WORK 🧪 NFTs
+            letterSpacing: isMobile ? 3 : 6, margin:'0 0 10px', lineHeight:1.1, textTransform:'uppercase' }}>
+            <span style={{ background:'linear-gradient(135deg,#00d4ff 0%,#bf5af2 50%,#00c98d 100%)',
+              WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text' }}>
+              X1 LAB WORK
+            </span>
+            <span style={{ WebkitTextFillColor:'initial', backgroundClip:'initial', background:'none', marginLeft: isMobile ? 6 : 10 }}>🧪</span>
+            <span style={{ background:'linear-gradient(135deg,#00d4ff 0%,#bf5af2 50%,#00c98d 100%)',
+              WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text' }}>
+              {' '}NFTs
+            </span>
           </h1>
           <div style={{ fontFamily:'Sora,sans-serif', fontSize: isMobile ? 10 : 12, color:'#4a6a8a', marginBottom:20 }}>
             Scan · Inspect · List · Buy · Sell — powered by X1 blockchain & native XNT
@@ -1670,6 +1886,7 @@ const LabWork: FC = () => {
                 { id:'browse',     label:'🛒 BROWSE',     badge: listings.length  },
                 { id:'mylistings', label:'📋 MY LISTINGS', badge: myListings.length },
                 { id:'sell',       label:'🏷️ SELL NFT',   badge: null             },
+                { id:'activity',   label:'📊 ACTIVITY',   badge: null             },
               ] as { id:MarketTab; label:string; badge:number|null }[]).map(t => (
                 <button key={t.id} onClick={() => setMarketTab(t.id)} style={{ flex:1,
                   padding: isMobile ? '8px 4px' : '10px 8px',
@@ -1745,6 +1962,57 @@ const LabWork: FC = () => {
                   onListed={() => { setPrelistNft(null); loadListings(); setMarketTab('browse'); }} />
               </div>
             )}
+
+            {marketTab === 'activity' && (
+              <div style={{ animation:'fadeUp 0.3s ease both' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+                  <span style={{ fontFamily:'Orbitron,monospace', fontSize:11, color:'#4a6a8a', letterSpacing:1 }}>RECENT TRADES</span>
+                  <button onClick={loadActivity} disabled={loadingActivity} style={{ background:'rgba(0,212,255,.08)', border:'1px solid rgba(0,212,255,.2)', borderRadius:8, padding:'5px 12px', fontSize:9, color:'#00d4ff', cursor:'pointer', fontFamily:'Orbitron,monospace' }}>
+                    {loadingActivity ? '⟳ LOADING…' : '↺ REFRESH'}
+                  </button>
+                </div>
+                {loadingActivity ? (
+                  <div style={{ textAlign:'center', padding:40, color:'#4a6a8a', fontSize:11 }}>Loading activity…</div>
+                ) : tradeLogs.length === 0 ? (
+                  <div style={{ textAlign:'center', padding:40, color:'#4a6a8a', fontSize:11 }}>No activity found</div>
+                ) : (
+                  <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                    {tradeLogs.map((log, i) => (
+                      <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.06)', borderRadius:10 }}>
+                        {/* NFT image */}
+                        {log.nftData?.image
+                          ? <img src={log.nftData.image} style={{ width:42, height:42, borderRadius:6, objectFit:'cover', imageRendering:'pixelated', flexShrink:0 }} />
+                          : <div style={{ width:42, height:42, borderRadius:6, background:'rgba(0,212,255,.06)', flexShrink:0 }} />}
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
+                            <span style={{ fontFamily:'Orbitron,monospace', fontSize:9, fontWeight:700,
+                              color: log.type==='buy' ? '#00c98d' : log.type==='list' ? '#00d4ff' : '#ff9944',
+                              background: log.type==='buy' ? 'rgba(0,201,141,.1)' : log.type==='list' ? 'rgba(0,212,255,.1)' : 'rgba(255,153,68,.1)',
+                              border: `1px solid ${log.type==='buy' ? 'rgba(0,201,141,.3)' : log.type==='list' ? 'rgba(0,212,255,.3)' : 'rgba(255,153,68,.3)'}`,
+                              padding:'2px 7px', borderRadius:4 }}>
+                              {log.type === 'buy' ? '⚡ SOLD' : log.type === 'list' ? '🏷️ LISTED' : '↩ DELISTED'}
+                            </span>
+                            <span style={{ fontSize:10, color:'#e0f0ff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                              {log.nftData?.name ?? log.nftMint.slice(0,12)+'…'}
+                            </span>
+                          </div>
+                          <div style={{ fontSize:9, color:'#4a6a8a' }}>
+                            {log.price ? <span style={{ color:'#00d4ff', marginRight:8 }}>{lamportsToXnt(log.price)} XNT</span> : null}
+                            <span>{new Date(log.timestamp * 1000).toLocaleString()}</span>
+                          </div>
+                        </div>
+                        {/* Explorer link */}
+                        <a href={`https://explorer.mainnet.x1.xyz/tx/${log.sig}`} target="_blank" rel="noopener"
+                          style={{ color:'#3a5a7a', fontSize:10, textDecoration:'none', flexShrink:0, padding:'4px 8px', border:'1px solid rgba(255,255,255,.06)', borderRadius:6, fontFamily:'monospace' }}
+                          title={log.sig}>
+                          TX ↗
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
 
@@ -1753,6 +2021,19 @@ const LabWork: FC = () => {
 
       {/* Gallery detail modal */}
       {selected && <NFTDetailModal nft={selected} isMobile={isMobile} onClose={() => setSelected(null)} onListThis={handleListFromGallery} />}
+
+      {/* List NFT modal popup */}
+      {showListModal && prelistNft && publicKey && (
+        <ListModal
+          nft={prelistNft}
+          connection={connection}
+          publicKey={publicKey}
+          sendTransaction={sendTransaction}
+          signTransaction={signTransaction}
+          onClose={() => { setShowListModal(false); setPrelistNft(null); }}
+          onListed={() => { setShowListModal(false); setPrelistNft(null); loadListings(); }}
+        />
+      )}
 
       {/* Marketplace confirm modal */}
       {confirmTarget && <ConfirmModal listing={confirmTarget.listing} mode={confirmTarget.mode} isMobile={isMobile}
