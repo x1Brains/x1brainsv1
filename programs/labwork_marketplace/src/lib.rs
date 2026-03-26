@@ -1,89 +1,63 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer, CloseAccount};
 
-declare_id!("EQKNXSBE6vUbtPBY1ibXPyWmLzrtXBZqUs9Fjqo19TkX");
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  CONSTANTS
-// ─────────────────────────────────────────────────────────────────────────────
+declare_id!("CKZHwoUZTJEnGNK4piPxyysrhwLKnnrNoBmEHM9rLaD4");
 
 pub const PLATFORM_WALLET: &str = "CAeTTU2zk2EjWLKVeg4zxYhHu7gba1oRN8NHEDjpK9XF";
-
 pub const SALE_FEE_NUMERATOR:   u64 = 1888;
 pub const SALE_FEE_DENOMINATOR: u64 = 100_000;
-
 pub const CANCEL_FEE_NUMERATOR:   u64 = 888;
 pub const CANCEL_FEE_DENOMINATOR: u64 = 100_000;
-
-pub const MIN_PRICE: u64 = 1_000_000; // 0.001 XNT
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  PROGRAM
-// ─────────────────────────────────────────────────────────────────────────────
+pub const MIN_PRICE: u64 = 1_000_000;
 
 #[program]
 pub mod labwork_marketplace {
     use super::*;
 
-    // ─────────────────────────────────────────────────────────────────
-    //  LIST NFT
-    //  Seller creates a VaultAccount (their own ATA delegated to program
-    //  PDA) and a SaleAccount storing the listing details.
-    //  The NFT stays in the seller's ATA — we only DELEGATE authority
-    //  to the sale PDA, not transfer. This is simpler and avoids the
-    //  token account init issues.
-    //
-    //  Actually the simplest working pattern: transfer NFT to a 
-    //  dedicated vault ATA owned by the program PDA.
-    //  Use the SaleAccount PDA as the vault token account authority.
-    // ─────────────────────────────────────────────────────────────────
+    /// List an NFT for sale.
+    /// Transfers NFT from seller ATA → vault PDA token account.
     pub fn list_nft(ctx: Context<ListNft>, price: u64) -> Result<()> {
         require!(price >= MIN_PRICE, MarketplaceError::PriceTooLow);
 
-        // Transfer NFT: seller ATA → vault ATA (owned by sale PDA)
-        let cpi_ctx = CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
-            Transfer {
-                from:      ctx.accounts.seller_nft_account.to_account_info(),
-                to:        ctx.accounts.vault_nft_account.to_account_info(),
-                authority: ctx.accounts.seller.to_account_info(),
-            },
-        );
-        token::transfer(cpi_ctx, 1)?;
+        // Transfer NFT: seller → vault
+        token::transfer(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from:      ctx.accounts.seller_nft_account.to_account_info(),
+                    to:        ctx.accounts.vault_nft_account.to_account_info(),
+                    authority: ctx.accounts.seller.to_account_info(),
+                },
+            ),
+            1,
+        )?;
 
-        // Record listing
-        let sale = &mut ctx.accounts.sale;
-        sale.seller        = ctx.accounts.seller.key();
-        sale.nft_mint      = ctx.accounts.nft_mint.key();
-        sale.price         = price;
-        sale.bump          = ctx.bumps.sale;
-        sale.vault_bump    = ctx.bumps.vault_nft_account;
-        sale.created_at    = Clock::get()?.unix_timestamp;
+        let sale        = &mut ctx.accounts.sale;
+        sale.seller     = ctx.accounts.seller.key();
+        sale.nft_mint   = ctx.accounts.nft_mint.key();
+        sale.price      = price;
+        sale.bump       = ctx.bumps.sale;
+        sale.vault_bump = ctx.bumps.vault_nft_account;
+        sale.created_at = Clock::get()?.unix_timestamp;
 
         msg!("Listed {} for {} lamports", sale.nft_mint, price);
         Ok(())
     }
 
-    // ─────────────────────────────────────────────────────────────────
-    //  CANCEL LISTING
-    //  Transfer NFT back from vault → seller. Charge 0.888% cancel fee.
-    // ─────────────────────────────────────────────────────────────────
+    /// Cancel a listing — return NFT to seller, charge 0.888% cancel fee.
     pub fn cancel_listing(ctx: Context<CancelListing>) -> Result<()> {
-        let sale  = &ctx.accounts.sale;
-        let price = sale.price;
-        let mint  = sale.nft_mint;
-        let bump  = sale.vault_bump;
+        let price      = ctx.accounts.sale.price;
+        let vault_bump = ctx.accounts.sale.vault_bump;
+        let mint_key   = ctx.accounts.sale.nft_mint;
+        let seller_key = ctx.accounts.sale.seller;
 
-        // Cancel fee
+        // Cancel fee via system program CPI (seller is owned by System Program)
         let cancel_fee = price
             .checked_mul(CANCEL_FEE_NUMERATOR).ok_or(MarketplaceError::MathOverflow)?
             .checked_div(CANCEL_FEE_DENOMINATOR).ok_or(MarketplaceError::MathOverflow)?;
 
         if cancel_fee > 0 {
-            require!(
-                ctx.accounts.seller.lamports() >= cancel_fee,
-                MarketplaceError::InsufficientFundsForCancelFee
-            );
+            require!(ctx.accounts.seller.lamports() >= cancel_fee, MarketplaceError::InsufficientFundsForCancelFee);
             anchor_lang::system_program::transfer(
                 CpiContext::new(
                     ctx.accounts.system_program.to_account_info(),
@@ -96,58 +70,48 @@ pub mod labwork_marketplace {
             )?;
         }
 
-        // Transfer NFT back: vault → seller
-        let mint_key = mint.key();
-        let seeds = &[
-            b"vault",
-            mint_key.as_ref(),
-            ctx.accounts.seller.key.as_ref(),
-            &[bump],
-        ];
-        let signer = &[seeds.as_slice()];
+        // Transfer NFT: vault → seller  (vault is self-custodied PDA, signs with seeds)
+        let seeds: &[&[u8]] = &[b"vault", mint_key.as_ref(), seller_key.as_ref(), &[vault_bump]];
+        let signer = &[seeds];
 
-        let cpi_ctx = CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            Transfer {
-                from:      ctx.accounts.vault_nft_account.to_account_info(),
-                to:        ctx.accounts.seller_nft_account.to_account_info(),
-                authority: ctx.accounts.vault_nft_account.to_account_info(),
-            },
-            signer,
-        );
-        token::transfer(cpi_ctx, 1)?;
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from:      ctx.accounts.vault_nft_account.to_account_info(),
+                    to:        ctx.accounts.seller_nft_account.to_account_info(),
+                    authority: ctx.accounts.vault_nft_account.to_account_info(),
+                },
+                signer,
+            ),
+            1,
+        )?;
 
-        // Close vault account — return rent to seller
-        let close_ctx = CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            CloseAccount {
-                account:     ctx.accounts.vault_nft_account.to_account_info(),
-                destination: ctx.accounts.seller.to_account_info(),
-                authority:   ctx.accounts.vault_nft_account.to_account_info(),
-            },
-            signer,
-        );
-        token::close_account(close_ctx)?;
+        // Close vault token account — rent back to seller
+        token::close_account(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                CloseAccount {
+                    account:     ctx.accounts.vault_nft_account.to_account_info(),
+                    destination: ctx.accounts.seller.to_account_info(),
+                    authority:   ctx.accounts.vault_nft_account.to_account_info(),
+                },
+                signer,
+            ),
+        )?;
 
-        msg!("Listing cancelled for {}", mint);
+        msg!("Cancelled listing for {}", mint_key);
         Ok(())
     }
 
-    // ─────────────────────────────────────────────────────────────────
-    //  BUY NFT
-    //  Buyer pays price. Platform gets 1.888%. Seller gets remainder.
-    //  NFT transfers from vault → buyer.
-    // ─────────────────────────────────────────────────────────────────
+    /// Buy an NFT — buyer pays price, seller gets proceeds, platform gets fee.
     pub fn buy_nft(ctx: Context<BuyNft>) -> Result<()> {
-        let sale  = &ctx.accounts.sale;
-        let price = sale.price;
-        let mint  = sale.nft_mint;
-        let bump  = sale.vault_bump;
+        let price      = ctx.accounts.sale.price;
+        let vault_bump = ctx.accounts.sale.vault_bump;
+        let mint_key   = ctx.accounts.sale.nft_mint;
+        let seller_key = ctx.accounts.sale.seller;
 
-        require!(
-            ctx.accounts.buyer.lamports() >= price,
-            MarketplaceError::InsufficientFunds
-        );
+        require!(ctx.accounts.buyer.lamports() >= price, MarketplaceError::InsufficientFunds);
 
         let platform_fee = price
             .checked_mul(SALE_FEE_NUMERATOR).ok_or(MarketplaceError::MathOverflow)?
@@ -183,57 +147,48 @@ pub mod labwork_marketplace {
         }
 
         // Transfer NFT: vault → buyer
-        let mint_key = mint.key();
-        let seller_key = ctx.accounts.seller_wallet.key();
-        let seeds = &[
-            b"vault",
-            mint_key.as_ref(),
-            seller_key.as_ref(),
-            &[bump],
-        ];
-        let signer = &[seeds.as_slice()];
+        let seeds: &[&[u8]] = &[b"vault", mint_key.as_ref(), seller_key.as_ref(), &[vault_bump]];
+        let signer = &[seeds];
 
-        let cpi_ctx = CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            Transfer {
-                from:      ctx.accounts.vault_nft_account.to_account_info(),
-                to:        ctx.accounts.buyer_nft_account.to_account_info(),
-                authority: ctx.accounts.vault_nft_account.to_account_info(),
-            },
-            signer,
-        );
-        token::transfer(cpi_ctx, 1)?;
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from:      ctx.accounts.vault_nft_account.to_account_info(),
+                    to:        ctx.accounts.buyer_nft_account.to_account_info(),
+                    authority: ctx.accounts.vault_nft_account.to_account_info(),
+                },
+                signer,
+            ),
+            1,
+        )?;
 
-        // Close vault — return rent to seller
-        let close_ctx = CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            CloseAccount {
-                account:     ctx.accounts.vault_nft_account.to_account_info(),
-                destination: ctx.accounts.seller_wallet.to_account_info(),
-                authority:   ctx.accounts.vault_nft_account.to_account_info(),
-            },
-            signer,
-        );
-        token::close_account(close_ctx)?;
+        // Close vault — rent to seller
+        token::close_account(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                CloseAccount {
+                    account:     ctx.accounts.vault_nft_account.to_account_info(),
+                    destination: ctx.accounts.seller_wallet.to_account_info(),
+                    authority:   ctx.accounts.vault_nft_account.to_account_info(),
+                },
+                signer,
+            ),
+        )?;
 
-        msg!("Sold {} for {} lamports. Fee: {}", mint, price, platform_fee);
+        msg!("Sold {} for {} lamports", mint_key, price);
         Ok(())
     }
 
-    // ─────────────────────────────────────────────────────────────────
-    //  UPDATE PRICE — free
-    // ─────────────────────────────────────────────────────────────────
+    /// Update listing price — free.
     pub fn update_price(ctx: Context<UpdatePrice>, new_price: u64) -> Result<()> {
         require!(new_price >= MIN_PRICE, MarketplaceError::PriceTooLow);
         ctx.accounts.sale.price = new_price;
-        msg!("Price updated to {}", new_price);
         Ok(())
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  ACCOUNT STRUCTS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Account Structs ──────────────────────────────────────────────────────────
 
 #[account]
 #[derive(Default)]
@@ -245,37 +200,29 @@ pub struct SaleAccount {
     pub vault_bump: u8,      //  1
     pub created_at: i64,     //  8
 }
-
 impl SaleAccount {
-    pub const LEN: usize = 8 + 32 + 32 + 8 + 1 + 1 + 8;
+    pub const LEN: usize = 8 + 32 + 32 + 8 + 1 + 1 + 8; // = 90
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  INSTRUCTION CONTEXTS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Instruction Contexts ─────────────────────────────────────────────────────
 
 #[derive(Accounts)]
 pub struct ListNft<'info> {
-    // 0
     #[account(mut)]
     pub seller: Signer<'info>,
 
-    // 1 — NFT mint
-    /// CHECK: read-only, used for seeds only
+    /// CHECK: read-only, used for PDA seeds
     pub nft_mint: AccountInfo<'info>,
 
-    // 2 — Seller's current NFT token account
     #[account(
         mut,
-        constraint = seller_nft_account.owner == seller.key() @ MarketplaceError::NotNFTOwner,
-        constraint = seller_nft_account.mint  == nft_mint.key() @ MarketplaceError::InvalidMint,
-        constraint = seller_nft_account.amount == 1 @ MarketplaceError::NotNFTOwner,
+        constraint = seller_nft_account.owner  == seller.key()   @ MarketplaceError::NotNFTOwner,
+        constraint = seller_nft_account.mint   == nft_mint.key() @ MarketplaceError::InvalidMint,
+        constraint = seller_nft_account.amount == 1              @ MarketplaceError::NotNFTOwner,
     )]
     pub seller_nft_account: Account<'info, TokenAccount>,
 
-    // 3 — Vault token account (PDA-owned, holds NFT in escrow)
-    //     Seeds: ["vault", nft_mint, seller]
-    //     Authority = itself (self-custodied PDA token account)
+    /// Vault: self-custodied PDA token account (authority = itself)
     #[account(
         init,
         payer = seller,
@@ -286,7 +233,6 @@ pub struct ListNft<'info> {
     )]
     pub vault_nft_account: Account<'info, TokenAccount>,
 
-    // 4 — Sale state PDA
     #[account(
         init,
         payer = seller,
@@ -296,29 +242,20 @@ pub struct ListNft<'info> {
     )]
     pub sale: Account<'info, SaleAccount>,
 
-    // 5
     pub token_program:  Program<'info, Token>,
-    // 6
     pub system_program: Program<'info, System>,
-    // 7
-    pub rent: Sysvar<'info, Rent>,
+    pub rent:           Sysvar<'info, Rent>,
 }
 
 #[derive(Accounts)]
 pub struct CancelListing<'info> {
-    // 0
-    #[account(
-        mut,
-        constraint = seller.key() == sale.seller @ MarketplaceError::Unauthorized,
-    )]
+    #[account(mut, constraint = seller.key() == sale.seller @ MarketplaceError::Unauthorized)]
     pub seller: Signer<'info>,
 
-    // 1
     /// CHECK: validated via sale.nft_mint
     #[account(constraint = nft_mint.key() == sale.nft_mint)]
     pub nft_mint: AccountInfo<'info>,
 
-    // 2 — Seller's NFT ATA to receive NFT back
     #[account(
         mut,
         constraint = seller_nft_account.owner == seller.key(),
@@ -326,7 +263,6 @@ pub struct CancelListing<'info> {
     )]
     pub seller_nft_account: Account<'info, TokenAccount>,
 
-    // 3 — Vault holding the NFT
     #[account(
         mut,
         seeds = [b"vault", sale.nft_mint.as_ref(), seller.key().as_ref()],
@@ -334,7 +270,6 @@ pub struct CancelListing<'info> {
     )]
     pub vault_nft_account: Account<'info, TokenAccount>,
 
-    // 4 — Sale account — closed on cancel, rent → seller
     #[account(
         mut,
         close = seller,
@@ -343,33 +278,23 @@ pub struct CancelListing<'info> {
     )]
     pub sale: Account<'info, SaleAccount>,
 
-    // 5 — Platform fee wallet
     /// CHECK: validated against hardcoded constant
-    #[account(
-        mut,
-        constraint = platform_wallet.key().to_string() == PLATFORM_WALLET
-            @ MarketplaceError::InvalidPlatformWallet,
-    )]
+    #[account(mut, constraint = platform_wallet.key().to_string() == PLATFORM_WALLET @ MarketplaceError::InvalidPlatformWallet)]
     pub platform_wallet: AccountInfo<'info>,
 
-    // 6
     pub token_program:  Program<'info, Token>,
-    // 7
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
 pub struct BuyNft<'info> {
-    // 0
     #[account(mut)]
     pub buyer: Signer<'info>,
 
-    // 1
     /// CHECK: validated via sale.nft_mint
     #[account(constraint = nft_mint.key() == sale.nft_mint)]
     pub nft_mint: AccountInfo<'info>,
 
-    // 2 — Buyer's NFT ATA to receive NFT
     #[account(
         mut,
         constraint = buyer_nft_account.owner == buyer.key(),
@@ -377,7 +302,6 @@ pub struct BuyNft<'info> {
     )]
     pub buyer_nft_account: Account<'info, TokenAccount>,
 
-    // 3 — Vault holding the NFT
     #[account(
         mut,
         seeds = [b"vault", sale.nft_mint.as_ref(), sale.seller.as_ref()],
@@ -385,7 +309,6 @@ pub struct BuyNft<'info> {
     )]
     pub vault_nft_account: Account<'info, TokenAccount>,
 
-    // 4 — Sale account — closed on purchase, rent → seller
     #[account(
         mut,
         close = seller_wallet,
@@ -394,35 +317,21 @@ pub struct BuyNft<'info> {
     )]
     pub sale: Account<'info, SaleAccount>,
 
-    // 5 — Seller wallet (receives proceeds + rent)
     /// CHECK: validated against sale.seller
-    #[account(
-        mut,
-        constraint = seller_wallet.key() == sale.seller @ MarketplaceError::InvalidSeller,
-    )]
+    #[account(mut, constraint = seller_wallet.key() == sale.seller @ MarketplaceError::InvalidSeller)]
     pub seller_wallet: AccountInfo<'info>,
 
-    // 6 — Platform fee wallet
     /// CHECK: validated against hardcoded constant
-    #[account(
-        mut,
-        constraint = platform_wallet.key().to_string() == PLATFORM_WALLET
-            @ MarketplaceError::InvalidPlatformWallet,
-    )]
+    #[account(mut, constraint = platform_wallet.key().to_string() == PLATFORM_WALLET @ MarketplaceError::InvalidPlatformWallet)]
     pub platform_wallet: AccountInfo<'info>,
 
-    // 7
     pub token_program:  Program<'info, Token>,
-    // 8
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
 pub struct UpdatePrice<'info> {
-    #[account(
-        mut,
-        constraint = seller.key() == sale.seller @ MarketplaceError::Unauthorized,
-    )]
+    #[account(mut, constraint = seller.key() == sale.seller @ MarketplaceError::Unauthorized)]
     pub seller: Signer<'info>,
 
     #[account(
@@ -433,28 +342,17 @@ pub struct UpdatePrice<'info> {
     pub sale: Account<'info, SaleAccount>,
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  ERRORS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Errors ───────────────────────────────────────────────────────────────────
 
 #[error_code]
 pub enum MarketplaceError {
-    #[msg("Price is below minimum (0.001 XNT)")]
-    PriceTooLow,
-    #[msg("Caller is not the NFT owner")]
-    NotNFTOwner,
-    #[msg("Invalid NFT mint")]
-    InvalidMint,
-    #[msg("Caller is not the listing seller")]
-    Unauthorized,
-    #[msg("Invalid platform wallet address")]
-    InvalidPlatformWallet,
-    #[msg("Invalid seller account")]
-    InvalidSeller,
-    #[msg("Insufficient funds to purchase NFT")]
-    InsufficientFunds,
-    #[msg("Insufficient funds to pay cancel fee")]
-    InsufficientFundsForCancelFee,
-    #[msg("Math overflow")]
-    MathOverflow,
+    #[msg("Price below minimum")]           PriceTooLow,
+    #[msg("Not the NFT owner")]             NotNFTOwner,
+    #[msg("Invalid NFT mint")]              InvalidMint,
+    #[msg("Not the listing seller")]        Unauthorized,
+    #[msg("Invalid platform wallet")]       InvalidPlatformWallet,
+    #[msg("Invalid seller account")]        InvalidSeller,
+    #[msg("Insufficient funds")]            InsufficientFunds,
+    #[msg("Insufficient funds for fee")]    InsufficientFundsForCancelFee,
+    #[msg("Math overflow")]                 MathOverflow,
 }
