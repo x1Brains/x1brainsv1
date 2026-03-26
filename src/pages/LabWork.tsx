@@ -23,8 +23,10 @@ import {
   METADATA_PROGRAM_ID_STRING,
   MARKETPLACE_PROGRAM_ID_STRING,
   PLATFORM_WALLET_STRING,
-  FEE_BPS,
-  BPS_DENOM,
+  SALE_FEE_NUMERATOR,
+  SALE_FEE_DENOMINATOR,
+  CANCEL_FEE_NUMERATOR,
+  CANCEL_FEE_DENOMINATOR,
 } from '../constants';
 // ─────────────────────────────────────────────────────────────────
 //  COPIED VERBATIM FROM NFTComponents.tsx
@@ -271,7 +273,8 @@ function useIsMobile() {
   return m;
 }
 const lamportsToXnt   = (l: number)     => (l / LAMPORTS_PER_SOL).toFixed(4);
-const calcFee         = (p: number)     => Math.floor(p * FEE_BPS / BPS_DENOM);
+const calcFee         = (p: number)     => Math.floor(p * SALE_FEE_NUMERATOR / SALE_FEE_DENOMINATOR);
+const calcCancelFee   = (p: number)     => Math.floor(p * CANCEL_FEE_NUMERATOR / CANCEL_FEE_DENOMINATOR);
 const calcSellerCut   = (p: number)     => p - calcFee(p);
 const xntToLamports   = (x: string)     => Math.round(parseFloat(x) * LAMPORTS_PER_SOL);
 
@@ -976,7 +979,7 @@ const ListingCard: FC<{
           <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 12 : 14, fontWeight:900, color:'#00d4ff', marginBottom:1 }}>
             {lamportsToXnt(listing.price)}<span style={{ fontSize:7, color:'#3a5a7a', marginLeft:4 }}>XNT</span>
           </div>
-          <div style={{ fontFamily:'Orbitron,monospace', fontSize:6, color:'#3a5a7a' }}>SELLER GETS {lamportsToXnt(calcSellerCut(listing.price))} · 4% FEE</div>
+          <div style={{ fontFamily:'Orbitron,monospace', fontSize:6, color:'#3a5a7a' }}>SELLER GETS {lamportsToXnt(calcSellerCut(listing.price))} · 1.888% FEE</div>
         </div>
         {isOwner
           ? <button onClick={onDelist} style={{ width:'100%', padding:'8px 0', background:'rgba(255,50,50,.1)',
@@ -1045,12 +1048,26 @@ const ConfirmModal: FC<{
                 <span style={{ fontFamily:'Orbitron,monospace', fontSize:9, color:'#3a5a7a', marginLeft:5 }}>XNT</span></div>
             </div>
             <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 14px', borderBottom:'1px solid rgba(255,255,255,.04)' }}>
-              <span style={{ fontFamily:'Orbitron,monospace', fontSize:8, color:'#3a5a7a' }}>→ SELLER RECEIVES (96%)</span>
+              <span style={{ fontFamily:'Orbitron,monospace', fontSize:8, color:'#3a5a7a' }}>→ SELLER RECEIVES (98.112%)</span>
               <span style={{ fontFamily:'Orbitron,monospace', fontSize:10, fontWeight:700, color:'#00c98d' }}>{lamportsToXnt(calcSellerCut(listing.price))} XNT</span>
             </div>
             <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 14px' }}>
-              <span style={{ fontFamily:'Orbitron,monospace', fontSize:8, color:'#3a5a7a' }}>→ PLATFORM FEE (4%)</span>
+              <span style={{ fontFamily:'Orbitron,monospace', fontSize:8, color:'#3a5a7a' }}>→ PLATFORM FEE (1.888%)</span>
               <span style={{ fontFamily:'Orbitron,monospace', fontSize:10, fontWeight:700, color:'#bf5af2' }}>{lamportsToXnt(calcFee(listing.price))} XNT</span>
+            </div>
+          </div>
+        )}
+        {mode === 'delist' && (
+          <div style={{ marginBottom:18, background:'rgba(255,100,50,.04)', borderRadius:10, border:'1px solid rgba(255,100,50,.2)', overflow:'hidden' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'11px 14px', borderBottom:'1px solid rgba(255,100,50,.1)' }}>
+              <span style={{ fontFamily:'Orbitron,monospace', fontSize:9, color:'#aa6a4a' }}>CANCEL FEE (0.888%)</span>
+              <div><span style={{ fontFamily:'Orbitron,monospace', fontSize:18, fontWeight:900, color:'#ff8c50' }}>{lamportsToXnt(calcCancelFee(listing.price))}</span>
+                <span style={{ fontFamily:'Orbitron,monospace', fontSize:9, color:'#3a5a7a', marginLeft:5 }}>XNT</span></div>
+            </div>
+            <div style={{ padding:'8px 14px' }}>
+              <span style={{ fontFamily:'Sora,sans-serif', fontSize:10, color:'#6a4a3a' }}>
+                Charged on cancellation. Your NFT will be returned to your wallet.
+              </span>
             </div>
           </div>
         )}
@@ -1108,9 +1125,13 @@ const SellPanel: FC<{
       const [listingPda] = getListingPda(nftMint, publicKey);
       const [escrowPda]  = getEscrowPda(nftMint, publicKey);
       const sellerAta    = getAssociatedTokenAddressSync(nftMint, publicKey, false, selected.isToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID);
-      const disc         = await discriminatorAsync('list_nft');
-      const priceData    = Buffer.alloc(8);
+
+      // Precompute EVERYTHING before triggering wallet — avoids Plugin Closed timeout
+      const disc      = await discriminatorAsync('list_nft');
+      const priceData = Buffer.alloc(8);
       priceData.writeBigUInt64LE(BigInt(lamports));
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+
       const ix = {
         programId: getMarketplaceProgramId(),
         keys: [
@@ -1127,12 +1148,17 @@ const SellPanel: FC<{
         data: Buffer.concat([disc, priceData]),
       };
       const tx = new Transaction().add(ix as any);
-      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      tx.recentBlockhash = blockhash;
       tx.feePayer = publicKey;
+
+      // Now open wallet — everything is ready
       setStatus('Awaiting wallet approval…');
-      const sig = await sendTransaction(tx, connection);
+      const sig = await sendTransaction(tx, connection, {
+        skipPreflight: true,
+        maxRetries: 3,
+      });
       setStatus('Confirming on X1…');
-      await connection.confirmTransaction(sig, 'confirmed');
+      await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
       setStatus(`✅ Listed! Tx: ${sig.slice(0,14)}…`);
       setSelected(null); setPrice('');
       setTimeout(() => { setStatus(''); onListed(); }, 2500);
@@ -1204,8 +1230,8 @@ const SellPanel: FC<{
             <div style={{ marginBottom:14, background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.06)', borderRadius:10, overflow:'hidden' }}>
               {[
                 { l:'LISTING PRICE',    v:`${price} XNT`,                            c:'#00d4ff' },
-                { l:'YOU RECEIVE (96%)',v:`${(parseFloat(price)*0.96).toFixed(4)} XNT`, c:'#00c98d' },
-                { l:'PLATFORM FEE (4%)',v:`${(parseFloat(price)*0.04).toFixed(4)} XNT`, c:'#bf5af2' },
+                { l:'YOU RECEIVE (98.112%)',v:`${(parseFloat(price) * (1 - SALE_FEE_NUMERATOR/SALE_FEE_DENOMINATOR)).toFixed(4)} XNT`, c:'#00c98d' },
+                { l:'PLATFORM FEE (1.888%)',v:`${(parseFloat(price) * SALE_FEE_NUMERATOR/SALE_FEE_DENOMINATOR).toFixed(4)} XNT`, c:'#bf5af2' },
               ].map(({l,v,c},i,arr) =>
                 <div key={l} style={{ display:'flex', justifyContent:'space-between', padding:'7px 12px',
                   borderBottom: i < arr.length-1 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
@@ -1312,15 +1338,18 @@ const LabWork: FC = () => {
       const [listingPda] = getListingPda(nftMint, sellerPk);
       const [escrowPda]  = getEscrowPda(nftMint, sellerPk);
       const buyerAta     = getAssociatedTokenAddressSync(nftMint, publicKey);
+      // Precompute everything before wallet prompt
+      const disc = await discriminatorAsync('buy_nft');
       const preIxs: any[] = [];
       if (!(await connection.getAccountInfo(buyerAta)))
         preIxs.push(createAssociatedTokenAccountInstruction(publicKey, buyerAta, publicKey, nftMint));
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
       const ix = {
         programId: getMarketplaceProgramId(),
         keys: [
           { pubkey: publicKey,                   isSigner:true,  isWritable:true  },
           { pubkey: sellerPk,                    isSigner:false, isWritable:true  },
-          { pubkey: PLATFORM_WALLET!,            isSigner:false, isWritable:true  }, // 4% — hardcoded & verified on-chain
+          { pubkey: PLATFORM_WALLET!,            isSigner:false, isWritable:true  },
           { pubkey: nftMint,                     isSigner:false, isWritable:false },
           { pubkey: escrowPda,                   isSigner:false, isWritable:true  },
           { pubkey: buyerAta,                    isSigner:false, isWritable:true  },
@@ -1330,15 +1359,15 @@ const LabWork: FC = () => {
           { pubkey: SystemProgram.programId,     isSigner:false, isWritable:false },
           { pubkey: SYSVAR_RENT_PUBKEY,          isSigner:false, isWritable:false },
         ],
-        data: await discriminatorAsync('buy_nft'),
+        data: disc,
       };
       const tx = new Transaction().add(...preIxs, ix as any);
-      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      tx.recentBlockhash = blockhash;
       tx.feePayer = publicKey;
       setTxStatus('Awaiting wallet approval…');
-      const sig = await sendTransaction(tx, connection);
+      const sig = await sendTransaction(tx, connection, { skipPreflight: true, maxRetries: 3 });
       setTxStatus('Confirming on X1…');
-      await connection.confirmTransaction(sig, 'confirmed');
+      await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
       setTxStatus(`✅ NFT purchased! Tx: ${sig.slice(0,14)}…`);
       setTimeout(() => { setConfirmTarget(null); setTxStatus(''); loadListings(); }, 2500);
     } catch (e: any) {
@@ -1356,26 +1385,30 @@ const LabWork: FC = () => {
       const [listingPda] = getListingPda(nftMint, publicKey);
       const [escrowPda]  = getEscrowPda(nftMint, publicKey);
       const sellerAta    = getAssociatedTokenAddressSync(nftMint, publicKey);
+      // Precompute everything before wallet prompt
+      const disc = await discriminatorAsync('delist_nft');
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
       const ix = {
         programId: getMarketplaceProgramId(),
         keys: [
           { pubkey: publicKey,               isSigner:true,  isWritable:true  },
           { pubkey: nftMint,                 isSigner:false, isWritable:false },
-          { pubkey: escrowPda,               isSigner:false, isWritable:true  },
           { pubkey: sellerAta,               isSigner:false, isWritable:true  },
+          { pubkey: escrowPda,               isSigner:false, isWritable:true  },
           { pubkey: listingPda,              isSigner:false, isWritable:true  },
+          { pubkey: PLATFORM_WALLET!,        isSigner:false, isWritable:true  }, // cancel fee recipient
           { pubkey: TOKEN_PROGRAM_ID,        isSigner:false, isWritable:false },
           { pubkey: SystemProgram.programId, isSigner:false, isWritable:false },
         ],
-        data: await discriminatorAsync('delist_nft'),
+        data: disc,
       };
       const tx = new Transaction().add(ix as any);
-      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      tx.recentBlockhash = blockhash;
       tx.feePayer = publicKey;
       setTxStatus('Awaiting wallet approval…');
-      const sig = await sendTransaction(tx, connection);
+      const sig = await sendTransaction(tx, connection, { skipPreflight: true, maxRetries: 3 });
       setTxStatus('Confirming on X1…');
-      await connection.confirmTransaction(sig, 'confirmed');
+      await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
       setTxStatus(`✅ Delisted! Tx: ${sig.slice(0,14)}…`);
       setTimeout(() => { setConfirmTarget(null); setTxStatus(''); loadListings(); }, 2000);
     } catch (e: any) {
@@ -1537,7 +1570,7 @@ const LabWork: FC = () => {
               <span style={{ fontSize:16 }}>💎</span>
               <div>
                 <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 7 : 8, color:'#8a5aaa', letterSpacing:0.5 }}>
-                  4% PLATFORM ROYALTY ON ALL SALES · SELLER RECEIVES 96%
+                  1.888% PLATFORM FEE ON ALL SALES · CANCEL FEE 0.888%
                 </div>
                 <div style={{ fontFamily:'Orbitron,monospace', fontSize:6, color:'#5a3a7a', marginTop:2 }}>
                   HARDCODED ON-CHAIN → {PLATFORM_WALLET_STRING.slice(0,12)}…{PLATFORM_WALLET_STRING.slice(-6)} · IMMUTABLE PROGRAM
