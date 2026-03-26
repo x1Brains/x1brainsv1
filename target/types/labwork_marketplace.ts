@@ -72,6 +72,37 @@ export type LabworkMarketplace = {
           }
         },
         {
+          "name": "escrowAuthority",
+          "docs": [
+            "Authority PDA for the escrow"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "listing.nft_mint",
+                "account": "listingAccount"
+              }
+            ]
+          }
+        },
+        {
           "name": "listing",
           "docs": [
             "Listing account — closed on purchase, rent returned to seller"
@@ -183,6 +214,37 @@ export type LabworkMarketplace = {
           }
         },
         {
+          "name": "escrowAuthority",
+          "docs": [
+            "Authority PDA for the escrow"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "listing.nft_mint",
+                "account": "listingAccount"
+              }
+            ]
+          }
+        },
+        {
           "name": "listing",
           "docs": [
             "Listing account — closed on delist, rent returned to seller"
@@ -276,6 +338,36 @@ export type LabworkMarketplace = {
                   114,
                   111,
                   119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "nftMint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrowAuthority",
+          "docs": [
+            "Authority PDA for the escrow token account"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104
                 ]
               },
               {
@@ -526,6 +618,10 @@ export type LabworkMarketplace = {
           },
           {
             "name": "escrowBump",
+            "type": "u8"
+          },
+          {
+            "name": "escrowAuthBump",
             "type": "u8"
           }
         ]
