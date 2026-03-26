@@ -2159,16 +2159,17 @@ const LabWork: FC = () => {
                 ) : (
                   <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                     {tradeLogs.map((log, i) => (
-                      <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.06)', borderRadius:10 }}>
-                        {/* NFT image — use NFTImage for proxy/fallback handling */}
-                        <div style={{ width:48, height:48, borderRadius:8, overflow:'hidden', flexShrink:0, background:'rgba(0,0,0,.3)' }}>
-                          {log.nftData?.metaUri || log.nftData?.image
-                            ? <NFTImage
-                                metaUri={log.nftData.metaUri || log.nftData.image}
-                                name={log.nftData?.name ?? ''}
-                                contain={false}
+                      <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.06)', borderRadius:10, overflow:'hidden' }}>
+                        {/* NFT thumbnail — fixed 44x44, no bleed */}
+                        <div style={{ width:44, height:44, borderRadius:8, overflow:'hidden', flexShrink:0, background:'rgba(0,0,0,.3)', position:'relative' }}>
+                          {log.nftData?.image
+                            ? <img
+                                src={log.nftData.image}
+                                alt={log.nftData?.name ?? ''}
+                                style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', imageRendering:'pixelated', display:'block' }}
+                                onError={e => { (e.target as HTMLImageElement).style.display='none'; }}
                               />
-                            : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20 }}>🖼️</div>
+                            : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>🖼️</div>
                           }
                         </div>
                         <div style={{ flex:1, minWidth:0 }}>
