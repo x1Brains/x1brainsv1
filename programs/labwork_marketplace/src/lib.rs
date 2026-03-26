@@ -338,7 +338,9 @@ pub struct ListNft<'info> {
     )]
     pub listing: Account<'info, ListingAccount>,
 
-    pub token_program:  Program<'info, Token>,
+    /// CHECK: Either SPL Token or Token-2022
+    #[account(constraint = token_program.key() == anchor_spl::token::ID || token_program.key() == anchor_spl::token_2022::ID)]
+    pub token_program: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
     pub rent:           Sysvar<'info, Rent>,
 }
@@ -398,7 +400,9 @@ pub struct DelistNft<'info> {
     )]
     pub platform_wallet: AccountInfo<'info>,
 
-    pub token_program:  Program<'info, Token>,
+    /// CHECK: Either SPL Token or Token-2022
+    #[account(constraint = token_program.key() == anchor_spl::token::ID || token_program.key() == anchor_spl::token_2022::ID)]
+    pub token_program: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -462,7 +466,9 @@ pub struct BuyNft<'info> {
     )]
     pub platform_wallet: AccountInfo<'info>,
 
-    pub token_program:  Program<'info, Token>,
+    /// CHECK: Either SPL Token or Token-2022
+    #[account(constraint = token_program.key() == anchor_spl::token::ID || token_program.key() == anchor_spl::token_2022::ID)]
+    pub token_program: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
 }
 
