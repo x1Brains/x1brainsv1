@@ -289,20 +289,17 @@ async function sendTx(
   if (signTransaction) {
     try {
       const signed = await signTransaction(tx);
-      const raw    = signed.serialize();
-      const sig    = await connection.sendRawTransaction(raw, {
-        skipPreflight:        true,
-        preflightCommitment:  'confirmed',
-        maxRetries:           3,
+      const sig    = await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight:       true,
+        preflightCommitment: 'confirmed',
+        maxRetries:          5,
       });
       return sig;
     } catch (e: any) {
-      // If sign fails (user rejected), re-throw — don't fall through to sendTransaction
       if (e?.message?.includes('User rejected') || e?.message?.includes('Plugin Closed')) throw e;
-      // Other errors: fall through to sendTransaction as backup
     }
   }
-  return sendTransaction(tx, connection, { skipPreflight: true, maxRetries: 3 });
+  return sendTransaction(tx, connection, { skipPreflight: true, maxRetries: 5 });
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1182,7 +1179,8 @@ const SellPanel: FC<{
       setStatus('Awaiting wallet approval…');
       const sig = await sendTx(tx, connection, sendTransaction, signTransaction);
       setStatus('Confirming on X1…');
-      await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+      const result = await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+      if (result?.value?.err) throw new Error('Transaction failed: ' + JSON.stringify(result.value.err));
       setStatus(`✅ Listed! Tx: ${sig.slice(0,14)}…`);
       setSelected(null); setPrice('');
       setTimeout(() => { setStatus(''); onListed(); }, 2500);
@@ -1389,7 +1387,8 @@ const LabWork: FC = () => {
       setTxStatus('Awaiting wallet approval…');
       const sig = await sendTx(tx, connection, sendTransaction, signTransaction);
       setTxStatus('Confirming on X1…');
-      await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+      const result = await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+      if (result?.value?.err) throw new Error('Transaction failed: ' + JSON.stringify(result.value.err));
       setTxStatus(`✅ NFT purchased! Tx: ${sig.slice(0,14)}…`);
       setTimeout(() => { setConfirmTarget(null); setTxStatus(''); loadListings(); }, 2500);
     } catch (e: any) {
@@ -1430,7 +1429,8 @@ const LabWork: FC = () => {
       setTxStatus('Awaiting wallet approval…');
       const sig = await sendTx(tx, connection, sendTransaction, signTransaction);
       setTxStatus('Confirming on X1…');
-      await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+      const result = await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+      if (result?.value?.err) throw new Error('Transaction failed: ' + JSON.stringify(result.value.err));
       setTxStatus(`✅ Delisted! Tx: ${sig.slice(0,14)}…`);
       setTimeout(() => { setConfirmTarget(null); setTxStatus(''); loadListings(); }, 2000);
     } catch (e: any) {
