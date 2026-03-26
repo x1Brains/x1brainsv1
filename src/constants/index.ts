@@ -17,26 +17,34 @@ export const NFT_TOTAL_SUPPLY    = 88;
 export const NFT_COLLECTION_NAME = 'LabWork';
 export const NFT_SYMBOL          = 'LabWork';
 export const NFT_PRICE_XNT       = 0.88;
-export const MINT_PROGRAM_ID     = 'YOUR_PROGRAM_ID_HERE';
 
 // ── Marketplace ──────────────────────────────
-// Set MARKETPLACE_PROGRAM_ID_STRING to your deployed Anchor program ID.
-// Until it is set, the marketplace UI renders but transactions are disabled.
-export const MARKETPLACE_PROGRAM_ID_STRING = 'YOUR_PROGRAM_ID_HERE';
-// Platform wallet that receives the 4% royalty on every sale.
+// Deployed Anchor program on X1 mainnet — handles list, buy, cancel.
+export const MARKETPLACE_PROGRAM_ID_STRING = 'CKZHwoUZTJEnGNK4piPxyysrhwLKnnrNoBmEHM9rLaD4';
+
+// Platform wallet that receives all marketplace fees.
 // Must exactly match the pubkey hardcoded inside the Rust program.
-export const PLATFORM_WALLET_STRING = 'YOUR_PLATFORM_WALLET_HERE';
-// Fee in basis points (400 = 4%)
-export const FEE_BPS   = 400;
+export const PLATFORM_WALLET_STRING = 'CAeTTU2zk2EjWLKVeg4zxYhHu7gba1oRN8NHEDjpK9XF';
+
+// Sale fee: 1.888% — expressed as numerator over denominator
+// 1.888% = 1888 / 100_000
+export const SALE_FEE_NUMERATOR   = 1888;
+export const SALE_FEE_DENOMINATOR = 100_000;
+
+// Cancel fee: 0.888% — charged when seller delists
+export const CANCEL_FEE_NUMERATOR   = 888;
+export const CANCEL_FEE_DENOMINATOR = 100_000;
+
+// Legacy fee constants (kept for backwards compat with existing LabWork.tsx refs)
+export const FEE_BPS   = 188;   // ~1.888% in basis points (rounded)
 export const BPS_DENOM = 10_000;
 
 // ── IPFS Gateways ────────────────────────────
 export const IPFS_GATEWAYS = [
-  'https://gateway.pinata.cloud/ipfs/',
   'https://ipfs.io/ipfs/',
   'https://cloudflare-ipfs.com/ipfs/',
+  'https://gateway.pinata.cloud/ipfs/',
   'https://dweb.link/ipfs/',
-  'https://nftstorage.link/ipfs/',
 ];
 
 // ── Cyberdyne Unlimited — Imperial API ───────
