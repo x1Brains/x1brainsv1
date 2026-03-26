@@ -1178,10 +1178,19 @@ const SellPanel: FC<{
       // Now open wallet — everything is ready
       setStatus('Awaiting wallet approval…');
       const sig = await sendTx(tx, connection, sendTransaction, signTransaction);
-      setStatus('Confirming on X1…');
-      const result = await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
-      if (result?.value?.err) throw new Error('Transaction failed: ' + JSON.stringify(result.value.err));
-      setStatus(`✅ Listed! Tx: ${sig.slice(0,14)}…`);
+      setStatus(`Confirming… tx: ${sig.slice(0,20)}…`);
+      // Poll for confirmation — more reliable on X1 than blockhash expiry method
+      let confirmed = false;
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const status = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
+        const conf = status?.value?.confirmationStatus;
+        const err  = status?.value?.err;
+        if (err) throw new Error('On-chain error: ' + JSON.stringify(err));
+        if (conf === 'confirmed' || conf === 'finalized') { confirmed = true; break; }
+      }
+      if (!confirmed) throw new Error(`Timed out. Check tx: ${sig}`);
+      setStatus(`✅ Listed! Tx: ${sig.slice(0,20)}…`);
       setSelected(null); setPrice('');
       setTimeout(() => { setStatus(''); onListed(); }, 2500);
     } catch (e: any) {
@@ -1386,13 +1395,21 @@ const LabWork: FC = () => {
       tx.feePayer = publicKey;
       setTxStatus('Awaiting wallet approval…');
       const sig = await sendTx(tx, connection, sendTransaction, signTransaction);
-      setTxStatus('Confirming on X1…');
-      const result = await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
-      if (result?.value?.err) throw new Error('Transaction failed: ' + JSON.stringify(result.value.err));
-      setTxStatus(`✅ NFT purchased! Tx: ${sig.slice(0,14)}…`);
+      setTxStatus(`Confirming… tx: ${sig.slice(0,20)}…`);
+      let confirmed = false;
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const status = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
+        const conf = status?.value?.confirmationStatus;
+        const err  = status?.value?.err;
+        if (err) throw new Error('On-chain error: ' + JSON.stringify(err));
+        if (conf === 'confirmed' || conf === 'finalized') { confirmed = true; break; }
+      }
+      if (!confirmed) throw new Error(`Timed out. Check tx: ${sig}`);
+      setTxStatus(`✅ NFT purchased! Tx: ${sig.slice(0,20)}…`);
       setTimeout(() => { setConfirmTarget(null); setTxStatus(''); loadListings(); }, 2500);
     } catch (e: any) {
-      setTxStatus(`❌ ${e?.message?.slice(0,90) ?? 'Transaction failed'}`);
+      setTxStatus(`❌ ${e?.message?.slice(0,120) ?? 'Transaction failed'}`);
     } finally { setTxPending(false); }
   };
 
@@ -1428,13 +1445,21 @@ const LabWork: FC = () => {
       tx.feePayer = publicKey;
       setTxStatus('Awaiting wallet approval…');
       const sig = await sendTx(tx, connection, sendTransaction, signTransaction);
-      setTxStatus('Confirming on X1…');
-      const result = await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
-      if (result?.value?.err) throw new Error('Transaction failed: ' + JSON.stringify(result.value.err));
-      setTxStatus(`✅ Delisted! Tx: ${sig.slice(0,14)}…`);
+      setTxStatus(`Confirming… tx: ${sig.slice(0,20)}…`);
+      let confirmed = false;
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const status = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
+        const conf = status?.value?.confirmationStatus;
+        const err  = status?.value?.err;
+        if (err) throw new Error('On-chain error: ' + JSON.stringify(err));
+        if (conf === 'confirmed' || conf === 'finalized') { confirmed = true; break; }
+      }
+      if (!confirmed) throw new Error(`Timed out. Check tx: ${sig}`);
+      setTxStatus(`✅ Delisted! Tx: ${sig.slice(0,20)}…`);
       setTimeout(() => { setConfirmTarget(null); setTxStatus(''); loadListings(); }, 2000);
     } catch (e: any) {
-      setTxStatus(`❌ ${e?.message?.slice(0,90) ?? 'Transaction failed'}`);
+      setTxStatus(`❌ ${e?.message?.slice(0,120) ?? 'Transaction failed'}`);
     } finally { setTxPending(false); }
   };
 
