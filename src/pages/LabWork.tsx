@@ -278,6 +278,33 @@ const calcCancelFee   = (p: number)     => Math.floor(p * CANCEL_FEE_NUMERATOR /
 const calcSellerCut   = (p: number)     => p - calcFee(p);
 const xntToLamports   = (x: string)     => Math.round(parseFloat(x) * LAMPORTS_PER_SOL);
 
+// Send a transaction bypassing wallet simulation (fixes Backpack "Plugin Closed").
+// Uses signTransaction + sendRawTransaction when available, falls back to sendTransaction.
+async function sendTx(
+  tx: Transaction,
+  connection: any,
+  sendTransaction: any,
+  signTransaction?: ((tx: Transaction) => Promise<Transaction>) | null,
+): Promise<string> {
+  if (signTransaction) {
+    try {
+      const signed = await signTransaction(tx);
+      const raw    = signed.serialize();
+      const sig    = await connection.sendRawTransaction(raw, {
+        skipPreflight:        true,
+        preflightCommitment:  'confirmed',
+        maxRetries:           3,
+      });
+      return sig;
+    } catch (e: any) {
+      // If sign fails (user rejected), re-throw — don't fall through to sendTransaction
+      if (e?.message?.includes('User rejected') || e?.message?.includes('Plugin Closed')) throw e;
+      // Other errors: fall through to sendTransaction as backup
+    }
+  }
+  return sendTransaction(tx, connection, { skipPreflight: true, maxRetries: 3 });
+}
+
 // ─────────────────────────────────────────────────────────────────
 //  MARKETPLACE PDA HELPERS
 //  Seeds must exactly match the Rust program:
@@ -1103,11 +1130,12 @@ const SellPanel: FC<{
   connection:      any;
   publicKey:       PublicKey | null;
   sendTransaction: any;
+  signTransaction: ((tx: Transaction) => Promise<Transaction>) | null | undefined;
   walletNfts:      NFTData[];
   loadingNfts:     boolean;
   preselect?:      NFTData | null;
   onListed:        () => void;
-}> = ({ isMobile, connection, publicKey, sendTransaction, walletNfts, loadingNfts, preselect, onListed }) => {
+}> = ({ isMobile, connection, publicKey, sendTransaction, signTransaction, walletNfts, loadingNfts, preselect, onListed }) => {
   const [selected, setSelected] = useState<NFTData | null>(preselect ?? null);
   const [price, setPrice]       = useState('');
   const [status, setStatus]     = useState('');
@@ -1153,10 +1181,7 @@ const SellPanel: FC<{
 
       // Now open wallet — everything is ready
       setStatus('Awaiting wallet approval…');
-      const sig = await sendTransaction(tx, connection, {
-        skipPreflight: true,
-        maxRetries: 3,
-      });
+      const sig = await sendTx(tx, connection, sendTransaction, signTransaction);
       setStatus('Confirming on X1…');
       await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
       setStatus(`✅ Listed! Tx: ${sig.slice(0,14)}…`);
@@ -1259,7 +1284,7 @@ const SellPanel: FC<{
 //  MAIN PAGE COMPONENT
 // ═════════════════════════════════════════════════════════════════
 const LabWork: FC = () => {
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, sendTransaction, signTransaction } = useWallet();
   const { connection }                 = useConnection();
   const isMobile                       = useIsMobile();
 
@@ -1365,7 +1390,7 @@ const LabWork: FC = () => {
       tx.recentBlockhash = blockhash;
       tx.feePayer = publicKey;
       setTxStatus('Awaiting wallet approval…');
-      const sig = await sendTransaction(tx, connection, { skipPreflight: true, maxRetries: 3 });
+      const sig = await sendTx(tx, connection, sendTransaction, signTransaction);
       setTxStatus('Confirming on X1…');
       await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
       setTxStatus(`✅ NFT purchased! Tx: ${sig.slice(0,14)}…`);
@@ -1406,7 +1431,7 @@ const LabWork: FC = () => {
       tx.recentBlockhash = blockhash;
       tx.feePayer = publicKey;
       setTxStatus('Awaiting wallet approval…');
-      const sig = await sendTransaction(tx, connection, { skipPreflight: true, maxRetries: 3 });
+      const sig = await sendTx(tx, connection, sendTransaction, signTransaction);
       setTxStatus('Confirming on X1…');
       await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
       setTxStatus(`✅ Delisted! Tx: ${sig.slice(0,14)}…`);
@@ -1655,7 +1680,7 @@ const LabWork: FC = () => {
             {marketTab === 'sell' && (
               <div style={{ animation:'fadeUp 0.3s ease both' }}>
                 <SellPanel isMobile={isMobile} connection={connection} publicKey={publicKey}
-                  sendTransaction={sendTransaction} walletNfts={nfts} loadingNfts={loading}
+                  sendTransaction={sendTransaction} signTransaction={signTransaction} walletNfts={nfts} loadingNfts={loading}
                   preselect={prelistNft}
                   onListed={() => { setPrelistNft(null); loadListings(); setMarketTab('browse'); }} />
               </div>
