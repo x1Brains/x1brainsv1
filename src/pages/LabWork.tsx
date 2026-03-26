@@ -278,21 +278,27 @@ const calcCancelFee   = (p: number)     => Math.floor(p * CANCEL_FEE_NUMERATOR /
 const calcSellerCut   = (p: number)     => p - calcFee(p);
 const xntToLamports   = (x: string)     => Math.round(parseFloat(x) * LAMPORTS_PER_SOL);
 
-// Send a transaction to the chain.
-// We use sendTransaction (not signTransaction+sendRaw) because Backpack
-// handles sendTransaction correctly for unrecognized programs —
-// signTransaction triggers stricter client-side validation that rejects unknown instructions.
+// Send a transaction bypassing Backpack's internal simulation.
+// Backpack ignores skipPreflight from dApps and simulates internally — this causes
+// "Plugin Closed" when the program is new/unknown. Using signTransaction + sendRawTransaction
+// skips Backpack's simulation entirely and sends signed bytes directly to the RPC.
 async function sendTx(
   tx: Transaction,
   connection: any,
   sendTransaction: any,
-  _signTransaction?: ((tx: Transaction) => Promise<Transaction>) | null,
+  signTransaction?: ((tx: Transaction) => Promise<Transaction>) | null,
 ): Promise<string> {
-  return sendTransaction(tx, connection, {
-    skipPreflight:       true,
-    preflightCommitment: 'confirmed',
-    maxRetries:          5,
-  });
+  // Try signTransaction first — bypasses Backpack simulation
+  if (signTransaction) {
+    const signed = await signTransaction(tx);
+    return connection.sendRawTransaction(signed.serialize(), {
+      skipPreflight:       true,
+      preflightCommitment: 'confirmed',
+      maxRetries:          5,
+    });
+  }
+  // Fallback
+  return sendTransaction(tx, connection, { skipPreflight: true, maxRetries: 5 });
 }
 
 // ─────────────────────────────────────────────────────────────────
