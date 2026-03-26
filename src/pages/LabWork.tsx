@@ -338,16 +338,16 @@ function getEscrowPda(mint: PublicKey, seller?: PublicKey): [PublicKey, number] 
 
 
 // ─── Anchor instruction discriminator ─────────────────────────────
-// sha256("global:<n>")[0..8] — matches what anchor-lang generates.
-// Uses window.crypto.subtle (Web Crypto API) — no eval, no require('crypto'),
-// 100% CSP-safe. Results are cached so repeated calls are instant.
+// sha256("global:<name>")[0..8] for instructions
+// sha256("account:<name>")[0..8] for account types
 const _discCache = new Map<string, Buffer>();
-async function discriminatorAsync(name: string): Promise<Buffer> {
-  if (_discCache.has(name)) return _discCache.get(name)!;
-  const data    = new TextEncoder().encode(`global:${name}`);
+async function discriminatorAsync(name: string, isAccount = false): Promise<Buffer> {
+  const key = (isAccount ? 'account:' : 'global:') + name;
+  if (_discCache.has(key)) return _discCache.get(key)!;
+  const data    = new TextEncoder().encode(key);
   const hashBuf = await window.crypto.subtle.digest('SHA-256', data);
   const result  = Buffer.from(new Uint8Array(hashBuf).slice(0, 8));
-  _discCache.set(name, result);
+  _discCache.set(key, result);
   return result;
 }
 // Pre-warm cache at module load so values are ready before any button click.
@@ -356,7 +356,7 @@ async function discriminatorAsync(name: string): Promise<Buffer> {
     discriminatorAsync('list_nft'),
     discriminatorAsync('buy_nft'),
     discriminatorAsync('cancel_listing'),
-    discriminatorAsync('sale'),
+    discriminatorAsync('SaleAccount', true),  // account discriminator
   ]);
 })();
 // ─────────────────────────────────────────────────────────────────
@@ -482,7 +482,8 @@ function groupByCollection(nfts: NFTData[]): Map<string, NFTData[]> {
 async function fetchAllListings(connection: any): Promise<Listing[]> {
   try {
     // SaleAccount::LEN = 8 (disc) + 32 + 32 + 8 + 1 + 1 + 8 = 90 bytes
-    const disc     = await discriminatorAsync('sale');
+    // Account discriminator = sha256("account:SaleAccount")[0..8]
+    const disc     = await discriminatorAsync('SaleAccount', true);
     const accounts = await connection.getProgramAccounts(getMarketplaceProgramId(), {
       filters: [
         { dataSize: 90 },
@@ -1205,8 +1206,8 @@ const SellPanel: FC<{
       setStatus(`Confirming… tx: ${sig.slice(0,20)}…`);
       // Poll for confirmation — more reliable on X1 than blockhash expiry method
       let confirmed = false;
-      for (let i = 0; i < 30; i++) {
-        await new Promise(r => setTimeout(r, 2000));
+      for (let i = 0; i < 40; i++) {
+        if (i > 0) await new Promise(r => setTimeout(r, 1500));
         const status = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
         const conf = status?.value?.confirmationStatus;
         const err  = status?.value?.err;
@@ -1423,8 +1424,8 @@ const LabWork: FC = () => {
       const sig = await sendTx(tx, connection, sendTransaction, signTransaction);
       setTxStatus(`Confirming… tx: ${sig.slice(0,20)}…`);
       let confirmed = false;
-      for (let i = 0; i < 30; i++) {
-        await new Promise(r => setTimeout(r, 2000));
+      for (let i = 0; i < 40; i++) {
+        if (i > 0) await new Promise(r => setTimeout(r, 1500));
         const status = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
         const conf = status?.value?.confirmationStatus;
         const err  = status?.value?.err;
@@ -1473,8 +1474,8 @@ const LabWork: FC = () => {
       const sig = await sendTx(tx, connection, sendTransaction, signTransaction);
       setTxStatus(`Confirming… tx: ${sig.slice(0,20)}…`);
       let confirmed = false;
-      for (let i = 0; i < 30; i++) {
-        await new Promise(r => setTimeout(r, 2000));
+      for (let i = 0; i < 40; i++) {
+        if (i > 0) await new Promise(r => setTimeout(r, 1500));
         const status = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
         const conf = status?.value?.confirmationStatus;
         const err  = status?.value?.err;
