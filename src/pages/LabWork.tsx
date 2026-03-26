@@ -1174,6 +1174,10 @@ const SellPanel: FC<{
           { pubkey: escrowAuth,              isSigner:false, isWritable:false }, // escrow_authority
           { pubkey: listingPda,              isSigner:false, isWritable:true  }, // listing
           { pubkey: tokenProgram,            isSigner:false, isWritable:false }, // token_program
+          { pubkey: SystemProgram.programId, isSigner:false, isWritable:false }, // system_program
+          { pubkey: SYSVAR_RENT_PUBKEY,      isSigner:false, isWritable:false }, // rent
+        ],
+        data: Buffer.concat([disc, priceData]),
       };
       const tx = new Transaction().add(ix as any);
       tx.recentBlockhash = blockhash;
