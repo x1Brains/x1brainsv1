@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer, CloseAccount};
 
-declare_id!("CKZHwoUZTJEnGNK4piPxyysrhwLKnnrNoBmEHM9rLaD4");
+declare_id!("EQKNXSBE6vUbtPBY1ibXPyWmLzrtXBZqUs9Fjqo19TkX");
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  CONSTANTS
@@ -84,8 +84,16 @@ pub mod labwork_marketplace {
                 ctx.accounts.seller.lamports() >= cancel_fee,
                 MarketplaceError::InsufficientFundsForCancelFee
             );
-            **ctx.accounts.seller.try_borrow_mut_lamports()? -= cancel_fee;
-            **ctx.accounts.platform_wallet.try_borrow_mut_lamports()? += cancel_fee;
+            anchor_lang::system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    anchor_lang::system_program::Transfer {
+                        from: ctx.accounts.seller.to_account_info(),
+                        to:   ctx.accounts.platform_wallet.to_account_info(),
+                    },
+                ),
+                cancel_fee,
+            )?;
         }
 
         // Transfer NFT back: vault → seller
@@ -146,16 +154,32 @@ pub mod labwork_marketplace {
             .checked_div(SALE_FEE_DENOMINATOR).ok_or(MarketplaceError::MathOverflow)?;
         let seller_proceeds = price.checked_sub(platform_fee).ok_or(MarketplaceError::MathOverflow)?;
 
-        // Pay platform
+        // Pay platform fee
         if platform_fee > 0 {
-            **ctx.accounts.buyer.try_borrow_mut_lamports()? -= platform_fee;
-            **ctx.accounts.platform_wallet.try_borrow_mut_lamports()? += platform_fee;
+            anchor_lang::system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    anchor_lang::system_program::Transfer {
+                        from: ctx.accounts.buyer.to_account_info(),
+                        to:   ctx.accounts.platform_wallet.to_account_info(),
+                    },
+                ),
+                platform_fee,
+            )?;
         }
 
         // Pay seller
         if seller_proceeds > 0 {
-            **ctx.accounts.buyer.try_borrow_mut_lamports()? -= seller_proceeds;
-            **ctx.accounts.seller_wallet.try_borrow_mut_lamports()? += seller_proceeds;
+            anchor_lang::system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    anchor_lang::system_program::Transfer {
+                        from: ctx.accounts.buyer.to_account_info(),
+                        to:   ctx.accounts.seller_wallet.to_account_info(),
+                    },
+                ),
+                seller_proceeds,
+            )?;
         }
 
         // Transfer NFT: vault → buyer
