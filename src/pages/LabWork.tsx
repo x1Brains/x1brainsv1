@@ -29,9 +29,10 @@ import {
   CANCEL_FEE_DENOMINATOR,
 } from '../constants';
 // ─────────────────────────────────────────────────────────────────
-//  COPIED VERBATIM FROM NFTComponents.tsx
-//  Only change: cache variable names prefixed with lw_ / lw
-//  so Portfolio's cache is never touched.
+//  SHARED NFT UTILITY FUNCTIONS
+//  TODO: Extract to src/utils/nft.ts and import here + in NFTComponents.tsx
+//  These are intentionally duplicated for now to avoid cross-page coupling.
+//  If you patch resolveGateway or toProxyUrl here, patch NFTComponents.tsx too.
 // ─────────────────────────────────────────────────────────────────
 function resolveGateway(u: string): string {
   return u
@@ -222,9 +223,13 @@ const METADATA_PROGRAM_ID = new PublicKey(METADATA_PROGRAM_ID_STRING);
 const PLATFORM_WALLET = PLATFORM_WALLET_STRING !== 'YOUR_PLATFORM_WALLET_HERE'
   ? new PublicKey(PLATFORM_WALLET_STRING)
   : null;
+
+const MARKETPLACE_DEPLOYED = MARKETPLACE_PROGRAM_ID_STRING !== 'YOUR_PROGRAM_ID_HERE';
+
 function getMarketplaceProgramId(): PublicKey {
-  if (MARKETPLACE_PROGRAM_ID_STRING === 'YOUR_PROGRAM_ID_HERE') {
-    throw new Error('Marketplace program ID not set in constants/index.ts');
+  if (!MARKETPLACE_DEPLOYED) {
+    // Return a dummy key — callers should check MARKETPLACE_DEPLOYED before calling
+    return PublicKey.default;
   }
   return new PublicKey(MARKETPLACE_PROGRAM_ID_STRING);
 }
@@ -307,30 +312,30 @@ async function saveTrade(trade: { sig: string; type: 'list'|'buy'|'delist'; nftM
 
 // Send transaction - tries signTransaction first to bypass wallet simulation,
 // falls back to sendTransaction if sign fails.
+// skipPreflight: true for list/buy (speed), false for cancel (protect fees on failure).
 async function sendTx(
   tx: Transaction,
   connection: any,
   sendTransaction: any,
   signTransaction?: ((tx: Transaction) => Promise<Transaction>) | null,
+  skipPreflight = true,
 ): Promise<string> {
   if (signTransaction) {
     try {
       const signed = await signTransaction(tx);
       return connection.sendRawTransaction(signed.serialize(), {
-        skipPreflight:       true,
+        skipPreflight,
         preflightCommitment: 'confirmed',
         maxRetries:          5,
       });
     } catch (signErr: any) {
       console.warn('signTransaction failed, falling back to sendTransaction:', signErr?.message ?? signErr);
-      // If user explicitly rejected, don't fall through
       const msg = signErr?.message ?? '';
       if (msg.includes('User rejected') || msg.includes('rejected') || msg.includes('denied')) throw signErr;
-      // Otherwise fall through to sendTransaction
     }
   }
   return sendTransaction(tx, connection, {
-    skipPreflight:       true,
+    skipPreflight,
     preflightCommitment: 'confirmed',
     maxRetries:          5,
   });
@@ -466,7 +471,7 @@ async function fetchWalletNFTs(connection: any, publicKey: PublicKey): Promise<N
           if (sL > 50 || o + sL > raw.length) return;
           const symbol = new TextDecoder().decode(raw.slice(o, o + sL)).replace(/\x00/g,'').trim(); o += sL;
           const uL = view.getUint32(o, true); o += 4;
-          if (uL > 500 || o + uL > raw.length) return;
+          if (uL > 2048 || o + uL > raw.length) return;
           const uri = new TextDecoder().decode(raw.slice(o, o + uL)).replace(/\x00/g,'').trim();
           if (!name && !symbol) return;
           pdaMap.set(batch[idx], { name, symbol, uri });
@@ -564,7 +569,7 @@ async function enrichListing(connection: any, l: Listing): Promise<Listing> {
     const name = new TextDecoder().decode(raw.slice(o, o + nL)).replace(/\x00/g,'').trim(); o += nL;
     const sL = view.getUint32(o, true); o += 4; if (sL > 50 || o + sL > raw.length) return l;
     const symbol = new TextDecoder().decode(raw.slice(o, o + sL)).replace(/\x00/g,'').trim(); o += sL;
-    const uL = view.getUint32(o, true); o += 4; if (uL > 500 || o + uL > raw.length) return l;
+    const uL = view.getUint32(o, true); o += 4; if (uL > 2048 || o + uL > raw.length) return l;
     const uri = new TextDecoder().decode(raw.slice(o, o + uL)).replace(/\x00/g,'').trim();
     const base: NFTData = { mint: l.nftMint, name, symbol, balance: 1, decimals: 0, isToken2022: false, metaUri: uri };
     const enriched = await enrichNFT(base);
@@ -575,15 +580,33 @@ async function enrichListing(connection: any, l: Listing): Promise<Listing> {
 // ─────────────────────────────────────────────────────────────────
 //  SHARED INLINE COMPONENTS
 // ─────────────────────────────────────────────────────────────────
+// Safely render a status message — extracts explorer link if present,
+// renders as plain text + anchor element (no dangerouslySetInnerHTML).
 const StatusBox: FC<{ msg: string }> = ({ msg }) => {
   if (!msg) return null;
   const ok = msg.includes('✅'), err = msg.includes('❌');
-  return <div style={{ padding:'8px 12px', borderRadius:8, marginBottom:14,
+  const style: React.CSSProperties = {
+    padding:'8px 12px', borderRadius:8, marginBottom:14,
     background: ok ? 'rgba(0,201,141,.08)' : err ? 'rgba(255,50,50,.08)' : 'rgba(0,212,255,.06)',
     border:`1px solid ${ok ? 'rgba(0,201,141,.3)' : err ? 'rgba(255,50,50,.3)' : 'rgba(0,212,255,.2)'}`,
     fontFamily:'Sora,sans-serif', fontSize:11,
-    color: ok ? '#00c98d' : err ? '#ff6666' : '#00d4ff' }}
-    dangerouslySetInnerHTML={{ __html: msg }} />;
+    color: ok ? '#00c98d' : err ? '#ff6666' : '#00d4ff',
+    display:'flex', alignItems:'center', gap:8, flexWrap:'wrap',
+  };
+  // Extract explorer URL from message safely — only allow our known explorer domain
+  const urlMatch = msg.match(/https:\/\/explorer\.mainnet\.x1\.xyz\/tx\/([A-Za-z0-9]+)/);
+  const cleanText = msg.replace(/<[^>]*>/g, '').replace(/View Tx ↗/, '').trim();
+  return (
+    <div style={style}>
+      <span>{cleanText}</span>
+      {urlMatch && (
+        <a href={urlMatch[0]} target="_blank" rel="noopener noreferrer"
+           style={{ color:'#00d4ff', textDecoration:'underline', fontSize:10, flexShrink:0 }}>
+          View Tx ↗
+        </a>
+      )}
+    </div>
+  );
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -1767,7 +1790,7 @@ const LabWork: FC = () => {
       tx.recentBlockhash = blockhash;
       tx.feePayer = publicKey;
       setTxStatus('Awaiting wallet approval…');
-      const sig = await sendTx(tx, connection, sendTransaction, signTransaction);
+      const sig = await sendTx(tx, connection, sendTransaction, signTransaction, false);
       setTxStatus(`Confirming… tx: ${sig.slice(0,20)}…`);
       let confirmed = false;
       for (let i = 0; i < 40; i++) {
@@ -1941,6 +1964,16 @@ const LabWork: FC = () => {
         ════════════════════════════════════════════════════════ */}
         {pageMode === 'market' && (
           <>
+            {/* Not deployed banner */}
+            {!MARKETPLACE_DEPLOYED && (
+              <div style={{ padding:'16px 20px', marginBottom:20, background:'rgba(255,153,0,.08)', border:'1px solid rgba(255,153,0,.3)', borderRadius:12, fontFamily:'Sora,sans-serif', fontSize:12, color:'#ffaa44', display:'flex', alignItems:'center', gap:10 }}>
+                <span style={{ fontSize:20 }}>🚧</span>
+                <div>
+                  <div style={{ fontFamily:'Orbitron,monospace', fontSize:10, fontWeight:700, marginBottom:2 }}>MARKETPLACE NOT DEPLOYED</div>
+                  <div style={{ fontSize:10, color:'#aa7733' }}>Set MARKETPLACE_PROGRAM_ID_STRING in constants/index.ts to enable trading.</div>
+                </div>
+              </div>
+            )}
             {/* Fee banner */}
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:20, padding:'10px 14px',
               background:'rgba(191,90,242,.06)', border:'1px solid rgba(191,90,242,.18)', borderRadius:10, animation:'fadeUp 0.3s ease both' }}>
