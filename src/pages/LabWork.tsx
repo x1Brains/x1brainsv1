@@ -132,7 +132,7 @@ const NFTImage: FC<{ metaUri?: string; name: string; contain?: boolean }> = ({
       const url = resolveGateway(metaUri);
 
       // Step 1: if metaUri already looks like a direct image URL, use it straight away
-      if (/\.(png|jpg|jpeg|gif|webp|svg)(\?|$)/i.test(url)) {
+      if (/\.(png|jpg|jpeg|gif|webp|svg)(\?|$)/i.test(url) || url.startsWith('data:image')) {
         lwImageCache.set(metaUri, url); persistLwCache();
         if (!cancelled) setImgSrc(url); return;
       }
@@ -394,6 +394,38 @@ async function discriminatorAsync(name: string, isAccount = false): Promise<Buff
 // ─────────────────────────────────────────────────────────────────
 //  NFT METADATA ENRICHMENT
 // ─────────────────────────────────────────────────────────────────
+// Fetch Metaplex metadata for a single mint from chain, then enrich with image.
+// Used for activity log entries which only have a mint address.
+async function enrichNFTFromMint(connection: any, mintAddr: string): Promise<NFTData> {
+  const base: NFTData = { mint: mintAddr, name: mintAddr.slice(0,8)+'…', symbol:'', balance:1, decimals:0, isToken2022:false };
+  try {
+    const mintPk = new PublicKey(mintAddr);
+    const [pdaKey] = PublicKey.findProgramAddressSync(
+      [new TextEncoder().encode('metadata'), METADATA_PROGRAM_ID.toBytes(), mintPk.toBytes()],
+      METADATA_PROGRAM_ID
+    );
+    const info = await connection.getAccountInfo(pdaKey, { encoding: 'base64' });
+    if (!info?.data) return base;
+    let raw: Uint8Array;
+    const d = info.data;
+    if (d instanceof Uint8Array) raw = d;
+    else if (Array.isArray(d) && typeof d[0] === 'string') raw = Uint8Array.from(atob(d[0]), c => c.charCodeAt(0));
+    else if (typeof d === 'string') raw = Uint8Array.from(atob(d), c => c.charCodeAt(0));
+    else return base;
+    if (raw.length < 69) return base;
+    const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+    let o = 65;
+    const nL = view.getUint32(o, true); o += 4; if (!nL || nL > 200 || o + nL > raw.length) return base;
+    const name = new TextDecoder().decode(raw.slice(o, o + nL)).replace(/\x00/g,'').trim(); o += nL;
+    const sL = view.getUint32(o, true); o += 4; if (sL > 50 || o + sL > raw.length) return base;
+    const symbol = new TextDecoder().decode(raw.slice(o, o + sL)).replace(/\x00/g,'').trim(); o += sL;
+    const uL = view.getUint32(o, true); o += 4; if (uL > 2048 || o + uL > raw.length) return base;
+    const uri = new TextDecoder().decode(raw.slice(o, o + uL)).replace(/\x00/g,'').trim();
+    const withMeta: NFTData = { ...base, name: name || base.name, symbol, metaUri: uri };
+    return await enrichNFT(withMeta);
+  } catch { return base; }
+}
+
 async function enrichNFT(nft: NFTData): Promise<NFTData> {
   const uri = nft.metaUri || nft.logoUri;
   if (!uri) return nft;
@@ -1674,20 +1706,20 @@ const LabWork: FC = () => {
         .sort((a, b) => b.timestamp - a.timestamp)
         .slice(0, 50);
 
-      // Enrich top 15 with NFT metadata
-      const enriched = await Promise.all(allLogs.slice(0, 15).map(async log => {
+      // Enrich top 30 with NFT metadata (fetch from chain)
+      const enriched = await Promise.all(allLogs.slice(0, 30).map(async log => {
         if (!log.nftMint || log.nftData) return log;
         try {
-          const base: NFTData = { mint: log.nftMint, name: log.nftMint.slice(0,8)+'…', symbol:'', balance:1, decimals:0, isToken2022:false };
-          const nftData = await enrichNFT(base);
+          const nftData = await enrichNFTFromMint(connection, log.nftMint);
           return { ...log, nftData };
         } catch { return log; }
       }));
-      setTradeLogs([...enriched, ...allLogs.slice(15)]);
+      setTradeLogs([...enriched, ...allLogs.slice(30)]);
     } catch (e) { console.error('loadActivity error:', e); }
     setLoadingActivity(false);
   }, [connection]);
 
+  useEffect(() => { loadListings(); }, []);
   useEffect(() => { if (pageMode === 'market') loadListings(); }, [pageMode]);
   useEffect(() => { if (marketTab === 'activity') loadActivity(); }, [marketTab]);
 
@@ -2128,10 +2160,17 @@ const LabWork: FC = () => {
                   <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                     {tradeLogs.map((log, i) => (
                       <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.06)', borderRadius:10 }}>
-                        {/* NFT image */}
-                        {log.nftData?.image
-                          ? <img src={log.nftData.image} style={{ width:42, height:42, borderRadius:6, objectFit:'cover', imageRendering:'pixelated', flexShrink:0 }} />
-                          : <div style={{ width:42, height:42, borderRadius:6, background:'rgba(0,212,255,.06)', flexShrink:0 }} />}
+                        {/* NFT image — use NFTImage for proxy/fallback handling */}
+                        <div style={{ width:48, height:48, borderRadius:8, overflow:'hidden', flexShrink:0, background:'rgba(0,0,0,.3)' }}>
+                          {log.nftData?.metaUri || log.nftData?.image
+                            ? <NFTImage
+                                metaUri={log.nftData.metaUri || log.nftData.image}
+                                name={log.nftData?.name ?? ''}
+                                contain={false}
+                              />
+                            : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20 }}>🖼️</div>
+                          }
+                        </div>
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
                             <span style={{ fontFamily:'Orbitron,monospace', fontSize:9, fontWeight:700,
