@@ -19,6 +19,17 @@ export const NFT_SYMBOL          = 'LabWork';
 export const NFT_PRICE_XNT       = 0.88;
 export const MINT_PROGRAM_ID     = 'YOUR_PROGRAM_ID_HERE';
 
+// ── Marketplace ──────────────────────────────
+// Set MARKETPLACE_PROGRAM_ID_STRING to your deployed Anchor program ID.
+// Until it is set, the marketplace UI renders but transactions are disabled.
+export const MARKETPLACE_PROGRAM_ID_STRING = 'YOUR_PROGRAM_ID_HERE';
+// Platform wallet that receives the 4% royalty on every sale.
+// Must exactly match the pubkey hardcoded inside the Rust program.
+export const PLATFORM_WALLET_STRING = 'YOUR_PLATFORM_WALLET_HERE';
+// Fee in basis points (400 = 4%)
+export const FEE_BPS   = 400;
+export const BPS_DENOM = 10_000;
+
 // ── IPFS Gateways ────────────────────────────
 export const IPFS_GATEWAYS = [
   'https://gateway.pinata.cloud/ipfs/',
@@ -51,8 +62,7 @@ export const NAV_LINKS = [
 
 export const APP_ROUTES = [
   { label: 'Portfolio',  path: '/portfolio',  icon: '💼' },
-  { label: 'Lab Work',   path: '/lab-work',   icon: '🔬' },
-  { label: 'Mint',       path: '/mint',       icon: '🪙' },
+  { label: 'Lab Work',   path: '/labwork',    icon: '🔬' },
   { label: 'Cyberdyne',  path: '/cyberdyne',  icon: '⚔️'  },
 ];
 
