@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useCallback } from 'react';
+import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import {
@@ -745,33 +745,201 @@ const NFTCard: FC<{ nft: NFTData; index: number; isMobile: boolean; onClick: () 
 // ─────────────────────────────────────────────────────────────────
 //  COLLECTION SECTION
 // ─────────────────────────────────────────────────────────────────
-const CollectionSection: FC<{ collectionName: string; nfts: NFTData[]; isMobile: boolean; colIndex: number; onSelect: (nft: NFTData) => void }> = ({ collectionName, nfts, isMobile, colIndex, onSelect }) => {
-  const [expanded, setExpanded] = useState(true);
+const CollectionSection: FC<{
+  collectionName: string;
+  nfts:           NFTData[];
+  isMobile:       boolean;
+  colIndex:       number;
+  onSelect:       (nft: NFTData) => void;
+}> = ({ collectionName, nfts, isMobile, colIndex, onSelect }) => {
+  const [expanded, setExpanded]               = useState(true);
+  const [limit, setLimit]                     = useState<5 | 10 | 20 | 'all'>(10);
+  const [traitFilter, setTraitFilter]         = useState<{ type: string; value: string } | null>(null);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+
   const colors = ['#00d4ff','#bf5af2','#00c98d','#ffd700','#ff8c00'];
   const col    = colors[colIndex % colors.length];
   const rgba   = col==='#00d4ff'?'0,212,255':col==='#bf5af2'?'191,90,242':col==='#00c98d'?'0,201,141':col==='#ffd700'?'255,215,0':'255,140,0';
+
+  // When traits load in (nfts prop updates with attributes), clear stale filter
+  const prevNftsLen = React.useRef(0);
+  useEffect(() => {
+    const hasAttrsNow = nfts.some(n => (n.attributes?.length ?? 0) > 0);
+    const hadAttrsBefore = prevNftsLen.current > 0;
+    if (hasAttrsNow && !hadAttrsBefore) {
+      // Traits just arrived — clear any filter that was set before traits loaded
+      setTraitFilter(null);
+    }
+    prevNftsLen.current = nfts.filter(n => (n.attributes?.length ?? 0) > 0).length;
+  }, [nfts]);
+
+  // Build unique traits from THIS collection only
+  const colTraits = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    nfts.forEach(n => {
+      n.attributes?.forEach(a => {
+        if (!a.trait_type || !a.value) return;
+        if (!map.has(a.trait_type)) map.set(a.trait_type, new Set());
+        map.get(a.trait_type)!.add(a.value);
+      });
+    });
+    return map;
+  }, [nfts]);
+
+  // Apply per-collection trait filter
+  const filtered = traitFilter
+    ? nfts.filter(n => n.attributes?.some(
+        a => a.trait_type?.toLowerCase() === traitFilter.type.toLowerCase()
+          && a.value?.toLowerCase()      === traitFilter.value.toLowerCase()
+      ))
+    : nfts;
+
+  const visible = limit === 'all' ? filtered : filtered.slice(0, limit);
+  const hasMore = filtered.length > (limit === 'all' ? 0 : limit);
+  const hasTraits = colTraits.size > 0;
+
   return (
     <div style={{ marginBottom: isMobile ? 28 : 36, animation:`fadeUp 0.5s ease ${colIndex * 0.08}s both` }}>
-      <div onClick={() => setExpanded(v => !v)} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14, cursor:'pointer', userSelect:'none' }}>
+
+      {/* ── Collection header ── */}
+      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10, cursor:'pointer', userSelect:'none' }}
+        onClick={() => setExpanded(v => !v)}>
         <div style={{ width:3, height:28, borderRadius:2, background:col, flexShrink:0, boxShadow:`0 0 10px ${col}66` }} />
         <div style={{ flex:1 }}>
           <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 11 : 13, fontWeight:900, color:'#fff', letterSpacing:1.5, marginBottom:2 }}>{collectionName}</div>
-          <div style={{ fontFamily:'Orbitron,monospace', fontSize:7, color:'#4a6a8a', letterSpacing:1 }}>{nfts.length} NFT{nfts.length!==1?'s':''} · COLLECTION</div>
+          <div style={{ fontFamily:'Orbitron,monospace', fontSize:7, color:'#4a6a8a', letterSpacing:1 }}>
+            {traitFilter ? `${filtered.length} of ${nfts.length}` : nfts.length} NFT{nfts.length!==1?'s':''} · COLLECTION
+          </div>
         </div>
-        <div style={{ background:`rgba(${rgba},.12)`, border:`1px solid ${col}33`, borderRadius:20, padding:'4px 12px',
-          fontFamily:'Orbitron,monospace', fontSize:9, color:col, fontWeight:700 }}>{nfts.length}</div>
+
+        {/* Limit pills */}
+        {expanded && (
+          <div onClick={e => e.stopPropagation()} style={{ display:'flex', gap:4 }}>
+            {([5, 10, 20, 'all'] as const).map(opt => {
+              const active = limit === opt;
+              return (
+                <button key={String(opt)} onClick={() => setLimit(opt)} style={{
+                  padding: isMobile ? '3px 7px' : '4px 9px', borderRadius:6, cursor:'pointer',
+                  fontFamily:'Orbitron,monospace', fontSize: isMobile ? 7 : 8, fontWeight:700, transition:'all .15s',
+                  background: active ? `rgba(${rgba},.2)` : 'rgba(255,255,255,.04)',
+                  border:     active ? `1px solid ${col}55` : '1px solid rgba(255,255,255,.08)',
+                  color:      active ? col : '#4a6a8a',
+                }}>{opt === 'all' ? 'ALL' : String(opt)}</button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Filter toggle button — always visible, disabled until traits load */}
+        {expanded && (
+          <button onClick={e => { e.stopPropagation(); if (hasTraits) setShowFilterPanel(v => !v); }} style={{
+            padding: isMobile ? '4px 8px' : '4px 10px', borderRadius:6, cursor: hasTraits ? 'pointer' : 'default',
+            fontFamily:'Orbitron,monospace', fontSize: isMobile ? 7 : 8, fontWeight:700, transition:'all .15s',
+            background: showFilterPanel || traitFilter ? `rgba(${rgba},.18)` : 'rgba(255,255,255,.04)',
+            border:     showFilterPanel || traitFilter ? `1px solid ${col}66` : '1px solid rgba(255,255,255,.08)',
+            color:      traitFilter ? col : hasTraits ? (showFilterPanel ? col : '#6a8aaa') : '#2a3a4a',
+            opacity:    hasTraits ? 1 : 0.4,
+          }}>
+            {traitFilter ? '⚡ FILTERED' : '⚡ FILTER'}
+          </button>
+        )}
+
+        <div style={{ background:`rgba(${rgba},.12)`, border:`1px solid ${col}33`, borderRadius:20, padding:'4px 10px',
+          fontFamily:'Orbitron,monospace', fontSize:9, color:col, fontWeight:700 }}>{filtered.length}</div>
         <div style={{ fontFamily:'Orbitron,monospace', fontSize:9, color:'#4a6a8a', transition:'transform 0.2s',
           transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)' }}>▾</div>
       </div>
-      <div style={{ height:1, marginBottom:14, background:`linear-gradient(90deg,${col}44,${col}22,transparent)` }} />
-      {expanded && (
-        <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(3,1fr)' : 'repeat(5,1fr)', gap: isMobile ? 7 : 10 }}>
-          {nfts.map((nft, i) => <NFTCard key={nft.mint} nft={nft} index={i} isMobile={isMobile} onClick={() => onSelect(nft)} />)}
+
+      {/* ── Per-collection trait filter panel ── */}
+      {expanded && showFilterPanel && hasTraits && (
+        <div style={{ marginBottom:14, padding:'12px 14px', background:'rgba(255,255,255,.025)',
+          border:`1px solid ${col}22`, borderRadius:10, animation:'fadeUp 0.2s ease both' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+            <span style={{ fontFamily:'Orbitron,monospace', fontSize:8, color:'#4a6a8a', letterSpacing:1.5 }}>FILTER BY TRAIT</span>
+            {traitFilter && (
+              <button onClick={() => setTraitFilter(null)} style={{
+                padding:'2px 10px', borderRadius:20, cursor:'pointer',
+                fontFamily:'Orbitron,monospace', fontSize:7, fontWeight:700, letterSpacing:1,
+                background:'rgba(255,80,80,.1)', border:'1px solid rgba(255,80,80,.3)', color:'#ff6666',
+              }}>✕ CLEAR</button>
+            )}
+          </div>
+          {/* Group by trait_type */}
+          {Array.from(colTraits.entries()).map(([traitType, values]) => (
+            <div key={traitType} style={{ marginBottom:10 }}>
+              <div style={{ fontFamily:'Orbitron,monospace', fontSize:7, color:'#4a6a8a',
+                letterSpacing:1.5, marginBottom:6, textTransform:'uppercase' }}>{traitType}</div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
+                {Array.from(values).sort().map(val => {
+                  const active = traitFilter?.type === traitType && traitFilter?.value === val;
+                  const count  = nfts.filter(n => n.attributes?.some(
+                    a => a.trait_type?.toLowerCase() === traitType.toLowerCase()
+                      && a.value?.toLowerCase()      === val.toLowerCase()
+                  )).length;
+                  return (
+                    <button key={val}
+                      onClick={() => setTraitFilter(active ? null : { type: traitType, value: val })}
+                      style={{
+                        padding: isMobile ? '3px 8px' : '4px 10px', borderRadius:20, cursor:'pointer', transition:'all .15s',
+                        fontFamily:'Sora,sans-serif', fontSize: isMobile ? 9 : 10,
+                        background: active ? `rgba(${rgba},.2)`      : 'rgba(255,255,255,.04)',
+                        border:     active ? `1px solid ${col}`       : 'rgba(255,255,255,.1)' ? '1px solid rgba(255,255,255,.1)' : '',
+                        color:      active ? col                       : '#7a9ab8',
+                      }}>
+                      {val}
+                      <span style={{ marginLeft:5, fontFamily:'Orbitron,monospace', fontSize:7,
+                        color: active ? col : '#3a5a7a', opacity:.8 }}>({count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
+      )}
+
+      <div style={{ height:1, marginBottom:14, background:`linear-gradient(90deg,${col}44,${col}22,transparent)` }} />
+
+      {expanded && filtered.length === 0 && (
+        <div style={{ padding:'20px 0', textAlign:'center', fontFamily:'Orbitron,monospace',
+          fontSize:9, color:'#3a5a7a', letterSpacing:1 }}>NO MATCHES IN THIS COLLECTION</div>
+      )}
+
+      {expanded && filtered.length > 0 && (
+        <>
+          <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(3,1fr)' : 'repeat(5,1fr)', gap: isMobile ? 7 : 10 }}>
+            {visible.map((nft, i) => <NFTCard key={nft.mint} nft={nft} index={i} isMobile={isMobile} onClick={() => onSelect(nft)} />)}
+          </div>
+          {(hasMore || limit !== 10) && (
+            <div style={{ display:'flex', justifyContent:'center', gap:8, marginTop:12 }}>
+              {hasMore && limit !== 'all' && (
+                <button onClick={() => setLimit(limit === 5 ? 10 : limit === 10 ? 20 : 'all')}
+                  style={{ padding:'6px 18px', borderRadius:8, cursor:'pointer',
+                    background:`rgba(${rgba},.08)`, border:`1px solid ${col}33`,
+                    fontFamily:'Orbitron,monospace', fontSize:8, fontWeight:700, color:col }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background=`rgba(${rgba},.18)`; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background=`rgba(${rgba},.08)`; }}>
+                  ▼ SHOW {limit === 5 ? '10' : limit === 10 ? '20' : 'ALL'} ({filtered.length - (limit as number)} more)
+                </button>
+              )}
+              {limit !== 10 && (
+                <button onClick={() => setLimit(10)}
+                  style={{ padding:'6px 18px', borderRadius:8, cursor:'pointer',
+                    background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.08)',
+                    fontFamily:'Orbitron,monospace', fontSize:8, fontWeight:700, color:'#4a6a8a' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background='rgba(255,255,255,.07)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background='rgba(255,255,255,.03)'; }}>
+                  ▲ RESET
+                </button>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
 };
+
 
 // ─────────────────────────────────────────────────────────────────
 //  MARKETPLACE — LISTING CARD
@@ -1329,7 +1497,8 @@ const LabWork: FC = () => {
             )}
             {!loading && nfts.length > 0 && (
               <>
-                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:24, animation:'fadeUp 0.4s ease 0.15s both' }}>
+                {/* ── Search bar ── */}
+                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:20, animation:'fadeUp 0.4s ease 0.15s both' }}>
                   <div style={{ flex:1, position:'relative' }}>
                     <span style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', fontFamily:'Orbitron,monospace', fontSize:10, color:'#3a5a7a', pointerEvents:'none' }}>🔍</span>
                     <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="Search by name, symbol or collection…"
@@ -1344,10 +1513,12 @@ const LabWork: FC = () => {
                     </div>
                   )}
                 </div>
+
                 {filtered.length === 0
                   ? <div style={{ textAlign:'center', padding:'40px 0', fontFamily:'Orbitron,monospace', fontSize:11, color:'#3a5a7a' }}>NO RESULTS FOR "{searchQ}"</div>
                   : Array.from(groups.entries()).map(([colName, colNfts], idx) => (
-                    <CollectionSection key={colName} collectionName={colName} nfts={colNfts} isMobile={isMobile} colIndex={idx} onSelect={handleSelect} />
+                    <CollectionSection key={colName} collectionName={colName} nfts={colNfts}
+                      isMobile={isMobile} colIndex={idx} onSelect={handleSelect} />
                   ))
                 }
               </>
