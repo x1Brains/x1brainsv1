@@ -1,0 +1,649 @@
+{
+  "address": "CKZHwoUZTJEnGNK4piPxyysrhwLKnnrNoBmEHM9rLaD4",
+  "metadata": {
+    "name": "labwork_marketplace",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "LabWork NFT Marketplace — list, buy, cancel with fees"
+  },
+  "instructions": [
+    {
+      "name": "buy_nft",
+      "discriminator": [
+        96,
+        0,
+        28,
+        190,
+        49,
+        107,
+        83,
+        222
+      ],
+      "accounts": [
+        {
+          "name": "buyer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "nft_mint",
+          "docs": [
+            "NFT mint — for PDA seed derivation"
+          ]
+        },
+        {
+          "name": "buyer_token_account",
+          "docs": [
+            "Buyer's token account to receive the NFT"
+          ],
+          "writable": true
+        },
+        {
+          "name": "escrow_token_account",
+          "docs": [
+            "Escrow token account holding the NFT"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "listing.nft_mint",
+                "account": "ListingAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "listing",
+          "docs": [
+            "Listing account — closed on purchase, rent returned to seller"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  115,
+                  116,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "listing.nft_mint",
+                "account": "ListingAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "seller_wallet",
+          "docs": [
+            "Seller wallet to receive proceeds (and listing account rent)"
+          ],
+          "writable": true
+        },
+        {
+          "name": "platform_wallet",
+          "docs": [
+            "Platform fee wallet"
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "delist_nft",
+      "discriminator": [
+        91,
+        249,
+        165,
+        185,
+        22,
+        7,
+        119,
+        176
+      ],
+      "accounts": [
+        {
+          "name": "seller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "nft_mint",
+          "docs": [
+            "NFT mint — needed for PDA seed derivation"
+          ]
+        },
+        {
+          "name": "seller_token_account",
+          "docs": [
+            "Seller's token account to receive the NFT back"
+          ],
+          "writable": true
+        },
+        {
+          "name": "escrow_token_account",
+          "docs": [
+            "Escrow token account holding the NFT"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "listing.nft_mint",
+                "account": "ListingAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "listing",
+          "docs": [
+            "Listing account — closed on delist, rent returned to seller"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  115,
+                  116,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "listing.nft_mint",
+                "account": "ListingAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "platform_wallet",
+          "docs": [
+            "Platform fee wallet receives the cancel fee"
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "list_nft",
+      "discriminator": [
+        88,
+        221,
+        93,
+        166,
+        63,
+        220,
+        106,
+        232
+      ],
+      "accounts": [
+        {
+          "name": "seller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "nft_mint",
+          "docs": [
+            "NFT mint address"
+          ]
+        },
+        {
+          "name": "seller_token_account",
+          "docs": [
+            "Seller's token account holding the NFT (must have balance=1)"
+          ],
+          "writable": true
+        },
+        {
+          "name": "escrow_token_account",
+          "docs": [
+            "PDA token account that holds the NFT in escrow while listed"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "nft_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "listing",
+          "docs": [
+            "Listing state account"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  115,
+                  116,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "nft_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "price",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "update_price",
+      "discriminator": [
+        61,
+        34,
+        117,
+        155,
+        75,
+        34,
+        123,
+        208
+      ],
+      "accounts": [
+        {
+          "name": "seller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "listing",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  115,
+                  116,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "listing.nft_mint",
+                "account": "ListingAccount"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_price",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "ListingAccount",
+      "discriminator": [
+        59,
+        89,
+        136,
+        25,
+        21,
+        196,
+        183,
+        13
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "ListingCancelled",
+      "discriminator": [
+        11,
+        46,
+        163,
+        10,
+        103,
+        80,
+        139,
+        194
+      ]
+    },
+    {
+      "name": "ListingCreated",
+      "discriminator": [
+        94,
+        164,
+        167,
+        255,
+        246,
+        186,
+        12,
+        96
+      ]
+    },
+    {
+      "name": "NFTSold",
+      "discriminator": [
+        131,
+        159,
+        14,
+        234,
+        148,
+        57,
+        117,
+        37
+      ]
+    },
+    {
+      "name": "PriceUpdated",
+      "discriminator": [
+        154,
+        72,
+        87,
+        150,
+        246,
+        230,
+        23,
+        217
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "PriceTooLow",
+      "msg": "Price is below minimum (0.001 XNT)"
+    },
+    {
+      "code": 6001,
+      "name": "NotNFTOwner",
+      "msg": "Caller is not the NFT owner"
+    },
+    {
+      "code": 6002,
+      "name": "Unauthorized",
+      "msg": "Caller is not the listing seller"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidPlatformWallet",
+      "msg": "Invalid platform wallet address"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidSeller",
+      "msg": "Invalid seller account"
+    },
+    {
+      "code": 6005,
+      "name": "InsufficientFunds",
+      "msg": "Insufficient funds to purchase NFT"
+    },
+    {
+      "code": 6006,
+      "name": "InsufficientFundsForCancelFee",
+      "msg": "Insufficient funds to pay cancel fee"
+    },
+    {
+      "code": 6007,
+      "name": "MathOverflow",
+      "msg": "Math overflow in fee calculation"
+    }
+  ],
+  "types": [
+    {
+      "name": "ListingAccount",
+      "docs": [
+        "On-chain record for a single NFT listing"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "nft_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "escrow_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ListingCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "listing",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "nft_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "cancel_fee",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ListingCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "listing",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "nft_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NFTSold",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "listing",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "nft_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "platform_fee",
+            "type": "u64"
+          },
+          {
+            "name": "seller_proceeds",
+            "type": "u64"
+          },
+          {
+            "name": "sold_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PriceUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "listing",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "nft_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_price",
+            "type": "u64"
+          },
+          {
+            "name": "new_price",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}
