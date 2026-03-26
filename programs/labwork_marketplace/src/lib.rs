@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
-declare_id!("EQKNXSBE6vUbtPBY1ibXPyWmLzrtXBZqUs9Fjqo19TkX"); // Replace after: `anchor build && solana address -k target/deploy/labwork_marketplace-keypair.json`
+declare_id!("EQKNXSBE6vUbtPBY1ibXPyWmLzrtXBZqUs9Fjqo19TkX");
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  CONSTANTS
@@ -310,7 +310,7 @@ pub struct ListNft<'info> {
 
     /// PDA token account that holds the NFT in escrow while listed
     #[account(
-        init,
+        init_if_needed,
         payer = seller,
         token::mint      = nft_mint,
         token::authority = escrow_token_account, // self-custodied PDA
@@ -321,7 +321,7 @@ pub struct ListNft<'info> {
 
     /// Listing state account
     #[account(
-        init,
+        init_if_needed,
         payer = seller,
         space = ListingAccount::LEN,
         seeds = [b"listing", nft_mint.key().as_ref()],
