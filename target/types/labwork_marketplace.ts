@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/labwork_marketplace.json`.
  */
 export type LabworkMarketplace = {
-  "address": "EQKNXSBE6vUbtPBY1ibXPyWmLzrtXBZqUs9Fjqo19TkX",
+  "address": "CKZHwoUZTJEnGNK4piPxyysrhwLKnnrNoBmEHM9rLaD4",
   "metadata": {
     "name": "labworkMarketplace",
     "version": "0.1.0",
