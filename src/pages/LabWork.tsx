@@ -484,10 +484,21 @@ async function fetchAllListings(connection: any): Promise<Listing[]> {
     // SaleAccount::LEN = 8 (disc) + 32 + 32 + 8 + 1 + 1 + 8 = 90 bytes
     // Account discriminator = sha256("account:SaleAccount")[0..8]
     const disc     = await discriminatorAsync('SaleAccount', true);
+    // memcmp bytes must be base58 encoded
+    const discBytes = Array.from(disc);
+    const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    function toBase58(bytes: number[]): string {
+      let num = BigInt('0x' + bytes.map(b => b.toString(16).padStart(2,'0')).join(''));
+      let result = '';
+      while (num > 0n) { const mod = num % 58n; result = BASE58_ALPHABET[Number(mod)] + result; num = num / 58n; }
+      for (const b of bytes) { if (b === 0) result = '1' + result; else break; }
+      return result;
+    }
+    const discB58 = toBase58(discBytes);
     const accounts = await connection.getProgramAccounts(getMarketplaceProgramId(), {
       filters: [
         { dataSize: 90 },
-        { memcmp: { offset: 0, bytes: disc.toString('base64') } },
+        { memcmp: { offset: 0, bytes: discB58 } },
       ],
     });
     return (accounts as any[]).map(({ pubkey, account }: any) => {
