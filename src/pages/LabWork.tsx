@@ -278,28 +278,21 @@ const calcCancelFee   = (p: number)     => Math.floor(p * CANCEL_FEE_NUMERATOR /
 const calcSellerCut   = (p: number)     => p - calcFee(p);
 const xntToLamports   = (x: string)     => Math.round(parseFloat(x) * LAMPORTS_PER_SOL);
 
-// Send a transaction bypassing wallet simulation (fixes Backpack "Plugin Closed").
-// Uses signTransaction + sendRawTransaction when available, falls back to sendTransaction.
+// Send a transaction to the chain.
+// We use sendTransaction (not signTransaction+sendRaw) because Backpack
+// handles sendTransaction correctly for unrecognized programs —
+// signTransaction triggers stricter client-side validation that rejects unknown instructions.
 async function sendTx(
   tx: Transaction,
   connection: any,
   sendTransaction: any,
-  signTransaction?: ((tx: Transaction) => Promise<Transaction>) | null,
+  _signTransaction?: ((tx: Transaction) => Promise<Transaction>) | null,
 ): Promise<string> {
-  if (signTransaction) {
-    try {
-      const signed = await signTransaction(tx);
-      const sig    = await connection.sendRawTransaction(signed.serialize(), {
-        skipPreflight:       true,
-        preflightCommitment: 'confirmed',
-        maxRetries:          5,
-      });
-      return sig;
-    } catch (e: any) {
-      if (e?.message?.includes('User rejected') || e?.message?.includes('Plugin Closed')) throw e;
-    }
-  }
-  return sendTransaction(tx, connection, { skipPreflight: true, maxRetries: 5 });
+  return sendTransaction(tx, connection, {
+    skipPreflight:       true,
+    preflightCommitment: 'confirmed',
+    maxRetries:          5,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────
