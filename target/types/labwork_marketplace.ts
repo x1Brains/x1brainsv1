@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/labwork_marketplace.json`.
  */
 export type LabworkMarketplace = {
-  "address": "EQKNXSBE6vUbtPBY1ibXPyWmLzrtXBZqUs9Fjqo19TkX",
+  "address": "CKZHwoUZTJEnGNK4piPxyysrhwLKnnrNoBmEHM9rLaD4",
   "metadata": {
     "name": "labworkMarketplace",
     "version": "0.1.0",
@@ -15,6 +15,9 @@ export type LabworkMarketplace = {
   "instructions": [
     {
       "name": "buyNft",
+      "docs": [
+        "Buy an NFT — buyer pays price, seller gets proceeds, platform gets fee."
+      ],
       "discriminator": [
         96,
         0,
@@ -114,6 +117,9 @@ export type LabworkMarketplace = {
     },
     {
       "name": "cancelListing",
+      "docs": [
+        "Cancel a listing — return NFT to seller, charge 0.888% cancel fee."
+      ],
       "discriminator": [
         41,
         183,
@@ -207,6 +213,10 @@ export type LabworkMarketplace = {
     },
     {
       "name": "listNft",
+      "docs": [
+        "List an NFT for sale.",
+        "Transfers NFT from seller ATA → vault PDA token account."
+      ],
       "discriminator": [
         88,
         221,
@@ -232,6 +242,9 @@ export type LabworkMarketplace = {
         },
         {
           "name": "vaultNftAccount",
+          "docs": [
+            "Vault: self-custodied PDA token account (authority = itself)"
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -303,6 +316,9 @@ export type LabworkMarketplace = {
     },
     {
       "name": "updatePrice",
+      "docs": [
+        "Update listing price — free."
+      ],
       "discriminator": [
         61,
         34,
@@ -373,12 +389,12 @@ export type LabworkMarketplace = {
     {
       "code": 6000,
       "name": "priceTooLow",
-      "msg": "Price is below minimum (0.001 XNT)"
+      "msg": "Price below minimum"
     },
     {
       "code": 6001,
       "name": "notNftOwner",
-      "msg": "Caller is not the NFT owner"
+      "msg": "Not the NFT owner"
     },
     {
       "code": 6002,
@@ -388,12 +404,12 @@ export type LabworkMarketplace = {
     {
       "code": 6003,
       "name": "unauthorized",
-      "msg": "Caller is not the listing seller"
+      "msg": "Not the listing seller"
     },
     {
       "code": 6004,
       "name": "invalidPlatformWallet",
-      "msg": "Invalid platform wallet address"
+      "msg": "Invalid platform wallet"
     },
     {
       "code": 6005,
@@ -403,12 +419,12 @@ export type LabworkMarketplace = {
     {
       "code": 6006,
       "name": "insufficientFunds",
-      "msg": "Insufficient funds to purchase NFT"
+      "msg": "Insufficient funds"
     },
     {
       "code": 6007,
       "name": "insufficientFundsForCancelFee",
-      "msg": "Insufficient funds to pay cancel fee"
+      "msg": "Insufficient funds for fee"
     },
     {
       "code": 6008,

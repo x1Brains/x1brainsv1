@@ -9,6 +9,9 @@
   "instructions": [
     {
       "name": "buy_nft",
+      "docs": [
+        "Buy an NFT — buyer pays price, seller gets proceeds, platform gets fee."
+      ],
       "discriminator": [
         96,
         0,
@@ -108,6 +111,9 @@
     },
     {
       "name": "cancel_listing",
+      "docs": [
+        "Cancel a listing — return NFT to seller, charge 0.888% cancel fee."
+      ],
       "discriminator": [
         41,
         183,
@@ -201,6 +207,10 @@
     },
     {
       "name": "list_nft",
+      "docs": [
+        "List an NFT for sale.",
+        "Transfers NFT from seller ATA → vault PDA token account."
+      ],
       "discriminator": [
         88,
         221,
@@ -226,6 +236,9 @@
         },
         {
           "name": "vault_nft_account",
+          "docs": [
+            "Vault: self-custodied PDA token account (authority = itself)"
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -297,6 +310,9 @@
     },
     {
       "name": "update_price",
+      "docs": [
+        "Update listing price — free."
+      ],
       "discriminator": [
         61,
         34,
@@ -367,12 +383,12 @@
     {
       "code": 6000,
       "name": "PriceTooLow",
-      "msg": "Price is below minimum (0.001 XNT)"
+      "msg": "Price below minimum"
     },
     {
       "code": 6001,
       "name": "NotNFTOwner",
-      "msg": "Caller is not the NFT owner"
+      "msg": "Not the NFT owner"
     },
     {
       "code": 6002,
@@ -382,12 +398,12 @@
     {
       "code": 6003,
       "name": "Unauthorized",
-      "msg": "Caller is not the listing seller"
+      "msg": "Not the listing seller"
     },
     {
       "code": 6004,
       "name": "InvalidPlatformWallet",
-      "msg": "Invalid platform wallet address"
+      "msg": "Invalid platform wallet"
     },
     {
       "code": 6005,
@@ -397,12 +413,12 @@
     {
       "code": 6006,
       "name": "InsufficientFunds",
-      "msg": "Insufficient funds to purchase NFT"
+      "msg": "Insufficient funds"
     },
     {
       "code": 6007,
       "name": "InsufficientFundsForCancelFee",
-      "msg": "Insufficient funds to pay cancel fee"
+      "msg": "Insufficient funds for fee"
     },
     {
       "code": 6008,
