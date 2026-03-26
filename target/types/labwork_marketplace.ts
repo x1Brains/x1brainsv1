@@ -32,120 +32,78 @@ export type LabworkMarketplace = {
           "signer": true
         },
         {
-          "name": "nftMint",
-          "docs": [
-            "NFT mint — for PDA seed derivation"
-          ]
+          "name": "nftMint"
         },
         {
-          "name": "buyerTokenAccount",
-          "docs": [
-            "Buyer's token account to receive the NFT"
-          ],
+          "name": "buyerNftAccount",
           "writable": true
         },
         {
-          "name": "escrowTokenAccount",
-          "docs": [
-            "Escrow token account holding the NFT"
-          ],
+          "name": "vaultNftAccount",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "listing.nft_mint",
-                "account": "listingAccount"
-              }
-            ]
-          }
-        },
-        {
-          "name": "escrowAuthority",
-          "docs": [
-            "Authority PDA for the escrow"
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119,
-                  95,
+                  118,
                   97,
                   117,
-                  116,
-                  104
+                  108,
+                  116
                 ]
               },
               {
                 "kind": "account",
-                "path": "listing.nft_mint",
-                "account": "listingAccount"
+                "path": "sale.nft_mint",
+                "account": "saleAccount"
+              },
+              {
+                "kind": "account",
+                "path": "sale.seller",
+                "account": "saleAccount"
               }
             ]
           }
         },
         {
-          "name": "listing",
-          "docs": [
-            "Listing account — closed on purchase, rent returned to seller"
-          ],
+          "name": "sale",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  108,
-                  105,
                   115,
-                  116,
-                  105,
-                  110,
-                  103
+                  97,
+                  108,
+                  101
                 ]
               },
               {
                 "kind": "account",
-                "path": "listing.nft_mint",
-                "account": "listingAccount"
+                "path": "sale.nft_mint",
+                "account": "saleAccount"
+              },
+              {
+                "kind": "account",
+                "path": "sale.seller",
+                "account": "saleAccount"
               }
             ]
           }
         },
         {
           "name": "sellerWallet",
-          "docs": [
-            "Seller wallet to receive proceeds (and listing account rent)"
-          ],
           "writable": true
         },
         {
           "name": "platformWallet",
-          "docs": [
-            "Platform fee wallet"
-          ],
           "writable": true
         },
         {
-          "name": "tokenProgram"
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
           "name": "systemProgram",
@@ -155,16 +113,16 @@ export type LabworkMarketplace = {
       "args": []
     },
     {
-      "name": "delistNft",
+      "name": "cancelListing",
       "discriminator": [
-        91,
-        249,
-        165,
-        185,
-        22,
-        7,
-        119,
-        176
+        41,
+        183,
+        50,
+        232,
+        230,
+        233,
+        157,
+        70
       ],
       "accounts": [
         {
@@ -173,113 +131,72 @@ export type LabworkMarketplace = {
           "signer": true
         },
         {
-          "name": "nftMint",
-          "docs": [
-            "NFT mint — needed for PDA seed derivation"
-          ]
+          "name": "nftMint"
         },
         {
-          "name": "sellerTokenAccount",
-          "docs": [
-            "Seller's token account to receive the NFT back"
-          ],
+          "name": "sellerNftAccount",
           "writable": true
         },
         {
-          "name": "escrowTokenAccount",
-          "docs": [
-            "Escrow token account holding the NFT"
-          ],
+          "name": "vaultNftAccount",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "listing.nft_mint",
-                "account": "listingAccount"
-              }
-            ]
-          }
-        },
-        {
-          "name": "escrowAuthority",
-          "docs": [
-            "Authority PDA for the escrow"
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119,
-                  95,
+                  118,
                   97,
                   117,
-                  116,
-                  104
+                  108,
+                  116
                 ]
               },
               {
                 "kind": "account",
-                "path": "listing.nft_mint",
-                "account": "listingAccount"
+                "path": "sale.nft_mint",
+                "account": "saleAccount"
+              },
+              {
+                "kind": "account",
+                "path": "seller"
               }
             ]
           }
         },
         {
-          "name": "listing",
-          "docs": [
-            "Listing account — closed on delist, rent returned to seller"
-          ],
+          "name": "sale",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  108,
-                  105,
                   115,
-                  116,
-                  105,
-                  110,
-                  103
+                  97,
+                  108,
+                  101
                 ]
               },
               {
                 "kind": "account",
-                "path": "listing.nft_mint",
-                "account": "listingAccount"
+                "path": "sale.nft_mint",
+                "account": "saleAccount"
+              },
+              {
+                "kind": "account",
+                "path": "seller"
               }
             ]
           }
         },
         {
           "name": "platformWallet",
-          "docs": [
-            "Platform fee wallet receives the cancel fee"
-          ],
           "writable": true
         },
         {
-          "name": "tokenProgram"
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
           "name": "systemProgram",
@@ -307,103 +224,66 @@ export type LabworkMarketplace = {
           "signer": true
         },
         {
-          "name": "nftMint",
-          "docs": [
-            "NFT mint address"
-          ]
+          "name": "nftMint"
         },
         {
-          "name": "sellerTokenAccount",
-          "docs": [
-            "Seller's token account holding the NFT (must have balance=1)"
-          ],
+          "name": "sellerNftAccount",
           "writable": true
         },
         {
-          "name": "escrowTokenAccount",
-          "docs": [
-            "PDA token account that holds the NFT in escrow while listed"
-          ],
+          "name": "vaultNftAccount",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "nftMint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "escrowAuthority",
-          "docs": [
-            "Authority PDA for the escrow token account"
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119,
-                  95,
+                  118,
                   97,
                   117,
-                  116,
-                  104
+                  108,
+                  116
                 ]
               },
               {
                 "kind": "account",
                 "path": "nftMint"
+              },
+              {
+                "kind": "account",
+                "path": "seller"
               }
             ]
           }
         },
         {
-          "name": "listing",
-          "docs": [
-            "Listing state account"
-          ],
+          "name": "sale",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  108,
-                  105,
                   115,
-                  116,
-                  105,
-                  110,
-                  103
+                  97,
+                  108,
+                  101
                 ]
               },
               {
                 "kind": "account",
                 "path": "nftMint"
+              },
+              {
+                "kind": "account",
+                "path": "seller"
               }
             ]
           }
         },
         {
-          "name": "tokenProgram"
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
           "name": "systemProgram",
@@ -440,26 +320,27 @@ export type LabworkMarketplace = {
           "signer": true
         },
         {
-          "name": "listing",
+          "name": "sale",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  108,
-                  105,
                   115,
-                  116,
-                  105,
-                  110,
-                  103
+                  97,
+                  108,
+                  101
                 ]
               },
               {
                 "kind": "account",
-                "path": "listing.nft_mint",
-                "account": "listingAccount"
+                "path": "sale.nft_mint",
+                "account": "saleAccount"
+              },
+              {
+                "kind": "account",
+                "path": "seller"
               }
             ]
           }
@@ -475,70 +356,16 @@ export type LabworkMarketplace = {
   ],
   "accounts": [
     {
-      "name": "listingAccount",
+      "name": "saleAccount",
       "discriminator": [
-        59,
-        89,
-        136,
-        25,
-        21,
-        196,
-        183,
-        13
-      ]
-    }
-  ],
-  "events": [
-    {
-      "name": "listingCancelled",
-      "discriminator": [
-        11,
-        46,
-        163,
-        10,
-        103,
-        80,
-        139,
-        194
-      ]
-    },
-    {
-      "name": "listingCreated",
-      "discriminator": [
-        94,
-        164,
-        167,
-        255,
-        246,
-        186,
-        12,
-        96
-      ]
-    },
-    {
-      "name": "nftSold",
-      "discriminator": [
-        131,
-        159,
-        14,
-        234,
-        148,
-        57,
-        117,
-        37
-      ]
-    },
-    {
-      "name": "priceUpdated",
-      "discriminator": [
-        154,
-        72,
+        213,
+        18,
         87,
-        150,
-        246,
+        228,
+        218,
         230,
-        23,
-        217
+        207,
+        182
       ]
     }
   ],
@@ -555,41 +382,43 @@ export type LabworkMarketplace = {
     },
     {
       "code": 6002,
+      "name": "invalidMint",
+      "msg": "Invalid NFT mint"
+    },
+    {
+      "code": 6003,
       "name": "unauthorized",
       "msg": "Caller is not the listing seller"
     },
     {
-      "code": 6003,
+      "code": 6004,
       "name": "invalidPlatformWallet",
       "msg": "Invalid platform wallet address"
     },
     {
-      "code": 6004,
+      "code": 6005,
       "name": "invalidSeller",
       "msg": "Invalid seller account"
     },
     {
-      "code": 6005,
+      "code": 6006,
       "name": "insufficientFunds",
       "msg": "Insufficient funds to purchase NFT"
     },
     {
-      "code": 6006,
+      "code": 6007,
       "name": "insufficientFundsForCancelFee",
       "msg": "Insufficient funds to pay cancel fee"
     },
     {
-      "code": 6007,
+      "code": 6008,
       "name": "mathOverflow",
-      "msg": "Math overflow in fee calculation"
+      "msg": "Math overflow"
     }
   ],
   "types": [
     {
-      "name": "listingAccount",
-      "docs": [
-        "On-chain record for a single NFT listing"
-      ],
+      "name": "saleAccount",
       "type": {
         "kind": "struct",
         "fields": [
@@ -604,142 +433,18 @@ export type LabworkMarketplace = {
           {
             "name": "price",
             "type": "u64"
-          },
-          {
-            "name": "createdAt",
-            "type": "i64"
           },
           {
             "name": "bump",
             "type": "u8"
           },
           {
-            "name": "escrowBump",
+            "name": "vaultBump",
             "type": "u8"
-          },
-          {
-            "name": "escrowAuthBump",
-            "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "listingCancelled",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "listing",
-            "type": "pubkey"
-          },
-          {
-            "name": "seller",
-            "type": "pubkey"
-          },
-          {
-            "name": "nftMint",
-            "type": "pubkey"
-          },
-          {
-            "name": "cancelFee",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "listingCreated",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "listing",
-            "type": "pubkey"
-          },
-          {
-            "name": "seller",
-            "type": "pubkey"
-          },
-          {
-            "name": "nftMint",
-            "type": "pubkey"
-          },
-          {
-            "name": "price",
-            "type": "u64"
           },
           {
             "name": "createdAt",
             "type": "i64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "nftSold",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "listing",
-            "type": "pubkey"
-          },
-          {
-            "name": "seller",
-            "type": "pubkey"
-          },
-          {
-            "name": "buyer",
-            "type": "pubkey"
-          },
-          {
-            "name": "nftMint",
-            "type": "pubkey"
-          },
-          {
-            "name": "price",
-            "type": "u64"
-          },
-          {
-            "name": "platformFee",
-            "type": "u64"
-          },
-          {
-            "name": "sellerProceeds",
-            "type": "u64"
-          },
-          {
-            "name": "soldAt",
-            "type": "i64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "priceUpdated",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "listing",
-            "type": "pubkey"
-          },
-          {
-            "name": "seller",
-            "type": "pubkey"
-          },
-          {
-            "name": "nftMint",
-            "type": "pubkey"
-          },
-          {
-            "name": "oldPrice",
-            "type": "u64"
-          },
-          {
-            "name": "newPrice",
-            "type": "u64"
           }
         ]
       }

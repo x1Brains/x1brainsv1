@@ -315,23 +315,25 @@ async function sendTx(
 //    listing → [b"listing", mint, seller]
 //    escrow  → [b"escrow",  mint, seller]
 // ─────────────────────────────────────────────────────────────────
-function getListingPda(mint: PublicKey): [PublicKey, number] {
+// New v2 seeds — vault and sale both include seller for uniqueness
+function getSalePda(mint: PublicKey, seller: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from('listing'), mint.toBuffer()],
+    [Buffer.from('sale'), mint.toBuffer(), seller.toBuffer()],
     getMarketplaceProgramId()
   );
 }
-function getEscrowPda(mint: PublicKey): [PublicKey, number] {
+function getVaultPda(mint: PublicKey, seller: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from('escrow'), mint.toBuffer()],
+    [Buffer.from('vault'), mint.toBuffer(), seller.toBuffer()],
     getMarketplaceProgramId()
   );
 }
-function getEscrowAuthPda(mint: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from('escrow_auth'), mint.toBuffer()],
-    getMarketplaceProgramId()
-  );
+// Keep old names as aliases for fetchAllListings compat
+function getListingPda(mint: PublicKey, seller?: PublicKey): [PublicKey, number] {
+  return getSalePda(mint, seller ?? PublicKey.default);
+}
+function getEscrowPda(mint: PublicKey, seller?: PublicKey): [PublicKey, number] {
+  return getVaultPda(mint, seller ?? PublicKey.default);
 }
 
 
@@ -353,8 +355,8 @@ async function discriminatorAsync(name: string): Promise<Buffer> {
   await Promise.all([
     discriminatorAsync('list_nft'),
     discriminatorAsync('buy_nft'),
-    discriminatorAsync('delist_nft'),
-    discriminatorAsync('listing'),
+    discriminatorAsync('cancel_listing'),
+    discriminatorAsync('sale'),
   ]);
 })();
 // ─────────────────────────────────────────────────────────────────
@@ -479,22 +481,25 @@ function groupByCollection(nfts: NFTData[]): Map<string, NFTData[]> {
 // ─────────────────────────────────────────────────────────────────
 async function fetchAllListings(connection: any): Promise<Listing[]> {
   try {
-    const disc     = await discriminatorAsync('listing');
+    // SaleAccount::LEN = 8 (disc) + 32 + 32 + 8 + 1 + 1 + 8 = 90 bytes
+    const disc     = await discriminatorAsync('sale');
     const accounts = await connection.getProgramAccounts(getMarketplaceProgramId(), {
       filters: [
-        { dataSize: 83 },
+        { dataSize: 90 },
         { memcmp: { offset: 0, bytes: disc.toString('base64') } },
       ],
     });
     return (accounts as any[]).map(({ pubkey, account }: any) => {
       const d       = account.data as Buffer;
-      const seller  = new PublicKey(d.slice(8, 40)).toBase58();
+      const seller  = new PublicKey(d.slice(8,  40)).toBase58();
       const nftMint = new PublicKey(d.slice(40, 72)).toBase58();
       const price   = Number(d.readBigUInt64LE(72));
-      const active  = d[80] === 1;
-      const [escrowPda] = getEscrowPda(new PublicKey(nftMint));
-      return { listingPda: pubkey.toBase58(), escrowPda: escrowPda.toBase58(), seller, nftMint, price, active };
-    }).filter((l: Listing) => l.active);
+      // bump=80, vault_bump=81, created_at=82-89 — no active flag, all accounts are active
+      const sellerPk  = new PublicKey(seller);
+      const mintPk    = new PublicKey(nftMint);
+      const [vaultPda] = getVaultPda(mintPk, sellerPk);
+      return { listingPda: pubkey.toBase58(), escrowPda: vaultPda.toBase58(), seller, nftMint, price, active: true };
+    });
   } catch { return []; }
 }
 
@@ -1159,53 +1164,40 @@ const SellPanel: FC<{
     if (isNaN(lamports) || lamports <= 0) { setStatus('❌ Enter a valid price'); return; }
     setPending(true); setStatus('Preparing transaction…');
     try {
-      const nftMint      = new PublicKey(selected.mint);
-      const [listingPda] = getListingPda(nftMint);
-      const [escrowPda]  = getEscrowPda(nftMint);
-      const [escrowAuth] = getEscrowAuthPda(nftMint);
+      const nftMint    = new PublicKey(selected.mint);
+      const [salePda]  = getSalePda(nftMint, publicKey);
+      const [vaultPda] = getVaultPda(nftMint, publicKey);
+      const sellerAta  = getAssociatedTokenAddressSync(nftMint, publicKey);
 
-      // Detect actual token program from mint account owner on-chain
-      // (isToken2022 flag may be wrong - ground truth is the mint's owner)
-      const mintInfo = await connection.getAccountInfo(nftMint);
-      const tokenProgram = mintInfo?.owner?.equals(TOKEN_2022_PROGRAM_ID)
-        ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
-      const sellerAta    = getAssociatedTokenAddressSync(nftMint, publicKey, false, tokenProgram);
-
-      // Precompute EVERYTHING before triggering wallet — avoids Plugin Closed timeout
       const disc      = await discriminatorAsync('list_nft');
       const priceData = Buffer.alloc(8);
       priceData.writeBigUInt64LE(BigInt(lamports));
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
 
+      console.log('list_nft v2:', {
+        mint: nftMint.toBase58(),
+        sellerAta: sellerAta.toBase58(),
+        vaultPda: vaultPda.toBase58(),
+        salePda: salePda.toBase58(),
+      });
+
       const ix = {
         programId: getMarketplaceProgramId(),
         keys: [
-          { pubkey: publicKey,               isSigner:true,  isWritable:true  }, // seller
-          { pubkey: nftMint,                 isSigner:false, isWritable:false }, // nft_mint
-          { pubkey: sellerAta,               isSigner:false, isWritable:true  }, // seller_token_account
-          { pubkey: escrowPda,               isSigner:false, isWritable:true  }, // escrow_token_account
-          { pubkey: escrowAuth,              isSigner:false, isWritable:false }, // escrow_authority
-          { pubkey: listingPda,              isSigner:false, isWritable:true  }, // listing
-          { pubkey: tokenProgram,            isSigner:false, isWritable:false }, // token_program
-          { pubkey: SystemProgram.programId, isSigner:false, isWritable:false }, // system_program
-          { pubkey: SYSVAR_RENT_PUBKEY,      isSigner:false, isWritable:false }, // rent
+          { pubkey: publicKey,               isSigner:true,  isWritable:true  }, // 0 seller
+          { pubkey: nftMint,                 isSigner:false, isWritable:false }, // 1 nft_mint
+          { pubkey: sellerAta,               isSigner:false, isWritable:true  }, // 2 seller_nft_account
+          { pubkey: vaultPda,                isSigner:false, isWritable:true  }, // 3 vault_nft_account
+          { pubkey: salePda,                 isSigner:false, isWritable:true  }, // 4 sale
+          { pubkey: TOKEN_PROGRAM_ID,        isSigner:false, isWritable:false }, // 5 token_program
+          { pubkey: SystemProgram.programId, isSigner:false, isWritable:false }, // 6 system_program
+          { pubkey: SYSVAR_RENT_PUBKEY,      isSigner:false, isWritable:false }, // 7 rent
         ],
         data: Buffer.concat([disc, priceData]),
       };
       const tx = new Transaction().add(ix as any);
       tx.recentBlockhash = blockhash;
       tx.feePayer = publicKey;
-
-      // Debug — log everything so we can verify on-chain
-      console.log('list_nft debug:', {
-        mint: nftMint.toBase58(),
-        tokenProgram: tokenProgram.toBase58(),
-        sellerAta: sellerAta.toBase58(),
-        escrowPda: escrowPda.toBase58(),
-        escrowAuth: escrowAuth.toBase58(),
-        listingPda: listingPda.toBase58(),
-        isT22: mintInfo?.owner?.equals(TOKEN_2022_PROGRAM_ID),
-      });
 
       // Now open wallet — everything is ready
       setStatus('Awaiting wallet approval…');
@@ -1398,18 +1390,12 @@ const LabWork: FC = () => {
     const { listing } = confirmTarget;
     setTxPending(true); setTxStatus('Preparing…');
     try {
-      const nftMint      = new PublicKey(listing.nftMint);
-      const sellerPk     = new PublicKey(listing.seller);
-      const [listingPda] = getListingPda(nftMint);
-      const [escrowPda]  = getEscrowPda(nftMint);
-      const [escrowAuth] = getEscrowAuthPda(nftMint);
+      const nftMint    = new PublicKey(listing.nftMint);
+      const sellerPk   = new PublicKey(listing.seller);
+      const [salePda]  = getSalePda(nftMint, sellerPk);
+      const [vaultPda] = getVaultPda(nftMint, sellerPk);
+      const buyerAta   = getAssociatedTokenAddressSync(nftMint, publicKey);
 
-      // Detect token program from mint owner
-      const mintInfo = await connection.getAccountInfo(nftMint);
-      const tokenProgram = mintInfo?.owner?.equals(TOKEN_2022_PROGRAM_ID)
-        ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
-      const buyerAta     = getAssociatedTokenAddressSync(nftMint, publicKey, false, tokenProgram);
-      // Precompute everything before wallet prompt
       const disc = await discriminatorAsync('buy_nft');
       const preIxs: any[] = [];
       if (!(await connection.getAccountInfo(buyerAta)))
@@ -1418,16 +1404,15 @@ const LabWork: FC = () => {
       const ix = {
         programId: getMarketplaceProgramId(),
         keys: [
-          { pubkey: publicKey,               isSigner:true,  isWritable:true  }, // buyer
-          { pubkey: nftMint,                 isSigner:false, isWritable:false }, // nft_mint
-          { pubkey: buyerAta,                isSigner:false, isWritable:true  }, // buyer_token_account
-          { pubkey: escrowPda,               isSigner:false, isWritable:true  }, // escrow_token_account
-          { pubkey: escrowAuth,              isSigner:false, isWritable:false }, // escrow_authority
-          { pubkey: listingPda,              isSigner:false, isWritable:true  }, // listing
-          { pubkey: sellerPk,                isSigner:false, isWritable:true  }, // seller_wallet
-          { pubkey: PLATFORM_WALLET!,        isSigner:false, isWritable:true  }, // platform_wallet
-          { pubkey: tokenProgram,            isSigner:false, isWritable:false }, // token_program
-          { pubkey: SystemProgram.programId, isSigner:false, isWritable:false }, // system_program
+          { pubkey: publicKey,               isSigner:true,  isWritable:true  }, // 0 buyer
+          { pubkey: nftMint,                 isSigner:false, isWritable:false }, // 1 nft_mint
+          { pubkey: buyerAta,                isSigner:false, isWritable:true  }, // 2 buyer_nft_account
+          { pubkey: vaultPda,                isSigner:false, isWritable:true  }, // 3 vault_nft_account
+          { pubkey: salePda,                 isSigner:false, isWritable:true  }, // 4 sale
+          { pubkey: sellerPk,                isSigner:false, isWritable:true  }, // 5 seller_wallet
+          { pubkey: PLATFORM_WALLET!,        isSigner:false, isWritable:true  }, // 6 platform_wallet
+          { pubkey: TOKEN_PROGRAM_ID,        isSigner:false, isWritable:false }, // 7 token_program
+          { pubkey: SystemProgram.programId, isSigner:false, isWritable:false }, // 8 system_program
         ],
         data: disc,
       };
@@ -1460,31 +1445,24 @@ const LabWork: FC = () => {
     const { listing } = confirmTarget;
     setTxPending(true); setTxStatus('Preparing…');
     try {
-      const nftMint      = new PublicKey(listing.nftMint);
-      const [listingPda] = getListingPda(nftMint);
-      const [escrowPda]  = getEscrowPda(nftMint);
-      const [escrowAuth] = getEscrowAuthPda(nftMint);
+      const nftMint    = new PublicKey(listing.nftMint);
+      const [salePda]  = getSalePda(nftMint, publicKey);
+      const [vaultPda] = getVaultPda(nftMint, publicKey);
+      const sellerAta  = getAssociatedTokenAddressSync(nftMint, publicKey);
 
-      // Detect token program from mint owner
-      const mintInfo = await connection.getAccountInfo(nftMint);
-      const tokenProgram = mintInfo?.owner?.equals(TOKEN_2022_PROGRAM_ID)
-        ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
-      const sellerAta    = getAssociatedTokenAddressSync(nftMint, publicKey, false, tokenProgram);
-      // Precompute everything before wallet prompt
-      const disc = await discriminatorAsync('delist_nft');
+      const disc = await discriminatorAsync('cancel_listing');
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
       const ix = {
         programId: getMarketplaceProgramId(),
         keys: [
-          { pubkey: publicKey,               isSigner:true,  isWritable:true  }, // seller
-          { pubkey: nftMint,                 isSigner:false, isWritable:false }, // nft_mint
-          { pubkey: sellerAta,               isSigner:false, isWritable:true  }, // seller_token_account
-          { pubkey: escrowPda,               isSigner:false, isWritable:true  }, // escrow_token_account
-          { pubkey: escrowAuth,              isSigner:false, isWritable:false }, // escrow_authority
-          { pubkey: listingPda,              isSigner:false, isWritable:true  }, // listing
-          { pubkey: PLATFORM_WALLET!,        isSigner:false, isWritable:true  }, // platform_wallet
-          { pubkey: tokenProgram,            isSigner:false, isWritable:false }, // token_program
-          { pubkey: SystemProgram.programId, isSigner:false, isWritable:false }, // system_program
+          { pubkey: publicKey,               isSigner:true,  isWritable:true  }, // 0 seller
+          { pubkey: nftMint,                 isSigner:false, isWritable:false }, // 1 nft_mint
+          { pubkey: sellerAta,               isSigner:false, isWritable:true  }, // 2 seller_nft_account
+          { pubkey: vaultPda,                isSigner:false, isWritable:true  }, // 3 vault_nft_account
+          { pubkey: salePda,                 isSigner:false, isWritable:true  }, // 4 sale
+          { pubkey: PLATFORM_WALLET!,        isSigner:false, isWritable:true  }, // 5 platform_wallet
+          { pubkey: TOKEN_PROGRAM_ID,        isSigner:false, isWritable:false }, // 6 token_program
+          { pubkey: SystemProgram.programId, isSigner:false, isWritable:false }, // 7 system_program
         ],
         data: disc,
       };
