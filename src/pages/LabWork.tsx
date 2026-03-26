@@ -1155,7 +1155,8 @@ const SellPanel: FC<{
       const [listingPda] = getListingPda(nftMint);
       const [escrowPda]  = getEscrowPda(nftMint);
       const [escrowAuth] = getEscrowAuthPda(nftMint);
-      const sellerAta    = getAssociatedTokenAddressSync(nftMint, publicKey, false, selected.isToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID);
+      const tokenProgram = selected.isToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const sellerAta    = getAssociatedTokenAddressSync(nftMint, publicKey, false, tokenProgram);
 
       // Precompute EVERYTHING before triggering wallet — avoids Plugin Closed timeout
       const disc      = await discriminatorAsync('list_nft');
@@ -1172,11 +1173,7 @@ const SellPanel: FC<{
           { pubkey: escrowPda,               isSigner:false, isWritable:true  }, // escrow_token_account
           { pubkey: escrowAuth,              isSigner:false, isWritable:false }, // escrow_authority
           { pubkey: listingPda,              isSigner:false, isWritable:true  }, // listing
-          { pubkey: TOKEN_PROGRAM_ID,        isSigner:false, isWritable:false }, // token_program
-          { pubkey: SystemProgram.programId, isSigner:false, isWritable:false }, // system_program
-          { pubkey: SYSVAR_RENT_PUBKEY,      isSigner:false, isWritable:false }, // rent
-        ],
-        data: Buffer.concat([disc, priceData]),
+          { pubkey: tokenProgram,            isSigner:false, isWritable:false }, // token_program
       };
       const tx = new Transaction().add(ix as any);
       tx.recentBlockhash = blockhash;
@@ -1376,7 +1373,8 @@ const LabWork: FC = () => {
       const [listingPda] = getListingPda(nftMint);
       const [escrowPda]  = getEscrowPda(nftMint);
       const [escrowAuth] = getEscrowAuthPda(nftMint);
-      const buyerAta     = getAssociatedTokenAddressSync(nftMint, publicKey);
+      const tokenProgram = listing.nftData?.isToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const buyerAta     = getAssociatedTokenAddressSync(nftMint, publicKey, false, tokenProgram);
       // Precompute everything before wallet prompt
       const disc = await discriminatorAsync('buy_nft');
       const preIxs: any[] = [];
@@ -1394,7 +1392,7 @@ const LabWork: FC = () => {
           { pubkey: listingPda,              isSigner:false, isWritable:true  }, // listing
           { pubkey: sellerPk,                isSigner:false, isWritable:true  }, // seller_wallet
           { pubkey: PLATFORM_WALLET!,        isSigner:false, isWritable:true  }, // platform_wallet
-          { pubkey: TOKEN_PROGRAM_ID,        isSigner:false, isWritable:false }, // token_program
+          { pubkey: tokenProgram,            isSigner:false, isWritable:false }, // token_program
           { pubkey: SystemProgram.programId, isSigner:false, isWritable:false }, // system_program
         ],
         data: disc,
@@ -1432,7 +1430,8 @@ const LabWork: FC = () => {
       const [listingPda] = getListingPda(nftMint);
       const [escrowPda]  = getEscrowPda(nftMint);
       const [escrowAuth] = getEscrowAuthPda(nftMint);
-      const sellerAta    = getAssociatedTokenAddressSync(nftMint, publicKey);
+      const tokenProgram = listing.nftData?.isToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const sellerAta    = getAssociatedTokenAddressSync(nftMint, publicKey, false, tokenProgram);
       // Precompute everything before wallet prompt
       const disc = await discriminatorAsync('delist_nft');
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
@@ -1446,7 +1445,7 @@ const LabWork: FC = () => {
           { pubkey: escrowAuth,              isSigner:false, isWritable:false }, // escrow_authority
           { pubkey: listingPda,              isSigner:false, isWritable:true  }, // listing
           { pubkey: PLATFORM_WALLET!,        isSigner:false, isWritable:true  }, // platform_wallet
-          { pubkey: TOKEN_PROGRAM_ID,        isSigner:false, isWritable:false }, // token_program
+          { pubkey: tokenProgram,            isSigner:false, isWritable:false }, // token_program
           { pubkey: SystemProgram.programId, isSigner:false, isWritable:false }, // system_program
         ],
         data: disc,
