@@ -79,14 +79,13 @@ export const TopBar: FC = () => {
   const location = useLocation();
 
   const isPortfolio    = location.pathname === '/portfolio';
-  const isNFTLab       = location.pathname === '/lab-work';
-  const isMint         = location.pathname === '/mint';
+  const isLabWork      = location.pathname === '/labwork';
   const isBurnHistory  = location.pathname === '/burn-history';
   const isRewards      = location.pathname === '/rewards';
   const isAdminRewards = location.pathname === '/x9b7r41ns/ctrl';
   const isIncinerator  = location.pathname === '/incinerator-engine';
 
-  const isSubPage = isPortfolio || isNFTLab || isMint || isBurnHistory || isRewards || isAdminRewards || isIncinerator;
+  const isSubPage = isPortfolio || isLabWork || isBurnHistory || isRewards || isAdminRewards || isIncinerator;
 
   return (
     <>
@@ -282,17 +281,17 @@ export const TopBar: FC = () => {
                 {isIncinerator && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#ff8c00' }} />}
               </button>
 
-              {/* MINT — purple */}
+              {/* LAB WORK — purple */}
               <button
-                onClick={() => { navigate('/mint'); setNavOpen(false); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isMint ? 'rgba(191,90,242,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onClick={() => { navigate('/labwork'); setNavOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isLabWork ? 'rgba(191,90,242,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
                 onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(191,90,242,0.1)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isMint ? 'rgba(191,90,242,0.1)' : 'transparent'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isLabWork ? 'rgba(191,90,242,0.1)' : 'transparent'; }}
               >
                 <span style={{ fontSize: 14 }}>🔬</span>
-                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#bf5af2', letterSpacing: 1.5, fontWeight: 700 }}>MINT</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#bf5af2', letterSpacing: 1.5, fontWeight: 700 }}>LAB WORK</span>
                 <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#0a0e14', background: '#bf5af2', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NEW</span>
-                {isMint && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#bf5af2' }} />}
+                {isLabWork && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#bf5af2' }} />}
               </button>
             </div>
           )}

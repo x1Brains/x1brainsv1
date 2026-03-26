@@ -7,7 +7,7 @@ import { RPC_ENDPOINT } from './constants';
 import { injectGlobalCSS } from './utils/globalStyles';
 import Home                from './pages/Home';
 import Portfolio           from './pages/Portfolio';
-import MintLabWork         from './pages/MintLabWork';
+import LabWork             from './pages/LabWork';
 import CyberdyneUnlimited  from './pages/CyberdyneUnlimited';
 import BurnHistory         from './pages/BurnHistory';
 import RewardsSeason       from './pages/RewardsSeason';
@@ -23,7 +23,7 @@ const AppInner: FC = () => {
     <Routes>
       <Route path="/"                       element={<Home />} />
       <Route path="/portfolio"              element={<Portfolio />} />
-      <Route path="/mint"                   element={<MintLabWork />} />
+      <Route path="/labwork"                element={<LabWork />} />
       <Route path="/cyberdyne"              element={<CyberdyneUnlimited />} />
       <Route path="/burn-history"           element={<BurnHistory />} />
       <Route path="/incinerator-engine"     element={<IncineratorEngine />} />
