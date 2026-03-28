@@ -21,8 +21,9 @@ describe("labwork_marketplace", () => {
   let nftMint: anchor.web3.PublicKey;
   let sellerTokenAccount: anchor.web3.PublicKey;
   let buyerTokenAccount:  anchor.web3.PublicKey;
-  let listingPda:         anchor.web3.PublicKey;
-  let escrowPda:          anchor.web3.PublicKey;
+  // v2 PDA names — seeds are ["sale", mint, seller] and ["vault", mint, seller]
+  let salePda:  anchor.web3.PublicKey;
+  let vaultPda: anchor.web3.PublicKey;
 
   const PRICE = new anchor.BN(5_000_000_000); // 5 XNT
 
@@ -61,13 +62,15 @@ describe("labwork_marketplace", () => {
       provider.connection, seller, nftMint, sellerTokenAccount, seller, 1
     );
 
-    // Derive PDAs
-    [listingPda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("listing"), nftMint.toBuffer()],
+    // Derive PDAs — seeds MUST match lib.rs:
+    //   SaleAccount : ["sale",  nft_mint, seller]
+    //   vault token : ["vault", nft_mint, seller]
+    [salePda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("sale"), nftMint.toBuffer(), seller.publicKey.toBuffer()],
       program.programId
     );
-    [escrowPda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), nftMint.toBuffer()],
+    [vaultPda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("vault"), nftMint.toBuffer(), seller.publicKey.toBuffer()],
       program.programId
     );
   });
@@ -76,50 +79,50 @@ describe("labwork_marketplace", () => {
     await program.methods
       .listNft(PRICE)
       .accounts({
-        seller:              seller.publicKey,
+        seller:             seller.publicKey,
         nftMint,
-        sellerTokenAccount,
-        escrowTokenAccount:  escrowPda,
-        listing:             listingPda,
-        tokenProgram:        TOKEN_PROGRAM_ID,
-        systemProgram:       anchor.web3.SystemProgram.programId,
-        rent:                anchor.web3.SYSVAR_RENT_PUBKEY,
+        sellerNftAccount:   sellerTokenAccount,
+        vaultNftAccount:    vaultPda,
+        sale:               salePda,
+        tokenProgram:       TOKEN_PROGRAM_ID,
+        systemProgram:      anchor.web3.SystemProgram.programId,
+        rent:               anchor.web3.SYSVAR_RENT_PUBKEY,
       })
       .signers([seller])
       .rpc();
 
-    const listing = await program.account.listingAccount.fetch(listingPda);
-    assert.equal(listing.seller.toBase58(), seller.publicKey.toBase58());
-    assert.equal(listing.price.toNumber(), PRICE.toNumber());
+    // Fetch the SaleAccount (not listingAccount)
+    const sale = await program.account.saleAccount.fetch(salePda);
+    assert.equal(sale.seller.toBase58(), seller.publicKey.toBase58());
+    assert.equal(sale.price.toNumber(), PRICE.toNumber());
 
-    // NFT should now be in escrow
-    const escrowBalance = await getAccount(provider.connection, escrowPda);
-    assert.equal(Number(escrowBalance.amount), 1);
+    // NFT should now be in vault
+    const vaultBalance = await getAccount(provider.connection, vaultPda);
+    assert.equal(Number(vaultBalance.amount), 1);
 
     // Seller's token account should be empty
     const sellerBalance = await getAccount(provider.connection, sellerTokenAccount);
     assert.equal(Number(sellerBalance.amount), 0);
 
-    console.log("✅ NFT listed. Escrow holds NFT.");
+    console.log("✅ NFT listed. Vault holds NFT.");
   });
 
   it("Buys the NFT — platform gets 1.888% fee", async () => {
     const platformBefore = await provider.connection.getBalance(PLATFORM_WALLET);
     const sellerBefore   = await provider.connection.getBalance(seller.publicKey);
-    const buyerBefore    = await provider.connection.getBalance(buyer.publicKey);
 
     await program.methods
       .buyNft()
       .accounts({
-        buyer:              buyer.publicKey,
+        buyer:            buyer.publicKey,
         nftMint,
-        buyerTokenAccount,
-        escrowTokenAccount: escrowPda,
-        listing:            listingPda,
-        sellerWallet:       seller.publicKey,
-        platformWallet:     PLATFORM_WALLET,
-        tokenProgram:       TOKEN_PROGRAM_ID,
-        systemProgram:      anchor.web3.SystemProgram.programId,
+        buyerNftAccount:  buyerTokenAccount,
+        vaultNftAccount:  vaultPda,
+        sale:             salePda,
+        sellerWallet:     seller.publicKey,
+        platformWallet:   PLATFORM_WALLET,
+        tokenProgram:     TOKEN_PROGRAM_ID,
+        systemProgram:    anchor.web3.SystemProgram.programId,
       })
       .signers([buyer])
       .rpc();
@@ -144,8 +147,7 @@ describe("labwork_marketplace", () => {
   });
 
   it("Lists again and cancels — platform gets 0.888% cancel fee", async () => {
-    // Buyer becomes new seller for this test — transfer NFT back first
-    // Re-mint for simplicity by creating a new NFT
+    // Create a fresh NFT for this test
     const nftMint2 = await createMint(
       provider.connection, seller, seller.publicKey, null, 0
     );
@@ -154,11 +156,14 @@ describe("labwork_marketplace", () => {
     );
     await mintTo(provider.connection, seller, nftMint2, sellerAta2, seller, 1);
 
-    const [listing2] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("listing"), nftMint2.toBuffer()], program.programId
+    // Derive v2 PDAs for the new mint
+    const [sale2] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("sale"), nftMint2.toBuffer(), seller.publicKey.toBuffer()],
+      program.programId
     );
-    const [escrow2] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), nftMint2.toBuffer()], program.programId
+    const [vault2] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("vault"), nftMint2.toBuffer(), seller.publicKey.toBuffer()],
+      program.programId
     );
 
     // List at 10 XNT
@@ -166,33 +171,32 @@ describe("labwork_marketplace", () => {
     await program.methods
       .listNft(PRICE2)
       .accounts({
-        seller:             seller.publicKey,
-        nftMint:            nftMint2,
-        sellerTokenAccount: sellerAta2,
-        escrowTokenAccount: escrow2,
-        listing:            listing2,
-        tokenProgram:       TOKEN_PROGRAM_ID,
-        systemProgram:      anchor.web3.SystemProgram.programId,
-        rent:               anchor.web3.SYSVAR_RENT_PUBKEY,
+        seller:           seller.publicKey,
+        nftMint:          nftMint2,
+        sellerNftAccount: sellerAta2,
+        vaultNftAccount:  vault2,
+        sale:             sale2,
+        tokenProgram:     TOKEN_PROGRAM_ID,
+        systemProgram:    anchor.web3.SystemProgram.programId,
+        rent:             anchor.web3.SYSVAR_RENT_PUBKEY,
       })
       .signers([seller])
       .rpc();
 
     const platformBefore = await provider.connection.getBalance(PLATFORM_WALLET);
-    const sellerBefore   = await provider.connection.getBalance(seller.publicKey);
 
-    // Cancel listing
+    // Cancel listing — method is cancelListing (not delistNft)
     await program.methods
-      .delistNft()
+      .cancelListing()
       .accounts({
-        seller:             seller.publicKey,
-        nftMint:            nftMint2,
-        sellerTokenAccount: sellerAta2,
-        escrowTokenAccount: escrow2,
-        listing:            listing2,
-        platformWallet:     PLATFORM_WALLET,
-        tokenProgram:       TOKEN_PROGRAM_ID,
-        systemProgram:      anchor.web3.SystemProgram.programId,
+        seller:           seller.publicKey,
+        nftMint:          nftMint2,
+        sellerNftAccount: sellerAta2,
+        vaultNftAccount:  vault2,
+        sale:             sale2,
+        platformWallet:   PLATFORM_WALLET,
+        tokenProgram:     TOKEN_PROGRAM_ID,
+        systemProgram:    anchor.web3.SystemProgram.programId,
       })
       .signers([seller])
       .rpc();
