@@ -57,7 +57,7 @@ export function tryLoadImg(url: string): Promise<string> {
     img.onload  = () => resolve(url);
     img.onerror = () => reject();
     img.src = url;
-    setTimeout(() => reject(), 8000);
+    setTimeout(() => reject(), 3000);
   });
 }
 

@@ -86,12 +86,28 @@ const lwMetaCache = makeLRU<any>(300);
 // Metaplex PDA data cache — avoids re-fetching same mint across sessions
 const lwPdaCache = makeLRU<{ name: string; symbol: string; uri: string }>(1000);
 
+// Session cache for enriched listing metadata (name/symbol/uri) keyed by nftMint
+// Lives for the browser session only — cleared on refresh, so fresh data on each visit
+const LW_META_SESSION_KEY = 'x1b_lw_meta_v1';
+const lwSessionMetaCache = new Map<string, { name: string; symbol: string; uri: string }>();
+try {
+  const raw = sessionStorage.getItem(LW_META_SESSION_KEY);
+  if (raw) Object.entries(JSON.parse(raw)).forEach(([k, v]) => lwSessionMetaCache.set(k, v as any));
+} catch {}
+function persistSessionMeta() {
+  try {
+    const obj: Record<string, any> = {};
+    lwSessionMetaCache.forEach((v, k) => { obj[k] = v; });
+    sessionStorage.setItem(LW_META_SESSION_KEY, JSON.stringify(obj));
+  } catch {}
+}
+
 async function fetchNFTMeta(metaUri: string): Promise<any | null> {
   if (lwMetaCache.has(metaUri)) return lwMetaCache.get(metaUri);
   const url = resolveGateway(metaUri);
   if (/\.(png|jpg|jpeg|gif|webp|svg)(\?|$)/i.test(url)) return null;
   try {
-    const res = await fetch(toProxyUrl(url), { signal: AbortSignal.timeout(8000) });
+    const res = await fetch(toProxyUrl(url), { signal: AbortSignal.timeout(3000) });
     if (!res.ok) { lwMetaCache.set(metaUri, null); return null; }
     const ct = res.headers.get('content-type') ?? '';
     if (ct.startsWith('image/')) return null;
@@ -137,7 +153,7 @@ const NFTImage: FC<{ metaUri?: string; name: string; contain?: boolean }> = ({
 
       // Step 2: fetch via proxy — check content-type first
       try {
-        const res = await fetch(toProxyUrl(url), { signal: AbortSignal.timeout(6000) });
+        const res = await fetch(toProxyUrl(url), { signal: AbortSignal.timeout(3000) });
         if (res.ok) {
           const ct = res.headers.get('content-type') ?? '';
           // It's already an image (covers image/svg+xml, image/png, etc.)
@@ -622,8 +638,11 @@ async function batchEnrichListings(connection: any, listings: Listing[]): Promis
   if (listings.length === 0) return listings;
 
   // Split uncached from cached
+  // Populate lwPdaCache from session cache first (zero RPC calls for known mints)
+  lwSessionMetaCache.forEach((v, k) => { if (!lwPdaCache.has(k)) lwPdaCache.set(k, v); });
+
   const uncached = listings.filter(l => !lwPdaCache.has(l.nftMint));
-  const BATCH = 100; // RPC max
+  const BATCH = 100; // RPC max — fetch all unknown mints in one shot
 
   for (let i = 0; i < uncached.length; i += BATCH) {
     const chunk = uncached.slice(i, i + BATCH);
@@ -638,8 +657,12 @@ async function batchEnrichListings(connection: any, listings: Listing[]): Promis
         const raw = decodeAccountData(info.data);
         if (!raw) return;
         const parsed = parseMetaplexPDA(raw);
-        if (parsed) lwPdaCache.set(chunk[idx].nftMint, parsed);
+        if (parsed) {
+          lwPdaCache.set(chunk[idx].nftMint, parsed);
+          lwSessionMetaCache.set(chunk[idx].nftMint, parsed); // persist for next render
+        }
       });
+      persistSessionMeta();
     } catch { /* batch failed — listings render without metadata */ }
   }
 
@@ -698,7 +721,7 @@ async function fetchAgentIDByWallet(wallet: string): Promise<any | null> {
   if (agentIDCache.has(wallet)) return agentIDCache.get(wallet);
   try {
     const url = `https://agentid-app.vercel.app/api/verify?wallet=${wallet}`;
-    const res = await fetch(toProxyUrl(url), { signal: AbortSignal.timeout(6000) });
+    const res = await fetch(toProxyUrl(url), { signal: AbortSignal.timeout(3000) });
     if (!res.ok) { agentIDCache.set(wallet, null); return null; }
     const json = await res.json();
     const agent = json?.verified ? json.agent : null;

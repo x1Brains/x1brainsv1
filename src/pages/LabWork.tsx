@@ -517,22 +517,29 @@ const LabWork: FC = () => {
     // then progressively enrich image/attributes in background
     const withMeta = await batchEnrichListings(connection, raw);
     setListings([...withMeta]);
-    // Now fetch off-chain metadata (images/attributes) in batches of 6
-    const BATCH = 6;
+    // Fetch off-chain metadata (images/attributes) in large parallel batches
+    // 20 concurrent — X1 is fast, external image hosts are the bottleneck not the chain
+    const META_BATCH = 20;
     let current = [...withMeta];
-    for (let i = 0; i < withMeta.length; i += BATCH) {
-      const chunk = withMeta.slice(i, i + BATCH);
+    const needsMeta = withMeta.map((l, i) => ({ l, i })).filter(({ l }) => l.nftData?.metaUri && !l.nftData?.image);
+    for (let b = 0; b < needsMeta.length; b += META_BATCH) {
+      const chunk = needsMeta.slice(b, b + META_BATCH);
       const results = await Promise.allSettled(
-        chunk.map(async l => {
-          if (!l.nftData?.metaUri || l.nftData?.image) return l;
-          const enriched = await enrichNFT(l.nftData);
+        chunk.map(async ({ l }) => {
+          // 3s max per image fetch — skip slow URIs, don't block the batch
+          const enriched = await Promise.race([
+            enrichNFT(l.nftData!),
+            new Promise<NFTData>(res => setTimeout(() => res(l.nftData!), 3000)),
+          ]);
           return { ...l, nftData: enriched };
         })
       );
-      results.forEach((r, idx) => {
-        if (r.status === 'fulfilled') current[i + idx] = r.value;
+      results.forEach((r, j) => {
+        if (r.status === 'fulfilled') current[chunk[j].i] = r.value;
       });
       setListings([...current]);
+      // Tiny yield so React can paint between batches
+      await new Promise(r => setTimeout(r, 0));
     }
   }, [connection]);
 
