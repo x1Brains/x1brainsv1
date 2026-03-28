@@ -21,6 +21,7 @@ import { TopBar, PageBackground, Footer } from '../components/UI';
 import { BurnedBrainsBar, walletBurnStats } from '../components/BurnedBrainsBar';
 import { PLATFORM_WALLET_STRING, BRAINS_MINT as BRAINS_MINT_STR } from '../constants';
 import { supabase, getLabWorkPtsForWallet, triggerLabWorkRefresh, labWorkSignal } from '../lib/supabase';
+import { rarityColor } from '../utils/nft';
 import type { NFTData, Listing, TradeLog, PageMode, MarketTab } from '../components/LBComponents';
 import {
   useIsMobile, getMarketplaceProgramId,
