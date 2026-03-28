@@ -18,7 +18,7 @@ import {
   getMint,
 } from '@solana/spl-token';
 import { TopBar, PageBackground, Footer } from '../components/UI';
-import { walletBurnStats } from '../components/BurnedBrainsBar';
+import { BurnedBrainsBar, walletBurnStats } from '../components/BurnedBrainsBar';
 import { PLATFORM_WALLET_STRING, BRAINS_MINT as BRAINS_MINT_STR } from '../constants';
 import { supabase, getLabWorkPtsForWallet, triggerLabWorkRefresh, labWorkSignal } from '../lib/supabase';
 import type { NFTData, Listing, TradeLog, PageMode, MarketTab } from '../components/LBComponents';
@@ -396,8 +396,8 @@ const LabWork: FC = () => {
 
   // Wallet stats for MY NFTs panel
   const [brainsBalance,  setBrainsBalance]  = useState<number | null>(null);
-  const [brainsBurned,   setBrainsBurned]   = useState<number | null>(null);
-  const [labworkPtsTotal, setLabworkPtsTotal] = useState<number | null>(null);
+  const [brainsBurned,   setBrainsBurned]   = useState<number>(0);
+  const [labworkPtsTotal, setLabworkPtsTotal] = useState<number>(0);
 
   // ── Load wallet NFTs ──────────────────────────────────────────
   useEffect(() => {
@@ -443,7 +443,7 @@ const LabWork: FC = () => {
   // We poll every 500ms until BurnedBrainsBar finishes its on-chain scan.
   useEffect(() => {
     if (!publicKey) {
-      setBrainsBalance(null); setBrainsBurned(null); setLabworkPtsTotal(null);
+      setBrainsBalance(null); setBrainsBurned(0); setLabworkPtsTotal(0);
       return;
     }
     let dead = false;
@@ -474,8 +474,8 @@ const LabWork: FC = () => {
       clearInterval(poll);
       // Final read — even if zero, show what we have
       if (!dead) {
-        setBrainsBurned(v => v ?? walletBurnStats.walletBurned);
-        setLabworkPtsTotal(v => v ?? walletBurnStats.totalLbPts);
+        setBrainsBurned(walletBurnStats.walletBurned);
+        setLabworkPtsTotal(walletBurnStats.totalLbPts);
       }
     }, 30_000);
 
@@ -807,6 +807,8 @@ const LabWork: FC = () => {
     <div style={{ minHeight:'100vh', background:'#080c0f',
       padding: isMobile ? '70px 10px 40px' : '90px 24px 60px', position:'relative', overflow:'hidden' }}>
       <TopBar />
+      {/* BurnedBrainsBar hidden — mounts to trigger walletBurnStats scan for MY NFTs stats */}
+      <div style={{ display:'none' }} aria-hidden="true"><BurnedBrainsBar /></div>
       <PageBackground />
       <div style={{ position:'fixed', top:'20%', left:'10%', width:600, height:600, borderRadius:'50%',
         background:'radial-gradient(circle,rgba(0,212,255,0.04) 0%,transparent 60%)', pointerEvents:'none', zIndex:0 }} />
@@ -1007,8 +1009,8 @@ const LabWork: FC = () => {
                 <div style={{ display:'flex', gap: isMobile ? 8 : 12, marginBottom: isMobile ? 20 : 28 }}>
                   {[
                     { label:'BRAINS BALANCE', value: brainsBalance === null ? '…' : brainsBalance.toLocaleString(undefined, { maximumFractionDigits:0 }), color:'#bf5af2', icon:'🧠' },
-                    { label:'BRAINS BURNED',  value: brainsBurned  === null ? '…' : brainsBurned.toLocaleString(undefined,  { maximumFractionDigits:0 }), color:'#ff6a00', icon:'🔥' },
-                    { label:'LABWORK PTS',    value: labworkPtsTotal === null ? '…' : Math.round(labworkPtsTotal).toLocaleString(), color:'#00d4ff', icon:'🧪' },
+                    { label:'BRAINS BURNED',  value: brainsBurned.toLocaleString(undefined, { maximumFractionDigits:0 }), color:'#ff6a00', icon:'🔥' },
+                    { label:'LABWORK PTS',    value: Math.round(labworkPtsTotal).toLocaleString(), color:'#00d4ff', icon:'🧪' },
                   ].map(({ label, value, color, icon }) => (
                     <div key={label} style={{ flex:1, background:'rgba(255,255,255,.03)',
                       border:`1px solid ${color}22`, borderRadius:10,
@@ -1046,7 +1048,7 @@ const LabWork: FC = () => {
                       },
                       {
                         label: 'LABWORK PTS',
-                        value: labworkPtsTotal === null ? '…' : Math.round(labworkPtsTotal).toLocaleString(),
+                        value: Math.round(labworkPtsTotal).toLocaleString(),
                         color: '#00d4ff', icon: '🧪',
                       },
                     ].map(({ label, value, color, icon }) => (
@@ -1390,17 +1392,17 @@ const LabWork: FC = () => {
 
                   {/* ── Featured / Boosted Listings ── */}
                   {boosts.length > 0 && (() => {
-                    // Match boost records to enriched listing data
-                    const boostedListings = boosts
-                      .map(b => listings.find(l => l.listingPda === b.listing_pda))
-                      .filter(Boolean) as Listing[];
+                    // Pair each boost record with its listing upfront — no second lookup later
                     const tierOrder: Record<BoostTierId, number> = { incinerator:0, godslayer:1, spark:2 };
-                    const sorted = [...boostedListings].sort((a, b) => {
-                      const ba = boosts.find(x => x.listing_pda === a.listingPda)!;
-                      const bb = boosts.find(x => x.listing_pda === b.listingPda)!;
-                      return (tierOrder[ba.tier] ?? 9) - (tierOrder[bb.tier] ?? 9);
-                    });
-                    const slots = [sorted[0], sorted[1], sorted[2]];
+                    const pairedSlots = boosts
+                      .map(b => ({
+                        boost:   b,
+                        listing: listings.find(l => l.listingPda === b.listing_pda) ?? null,
+                      }))
+                      .sort((a, b) => (tierOrder[a.boost.tier] ?? 9) - (tierOrder[b.boost.tier] ?? 9))
+                      .slice(0, 3);
+                    // Pad to 3 slots
+                    while (pairedSlots.length < 3) pairedSlots.push({ boost: null as any, listing: null });
                     return (
                       <div style={{ marginBottom: isMobile ? 20 : 28, animation:'fadeUp 0.4s ease both' }}>
                         {/* Section header */}
@@ -1425,9 +1427,7 @@ const LabWork: FC = () => {
 
                         {/* 3-slot grid */}
                         <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(3,1fr)' : 'repeat(3,1fr)', gap: isMobile ? 8 : 14 }}>
-                          {[0,1,2].map(i => {
-                            const l   = slots[i];
-                            const b   = l ? boosts.find(x => x.listing_pda === l.listingPda) : null;
+                          {pairedSlots.map(({ boost: b, listing: l }, i) => {
                             const tier = BOOST_TIERS.find(t => t.id === b?.tier);
                             const nft = l?.nftData;
                             const imgUri = nft?.image || nft?.metaUri;
