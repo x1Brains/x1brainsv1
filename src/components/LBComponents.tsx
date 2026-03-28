@@ -327,13 +327,13 @@ async function saveTrade(trade: { sig: string; type: 'list'|'buy'|'delist'|'boos
 
 // Send transaction - tries signTransaction first to bypass wallet simulation,
 // falls back to sendTransaction if sign fails.
-// skipPreflight: true for list/buy (speed), false for cancel (protect fees on failure).
+// skipPreflight: false on all marketplace txs — simulate before submit to protect user funds.
 async function sendTx(
   tx: Transaction,
   connection: any,
   sendTransaction: any,
   signTransaction?: ((tx: Transaction) => Promise<Transaction>) | null,
-  skipPreflight = true,
+  skipPreflight = false,
 ): Promise<string> {
   if (signTransaction) {
     try {
