@@ -111,6 +111,14 @@ export async function getCachedLabWorkMap(): Promise<Map<string, number>> {
 }
 export function invalidateLabWorkCache() { _lwCache = null; }
 
+// Refresh signal — increment this to tell BurnedBrainsBar to re-fetch labwork pts
+// Shared mutable so any module can trigger a refresh without prop drilling
+export const labWorkSignal = { version: 0 };
+export function triggerLabWorkRefresh() {
+  _lwCache = null; // also bust the map cache
+  labWorkSignal.version++;
+}
+
 // shared in-memory map (set by BurnLeaderboard, read by others)
 let _sbLabWorkMap: Map<string, number> | null = null;
 export function setSupabaseLabWorkMap(m: Map<string, number>) { _sbLabWorkMap = m; }

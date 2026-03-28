@@ -18,8 +18,9 @@ import {
   getMint,
 } from '@solana/spl-token';
 import { TopBar, PageBackground, Footer } from '../components/UI';
+import { walletBurnStats } from '../components/BurnedBrainsBar';
 import { PLATFORM_WALLET_STRING, BRAINS_MINT as BRAINS_MINT_STR } from '../constants';
-import { supabase, getLabWorkPtsForWallet } from '../lib/supabase';
+import { supabase, getLabWorkPtsForWallet, triggerLabWorkRefresh } from '../lib/supabase';
 import type { NFTData, Listing, TradeLog, PageMode, MarketTab } from '../components/LBComponents';
 import {
   useIsMobile, getMarketplaceProgramId,
@@ -119,10 +120,11 @@ const BoostModal: FC<{
   const [status,    setStatus]  = useState('');
   const [pending,   setPending] = useState(false);
   const [balance,   setBalance] = useState<number | null>(null);
+  const [slotsUsed, setSlotsUsed] = useState<number | null>(null); // null = checking
   const nft = listing.nftData;
   const imgUri = nft?.image || nft?.metaUri;
 
-  // Fetch BRAINS balance (Token-2022)
+  // Fetch BRAINS balance + active slot count simultaneously
   useEffect(() => {
     (async () => {
       try {
@@ -132,13 +134,26 @@ const BoostModal: FC<{
         setBalance(bal);
       } catch { setBalance(0); }
     })();
+    // Check how many of the 3 featured slots are currently occupied
+    (async () => {
+      try {
+        const active = await loadActiveBoosts();
+        setSlotsUsed(active.length);
+      } catch { setSlotsUsed(0); }
+    })();
   }, []);
 
   const selectedTier = BOOST_TIERS.find(t => t.id === tier)!;
   const canAfford    = balance !== null && balance >= selectedTier.brains;
+  const slotsAvail   = slotsUsed !== null && slotsUsed < 3;
+  const slotsLoading = slotsUsed === null;
 
   const handleBoost = async () => {
     if (!canAfford || !signTransaction) return;
+    if (!slotsAvail) {
+      setStatus('❌ All 3 featured slots are currently occupied. Wait for an active boost to expire before boosting.');
+      return;
+    }
     setPending(true); setStatus('Preparing burn…');
     try {
       // 100% burned — fully deflationary, same mechanism as Portfolio.tsx burnBrainsTokens
@@ -194,6 +209,10 @@ const BoostModal: FC<{
         }),
       ]);
 
+      // Bust the labwork cache + signal BurnedBrainsBar to re-fetch
+      // so Portfolio, IncineratorEngine and the bar all show updated points immediately
+      triggerLabWorkRefresh();
+
       // Save to activity log so it shows in the Activity tab
       saveTrade({
         sig,
@@ -205,6 +224,8 @@ const BoostModal: FC<{
       });
 
       setStatus(`✅ Active! 🔥 ${selectedTier.brains.toLocaleString()} BRAINS burned · +${labworkPoints.toLocaleString()} labwork pts · ${selectedTier.days}d featured · <a href="https://explorer.mainnet.x1.xyz/tx/${sig}" target="_blank" rel="noopener" style="color:#bf5af2;text-decoration:underline">View Tx ↗</a>`);
+      // Re-fetch our own labwork pts display
+      getLabWorkPtsForWallet(publicKey.toBase58()).then(pts => { if (pts > 0) console.debug('[LabWork] fresh labwork pts after boost:', pts); }).catch(() => {});
       setTimeout(() => { onBoosted(); onClose(); }, 4000);
     } catch (e: any) {
       setStatus(`❌ ${e?.message?.slice(0, 100) ?? 'Failed'}`);
@@ -237,7 +258,12 @@ const BoostModal: FC<{
           🔥 BURN TO BOOST
         </div>
         <div style={{ fontFamily:'Sora,sans-serif', fontSize:11, color:'#4a6a8a', marginBottom:20 }}>
-          Burn BRAINS to feature your NFT · earn 1.888 labwork points per BRAINS burned
+          {slotsLoading
+              ? 'Checking available slots…'
+              : slotsAvail
+                ? `Burn BRAINS · earn 1.888 pts/BRAINS · ${3 - slotsUsed!} slot${3 - slotsUsed! !== 1 ? 's' : ''} available`
+                : '⚠️ All 3 featured slots are full — wait for an active boost to expire'
+            }
         </div>
 
         {/* NFT preview */}
@@ -298,19 +324,24 @@ const BoostModal: FC<{
 
         <StatusBox msg={status} />
 
-        <button type="button" onClick={handleBoost} disabled={pending || !canAfford}
+        <button type="button" onClick={handleBoost} disabled={pending || !canAfford || !slotsAvail || slotsLoading}
           style={{ width:'100%', padding:'13px 0',
-            background: canAfford ? `linear-gradient(135deg,rgba(191,90,242,.22),rgba(191,90,242,.1))` : 'rgba(255,255,255,.04)',
-            border: `1px solid ${canAfford ? 'rgba(191,90,242,.5)' : 'rgba(255,255,255,.1)'}`,
-            borderRadius:10, cursor: (pending || !canAfford) ? 'not-allowed' : 'pointer',
+            background: (canAfford && slotsAvail) ? `linear-gradient(135deg,rgba(191,90,242,.22),rgba(191,90,242,.1))` : 'rgba(255,255,255,.04)',
+            border: `1px solid ${(canAfford && slotsAvail) ? 'rgba(191,90,242,.5)' : !slotsAvail && !slotsLoading ? 'rgba(255,100,100,.3)' : 'rgba(255,255,255,.1)'}`,
+            borderRadius:10, cursor: (pending || !canAfford || !slotsAvail || slotsLoading) ? 'not-allowed' : 'pointer',
             fontFamily:'Orbitron,monospace', fontSize:11, fontWeight:700,
-            color: canAfford ? '#bf5af2' : '#4a6a8a', opacity: pending ? 0.7 : 1,
+            color: !slotsAvail && !slotsLoading ? '#ff6666' : canAfford ? '#bf5af2' : '#4a6a8a',
+            opacity: pending ? 0.7 : 1,
             display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
           {pending
             ? <><div style={{ width:14, height:14, borderRadius:'50%', border:'2px solid rgba(191,90,242,.2)', borderTop:'2px solid #bf5af2', animation:'spin 0.8s linear infinite' }} />BURNING…</>
-            : !canAfford
-              ? `NEED ${selectedTier.brains.toLocaleString()} BRAINS`
-              : `🔥 BURN ${selectedTier.brains.toLocaleString()} BRAINS · BOOST ${selectedTier.days}D`}
+            : slotsLoading
+              ? 'CHECKING SLOTS…'
+              : !slotsAvail
+                ? `NO SLOTS AVAILABLE · ${3} / 3 OCCUPIED`
+                : !canAfford
+                  ? `NEED ${selectedTier.brains.toLocaleString()} BRAINS`
+                  : `🔥 BURN ${selectedTier.brains.toLocaleString()} BRAINS · BOOST ${selectedTier.days}D`}
         </button>
       </div>
     </div>,
@@ -424,9 +455,17 @@ const LabWork: FC = () => {
       } catch { if (!dead) setBrainsBalance(0); }
     })();
 
-    // 2. Total BRAINS burned — sum from labwork_points table (boost burns)
-    //    + labwork_rewards (admin-awarded tracked burns)
+    // 2. Total BRAINS burned — read from walletBurnStats.walletBurned which is
+    //    populated by BurnedBrainsBar (on-chain scan of all burn txs, all time).
+    //    Poll briefly since BurnedBrainsBar may still be loading when this runs.
     (async () => {
+      // Give BurnedBrainsBar up to 4s to populate the global stat
+      for (let i = 0; i < 8; i++) {
+        const burned = walletBurnStats.walletBurned;
+        if (burned > 0) { if (!dead) setBrainsBurned(burned); return; }
+        await new Promise(r => setTimeout(r, 500));
+      }
+      // Fallback: read directly from labwork_points if BurnedBrainsBar hasn't loaded
       try {
         if (!supabase) { if (!dead) setBrainsBurned(0); return; }
         const { data } = await supabase
@@ -435,7 +474,7 @@ const LabWork: FC = () => {
           .eq('wallet', addr);
         const total = (data ?? []).reduce((s: number, r: any) => s + (r.brains_burned ?? 0), 0);
         if (!dead) setBrainsBurned(total);
-      } catch { if (!dead) setBrainsBurned(0); }
+      } catch { if (!dead) setBrainsBurned(walletBurnStats.walletBurned || 0); }
     })();
 
     // 3. Total labwork points — both labwork_rewards + labwork_points
@@ -448,6 +487,27 @@ const LabWork: FC = () => {
 
     return () => { dead = true; };
   }, [publicKey?.toBase58()]);
+
+  // Keep brainsBurned + labworkPtsTotal in sync as BurnedBrainsBar/signal update
+  useEffect(() => {
+    if (!publicKey) return;
+    let lastSignal = labWorkSignal.version;
+    const interval = setInterval(async () => {
+      // Sync burned BRAINS from BurnedBrainsBar global stat
+      const burned = walletBurnStats.walletBurned;
+      if (burned > 0) setBrainsBurned(burned);
+      // Re-fetch labwork pts if signal fired (boost burn completed)
+      if (labWorkSignal.version !== lastSignal) {
+        lastSignal = labWorkSignal.version;
+        try {
+          const pts = await getLabWorkPtsForWallet(publicKey.toBase58());
+          setLabworkPtsTotal(pts);
+        } catch {}
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [publicKey?.toBase58()]);
+
   const loadListings = useCallback(async () => {
     setLoadingListings(true);
     const [raw, activeBoosts] = await Promise.all([

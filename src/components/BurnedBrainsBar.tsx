@@ -3,7 +3,7 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey }      from '@solana/web3.js';
 import { getMint, TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { BRAINS_MINT }   from '../constants';
-import { getLabWorkPtsForWallet } from '../lib/supabase';
+import { getLabWorkPtsForWallet, labWorkSignal } from '../lib/supabase';
 
 const INITIAL_SUPPLY = 8_880_000;
 const POLL_INTERVAL  = 5_000;
@@ -327,13 +327,21 @@ export const BurnedBrainsBar: FC<{ overrideAddress?: string }> = ({ overrideAddr
   // Lab Work + LB Points — fetch from Supabase, fallback to localStorage
   const walletAddr   = effectiveKey?.toBase58() ?? '';
   const [labWorkPts, setLabWorkPts] = useState(0);
+  const [lwRefreshTick, setLwRefreshTick] = useState(0);
+  // Poll labWorkSignal.version — triggers re-fetch when a boost burn completes
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (labWorkSignal.version !== lwRefreshTick) setLwRefreshTick(labWorkSignal.version);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [lwRefreshTick]);
   useEffect(() => {
     if (!walletAddr) { setLabWorkPts(0); return; }
     // Try Supabase first, fallback to localStorage
     getLabWorkPtsForWallet(walletAddr)
       .then(pts => { if (pts > 0) setLabWorkPts(pts); else setLabWorkPts(getLabWorkPtsLocal(walletAddr)); })
       .catch(() => setLabWorkPts(getLabWorkPtsLocal(walletAddr)));
-  }, [walletAddr]);
+  }, [walletAddr, lwRefreshTick]);
   const burnLbPts    = Math.floor(walletAmount * 1.888);
   const totalLbPts   = burnLbPts + labWorkPts;
   const tier         = getTier(totalLbPts);
