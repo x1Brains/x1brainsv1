@@ -104,31 +104,28 @@ const NFTImage: FC<{ metaUri?: string; name: string; contain?: boolean }> = ({
           lwImageCache.set(metaUri, null); persistLwCache();
           if (!cancelled) setImgSrc(null); return;
         }
-          const ct = res.headers.get('content-type') ?? '';
-          // It's already an image (covers image/svg+xml, image/png, etc.)
-          if (ct.startsWith('image/')) {
-            lwImageCache.set(metaUri, url); persistLwCache();
-            if (!cancelled) setImgSrc(url); return;
-          }
-          // It's JSON metadata — extract image field
-          try {
-            const json = await res.json();
-            if (!lwMetaCache.has(metaUri)) lwMetaCache.set(metaUri, json);
-            const raw: string =
-              json?.image ??
-              json?.image_url ?? json?.imageUrl ??
-              json?.properties?.files?.[0]?.uri ??
-              json?.properties?.files?.[0] ??
-              json?.properties?.image ?? '';
-            if (raw && !cancelled) {
-              const resolvedRaw = resolveGateway(raw);
-              // If the image URL has no extension, still try it directly —
-              // the browser/img tag will handle it (SVGs served from APIs, etc.)
-              lwImageCache.set(metaUri, resolvedRaw); persistLwCache();
-              if (!cancelled) setImgSrc(resolvedRaw); return;
-            }
-          } catch {}
+        const ct = res.headers.get('content-type') ?? '';
+        // It's already an image (covers image/svg+xml, image/png, etc.)
+        if (ct.startsWith('image/')) {
+          lwImageCache.set(metaUri, url); persistLwCache();
+          if (!cancelled) setImgSrc(url); return;
         }
+        // It's JSON metadata — extract image field
+        try {
+          const json = await res.json();
+          if (!lwMetaCache.has(metaUri)) lwMetaCache.set(metaUri, json);
+          const raw: string =
+            json?.image ??
+            json?.image_url ?? json?.imageUrl ??
+            json?.properties?.files?.[0]?.uri ??
+            json?.properties?.files?.[0] ??
+            json?.properties?.image ?? '';
+          if (raw && !cancelled) {
+            const resolvedRaw = resolveGateway(raw);
+            lwImageCache.set(metaUri, resolvedRaw); persistLwCache();
+            if (!cancelled) setImgSrc(resolvedRaw); return;
+          }
+        } catch {}
       } catch {}
 
       // Step 3: candidate URL guessing (last resort)
