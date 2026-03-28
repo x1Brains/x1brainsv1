@@ -25,7 +25,7 @@ import {
   lamportsToXnt, calcFee, calcCancelFee, calcSellerCut, xntToLamports,
   saveTrade, sendTx, discriminatorAsync,
   enrichNFT, enrichNFTFromMint, fetchWalletNFTs, groupByCollection,
-  fetchAllListings, batchEnrichListings, enrichListing,
+  fetchAllListings, batchEnrichListings, enrichListing, fetchAgentIDByWallet,
   DISC_LIST_NFT, DISC_BUY_NFT, DISC_CANCEL, DISC_UPDATE_PRICE, DISC_SALE_B58,
   METADATA_PROGRAM_ID, PLATFORM_WALLET, MARKETPLACE_DEPLOYED,
   lwPdaCache,
@@ -88,7 +88,23 @@ const LabWork: FC = () => {
         setNfts(raw); setLoading(false);
         if (raw.length === 0) return;
         setEnriching(true); setLoadLabel('Loading metadata…');
-        const enriched = await Promise.all(raw.map(n => enrichNFT(n)));
+        const enriched = await Promise.all(raw.map(async n => {
+          const base = await enrichNFT(n);
+          // MoltLab NFTs: their /api/nft/<mint> returns 404 — use AgentID verify by wallet instead
+          if (base.metaUri?.includes('moltlab.vercel.app') && publicKey) {
+            const agent = await fetchAgentIDByWallet(publicKey.toBase58());
+            if (agent) return {
+              ...base,
+              image:       agent.photoUrl    ?? base.image,
+              description: agent.description ?? base.description,
+              collection:  'MOLT',
+              externalUrl: agent.moltbook
+                ? `https://moltbook.com/u/${agent.moltbook}`
+                : base.externalUrl,
+            };
+          }
+          return base;
+        }));
         if (!cancelled) { setNfts(enriched); setEnriching(false); setLoadLabel(''); }
       } catch (e: any) {
         if (!cancelled) { setError(e?.message ?? 'Failed to load NFTs'); setLoading(false); }
@@ -738,21 +754,29 @@ const LabWork: FC = () => {
                 <div style={{ animation:'fadeUp 0.3s ease both' }}>
 
                   {/* ── Hero stats ── */}
-                  <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: isMobile ? 8 : 12, marginBottom: isMobile ? 20 : 28 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:0,
+                    background:'rgba(255,255,255,.03)', borderRadius:12, overflow:'hidden',
+                    border:'1px solid rgba(255,255,255,.07)', marginBottom: isMobile ? 20 : 28,
+                    flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
                     {[
-                      { label:'TOTAL LISTINGS', value: listings.length.toString(),      icon:'🏷️', color:'#00d4ff', sub:'active on-chain' },
-                      { label:'TOTAL VOLUME',   value: `${totalVolXnt.toFixed(2)} XNT`, icon:'💎', color:'#00c98d', sub:'all time' },
-                      { label:'FLOOR PRICE',    value: floorListing ? `${lamportsToXnt(floorListing.price)} XNT` : '—', icon:'📉', color:'#bf5af2', sub:'lowest listing' },
-                      { label:'TOTAL SALES',    value: sales.length.toString(),         icon:'⚡', color:'#ffaa00', sub:'completed buys' },
-                    ].map(({ label, value, icon, color, sub }) => (
-                      <div key={label} style={{ background:'linear-gradient(135deg,rgba(255,255,255,.04),rgba(255,255,255,.02))',
-                        border:`1px solid ${color}22`, borderRadius:14, padding: isMobile ? '14px 12px' : '18px 20px',
-                        position:'relative', overflow:'hidden' }}>
-                        <div style={{ position:'absolute', top:0, left:0, right:0, height:2, background:`linear-gradient(90deg,transparent,${color}88,transparent)` }} />
-                        <div style={{ fontSize: isMobile ? 20 : 24, marginBottom:8 }}>{icon}</div>
-                        <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 14 : 20, fontWeight:900, color, marginBottom:4 }}>{value}</div>
-                        <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 6 : 7, color:'#9abacf', letterSpacing:1.5, marginBottom:2 }}>{label}</div>
-                        <div style={{ fontFamily:'Sora,sans-serif', fontSize: isMobile ? 8 : 9, color:'#9abacf' }}>{sub}</div>
+                      { label:'TOTAL LISTINGS', value: listings.length.toString(),      unit:'',    color:'#00d4ff', sub:'active on-chain' },
+                      { label:'TOTAL VOLUME',   value: totalVolXnt.toFixed(2),          unit:'XNT', color:'#00c98d', sub:'all time' },
+                      { label:'FLOOR PRICE',    value: floorListing ? lamportsToXnt(floorListing.price) : '—', unit: floorListing ? 'XNT' : '', color:'#bf5af2', sub:'lowest listing' },
+                      { label:'TOTAL SALES',    value: sales.length.toString(),         unit:'',    color:'#ffaa00', sub:'completed buys' },
+                    ].map(({ label, value, unit, color, sub }, i, arr) => (
+                      <div key={label} style={{
+                        flex: isMobile ? '1 1 50%' : 1,
+                        padding: isMobile ? '14px 16px' : '18px 22px',
+                        borderRight: i < arr.length - 1 ? '1px solid rgba(255,255,255,.07)' : 'none',
+                        borderBottom: isMobile && i < 2 ? '1px solid rgba(255,255,255,.07)' : 'none',
+                        display:'flex', flexDirection:'column', gap:4,
+                      }}>
+                        <div style={{ display:'flex', alignItems:'baseline', gap:5, lineHeight:1 }}>
+                          <span style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 18 : 22, fontWeight:900, color }}>{value}</span>
+                          {unit && <span style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 8 : 9, color, opacity:.7 }}>{unit}</span>}
+                        </div>
+                        <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 6 : 7, color:'#9abacf', letterSpacing:1.5 }}>{label}</div>
+                        <div style={{ fontFamily:'Sora,sans-serif', fontSize: isMobile ? 8 : 9, color:'#6a8aaa' }}>{sub}</div>
                       </div>
                     ))}
                   </div>
