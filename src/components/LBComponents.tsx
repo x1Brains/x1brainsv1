@@ -116,8 +116,8 @@ const DISC_SALE_ACCOUNT = 'd51257e4dae6cfb6';
 const DISC_SALE_B58 = 'ce4bPBiPtDK';
 
 // ── NFT Image component ──
-const NFTImage: FC<{ metaUri?: string; name: string; contain?: boolean; nftMint?: string }> = ({
-  metaUri, name, contain = false, nftMint,
+const NFTImage: FC<{ metaUri?: string; name: string; contain?: boolean }> = ({
+  metaUri, name, contain = false,
 }) => {
   const [imgSrc, setImgSrc] = useState<string | null | undefined>(
     metaUri ? (lwImageCache.has(metaUri) ? lwImageCache.get(metaUri)! : undefined) : null
@@ -195,30 +195,14 @@ const NFTImage: FC<{ metaUri?: string; name: string; contain?: boolean; nftMint?
         animation:'spin 0.8s linear infinite' }} />
     </div>
   );
-  if (!imgSrc) {
-    const isMoltLab = metaUri?.includes('moltlab.vercel.app');
-    return (
-      <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column',
-        alignItems:'center', justifyContent:'center',
-        background: isMoltLab ? 'linear-gradient(135deg,rgba(255,100,50,.08),rgba(191,90,242,.06))' : 'rgba(191,90,242,.04)' }}>
-        {isMoltLab ? (
-          <>
-            <span style={{ fontSize:28 }}>🦞</span>
-            <span style={{ fontFamily:'Orbitron,monospace', fontSize:6, color:'#bf5af2',
-              marginTop:5, letterSpacing:1, textAlign:'center' }}>MOLTLING</span>
-            <span style={{ fontFamily:'Sora,sans-serif', fontSize:7, color:'#6a7a94',
-              marginTop:2, textAlign:'center', padding:'0 4px' }}>View on MoltLab</span>
-          </>
-        ) : (
-          <>
-            <span style={{ fontSize:24 }}>🖼️</span>
-            <span style={{ fontFamily:'Orbitron,monospace', fontSize:7, color:'#6a7a94',
-              marginTop:4, letterSpacing:1 }}>NO IMAGE</span>
-          </>
-        )}
-      </div>
-    );
-  }
+  if (!imgSrc) return (
+    <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column',
+      alignItems:'center', justifyContent:'center', background:'rgba(191,90,242,.04)' }}>
+      <span style={{ fontSize:24 }}>🖼️</span>
+      <span style={{ fontFamily:'Orbitron,monospace', fontSize:7, color:'#6a7a94',
+        marginTop:4, letterSpacing:1 }}>NO IMAGE</span>
+    </div>
+  );
   return (
     <img src={imgSrc} alt={name} style={{
       position:'absolute', inset:0, width:'100%', height:'100%',
