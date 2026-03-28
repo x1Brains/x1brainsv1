@@ -846,6 +846,11 @@ const AdminRewards:FC=()=>{
   },[]);
   const navigate=useNavigate();const{connection}=useConnection();const wallet=useWallet();const{setVisible}=useWalletModal();
   const wa=wallet.publicKey?.toBase58()||'';const isAdmin=wa===ADMIN_WALLET;
+
+  // Register wallet with adminFetch so it sends x-admin-wallet header on every write
+  useEffect(()=>{
+    import('../lib/supabase').then(sb=>{ if(sb.setAdminWallet) sb.setAdminWallet(wa); }).catch(()=>{});
+  },[wa]);
   const[isMobile,setIsMobile]=useState(window.innerWidth<768);
   useEffect(()=>{const h=()=>setIsMobile(window.innerWidth<768);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[]);
   const[tab,setTab]=useState('weekly');const[saved,setSaved]=useState('');const show=(m:string)=>{setSaved(m);setTimeout(()=>setSaved(''),2500);};
@@ -2063,8 +2068,8 @@ const AdminRewards:FC=()=>{
               </div>
               <div style={{padding:'10px 14px',background:'rgba(57,255,136,.04)',border:'1px solid rgba(57,255,136,.12)',borderRadius:8}}>
                 <div style={{fontFamily:'Orbitron,monospace',fontSize:8,color:'#667788',marginBottom:4}}>SERVICE KEY</div>
-                <div style={{fontFamily:'monospace',fontSize:10,color:import.meta.env.VITE_SUPABASE_SERVICE_KEY?'#39ff88':'#ff4466'}}>
-                  {import.meta.env.VITE_SUPABASE_SERVICE_KEY?'✅ Admin write access':'❌ Read-only mode'}
+                <div style={{fontFamily:'monospace',fontSize:10,color:isAdmin?'#39ff88':'#ff4466'}}>
+                  {isAdmin?'✅ Admin write access (server-side)':'❌ Connect admin wallet'}
                 </div>
               </div>
             </div>

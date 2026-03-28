@@ -3,22 +3,43 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 // ─────────────────────────────────────────────
 // SUPABASE CLIENTS
 // ─────────────────────────────────────────────
-const SUPABASE_URL         = import.meta.env.VITE_SUPABASE_URL         || '';
-const SUPABASE_ANON_KEY    = import.meta.env.VITE_SUPABASE_ANON_KEY    || '';
-const SUPABASE_SERVICE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY || '';
+const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL      || '';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 const _hasSB = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
 
 /** Public client — read-only (used by all pages) */
 export const supabase: SupabaseClient | null = _hasSB ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-/** Admin client — read/write (used only by AdminRewards) */
-export const supabaseAdmin: SupabaseClient | null = _hasSB
-  ? (SUPABASE_SERVICE_KEY ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY) : supabase)
-  : null;
-
 /** Check if Supabase is configured */
 export function isSupabaseReady(): boolean { return _hasSB; }
+
+// ─────────────────────────────────────────────────────────────────
+// ADMIN API — all write operations go through /api/admin (server-side)
+// The service role key lives there as SUPABASE_SERVICE_KEY (no VITE_ prefix)
+// and is never exposed in the browser bundle.
+// ─────────────────────────────────────────────────────────────────
+let _adminWallet = '';
+export function setAdminWallet(w: string) { _adminWallet = w; }
+
+async function adminFetch(action: string, payload?: any): Promise<{ success: boolean; error?: string; data?: any }> {
+  try {
+    const r = await fetch('/api/admin', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-wallet': _adminWallet,
+      },
+      body: JSON.stringify({ action, payload }),
+    });
+    return await r.json();
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? 'Network error' };
+  }
+}
+
+/** Legacy alias — supabaseAdmin now equals supabase (anon). All writes go via adminFetch. */
+export const supabaseAdmin: SupabaseClient | null = supabase;
 
 // helper
 const ok = (e: any) => !e;
@@ -78,26 +99,15 @@ export async function getAllLabWorkRewards(): Promise<LabWorkReward[]> {
 }
 
 export async function awardLabWorkPoints(address: string, lbPoints: number, reason: string, category?: string, weekId?: string): Promise<Res> {
-  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
-  try {
-    const { error } = await supabaseAdmin.from('labwork_rewards').insert({
-      address: address.trim(), lb_points: lbPoints, reason: reason.trim(),
-      category: category || 'other', awarded_by: 'admin', week_id: weekId || '',
-    });
-    return res(error);
-  } catch (e: any) { return { success: false, error: e.message }; }
+  return adminFetch('award_lbp', { address, lb_points: lbPoints, reason, category: category || 'other', week_id: weekId || '' });
 }
 
 export async function deleteLabWorkReward(id: string): Promise<Res> {
-  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
-  try { const { error } = await supabaseAdmin.from('labwork_rewards').delete().eq('id', id); return res(error); }
-  catch (e: any) { return { success: false, error: e.message }; }
+  return adminFetch('delete_lbp', { id });
 }
 
 export async function clearAllLabWorkRewards(): Promise<Res> {
-  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
-  try { const { error } = await supabaseAdmin.from('labwork_rewards').delete().neq('id', '00000000-0000-0000-0000-000000000000'); return res(error); }
-  catch (e: any) { return { success: false, error: e.message }; }
+  return adminFetch('clear_all_lbp');
 }
 
 // cache
@@ -143,19 +153,7 @@ export async function getWeeklyConfig(): Promise<any | null> {
 }
 
 export async function saveWeeklyConfig(config: any): Promise<Res> {
-  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
-  try {
-    const { error } = await supabaseAdmin.from('weekly_config').upsert({
-      id: 'current',
-      week_id: config.weekId ?? '', status: config.status ?? 'upcoming',
-      start_date: config.startDate || null, end_date: config.endDate || null,
-      challenges: config.challenges ?? [], prizes: config.prizes ?? [[], [], []],
-      winners: config.winners ?? [], send_receipts: config.sendReceipts ?? [],
-      section_confirmed: config.sectionConfirmed ?? {},
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'id' });
-    return res(error);
-  } catch (e: any) { return { success: false, error: e.message }; }
+  return adminFetch('save_weekly_config', config);
 }
 
 // cache
@@ -187,35 +185,15 @@ export async function getChallengeLogs(): Promise<any[]> {
 }
 
 export async function addChallengeLog(log: any): Promise<Res> {
-  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
-  try {
-    const { error } = await supabaseAdmin.from('challenge_logs').insert({
-      week_id: log.weekId ?? '', status: log.status ?? 'ended',
-      start_date: log.startDate || null, end_date: log.endDate || null,
-      stopped_at: log.stoppedAt || new Date().toISOString(),
-      challenges: log.challenges ?? [], prizes: log.prizes ?? [[], [], []],
-      winners: log.winners ?? [], send_receipts: log.sendReceipts ?? [],
-    });
-    return res(error);
-  } catch (e: any) { return { success: false, error: e.message }; }
+  return adminFetch('add_challenge_log', log);
 }
 
 export async function updateChallengeLog(weekId: string, updates: any): Promise<Res> {
-  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
-  try {
-    const payload: any = {};
-    if (updates.winners !== undefined) payload.winners = updates.winners;
-    if (updates.sendReceipts !== undefined) payload.send_receipts = updates.sendReceipts;
-    if (updates.status !== undefined) payload.status = updates.status;
-    const { error } = await supabaseAdmin.from('challenge_logs').update(payload).eq('week_id', weekId);
-    return res(error);
-  } catch (e: any) { return { success: false, error: e.message }; }
+  return adminFetch('update_challenge_log', { week_id: weekId, updates });
 }
 
 export async function deleteChallengeLog(weekId: string): Promise<Res> {
-  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
-  try { const { error } = await supabaseAdmin.from('challenge_logs').delete().eq('week_id', weekId); return res(error); }
-  catch (e: any) { return { success: false, error: e.message }; }
+  return adminFetch('delete_challenge_log', { week_id: weekId });
 }
 
 // cache
@@ -245,19 +223,11 @@ export async function getAnnouncements(): Promise<any[]> {
 }
 
 export async function addAnnouncement(ann: { title: string; message: string; type: string }): Promise<Res> {
-  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
-  try {
-    const { error } = await supabaseAdmin.from('announcements').insert({
-      title: ann.title, body: ann.message, category: ann.type, pinned: false,
-    });
-    return res(error);
-  } catch (e: any) { return { success: false, error: e.message }; }
+  return adminFetch('add_announcement', ann);
 }
 
 export async function deleteAnnouncement(id: string): Promise<Res> {
-  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
-  try { const { error } = await supabaseAdmin.from('announcements').delete().eq('id', id); return res(error); }
-  catch (e: any) { return { success: false, error: e.message }; }
+  return adminFetch('delete_announcement', { id });
 }
 
 // cache
@@ -289,8 +259,8 @@ export async function getSubmissions(): Promise<LabWorkSubmission[]> {
 }
 
 export async function addSubmission(sub: { address: string; category: string; links: string[]; description: string }): Promise<Res> {
-  // Use admin client if available (admin panel), otherwise anon client (public page)
-  const client = supabaseAdmin || supabase;
+  // Public submissions go via anon client (no admin needed)
+  const client = supabase;
   if (!client) return { success: false, error: 'Supabase not configured' };
   try {
     const { error } = await client.from('labwork_submissions').insert({
@@ -301,25 +271,15 @@ export async function addSubmission(sub: { address: string; category: string; li
 }
 
 export async function updateSubmissionStatus(id: string, status: string, reviewNote?: string): Promise<Res> {
-  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
-  try {
-    const { error } = await supabaseAdmin.from('labwork_submissions').update({
-      status, review_note: reviewNote || '',
-    }).eq('id', id);
-    return res(error);
-  } catch (e: any) { return { success: false, error: e.message }; }
+  return adminFetch('update_submission', { id, status, review_note: reviewNote || '' });
 }
 
 export async function deleteSubmission(id: string): Promise<Res> {
-  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
-  try { const { error } = await supabaseAdmin.from('labwork_submissions').delete().eq('id', id); return res(error); }
-  catch (e: any) { return { success: false, error: e.message }; }
+  return adminFetch('delete_submission', { id });
 }
 
 export async function clearAllSubmissions(): Promise<Res> {
-  if (!supabaseAdmin) return { success: false, error: 'Supabase not configured' };
-  try { const { error } = await supabaseAdmin.from('labwork_submissions').delete().neq('id', '00000000-0000-0000-0000-000000000000'); return res(error); }
-  catch (e: any) { return { success: false, error: e.message }; }
+  return adminFetch('clear_all_submissions');
 }
 
 
@@ -644,12 +604,12 @@ export async function migrateAllToSupabase(): Promise<{ labwork: number; config:
       const rewards = JSON.parse(raw);
       if (Array.isArray(rewards)) {
         for (const r of rewards) {
-          const { error } = await supabaseAdmin.from('labwork_rewards').insert({
+          const result = await adminFetch('insert_lbp_reward', {
             address: r.address || '', lb_points: r.lbPoints || 0,
             reason: r.reason || 'Migrated', category: r.category || 'other',
             awarded_by: 'admin', week_id: r.weekId || '',
           });
-          if (error) errors.push(`LW: ${error.message}`); else labwork++;
+          if (!result.success) errors.push(`LW: ${result.error}`); else labwork++;
         }
       }
     }
@@ -686,11 +646,11 @@ export async function migrateAllToSupabase(): Promise<{ labwork: number; config:
       const arr = JSON.parse(raw);
       if (Array.isArray(arr)) {
         for (const a of arr) {
-          const { error } = await supabaseAdmin.from('announcements').insert({
+          const result = await adminFetch('insert_announcement', {
             title: a.title || '', body: a.message || '', category: a.type || 'info',
             pinned: a.pinned || false, created_at: a.date || new Date().toISOString(),
           });
-          if (error) errors.push(`ANN: ${error.message}`); else announcements++;
+          if (!result.success) errors.push(`ANN: ${result.error}`); else announcements++;
         }
       }
     }
@@ -703,12 +663,11 @@ export async function migrateAllToSupabase(): Promise<{ labwork: number; config:
       const arr = JSON.parse(raw);
       if (Array.isArray(arr)) {
         for (const s of arr) {
-          const { error } = await supabaseAdmin.from('labwork_submissions').insert({
+          const result = await adminFetch('insert_submission', {
             address: s.address || '', category: s.category || 'other',
             links: s.links || [], description: s.description || '',
-            status: s.status || 'pending', created_at: s.date || new Date().toISOString(),
           });
-          if (error) errors.push(`SUB: ${error.message}`); else submissions++;
+          if (!result.success) errors.push(`SUB: ${result.error}`); else submissions++;
         }
       }
     }

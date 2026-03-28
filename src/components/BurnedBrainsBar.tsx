@@ -16,17 +16,17 @@ export const walletBurnStats = { totalLbPts: 0, burnLbPts: 0, labWorkPts: 0, wal
 // TIERS (same as BurnLeaderboard)
 // ─────────────────────────────────────────────
 const TIERS = [
-  { min: 0,          label: 'UNRANKED',      color: '#667788', neon: '#a0bbcc', icon: '—'  },
+  { min: 0,          label: 'UNRANKED',      color: '#667788', neon: '#a0bbcc', icon: '○'  },
   { min: 1,          label: 'SPARK',         color: '#aaccff', neon: '#bbddff', icon: '✦'  },
   { min: 25_000,     label: 'FLAME',         color: '#ffcc55', neon: '#ffdd77', icon: '🕯️' },
   { min: 50_000,     label: 'INFERNO',       color: '#ff9933', neon: '#ffaa44', icon: '🔥' },
-  { min: 100_000,    label: 'OVERWRITE',     color: '#ff6611', neon: '#ff8811', icon: '💥' },
-  { min: 250_000,    label: 'ANNIHILATE',    color: '#ff4422', neon: '#ff6622', icon: '☄️' },
-  { min: 500_000,    label: 'TERMINATE',     color: '#ff2200', neon: '#ff4411', icon: '🌋' },
-  { min: 1_000_000,  label: 'DISINTEGRATE',  color: '#dd0055', neon: '#ff2277', icon: '⚡' },
-  { min: 2_500_000,  label: 'GODSLAYER',     color: '#aa00ff', neon: '#dd22ff', icon: '👁' },
-  { min: 5_000_000,  label: 'APOCALYPSE',    color: '#ff0044', neon: '#ff1155', icon: '💀' },
-  { min: 8_000_000,  label: 'INCINERATOR',   color: '#ffeecc', neon: '#fffaee', icon: '☠️' },
+  { min: 100_000,    label: 'OVERWRITE',     color: '#ff7700', neon: '#ff8811', icon: '⚙️' },
+  { min: 200_000,    label: 'ANNIHILATE',    color: '#ff5500', neon: '#ff6622', icon: '💥' },
+  { min: 350_000,    label: 'TERMINATE',     color: '#ff3300', neon: '#ff4411', icon: '⚡' },
+  { min: 500_000,    label: 'DISINTEGRATE',  color: '#ff1166', neon: '#ff2277', icon: '☢️' },
+  { min: 700_000,    label: 'GODSLAYER',     color: '#cc00ff', neon: '#dd22ff', icon: '⚔️' },
+  { min: 850_000,    label: 'APOCALYPSE',    color: '#ff0044', neon: '#ff1155', icon: '💀' },
+  { min: 1_000_000,  label: 'INCINERATOR',   color: '#ffffff', neon: '#fffaee', icon: '☠️' },
 ];
 const getTier  = (pts: number) => { for (let i = TIERS.length-1; i>=0; i--) if (pts >= TIERS[i].min) return TIERS[i]; return TIERS[0]; };
 const nextTier = (pts: number) => { for (let i=0; i<TIERS.length; i++) if (pts < TIERS[i].min) return TIERS[i]; return null; };
