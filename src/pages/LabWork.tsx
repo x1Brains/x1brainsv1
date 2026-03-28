@@ -14,9 +14,11 @@ import {
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountInstruction,
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  createBurnCheckedInstruction,
+  getMint,
 } from '@solana/spl-token';
 import { TopBar, PageBackground, Footer } from '../components/UI';
-import { PLATFORM_WALLET_STRING } from '../constants';
+import { PLATFORM_WALLET_STRING, BRAINS_MINT as BRAINS_MINT_STR } from '../constants';
 import { supabase } from '../lib/supabase';
 import type { NFTData, Listing, TradeLog, PageMode, MarketTab } from '../components/LBComponents';
 import {
@@ -34,6 +36,277 @@ import {
   UpdatePriceModal, ListingCard, ConfirmModal,
   SellPanel, ListModal,
 } from '../components/LBComponents';
+
+// ═════════════════════════════════════════════════════════════════
+//  BOOST FEATURE — SPARK / GODSLAYER / INCINERATOR
+// ═════════════════════════════════════════════════════════════════
+
+const BRAINS_DECIMALS = 9;
+const BRAINS_MINT_PK  = new PublicKey(BRAINS_MINT_STR);
+
+const BOOST_TIERS = [
+  { id: 'spark',       label: '⚡ SPARK',       brains: 1_000,  days: 1,  color: '#00d4ff', desc: '24 hours spotlight' },
+  { id: 'godslayer',   label: '⚔️ GODSLAYER',   brains: 2_500,  days: 3,  color: '#bf5af2', desc: '3 days of dominance' },
+  { id: 'incinerator', label: '🔥 INCINERATOR', brains: 5_000,  days: 7,  color: '#ff6a00', desc: '7 days, maximum burn' },
+] as const;
+type BoostTierId = typeof BOOST_TIERS[number]['id'];
+
+interface BoostRecord {
+  id:             string;
+  listing_pda:    string;
+  nft_mint:       string;
+  seller:         string;
+  tier:           BoostTierId;
+  brains:         number;
+  labwork_points: number;
+  tx_sig:         string;
+  expires_at:     string; // ISO
+  nftData?:       NFTData;
+}
+
+async function loadActiveBoosts(): Promise<BoostRecord[]> {
+  if (!supabase) return [];
+  try {
+    const { data } = await supabase
+      .from('labwork_boosts')
+      .select('*')
+      .gt('expires_at', new Date().toISOString())
+      .order('tier', { ascending: false })   // incinerator > godslayer > spark
+      .order('created_at', { ascending: true })
+      .limit(3);
+    return (data ?? []) as BoostRecord[];
+  } catch { return []; }
+}
+
+async function saveBoost(b: Omit<BoostRecord, 'id' | 'nftData'>): Promise<void> {
+  if (!supabase) return;
+  try {
+    await supabase.from('labwork_boosts').upsert(b, { onConflict: 'listing_pda' });
+  } catch {}
+}
+
+// Save labwork points earned from burning BRAINS for a boost
+async function saveLabworkPoints(p: {
+  wallet: string; brains_burned: number; points: number;
+  source: string; tier: string; tx_sig: string;
+}): Promise<void> {
+  if (!supabase) return;
+  try {
+    await supabase.from('labwork_points').upsert({
+      wallet:        p.wallet,
+      brains_burned: p.brains_burned,
+      points:        p.points,
+      source:        p.source,
+      tier:          p.tier,
+      tx_sig:        p.tx_sig,
+      earned_at:     new Date().toISOString(),
+    }, { onConflict: 'tx_sig' });
+  } catch {}
+}
+
+// ─── BoostModal ───────────────────────────────────────────────────
+const BoostModal: FC<{
+  listing:         Listing;
+  isMobile:        boolean;
+  connection:      any;
+  publicKey:       PublicKey;
+  sendTransaction: any;
+  signTransaction: ((tx: Transaction) => Promise<Transaction>) | null | undefined;
+  onClose:         () => void;
+  onBoosted:       () => void;
+}> = ({ listing, isMobile, connection, publicKey, sendTransaction, signTransaction, onClose, onBoosted }) => {
+  const [tier,      setTier]    = useState<BoostTierId>('spark');
+  const [status,    setStatus]  = useState('');
+  const [pending,   setPending] = useState(false);
+  const [balance,   setBalance] = useState<number | null>(null);
+  const nft = listing.nftData;
+  const imgUri = nft?.image || nft?.metaUri;
+
+  // Fetch BRAINS balance (Token-2022)
+  useEffect(() => {
+    (async () => {
+      try {
+        const ata = getAssociatedTokenAddressSync(BRAINS_MINT_PK, publicKey, false, TOKEN_2022_PROGRAM_ID);
+        const acc = await connection.getParsedAccountInfo(ata);
+        const bal = acc?.value?.data?.parsed?.info?.tokenAmount?.uiAmount ?? 0;
+        setBalance(bal);
+      } catch { setBalance(0); }
+    })();
+  }, []);
+
+  const selectedTier = BOOST_TIERS.find(t => t.id === tier)!;
+  const canAfford    = balance !== null && balance >= selectedTier.brains;
+
+  const handleBoost = async () => {
+    if (!canAfford || !signTransaction) return;
+    setPending(true); setStatus('Preparing burn…');
+    try {
+      // 100% burned — fully deflationary, same mechanism as Portfolio.tsx burnBrainsTokens
+      // BRAINS is Token-2022 — must use TOKEN_2022_PROGRAM_ID throughout
+      const mintInfo = await getMint(connection, BRAINS_MINT_PK, 'confirmed', TOKEN_2022_PROGRAM_ID);
+      const decimals = mintInfo.decimals;
+      const burnRaw  = BigInt(Math.floor(selectedTier.brains * 10 ** decimals));
+      const fromAta  = getAssociatedTokenAddressSync(BRAINS_MINT_PK, publicKey, false, TOKEN_2022_PROGRAM_ID);
+
+      const burnIx = createBurnCheckedInstruction(
+        fromAta, BRAINS_MINT_PK, publicKey, burnRaw, decimals, [], TOKEN_2022_PROGRAM_ID
+      );
+      const { blockhash } = await connection.getLatestBlockhash('confirmed');
+      const tx = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash }).add(burnIx);
+
+      setStatus('Awaiting wallet approval…');
+      const signed = await signTransaction(tx);
+      const sig    = await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: false, maxRetries: 3, preflightCommitment: 'confirmed',
+      });
+
+      setStatus('Confirming burn…');
+      for (let i = 0; i < 30; i++) {
+        if (i) await new Promise(r => setTimeout(r, 500));
+        const s = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
+        if (s?.value?.err) throw new Error('On-chain error: ' + JSON.stringify(s.value.err));
+        const conf = s?.value?.confirmationStatus;
+        if (conf === 'confirmed' || conf === 'finalized') break;
+      }
+
+      // 1.888 labwork points per BRAINS burned
+      const labworkPoints = Math.round(selectedTier.brains * 1.888 * 100) / 100;
+      const expiresAt     = new Date(Date.now() + selectedTier.days * 86_400_000).toISOString();
+
+      await Promise.all([
+        saveBoost({
+          listing_pda:    listing.listingPda,
+          nft_mint:       listing.nftMint,
+          seller:         publicKey.toBase58(),
+          tier,
+          brains:         selectedTier.brains,
+          labwork_points: labworkPoints,
+          tx_sig:         sig,
+          expires_at:     expiresAt,
+        }),
+        saveLabworkPoints({
+          wallet:        publicKey.toBase58(),
+          brains_burned: selectedTier.brains,
+          points:        labworkPoints,
+          source:        'boost',
+          tier,
+          tx_sig:        sig,
+        }),
+      ]);
+
+      setStatus(`✅ Active! 🔥 ${selectedTier.brains.toLocaleString()} BRAINS burned · +${labworkPoints.toLocaleString()} labwork pts · ${selectedTier.days}d featured`);
+      setTimeout(() => { onBoosted(); onClose(); }, 3000);
+    } catch (e: any) {
+      setStatus(`❌ ${e?.message?.slice(0, 100) ?? 'Failed'}`);
+    } finally { setPending(false); }
+  };
+
+  useEffect(() => {
+    let sy = 0;
+    try { sy = window.scrollY; document.body.style.position = 'fixed'; document.body.style.top = `-${sy}px`; document.body.style.overflow = 'hidden'; } catch {}
+    return () => { try { document.body.style.position = ''; document.body.style.top = ''; document.body.style.overflow = ''; window.scrollTo(0, sy); } catch {} };
+  }, []);
+
+  return createPortal(
+    <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,.9)',
+      backdropFilter:'blur(14px)', display:'flex', alignItems:'center', justifyContent:'center', padding: isMobile ? 0 : 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width:'100%', maxWidth: isMobile ? '100%' : 480,
+        background:'linear-gradient(155deg,#0c1520,#080c0f)',
+        border:'1px solid rgba(191,90,242,.4)', borderRadius: isMobile ? '20px 20px 0 0' : 20,
+        padding: isMobile ? '24px 18px 32px' : '28px 28px',
+        marginTop: isMobile ? 'auto' : 0,
+        animation:'labSlideUp 0.24s cubic-bezier(.22,1,.36,1) both',
+        position:'relative',
+      }}>
+        {/* Header */}
+        <button onClick={onClose} style={{ position:'absolute', top:14, right:14, width:30, height:30,
+          borderRadius:'50%', border:'1px solid rgba(191,90,242,.3)', background:'rgba(8,12,15,.9)',
+          cursor:'pointer', color:'#bf5af2', fontSize:16, display:'flex', alignItems:'center', justifyContent:'center' }}>×</button>
+        <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 13 : 15, fontWeight:900, color:'#fff', marginBottom:4 }}>
+          🔥 BURN TO BOOST
+        </div>
+        <div style={{ fontFamily:'Sora,sans-serif', fontSize:11, color:'#4a6a8a', marginBottom:20 }}>
+          Burn BRAINS to feature your NFT · earn 1.888 labwork points per BRAINS burned
+        </div>
+
+        {/* NFT preview */}
+        <div style={{ display:'flex', gap:12, alignItems:'center', marginBottom:20,
+          background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.07)', borderRadius:10, padding:'10px 12px' }}>
+          <div style={{ width:48, height:48, borderRadius:8, overflow:'hidden', flexShrink:0, background:'#060b12', position:'relative' }}>
+            <NFTImage metaUri={imgUri} name={nft?.name ?? ''} />
+          </div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontFamily:'Orbitron,monospace', fontSize:11, fontWeight:700, color:'#e0f0ff',
+              overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{nft?.name ?? listing.nftMint.slice(0,12)+'…'}</div>
+            <div style={{ fontFamily:'Orbitron,monospace', fontSize:8, color:'#4a6a8a', marginTop:2 }}>
+              {lamportsToXnt(listing.price)} XNT listed price
+            </div>
+          </div>
+          {balance !== null && (
+            <div style={{ textAlign:'right', flexShrink:0 }}>
+              <div style={{ fontFamily:'Orbitron,monospace', fontSize:9, fontWeight:700, color:'#bf5af2' }}>{balance.toLocaleString()}</div>
+              <div style={{ fontFamily:'Orbitron,monospace', fontSize:7, color:'#4a6a8a' }}>BRAINS</div>
+            </div>
+          )}
+        </div>
+
+        {/* Tier selection */}
+        <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:20 }}>
+          {BOOST_TIERS.map(t => {
+            const active = tier === t.id;
+            const afford = balance !== null && balance >= t.brains;
+            const pts    = Math.round(t.brains * 1.888);
+            const rgba   = t.color === '#00d4ff' ? '0,212,255' : t.color === '#bf5af2' ? '191,90,242' : '255,106,0';
+            return (
+              <button key={t.id} type="button" onClick={() => afford && setTier(t.id)}
+                style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px',
+                  background: active ? `rgba(${rgba},.12)` : 'rgba(255,255,255,.03)',
+                  border: `1px solid ${active ? t.color + '66' : 'rgba(255,255,255,.08)'}`,
+                  borderRadius:10, cursor: afford ? 'pointer' : 'not-allowed', opacity: afford ? 1 : 0.4,
+                  transition:'all .15s', textAlign:'left', width:'100%' }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 10 : 11, fontWeight:900,
+                    color: active ? t.color : '#c0d0e0', marginBottom:3 }}>{t.label}</div>
+                  <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                    <span style={{ fontFamily:'Sora,sans-serif', fontSize:10, color:'#6a8aaa' }}>{t.desc}</span>
+                    <span style={{ fontFamily:'Orbitron,monospace', fontSize:8, fontWeight:700,
+                      color:'#00c98d', background:'rgba(0,201,141,.1)', border:'1px solid rgba(0,201,141,.2)',
+                      borderRadius:4, padding:'1px 6px' }}>+{pts.toLocaleString()} pts</span>
+                  </div>
+                </div>
+                <div style={{ textAlign:'right', flexShrink:0 }}>
+                  <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 12 : 14, fontWeight:900,
+                    color: active ? t.color : '#9abacf' }}>{t.brains.toLocaleString()}</div>
+                  <div style={{ fontFamily:'Orbitron,monospace', fontSize:7, color:'#ff4a4a' }}>🔥 100% BURNED</div>
+                </div>
+                {active && <div style={{ width:8, height:8, borderRadius:'50%', background: t.color, flexShrink:0 }} />}
+              </button>
+            );
+          })}
+        </div>
+
+        <StatusBox msg={status} />
+
+        <button type="button" onClick={handleBoost} disabled={pending || !canAfford}
+          style={{ width:'100%', padding:'13px 0',
+            background: canAfford ? `linear-gradient(135deg,rgba(191,90,242,.22),rgba(191,90,242,.1))` : 'rgba(255,255,255,.04)',
+            border: `1px solid ${canAfford ? 'rgba(191,90,242,.5)' : 'rgba(255,255,255,.1)'}`,
+            borderRadius:10, cursor: (pending || !canAfford) ? 'not-allowed' : 'pointer',
+            fontFamily:'Orbitron,monospace', fontSize:11, fontWeight:700,
+            color: canAfford ? '#bf5af2' : '#4a6a8a', opacity: pending ? 0.7 : 1,
+            display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+          {pending
+            ? <><div style={{ width:14, height:14, borderRadius:'50%', border:'2px solid rgba(191,90,242,.2)', borderTop:'2px solid #bf5af2', animation:'spin 0.8s linear infinite' }} />BURNING…</>
+            : !canAfford
+              ? `NEED ${selectedTier.brains.toLocaleString()} BRAINS`
+              : `🔥 BURN ${selectedTier.brains.toLocaleString()} BRAINS · BOOST ${selectedTier.days}D`}
+        </button>
+      </div>
+    </div>,
+    document.body
+  );
+};
 
 // ═════════════════════════════════════════════════════════════════
 //  MAIN PAGE COMPONENT
@@ -76,6 +349,10 @@ const LabWork: FC = () => {
   const [tradeLogs, setTradeLogs]             = useState<TradeLog[]>([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
 
+  // Boost state
+  const [boosts,       setBoosts]       = useState<BoostRecord[]>([]);
+  const [boostTarget,  setBoostTarget]  = useState<Listing | null>(null);
+
   // ── Load wallet NFTs ──────────────────────────────────────────
   useEffect(() => {
     if (!publicKey) { setNfts([]); return; }
@@ -116,7 +393,11 @@ const LabWork: FC = () => {
   // ── Load marketplace listings ─────────────────────────────────
   const loadListings = useCallback(async () => {
     setLoadingListings(true);
-    const raw = await fetchAllListings(connection);
+    const [raw, activeBoosts] = await Promise.all([
+      fetchAllListings(connection),
+      loadActiveBoosts(),
+    ]);
+    setBoosts(activeBoosts);
     // Render bare listings immediately — grid appears with price/seller data
     setListings(raw);
     setListingsPage(48);
@@ -943,6 +1224,117 @@ const LabWork: FC = () => {
                     </div>
                   </div>
 
+                  {/* ── Featured / Boosted Listings ── */}
+                  {boosts.length > 0 && (() => {
+                    // Match boost records to enriched listing data
+                    const boostedListings = boosts
+                      .map(b => listings.find(l => l.listingPda === b.listing_pda))
+                      .filter(Boolean) as Listing[];
+                    const tierOrder: Record<BoostTierId, number> = { incinerator:0, godslayer:1, spark:2 };
+                    const sorted = [...boostedListings].sort((a, b) => {
+                      const ba = boosts.find(x => x.listing_pda === a.listingPda)!;
+                      const bb = boosts.find(x => x.listing_pda === b.listingPda)!;
+                      return (tierOrder[ba.tier] ?? 9) - (tierOrder[bb.tier] ?? 9);
+                    });
+                    const slots = [sorted[0], sorted[1], sorted[2]];
+                    return (
+                      <div style={{ marginBottom: isMobile ? 20 : 28, animation:'fadeUp 0.4s ease both' }}>
+                        {/* Section header */}
+                        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+                          <div>
+                            <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 10 : 12, fontWeight:900,
+                              color:'#fff', letterSpacing:1.5, display:'flex', alignItems:'center', gap:8 }}>
+                              <span style={{ fontSize: isMobile ? 13 : 15 }}>⚡</span> FEATURED LISTINGS
+                              <span style={{ fontFamily:'Orbitron,monospace', fontSize:7, color:'#bf5af2',
+                                background:'rgba(191,90,242,.12)', border:'1px solid rgba(191,90,242,.25)',
+                                padding:'2px 7px', borderRadius:4 }}>PAID BOOST</span>
+                            </div>
+                            <div style={{ fontFamily:'Sora,sans-serif', fontSize:9, color:'#9abacf', marginTop:3 }}>3 featured slots · ranked by tier</div>
+                          </div>
+                          <button type="button" onClick={() => { setPageMode('market'); setMarketTab('mylistings'); }}
+                            style={{ fontFamily:'Orbitron,monospace', fontSize:8, color:'#bf5af2',
+                              background:'rgba(191,90,242,.08)', border:'1px solid rgba(191,90,242,.2)',
+                              borderRadius:7, padding:'5px 12px', cursor:'pointer', fontWeight:700 }}>
+                            BOOST YOURS ↗
+                          </button>
+                        </div>
+
+                        {/* 3-slot grid */}
+                        <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(3,1fr)' : 'repeat(3,1fr)', gap: isMobile ? 8 : 14 }}>
+                          {[0,1,2].map(i => {
+                            const l   = slots[i];
+                            const b   = l ? boosts.find(x => x.listing_pda === l.listingPda) : null;
+                            const tier = BOOST_TIERS.find(t => t.id === b?.tier);
+                            const nft = l?.nftData;
+                            const imgUri = nft?.image || nft?.metaUri;
+                            const expiresMs = b ? new Date(b.expires_at).getTime() - Date.now() : 0;
+                            const daysLeft  = Math.ceil(expiresMs / 86_400_000);
+                            const hoursLeft = Math.ceil(expiresMs / 3_600_000);
+                            const timeLabel = daysLeft >= 1 ? `${daysLeft}d` : `${hoursLeft}h`;
+
+                            if (!l) return (
+                              <div key={i} style={{ border:'1px dashed rgba(191,90,242,.2)', borderRadius:12,
+                                padding: isMobile ? '16px 10px' : '24px 16px',
+                                display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:8,
+                                minHeight: isMobile ? 120 : 160 }}>
+                                <div style={{ width:28, height:28, borderRadius:'50%', border:'1.5px dashed rgba(191,90,242,.35)',
+                                  display:'flex', alignItems:'center', justifyContent:'center',
+                                  fontFamily:'Orbitron,monospace', fontSize:16, color:'rgba(191,90,242,.4)' }}>+</div>
+                                <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 6 : 7, color:'rgba(191,90,242,.4)',
+                                  textAlign:'center', letterSpacing:.5 }}>SLOT {i+1}<br/>AVAILABLE</div>
+                                <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 6 : 7, color:'rgba(191,90,242,.3)' }}>
+                                  from 1,000 BRAINS
+                                </div>
+                              </div>
+                            );
+
+                            return (
+                              <div key={i}
+                                onClick={() => { setPageMode('market'); setMarketTab('browse'); }}
+                                style={{ background:'linear-gradient(145deg,rgba(191,90,242,.08),rgba(0,212,255,.04))',
+                                  border:`1px solid ${tier?.color ?? '#bf5af2'}33`, borderRadius:12, overflow:'hidden',
+                                  cursor:'pointer', transition:'transform .15s, box-shadow .18s',
+                                  position:'relative' }}
+                                onMouseEnter={e => { const el = e.currentTarget as HTMLDivElement; el.style.transform='translateY(-3px)'; el.style.boxShadow=`0 8px 24px ${tier?.color ?? '#bf5af2'}22`; }}
+                                onMouseLeave={e => { const el = e.currentTarget as HTMLDivElement; el.style.transform=''; el.style.boxShadow=''; }}>
+                                {/* Tier accent line */}
+                                <div style={{ height:2, background:`linear-gradient(90deg,transparent,${tier?.color ?? '#bf5af2'},transparent)` }} />
+                                {/* Image */}
+                                <div style={{ position:'relative', width:'100%', paddingBottom:'100%', background:'#060b12' }}>
+                                  <NFTImage metaUri={imgUri} name={nft?.name ?? ''} />
+                                  {/* Tier badge */}
+                                  <div style={{ position:'absolute', top:5, left:5, background:'rgba(0,0,0,.85)',
+                                    border:`1px solid ${tier?.color ?? '#bf5af2'}55`, borderRadius:4,
+                                    padding:'1px 6px', fontFamily:'Orbitron,monospace', fontSize: isMobile ? 6 : 7,
+                                    color: tier?.color ?? '#bf5af2', fontWeight:700 }}>
+                                    {tier?.id === 'incinerator' ? '🔥' : tier?.id === 'godslayer' ? '⚔️' : '⚡'}
+                                    {!isMobile && ` ${tier?.id.toUpperCase()}`}
+                                  </div>
+                                  {/* Time left */}
+                                  <div style={{ position:'absolute', bottom:5, right:5, background:'rgba(0,0,0,.82)',
+                                    border:'1px solid rgba(255,170,0,.3)', borderRadius:4, padding:'1px 6px',
+                                    fontFamily:'Orbitron,monospace', fontSize: isMobile ? 6 : 7, color:'#ffaa00' }}>
+                                    {timeLabel} left
+                                  </div>
+                                </div>
+                                {/* Info */}
+                                <div style={{ padding: isMobile ? '6px 7px 8px' : '8px 10px 10px' }}>
+                                  <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 7 : 8, fontWeight:700,
+                                    color:'#c0d0e0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:3 }}>
+                                    {nft?.name ?? l.nftMint.slice(0,8)+'…'}
+                                  </div>
+                                  <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 10 : 12, fontWeight:900, color:'#00d4ff' }}>
+                                    {lamportsToXnt(l.price)}<span style={{ fontSize:7, color:'#3a5a7a', marginLeft:3 }}>XNT</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* ── Recent Activity ── */}
                   <div style={{ background:'rgba(255,255,255,.02)', border:'1px solid rgba(255,255,255,.06)', borderRadius:16, padding: isMobile ? '16px 14px' : '22px 24px' }}>
                     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
@@ -1128,12 +1520,76 @@ const LabWork: FC = () => {
                   </div>
                 )}
                 {publicKey && myListings.length > 0 && (
-                  <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: isMobile ? 10 : 14 }}>
-                    {myListings.map(l => <ListingCard key={l.listingPda} listing={l} isMobile={isMobile} isOwner={true}
-                      onBuy={() => {}}
-                      onDelist={() => handleDelist(l)}
-                      onInspect={() => handleInspectListing(l)}
-                      onUpdatePrice={() => handleUpdatePrice(l)} />)}
+                  <div style={{ display:'flex', flexDirection:'column', gap: isMobile ? 10 : 12 }}>
+                    {myListings.map(l => {
+                      const boost     = boosts.find(b => b.listing_pda === l.listingPda);
+                      const tier      = BOOST_TIERS.find(t => t.id === boost?.tier);
+                      const expiresMs = boost ? new Date(boost.expires_at).getTime() - Date.now() : 0;
+                      const daysLeft  = Math.ceil(expiresMs / 86_400_000);
+                      const hoursLeft = Math.ceil(expiresMs / 3_600_000);
+                      const timeLabel = daysLeft >= 1 ? `${daysLeft}d` : `${hoursLeft}h`;
+                      const nft = l.nftData;
+                      const imgUri = nft?.image || nft?.metaUri;
+                      return (
+                        <div key={l.listingPda} style={{
+                          display:'flex', alignItems:'center', gap: isMobile ? 10 : 14,
+                          background: boost
+                            ? `linear-gradient(135deg,rgba(${tier?.color === '#ff6a00' ? '255,106,0' : tier?.color === '#bf5af2' ? '191,90,242' : '0,212,255'},.08),rgba(255,255,255,.02))`
+                            : 'rgba(255,255,255,.03)',
+                          border: `1px solid ${boost ? (tier?.color ?? '#bf5af2') + '44' : 'rgba(255,255,255,.08)'}`,
+                          borderRadius:12, padding: isMobile ? '10px 12px' : '12px 16px',
+                          transition:'border-color .15s',
+                        }}>
+                          {/* Thumbnail */}
+                          <div style={{ width: isMobile ? 44 : 54, height: isMobile ? 44 : 54, flexShrink:0,
+                            borderRadius:8, overflow:'hidden', background:'#060b12', position:'relative' }}>
+                            <NFTImage metaUri={imgUri} name={nft?.name ?? ''} />
+                          </div>
+                          {/* Info */}
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 9 : 10, fontWeight:700,
+                              color:'#e0f0ff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:3 }}>
+                              {nft?.name ?? l.nftMint.slice(0,12)+'…'}
+                            </div>
+                            <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                              <span style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 11 : 13, fontWeight:900, color:'#00d4ff' }}>
+                                {lamportsToXnt(l.price)}<span style={{ fontSize:7, color:'#3a5a7a', marginLeft:3 }}>XNT</span>
+                              </span>
+                              {boost && tier && (
+                                <span style={{ fontFamily:'Orbitron,monospace', fontSize:7, fontWeight:700,
+                                  color: tier.color, background:`rgba(${tier.color === '#ff6a00' ? '255,106,0' : tier.color === '#bf5af2' ? '191,90,242' : '0,212,255'},.12)`,
+                                  border:`1px solid ${tier.color}44`, borderRadius:4, padding:'1px 6px' }}>
+                                  {tier.id === 'incinerator' ? '🔥' : tier.id === 'godslayer' ? '⚔️' : '⚡'} {tier.id.toUpperCase()} · {timeLabel} left
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {/* Actions */}
+                          <div style={{ display:'flex', gap: isMobile ? 6 : 8, flexShrink:0 }}>
+                            {!boost && (
+                              <button type="button" onClick={() => setBoostTarget(l)}
+                                style={{ padding: isMobile ? '6px 8px' : '7px 14px', borderRadius:8, cursor:'pointer',
+                                  fontFamily:'Orbitron,monospace', fontSize: isMobile ? 7 : 8, fontWeight:700,
+                                  background:'rgba(191,90,242,.1)', border:'1px solid rgba(191,90,242,.3)', color:'#bf5af2' }}>
+                                {isMobile ? '⚡' : '⚡ BOOST'}
+                              </button>
+                            )}
+                            <button type="button" onClick={() => handleUpdatePrice(l)}
+                              style={{ padding: isMobile ? '6px 8px' : '7px 12px', borderRadius:8, cursor:'pointer',
+                                fontFamily:'Orbitron,monospace', fontSize: isMobile ? 7 : 8, fontWeight:700,
+                                background:'rgba(0,212,255,.08)', border:'1px solid rgba(0,212,255,.25)', color:'#00d4ff' }}>
+                              {isMobile ? '✏️' : '✏️ PRICE'}
+                            </button>
+                            <button type="button" onClick={() => handleDelist(l)}
+                              style={{ padding: isMobile ? '6px 8px' : '7px 12px', borderRadius:8, cursor:'pointer',
+                                fontFamily:'Orbitron,monospace', fontSize: isMobile ? 7 : 8, fontWeight:700,
+                                background:'rgba(255,50,50,.08)', border:'1px solid rgba(255,50,50,.25)', color:'#ff6666' }}>
+                              {isMobile ? '✕' : '✕ DELIST'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1514,6 +1970,20 @@ const LabWork: FC = () => {
           signTransaction={signTransaction}
           onClose={() => setUpdatePriceListing(null)}
           onUpdated={() => { setUpdatePriceListing(null); loadListings(); }}
+        />
+      )}
+
+      {/* Boost modal */}
+      {boostTarget && publicKey && (
+        <BoostModal
+          listing={boostTarget}
+          isMobile={isMobile}
+          connection={connection}
+          publicKey={publicKey}
+          sendTransaction={sendTransaction}
+          signTransaction={signTransaction}
+          onClose={() => setBoostTarget(null)}
+          onBoosted={() => { setBoostTarget(null); loadListings(); }}
         />
       )}
     </div>
