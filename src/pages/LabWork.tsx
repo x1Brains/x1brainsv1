@@ -35,6 +35,7 @@ import {
   tryLoadImg,
   rarityColor,
 } from '../utils/nft';
+import { supabase } from '../lib/supabase';
 
 // ── Image cache (lw = labwork, separate from Portfolio's nftImageCache) ──
 const LW_IMG_CACHE_KEY = 'x1b_lw_img_v1';
@@ -97,8 +98,12 @@ const NFTImage: FC<{ metaUri?: string; name: string; contain?: boolean }> = ({
 
       // Step 2: fetch via proxy — check content-type first
       try {
-        const res = await fetch(toProxyUrl(url), { signal: AbortSignal.timeout(10000) });
-        if (res.ok) {
+        const res = await fetch(toProxyUrl(url), { signal: AbortSignal.timeout(6000) });
+        // Fast-fail on 404 or other errors — cache null immediately so we don't retry
+        if (!res.ok) {
+          lwImageCache.set(metaUri, null); persistLwCache();
+          if (!cancelled) setImgSrc(null); return;
+        }
           const ct = res.headers.get('content-type') ?? '';
           // It's already an image (covers image/svg+xml, image/png, etc.)
           if (ct.startsWith('image/')) {
@@ -255,12 +260,8 @@ const xntToLamports   = (x: string)     => Math.round(parseFloat(x) * LAMPORTS_P
 // Save trade to Supabase for persistent activity log
 async function saveTrade(trade: { sig: string; type: 'list'|'buy'|'delist'; nftMint: string; price?: number; seller?: string; buyer?: string; timestamp: number }) {
   try {
-    const { createClient } = await import('@supabase/supabase-js');
-    const sb = createClient(
-      (import.meta as any).env.VITE_SUPABASE_URL,
-      (import.meta as any).env.VITE_SUPABASE_ANON_KEY
-    );
-    await sb.from('labwork_trades').upsert({
+    if (!supabase) return;
+    await supabase.from('labwork_trades').upsert({
       sig: trade.sig, type: trade.type, nft_mint: trade.nftMint,
       price: trade.price, seller: trade.seller, buyer: trade.buyer,
       timestamp: trade.timestamp,
@@ -1515,7 +1516,7 @@ const LabWork: FC = () => {
   const isMobile                       = useIsMobile();
 
   // Page state
-  const [pageMode, setPageMode]     = useState<PageMode>('gallery');
+  const [pageMode, setPageMode]     = useState<PageMode>('market');
   const [marketTab, setMarketTab]   = useState<MarketTab>('browse');
   const [showListModal, setShowListModal] = useState(false);
 
@@ -1573,22 +1574,19 @@ const LabWork: FC = () => {
       // First try loading from Supabase (our own saved trades)
       let supaLogs: TradeLog[] = [];
       try {
-        const { createClient } = await import('@supabase/supabase-js');
-        const sb = createClient(
-          import.meta.env.VITE_SUPABASE_URL,
-          import.meta.env.VITE_SUPABASE_ANON_KEY
-        );
-        const { data } = await sb
-          .from('labwork_trades')
-          .select('*')
-          .order('timestamp', { ascending: false })
-          .limit(100);
-        if (data && data.length > 0) {
-          supaLogs = data.map((r: any) => ({
-            sig: r.sig, type: r.type, nftMint: r.nft_mint,
-            price: r.price, seller: r.seller, buyer: r.buyer,
-            timestamp: r.timestamp,
-          }));
+        if (supabase) {
+          const { data } = await supabase
+            .from('labwork_trades')
+            .select('*')
+            .order('timestamp', { ascending: false })
+            .limit(100);
+          if (data && data.length > 0) {
+            supaLogs = data.map((r: any) => ({
+              sig: r.sig, type: r.type, nftMint: r.nft_mint,
+              price: r.price, seller: r.seller, buyer: r.buyer,
+              timestamp: r.timestamp,
+            }));
+          }
         }
       } catch { /* supabase not available */ }
 
@@ -1678,7 +1676,7 @@ const LabWork: FC = () => {
   }, [connection]);
 
   useEffect(() => { loadListings(); }, []);
-  useEffect(() => { if (pageMode === 'market') loadListings(); }, [pageMode]);
+  useEffect(() => { if (pageMode === 'gallery' && nfts.length === 0 && publicKey) { /* NFTs load via wallet useEffect */ } }, [pageMode]);
   useEffect(() => { if (marketTab === 'activity') loadActivity(); }, [marketTab]);
 
   // ── Gallery select ────────────────────────────────────────────
@@ -1854,9 +1852,9 @@ const LabWork: FC = () => {
           <div style={{ fontFamily:'Sora,sans-serif', fontSize: isMobile ? 10 : 12, color:'#4a6a8a', marginBottom:20 }}>
             Scan · Inspect · List · Buy · Sell — powered by X1 blockchain & native XNT
           </div>
-          {!loading && nfts.length > 0 && (
+          {!loading && (
             <div style={{ display:'flex', justifyContent:'center', gap: isMobile ? 8 : 14, flexWrap:'wrap', animation:'fadeUp 0.4s ease 0.1s both' }}>
-              {[{label:'MY NFTs',color:'#00d4ff',value:nfts.length},{label:'COLLECTIONS',color:'#bf5af2',value:groups.size},{label:'LISTED',color:'#00c98d',value:listings.length},{label:'BLOCKCHAIN',color:'#ff8c00',value:'X1'}]
+              {[{label:'LISTED',color:'#00c98d',value:listings.length},{label:'MY NFTs',color:'#00d4ff',value:nfts.length},{label:'COLLECTIONS',color:'#bf5af2',value:groups.size},{label:'BLOCKCHAIN',color:'#ff8c00',value:'X1'}]
                 .map(({label,color,value}) => (
                   <div key={label} style={{ background:'rgba(255,255,255,.03)', border:`1px solid ${color}22`, borderRadius:10, padding: isMobile ? '8px 14px' : '10px 20px', textAlign:'center' }}>
                     <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 16 : 22, fontWeight:900, color, marginBottom:3 }}>{value}</div>
@@ -1871,8 +1869,8 @@ const LabWork: FC = () => {
         <div style={{ display:'flex', gap:6, marginBottom: isMobile ? 20 : 30, background:'rgba(255,255,255,.03)',
           borderRadius:14, padding:4, border:'1px solid rgba(255,255,255,.06)', animation:'fadeUp 0.4s ease 0.12s both' }}>
           {([
-            { id:'gallery', label:'🧪 MY NFTs',     sub: nfts.length > 0 ? `${nfts.length} found` : 'view your collection' },
             { id:'market',  label:'🛒 MARKETPLACE', sub: listings.length > 0 ? `${listings.length} listed` : 'list & buy NFTs' },
+            { id:'gallery', label:'🧪 MY NFTs',     sub: nfts.length > 0 ? `${nfts.length} found` : 'view your collection' },
           ] as { id:PageMode; label:string; sub:string }[]).map(m => (
             <button key={m.id} onClick={() => setPageMode(m.id)} style={{ flex:1, padding: isMobile ? '10px 6px' : '13px 10px',
               background: pageMode===m.id ? 'linear-gradient(135deg,rgba(0,212,255,.15),rgba(191,90,242,.08))' : 'transparent',
@@ -1964,20 +1962,6 @@ const LabWork: FC = () => {
                 </div>
               </div>
             )}
-            {/* Fee banner */}
-            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:20, padding:'10px 14px',
-              background:'rgba(191,90,242,.06)', border:'1px solid rgba(191,90,242,.18)', borderRadius:10, animation:'fadeUp 0.3s ease both' }}>
-              <span style={{ fontSize:16 }}>💎</span>
-              <div>
-                <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 7 : 8, color:'#8a5aaa', letterSpacing:0.5 }}>
-                  1.888% PLATFORM FEE ON ALL SALES · CANCEL FEE 0.888%
-                </div>
-                <div style={{ fontFamily:'Orbitron,monospace', fontSize:6, color:'#5a3a7a', marginTop:2 }}>
-                  HARDCODED ON-CHAIN → {PLATFORM_WALLET_STRING.slice(0,12)}…{PLATFORM_WALLET_STRING.slice(-6)} · IMMUTABLE PROGRAM
-                </div>
-              </div>
-            </div>
-
             {/* Market tabs */}
             <div style={{ display:'flex', gap:5, marginBottom: isMobile ? 18 : 24, background:'rgba(255,255,255,.03)',
               borderRadius:12, padding:4, border:'1px solid rgba(255,255,255,.06)', animation:'fadeUp 0.3s ease 0.05s both' }}>
@@ -2162,6 +2146,20 @@ const LabWork: FC = () => {
             )}
           </>
         )}
+
+        {/* ── Platform fee notice — bottom of page ── */}
+        <div style={{ display:'flex', alignItems:'center', gap:10, margin: isMobile ? '28px 0 8px' : '40px 0 8px', padding:'10px 14px',
+          background:'rgba(191,90,242,.04)', border:'1px solid rgba(191,90,242,.12)', borderRadius:10, opacity:0.7 }}>
+          <span style={{ fontSize:14 }}>💎</span>
+          <div>
+            <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 7 : 8, color:'#8a5aaa', letterSpacing:0.5 }}>
+              1.888% PLATFORM FEE ON ALL SALES · CANCEL FEE 0.888%
+            </div>
+            <div style={{ fontFamily:'Orbitron,monospace', fontSize:6, color:'#5a3a7a', marginTop:2 }}>
+              HARDCODED ON-CHAIN → {PLATFORM_WALLET_STRING.slice(0,12)}…{PLATFORM_WALLET_STRING.slice(-6)} · IMMUTABLE PROGRAM
+            </div>
+          </div>
+        </div>
 
         <Footer />
       </div>
