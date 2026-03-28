@@ -28,55 +28,13 @@ import {
   CANCEL_FEE_NUMERATOR,
   CANCEL_FEE_DENOMINATOR,
 } from '../constants';
-// ─────────────────────────────────────────────────────────────────
-//  SHARED NFT UTILITY FUNCTIONS
-//  TODO: Extract to src/utils/nft.ts and import here + in NFTComponents.tsx
-//  These are intentionally duplicated for now to avoid cross-page coupling.
-//  If you patch resolveGateway or toProxyUrl here, patch NFTComponents.tsx too.
-// ─────────────────────────────────────────────────────────────────
-function resolveGateway(u: string): string {
-  return u
-    .replace('ipfs://', 'https://nftstorage.link/ipfs/')
-    .replace('ar://', 'https://arweave.net/');
-}
-function toProxyUrl(url: string): string {
-  return url.startsWith('http')
-    ? `/api/nft-meta/${url.replace(/^https?:\/\//, '')}`
-    : url;
-}
-function candidateImageUrls(url: string): string[] {
-  const out: string[] = [];
-  for (const ext of ['png','jpg','webp','gif']) out.push(`${url}.${ext}`);
-  for (const [from, to] of [
-    ['metadata','images'],['metadata','image'],
-    ['meta','images'],['meta','image'],
-    ['json','images'],['json','image'],
-  ] as [string,string][]) {
-    if (url.includes(`/${from}/`)) {
-      const sw = url.replace(`/${from}/`,`/${to}/`);
-      out.push(sw);
-      for (const ext of ['png','jpg','webp']) out.push(`${sw}.${ext}`);
-    }
-  }
-  return out;
-}
-function tryLoadImg(url: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload  = () => resolve(url);
-    img.onerror = () => reject();
-    img.src = url;
-    setTimeout(() => reject(), 8000);
-  });
-}
-function rarityColor(r: string): string {
-  const l = r.toLowerCase();
-  if (l.includes('legendary')) return '#ffd700';
-  if (l.includes('epic'))      return '#bf5af2';
-  if (l.includes('rare'))      return '#00d4ff';
-  if (l.includes('uncommon'))  return '#00c98d';
-  return '#8aa0b8';
-}
+import {
+  resolveGateway,
+  toProxyUrl,
+  candidateImageUrls,
+  tryLoadImg,
+  rarityColor,
+} from '../utils/nft';
 
 // ── Image cache (lw = labwork, separate from Portfolio's nftImageCache) ──
 const LW_IMG_CACHE_KEY = 'x1b_lw_img_v1';

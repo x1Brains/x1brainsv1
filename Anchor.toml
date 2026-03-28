@@ -9,7 +9,7 @@ skip-lint = false
 labwork_marketplace = "EQKNXSBE6vUbtPBY1ibXPyWmLzrtXBZqUs9Fjqo19TkX"
 
 [programs.mainnet]
-labwork_marketplace = "EQKNXSBE6vUbtPBY1ibXPyWmLzrtXBZqUs9Fjqo19TkX"
+labwork_marketplace = "CKZHwoUZTJEnGNK4piPxyysrhwLKnnrNoBmEHM9rLaD4"
 
 [registry]
 url = "https://api.apr.dev"
