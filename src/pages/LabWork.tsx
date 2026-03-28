@@ -436,16 +436,19 @@ const LabWork: FC = () => {
     return () => { cancelled = true; };
   }, [publicKey?.toBase58()]);
 
-  // ── Wallet stats (BRAINS balance, burned, labwork pts) ────────
+  // ── Wallet stats (BRAINS balance, burned, total lb pts) ─────────
+  // Source of truth: walletBurnStats is populated by BurnedBrainsBar (runs on every page).
+  //   walletBurnStats.walletBurned  = total BRAINS burned on-chain (all time)
+  //   walletBurnStats.totalLbPts    = burn pts + manual labwork pts (same as Portfolio/Incinerator)
+  // We poll every 500ms until BurnedBrainsBar finishes its on-chain scan.
   useEffect(() => {
     if (!publicKey) {
       setBrainsBalance(null); setBrainsBurned(null); setLabworkPtsTotal(null);
       return;
     }
-    const addr = publicKey.toBase58();
     let dead = false;
 
-    // 1. BRAINS balance — Token-2022
+    // 1. BRAINS balance — Token-2022 ATA
     (async () => {
       try {
         const ata = getAssociatedTokenAddressSync(BRAINS_MINT_PK, publicKey, false, TOKEN_2022_PROGRAM_ID);
@@ -455,54 +458,44 @@ const LabWork: FC = () => {
       } catch { if (!dead) setBrainsBalance(0); }
     })();
 
-    // 2. Total BRAINS burned — read from walletBurnStats.walletBurned which is
-    //    populated by BurnedBrainsBar (on-chain scan of all burn txs, all time).
-    //    Poll briefly since BurnedBrainsBar may still be loading when this runs.
-    (async () => {
-      // Give BurnedBrainsBar up to 4s to populate the global stat
-      for (let i = 0; i < 8; i++) {
-        const burned = walletBurnStats.walletBurned;
-        if (burned > 0) { if (!dead) setBrainsBurned(burned); return; }
-        await new Promise(r => setTimeout(r, 500));
+    // 2+3. Poll walletBurnStats until BurnedBrainsBar has scanned (same data Portfolio shows)
+    const poll = setInterval(() => {
+      if (dead) { clearInterval(poll); return; }
+      const burned = walletBurnStats.walletBurned;
+      const total  = walletBurnStats.totalLbPts;
+      if (burned > 0 || total > 0) {
+        setBrainsBurned(burned);
+        setLabworkPtsTotal(total);
       }
-      // Fallback: read directly from labwork_points if BurnedBrainsBar hasn't loaded
-      try {
-        if (!supabase) { if (!dead) setBrainsBurned(0); return; }
-        const { data } = await supabase
-          .from('labwork_points')
-          .select('brains_burned')
-          .eq('wallet', addr);
-        const total = (data ?? []).reduce((s: number, r: any) => s + (r.brains_burned ?? 0), 0);
-        if (!dead) setBrainsBurned(total);
-      } catch { if (!dead) setBrainsBurned(walletBurnStats.walletBurned || 0); }
-    })();
+    }, 500);
 
-    // 3. Total labwork points — both labwork_rewards + labwork_points
-    (async () => {
-      try {
-        const pts = await getLabWorkPtsForWallet(addr);
-        if (!dead) setLabworkPtsTotal(pts);
-      } catch { if (!dead) setLabworkPtsTotal(0); }
-    })();
+    // Stop polling after 30s max (BurnedBrainsBar will have finished by then)
+    const timeout = setTimeout(() => {
+      clearInterval(poll);
+      // Final read — even if zero, show what we have
+      if (!dead) {
+        setBrainsBurned(v => v ?? walletBurnStats.walletBurned);
+        setLabworkPtsTotal(v => v ?? walletBurnStats.totalLbPts);
+      }
+    }, 30_000);
 
-    return () => { dead = true; };
+    return () => { dead = true; clearInterval(poll); clearTimeout(timeout); };
   }, [publicKey?.toBase58()]);
 
-  // Keep brainsBurned + labworkPtsTotal in sync as BurnedBrainsBar/signal update
+  // Re-sync after boost burn signal fires (triggerLabWorkRefresh increments labWorkSignal.version)
   useEffect(() => {
     if (!publicKey) return;
-    let lastSignal = labWorkSignal.version;
-    const interval = setInterval(async () => {
-      // Sync burned BRAINS from BurnedBrainsBar global stat
+    let lastSig = labWorkSignal.version;
+    const interval = setInterval(() => {
       const burned = walletBurnStats.walletBurned;
+      const total  = walletBurnStats.totalLbPts;
       if (burned > 0) setBrainsBurned(burned);
-      // Re-fetch labwork pts if signal fired (boost burn completed)
-      if (labWorkSignal.version !== lastSignal) {
-        lastSignal = labWorkSignal.version;
-        try {
-          const pts = await getLabWorkPtsForWallet(publicKey.toBase58());
-          setLabworkPtsTotal(pts);
-        } catch {}
+      if (total  > 0) setLabworkPtsTotal(total);
+      // Also re-read if signal changed (new boost burn wrote to Supabase)
+      if (labWorkSignal.version !== lastSig) {
+        lastSig = labWorkSignal.version;
+        setBrainsBurned(walletBurnStats.walletBurned);
+        setLabworkPtsTotal(walletBurnStats.totalLbPts);
       }
     }, 1000);
     return () => clearInterval(interval);
