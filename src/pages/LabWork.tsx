@@ -20,7 +20,7 @@ import {
 import { TopBar, PageBackground, Footer } from '../components/UI';
 import { walletBurnStats } from '../components/BurnedBrainsBar';
 import { PLATFORM_WALLET_STRING, BRAINS_MINT as BRAINS_MINT_STR } from '../constants';
-import { supabase, getLabWorkPtsForWallet, triggerLabWorkRefresh } from '../lib/supabase';
+import { supabase, getLabWorkPtsForWallet, triggerLabWorkRefresh, labWorkSignal } from '../lib/supabase';
 import type { NFTData, Listing, TradeLog, PageMode, MarketTab } from '../components/LBComponents';
 import {
   useIsMobile, getMarketplaceProgramId,
