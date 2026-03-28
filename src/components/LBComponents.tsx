@@ -162,7 +162,7 @@ const NFTImage: FC<{ metaUri?: string; name: string; contain?: boolean }> = ({
           if (raw && !cancelled) {
             const resolvedRaw = resolveGateway(raw);
             // If the extracted image URL has no recognised extension it's
-            // likely an API endpoint (e.g. moltlab /api/card-image?wallet=…).
+            // likely an API endpoint (e.g. AgentID /api/card-image?wallet=…).
             // Route it through the Vercel proxy so CORS doesn't block it.
             const hasImgExt = /\.(png|jpg|jpeg|gif|webp|svg)(\?|$)/i.test(resolvedRaw);
             const finalUrl  = (!hasImgExt && resolvedRaw.startsWith('http'))
@@ -457,7 +457,7 @@ async function enrichNFT(nft: NFTData): Promise<NFTData> {
     json?.properties?.image ?? '';
 
   const resolvedImg = rawImg ? resolveGateway(rawImg) : '';
-  // Proxy API-served images (no extension) to avoid CORS — e.g. moltlab card-image endpoint
+  // Proxy API-served images (no extension) to avoid CORS — e.g. AgentID card-image endpoint
   const hasImgExt = /\.(png|jpg|jpeg|gif|webp|svg)(\?|$)/i.test(resolvedImg);
   const finalImg  = resolvedImg && !hasImgExt && resolvedImg.startsWith('http')
     ? toProxyUrl(resolvedImg)
