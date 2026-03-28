@@ -37,9 +37,17 @@ export async function getLabWorkMap(): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   if (!supabase) return map;
   try {
-    const { data, error } = await supabase.from('labwork_rewards').select('address, lb_points');
-    if (error) { console.error('[SB] getLabWorkMap:', error.message); return map; }
-    for (const r of data ?? []) map.set(r.address, (map.get(r.address) || 0) + r.lb_points);
+    // Fetch both sources in parallel
+    const [rewardsRes, boostRes] = await Promise.all([
+      supabase.from('labwork_rewards').select('address, lb_points'),
+      supabase.from('labwork_points').select('wallet, points'),
+    ]);
+    if (rewardsRes.error) console.error('[SB] getLabWorkMap rewards:', rewardsRes.error.message);
+    for (const r of rewardsRes.data ?? [])
+      map.set(r.address, (map.get(r.address) || 0) + (r.lb_points ?? 0));
+    // Boost burns from labwork_points (wallet column)
+    for (const r of boostRes.data ?? [])
+      map.set(r.wallet, (map.get(r.wallet) || 0) + (r.points ?? 0));
   } catch (e) { console.error('[SB] getLabWorkMap:', e); }
   return map;
 }
@@ -47,9 +55,16 @@ export async function getLabWorkMap(): Promise<Map<string, number>> {
 export async function getLabWorkPtsForWallet(address: string): Promise<number> {
   if (!supabase) return 0;
   try {
-    const { data, error } = await supabase.from('labwork_rewards').select('lb_points').eq('address', address);
-    if (error) return 0;
-    return (data ?? []).reduce((s, r) => s + r.lb_points, 0);
+    // Sum both sources in parallel:
+    // 1. labwork_rewards — admin-awarded challenge/promo points
+    // 2. labwork_points  — points earned from burning BRAINS for marketplace boosts (1.888 pts/BRAINS)
+    const [rewardsRes, boostRes] = await Promise.all([
+      supabase.from('labwork_rewards').select('lb_points').eq('address', address),
+      supabase.from('labwork_points').select('points').eq('wallet', address),
+    ]);
+    const rewardPts = (rewardsRes.data ?? []).reduce((s: number, r: any) => s + (r.lb_points ?? 0), 0);
+    const boostPts  = (boostRes.data  ?? []).reduce((s: number, r: any) => s + (r.points   ?? 0), 0);
+    return rewardPts + boostPts;
   } catch { return 0; }
 }
 
