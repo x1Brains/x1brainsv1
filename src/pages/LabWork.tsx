@@ -19,7 +19,7 @@ import {
 } from '@solana/spl-token';
 import { TopBar, PageBackground, Footer } from '../components/UI';
 import { PLATFORM_WALLET_STRING, BRAINS_MINT as BRAINS_MINT_STR } from '../constants';
-import { supabase } from '../lib/supabase';
+import { supabase, getLabWorkPtsForWallet } from '../lib/supabase';
 import type { NFTData, Listing, TradeLog, PageMode, MarketTab } from '../components/LBComponents';
 import {
   useIsMobile, getMarketplaceProgramId,
@@ -194,8 +194,18 @@ const BoostModal: FC<{
         }),
       ]);
 
-      setStatus(`✅ Active! 🔥 ${selectedTier.brains.toLocaleString()} BRAINS burned · +${labworkPoints.toLocaleString()} labwork pts · ${selectedTier.days}d featured`);
-      setTimeout(() => { onBoosted(); onClose(); }, 3000);
+      // Save to activity log so it shows in the Activity tab
+      saveTrade({
+        sig,
+        type:      'boost',
+        nftMint:   listing.nftMint,
+        seller:    publicKey.toBase58(),
+        timestamp: Math.floor(Date.now() / 1000),
+        brains:    selectedTier.brains,
+      });
+
+      setStatus(`✅ Active! 🔥 ${selectedTier.brains.toLocaleString()} BRAINS burned · +${labworkPoints.toLocaleString()} labwork pts · ${selectedTier.days}d featured · <a href="https://explorer.mainnet.x1.xyz/tx/${sig}" target="_blank" rel="noopener" style="color:#bf5af2;text-decoration:underline">View Tx ↗</a>`);
+      setTimeout(() => { onBoosted(); onClose(); }, 4000);
     } catch (e: any) {
       setStatus(`❌ ${e?.message?.slice(0, 100) ?? 'Failed'}`);
     } finally { setPending(false); }
@@ -353,6 +363,11 @@ const LabWork: FC = () => {
   const [boosts,       setBoosts]       = useState<BoostRecord[]>([]);
   const [boostTarget,  setBoostTarget]  = useState<Listing | null>(null);
 
+  // Wallet stats for MY NFTs panel
+  const [brainsBalance,  setBrainsBalance]  = useState<number | null>(null);
+  const [brainsBurned,   setBrainsBurned]   = useState<number | null>(null);
+  const [labworkPtsTotal, setLabworkPtsTotal] = useState<number | null>(null);
+
   // ── Load wallet NFTs ──────────────────────────────────────────
   useEffect(() => {
     if (!publicKey) { setNfts([]); return; }
@@ -390,7 +405,49 @@ const LabWork: FC = () => {
     return () => { cancelled = true; };
   }, [publicKey?.toBase58()]);
 
-  // ── Load marketplace listings ─────────────────────────────────
+  // ── Wallet stats (BRAINS balance, burned, labwork pts) ────────
+  useEffect(() => {
+    if (!publicKey) {
+      setBrainsBalance(null); setBrainsBurned(null); setLabworkPtsTotal(null);
+      return;
+    }
+    const addr = publicKey.toBase58();
+    let dead = false;
+
+    // 1. BRAINS balance — Token-2022
+    (async () => {
+      try {
+        const ata = getAssociatedTokenAddressSync(BRAINS_MINT_PK, publicKey, false, TOKEN_2022_PROGRAM_ID);
+        const acc = await connection.getParsedAccountInfo(ata);
+        const bal = acc?.value?.data?.parsed?.info?.tokenAmount?.uiAmount ?? 0;
+        if (!dead) setBrainsBalance(bal);
+      } catch { if (!dead) setBrainsBalance(0); }
+    })();
+
+    // 2. Total BRAINS burned — sum from labwork_points table (boost burns)
+    //    + labwork_rewards (admin-awarded tracked burns)
+    (async () => {
+      try {
+        if (!supabase) { if (!dead) setBrainsBurned(0); return; }
+        const { data } = await supabase
+          .from('labwork_points')
+          .select('brains_burned')
+          .eq('wallet', addr);
+        const total = (data ?? []).reduce((s: number, r: any) => s + (r.brains_burned ?? 0), 0);
+        if (!dead) setBrainsBurned(total);
+      } catch { if (!dead) setBrainsBurned(0); }
+    })();
+
+    // 3. Total labwork points — both labwork_rewards + labwork_points
+    (async () => {
+      try {
+        const pts = await getLabWorkPtsForWallet(addr);
+        if (!dead) setLabworkPtsTotal(pts);
+      } catch { if (!dead) setLabworkPtsTotal(0); }
+    })();
+
+    return () => { dead = true; };
+  }, [publicKey?.toBase58()]);
   const loadListings = useCallback(async () => {
     setLoadingListings(true);
     const [raw, activeBoosts] = await Promise.all([
@@ -892,14 +949,68 @@ const LabWork: FC = () => {
               </div>
             )}
             {!loading && publicKey && nfts.length === 0 && !error && (
-              <div style={{ textAlign:'center', padding: isMobile ? '60px 20px' : '100px 40px', animation:'fadeUp 0.5s ease both' }}>
-                <div style={{ fontSize:56, marginBottom:20 }}>🔬</div>
-                <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 13 : 18, fontWeight:900, color:'#9abacf', marginBottom:10, letterSpacing:2 }}>NO NFTs DETECTED</div>
-                <div style={{ fontFamily:'Sora,sans-serif', fontSize: isMobile ? 11 : 13, color:'#9abace', maxWidth:360, margin:'0 auto' }}>No NFTs found. NFTs are tokens with 0 decimals and balance of 1.</div>
+              <div style={{ animation:'fadeUp 0.5s ease both' }}>
+                {/* Stats even when no NFTs */}
+                <div style={{ display:'flex', gap: isMobile ? 8 : 12, marginBottom: isMobile ? 20 : 28 }}>
+                  {[
+                    { label:'BRAINS BALANCE', value: brainsBalance === null ? '…' : brainsBalance.toLocaleString(undefined, { maximumFractionDigits:0 }), color:'#bf5af2', icon:'🧠' },
+                    { label:'BRAINS BURNED',  value: brainsBurned  === null ? '…' : brainsBurned.toLocaleString(undefined,  { maximumFractionDigits:0 }), color:'#ff6a00', icon:'🔥' },
+                    { label:'LABWORK PTS',    value: labworkPtsTotal === null ? '…' : Math.round(labworkPtsTotal).toLocaleString(), color:'#00d4ff', icon:'🧪' },
+                  ].map(({ label, value, color, icon }) => (
+                    <div key={label} style={{ flex:1, background:'rgba(255,255,255,.03)',
+                      border:`1px solid ${color}22`, borderRadius:10,
+                      padding: isMobile ? '10px 10px' : '12px 16px', textAlign:'center' }}>
+                      <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 14 : 18,
+                        fontWeight:900, color, marginBottom:3 }}>{icon} {value}</div>
+                      <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 6 : 7,
+                        color:'#4a6a8a', letterSpacing:1.5 }}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ textAlign:'center', padding: isMobile ? '40px 20px' : '60px 40px' }}>
+                  <div style={{ fontSize:56, marginBottom:20 }}>🔬</div>
+                  <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 13 : 18, fontWeight:900, color:'#9abacf', marginBottom:10, letterSpacing:2 }}>NO NFTs DETECTED</div>
+                  <div style={{ fontFamily:'Sora,sans-serif', fontSize: isMobile ? 11 : 13, color:'#9abace', maxWidth:360, margin:'0 auto' }}>No NFTs found. NFTs are tokens with 0 decimals and balance of 1.</div>
+                </div>
               </div>
             )}
             {!loading && nfts.length > 0 && (
               <>
+                {/* ── Wallet stats strip ── */}
+                {publicKey && (
+                  <div style={{ display:'flex', gap: isMobile ? 8 : 12, marginBottom: isMobile ? 16 : 20,
+                    animation:'fadeUp 0.4s ease 0.1s both' }}>
+                    {[
+                      {
+                        label: 'BRAINS BALANCE',
+                        value: brainsBalance === null ? '…' : brainsBalance.toLocaleString(undefined, { maximumFractionDigits: 0 }),
+                        color: '#bf5af2', icon: '🧠',
+                      },
+                      {
+                        label: 'BRAINS BURNED',
+                        value: brainsBurned === null ? '…' : brainsBurned.toLocaleString(undefined, { maximumFractionDigits: 0 }),
+                        color: '#ff6a00', icon: '🔥',
+                      },
+                      {
+                        label: 'LABWORK PTS',
+                        value: labworkPtsTotal === null ? '…' : Math.round(labworkPtsTotal).toLocaleString(),
+                        color: '#00d4ff', icon: '🧪',
+                      },
+                    ].map(({ label, value, color, icon }) => (
+                      <div key={label} style={{ flex:1, background:'rgba(255,255,255,.03)',
+                        border:`1px solid ${color}22`, borderRadius:10,
+                        padding: isMobile ? '10px 10px' : '12px 16px', textAlign:'center' }}>
+                        <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 14 : 18,
+                          fontWeight:900, color, marginBottom:3, letterSpacing:.5 }}>
+                          {icon} {value}
+                        </div>
+                        <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 6 : 7,
+                          color:'#4a6a8a', letterSpacing:1.5 }}>{label}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {/* ── Search bar ── */}
                 <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:20, animation:'fadeUp 0.4s ease 0.15s both' }}>
                   <div style={{ flex:1, position:'relative' }}>
@@ -1351,8 +1462,8 @@ const LabWork: FC = () => {
                     ) : (
                       <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                         {tradeLogs.slice(0, 5).map((log, i) => {
-                          const tc = log.type==='buy'?'#00c98d':log.type==='list'?'#00d4ff':'#ff9944';
-                          const tl = log.type==='buy'?'⚡ SOLD':log.type==='list'?'🏷️ LISTED':'↩ DELISTED';
+                          const tc = log.type==='buy'?'#00c98d':log.type==='list'?'#00d4ff':log.type==='boost'?'#bf5af2':'#ff9944';
+                          const tl = log.type==='buy'?'⚡ SOLD':log.type==='list'?'🏷️ LISTED':log.type==='boost'?'🔥 BOOSTED':'↩ DELISTED';
                           return (
                             <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 10px',
                               background:'rgba(255,255,255,.02)', borderRadius:8, border:'1px solid rgba(255,255,255,.04)' }}>
@@ -1367,7 +1478,7 @@ const LabWork: FC = () => {
                               <span style={{ fontFamily:'Sora,sans-serif', fontSize: isMobile ? 9 : 10, color:'#c0d0e0', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                                 {log.nftData?.name ?? log.nftMint.slice(0,12)+'…'}
                               </span>
-                              {log.price && <span style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 9 : 10, fontWeight:700, color:'#00d4ff', flexShrink:0 }}>{lamportsToXnt(log.price)} XNT</span>}
+                              {log.type==='boost' && (log as any).brains ? <span style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 9 : 10, fontWeight:700, color:'#bf5af2', flexShrink:0 }}>🔥 {((log as any).brains as number).toLocaleString()} BRAINS</span> : log.price ? <span style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 9 : 10, fontWeight:700, color:'#00d4ff', flexShrink:0 }}>{lamportsToXnt(log.price)} XNT</span> : null}
                               <a href={`https://explorer.mainnet.x1.xyz/tx/${log.sig}`} target="_blank" rel="noopener"
                                 style={{ color:'#9abacf', fontSize:9, textDecoration:'none', flexShrink:0, padding:'3px 7px',
                                   border:'1px solid rgba(255,255,255,.06)', borderRadius:5, fontFamily:'monospace' }}>TX↗</a>
@@ -1729,18 +1840,18 @@ const LabWork: FC = () => {
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
                             <span style={{ fontFamily:'Orbitron,monospace', fontSize:9, fontWeight:700,
-                              color: log.type==='buy' ? '#00c98d' : log.type==='list' ? '#00d4ff' : '#ff9944',
-                              background: log.type==='buy' ? 'rgba(0,201,141,.1)' : log.type==='list' ? 'rgba(0,212,255,.1)' : 'rgba(255,153,68,.1)',
-                              border: `1px solid ${log.type==='buy' ? 'rgba(0,201,141,.3)' : log.type==='list' ? 'rgba(0,212,255,.3)' : 'rgba(255,153,68,.3)'}`,
+                              color: log.type==='buy'?'#00c98d':log.type==='list'?'#00d4ff':log.type==='boost'?'#bf5af2':'#ff9944',
+                              background: log.type==='buy'?'rgba(0,201,141,.1)':log.type==='list'?'rgba(0,212,255,.1)':log.type==='boost'?'rgba(191,90,242,.1)':'rgba(255,153,68,.1)',
+                              border: `1px solid ${log.type==='buy'?'rgba(0,201,141,.3)':log.type==='list'?'rgba(0,212,255,.3)':log.type==='boost'?'rgba(191,90,242,.3)':'rgba(255,153,68,.3)'}`,
                               padding:'2px 7px', borderRadius:4 }}>
-                              {log.type === 'buy' ? '⚡ SOLD' : log.type === 'list' ? '🏷️ LISTED' : '↩ DELISTED'}
+                              {log.type==='buy'?'⚡ SOLD':log.type==='list'?'🏷️ LISTED':log.type==='boost'?'🔥 BOOSTED':'↩ DELISTED'}
                             </span>
                             <span style={{ fontSize:10, color:'#e0f0ff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                               {log.nftData?.name ?? log.nftMint.slice(0,12)+'…'}
                             </span>
                           </div>
                           <div style={{ fontSize:9, color:'#8aaac8' }}>
-                            {log.price ? <span style={{ color:'#00d4ff', marginRight:8 }}>{lamportsToXnt(log.price)} XNT</span> : null}
+                            {log.type==='boost' && (log as any).brains ? <span style={{ color:'#bf5af2', marginRight:8 }}>🔥 {((log as any).brains as number).toLocaleString()} BRAINS</span> : log.price ? <span style={{ color:'#00d4ff', marginRight:8 }}>{lamportsToXnt(log.price)} XNT</span> : null}
                             <span>{new Date(log.timestamp * 1000).toLocaleString()}</span>
                           </div>
                         </div>

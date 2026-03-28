@@ -270,7 +270,7 @@ export type MarketTab = 'overview' | 'browse' | 'mylistings' | 'sell' | 'activit
 
 export interface TradeLog {
   sig:       string;
-  type:      'list' | 'buy' | 'delist';
+  type:      'list' | 'buy' | 'delist' | 'boost';
   nftMint:   string;
   price?:    number;
   seller?:   string;
@@ -298,13 +298,13 @@ const calcSellerCut   = (p: number)     => p - calcFee(p);
 const xntToLamports   = (x: string)     => Math.round(parseFloat(x) * LAMPORTS_PER_SOL);
 
 // Save trade to Supabase for persistent activity log
-async function saveTrade(trade: { sig: string; type: 'list'|'buy'|'delist'; nftMint: string; price?: number; seller?: string; buyer?: string; timestamp: number }) {
+async function saveTrade(trade: { sig: string; type: 'list'|'buy'|'delist'|'boost'; nftMint: string; price?: number; seller?: string; buyer?: string; timestamp: number; brains?: number }) {
   try {
     if (!supabase) return;
     await supabase.from('labwork_trades').upsert({
       sig: trade.sig, type: trade.type, nft_mint: trade.nftMint,
       price: trade.price, seller: trade.seller, buyer: trade.buyer,
-      timestamp: trade.timestamp,
+      timestamp: trade.timestamp, brains: trade.brains ?? null,
     }, { onConflict: 'sig' });
   } catch { /* non-critical */ }
 }
