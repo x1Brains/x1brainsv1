@@ -711,20 +711,28 @@ const LabWork: FC = () => {
               const floorListing = listings.length > 0 ? listings.reduce((a, b) => a.price < b.price ? a : b) : null;
 
               // Build collection map — used for Top Collections AND Browse preview
-              const colMap = new Map<string, { count: number; floor: number; items: Listing[]; volume: number }>();
+              const colMap = new Map<string, { count: number; floor: number; items: Listing[]; volume: number; displayName: string }>();
               listings.forEach(l => {
-                const col = l.nftData?.collection || l.nftData?.symbol || 'Unknown';
-                if (!colMap.has(col)) colMap.set(col, { count:0, floor:Infinity, items:[], volume:0 });
-                const e = colMap.get(col)!;
+                // Use collection name first, then symbol — normalize to uppercase for dedup
+                const rawName = l.nftData?.collection || l.nftData?.symbol || 'Unknown';
+                const key = rawName.trim().toUpperCase();
+                if (!colMap.has(key)) colMap.set(key, { count:0, floor:Infinity, items:[], volume:0, displayName: rawName });
+                const e = colMap.get(key)!;
+                // Prefer longer/more descriptive display name
+                if (rawName.length > e.displayName.length) e.displayName = rawName;
                 e.count++; e.floor = Math.min(e.floor, l.price); e.items.push(l);
               });
               // Add volume from sales
               sales.forEach(s => {
-                const nftCol = s.nftData?.collection || s.nftData?.symbol;
-                if (nftCol && colMap.has(nftCol)) colMap.get(nftCol)!.volume += s.price ?? 0;
+                const rawNftCol = s.nftData?.collection || s.nftData?.symbol;
+                if (rawNftCol) {
+                  const key = rawNftCol.trim().toUpperCase();
+                  if (colMap.has(key)) colMap.get(key)!.volume += s.price ?? 0;
+                }
               });
               const topCollections = Array.from(colMap.entries())
-                .sort((a,b) => b[1].count - a[1].count).slice(0, 6);
+                .sort((a,b) => b[1].count - a[1].count).slice(0, 6)
+                .map(([, data]) => [data.displayName, data] as [string, typeof data]);
 
               return (
                 <div style={{ animation:'fadeUp 0.3s ease both' }}>
@@ -963,17 +971,24 @@ const LabWork: FC = () => {
                 BROWSE TAB — collection picker + filtered grid
             ══════════════════════════════════════ */}
             {marketTab === 'browse' && (() => {
-              // Build collection list for picker
-              const colMap2 = new Map<string, { count: number; floor: number; items: Listing[] }>();
+              // Build collection list for picker — normalize key to deduplicate same collection appearing under different name/symbol
+              const colMap2 = new Map<string, { count: number; floor: number; items: Listing[]; displayName: string }>();
               listings.forEach(l => {
-                const col = l.nftData?.collection || l.nftData?.symbol || 'Unknown';
-                if (!colMap2.has(col)) colMap2.set(col, { count:0, floor:Infinity, items:[] });
-                const e = colMap2.get(col)!;
+                const rawName = l.nftData?.collection || l.nftData?.symbol || 'Unknown';
+                const key = rawName.trim().toUpperCase();
+                if (!colMap2.has(key)) colMap2.set(key, { count:0, floor:Infinity, items:[], displayName: rawName });
+                const e = colMap2.get(key)!;
+                if (rawName.length > e.displayName.length) e.displayName = rawName;
                 e.count++; e.floor = Math.min(e.floor, l.price); e.items.push(l);
               });
-              const collections2 = Array.from(colMap2.entries()).sort((a,b) => b[1].count - a[1].count);
+              const collections2 = Array.from(colMap2.entries())
+                .sort((a,b) => b[1].count - a[1].count)
+                .map(([, data]) => [data.displayName, data] as [string, typeof data]);
               const filteredListings = browseCollection
-                ? listings.filter(l => (l.nftData?.collection || l.nftData?.symbol || 'Unknown') === browseCollection)
+                ? listings.filter(l => {
+                    const rawName = l.nftData?.collection || l.nftData?.symbol || 'Unknown';
+                    return rawName.trim().toUpperCase() === browseCollection.trim().toUpperCase();
+                  })
                 : listings;
               const visible  = filteredListings.slice(0, listingsPage);
               const hasMore  = filteredListings.length > listingsPage;
