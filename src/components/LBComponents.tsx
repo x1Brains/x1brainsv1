@@ -675,12 +675,52 @@ async function batchEnrichListings(connection: any, listings: Listing[]): Promis
 async function enrichListing(connection: any, l: Listing): Promise<Listing> {
   const results = await batchEnrichListings(connection, [l]);
   const enriched = results[0];
-  // If we got metadata URI, also fetch the image/attributes
+  if (!enriched.nftData?.metaUri && !enriched.nftData?.image) return enriched;
+
+  // If metaUri is a MoltLab URI (returns 404 by mint), try AgentID verify by seller wallet instead
+  const isMoltMeta = enriched.nftData?.metaUri?.includes('moltlab.vercel.app');
+  if (isMoltMeta && l.seller) {
+    const agentData = await fetchAgentIDByWallet(l.seller);
+    if (agentData) {
+      return {
+        ...enriched,
+        nftData: {
+          ...enriched.nftData!,
+          image:       agentData.photoUrl  ?? enriched.nftData?.image,
+          description: agentData.description ?? enriched.nftData?.description,
+          collection:  'MOLT',
+          externalUrl: agentData.moltbook
+            ? `https://moltbook.com/u/${agentData.moltbook}`
+            : enriched.nftData?.externalUrl,
+        },
+      };
+    }
+    // AgentID lookup failed — return as-is (will show 🦞 placeholder)
+    return enriched;
+  }
+
+  // Normal path: fetch image/attributes from metaUri
   if (enriched.nftData?.metaUri && !enriched.nftData.image) {
     const withAttrs = await enrichNFT(enriched.nftData);
     return { ...enriched, nftData: withAttrs };
   }
   return enriched;
+}
+
+// AgentID protocol — look up a registered agent by their wallet address.
+// Returns the agent record (name, description, photoUrl, moltbook) or null.
+const agentIDCache = new Map<string, any | null>();
+async function fetchAgentIDByWallet(wallet: string): Promise<any | null> {
+  if (agentIDCache.has(wallet)) return agentIDCache.get(wallet);
+  try {
+    const url = `https://agentid-app.vercel.app/api/verify?wallet=${wallet}`;
+    const res = await fetch(toProxyUrl(url), { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) { agentIDCache.set(wallet, null); return null; }
+    const json = await res.json();
+    const agent = json?.verified ? json.agent : null;
+    agentIDCache.set(wallet, agent);
+    return agent;
+  } catch { agentIDCache.set(wallet, null); return null; }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1953,6 +1993,7 @@ export {
   enrichNFTFromMint, enrichNFT,
   fetchWalletNFTs, groupByCollection,
   fetchAllListings, batchEnrichListings, enrichListing,
+  fetchAgentIDByWallet,
   // Components
   NFTImage, StatusBox,
   NFTDetailModal, NFTCard, CollectionSection,
