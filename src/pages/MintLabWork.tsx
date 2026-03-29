@@ -11,6 +11,7 @@ import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { LAMPORTS_PER_SOL } from '@solana/web3.js';
 import {
   TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
 import { BRAINS_MINT as BRAINS_MINT_STR, PLATFORM_WALLET_STRING } from '../constants';
@@ -22,6 +23,11 @@ const PROGRAM_DEPLOYED = false;       // flip when Anchor program is deployed
 const MINT_PROGRAM_ID  = '';          // set program ID here when deployed
 const TREASURY_WALLET  = PLATFORM_WALLET_STRING;
 const BRAINS_MINT_PK   = new PublicKey(BRAINS_MINT_STR);
+
+// Xenblocks assets — standard SPL Token
+const XNM_MINT_PK  = new PublicKey('XNMbEwZFFBKQhqyW3taa8cAUp1xBUHfyzRFJQvZET4m');
+const XUNI_MINT_PK = new PublicKey('XUNigZPoe8f657NkRf7KF8tqj9ekouT4SoECsD6G2Bm');
+const XBLK_MINT_PK = new PublicKey('XBLKLmxhADMVX3DsdwymvHyYbBYfKa5eKhtpiQ2kj7T');
 
 // ─── TOKENOMICS ──────────────────────────────────────────────────────────────
 
@@ -134,9 +140,12 @@ const MintLabWork: FC = () => {
   const { connection } = useConnection();
   const isMobile = useIsMobile();
 
-  const [mintedTotal,    setMintedTotal]    = useState(0);   // on-chain read when program deploys
+  const [mintedTotal,    setMintedTotal]    = useState(0);
   const [brainsBalance,  setBrainsBalance]  = useState<number | null>(null);
   const [xntBalance,     setXntBalance]     = useState<number | null>(null);
+  const [xnmBalance,     setXnmBalance]     = useState<number | null>(null);
+  const [xuniBalance,    setXuniBalance]    = useState<number | null>(null);
+  const [xblkBalance,    setXblkBalance]    = useState<number | null>(null);
   const [amount,         setAmount]         = useState(1);
   const [useAmplifier,   setUseAmplifier]   = useState(false);
   const [activeTab,      setActiveTab]      = useState<'mint' | 'tiers' | 'info' | 'amplifier'>('mint');
@@ -153,12 +162,38 @@ const MintLabWork: FC = () => {
   const lbOut       = amount + (useAmplifier ? COMBO_BONUS : 0);
   const brainsCost  = amount * currentTier.brains;
   const xntCost     = parseFloat((amount * currentTier.xnt).toFixed(4));
-  const canAfford   = brainsBalance !== null && brainsBalance >= brainsCost
-                   && xntBalance !== null && xntBalance >= xntCost;
+
+  // Amplifier bundle is fixed per combo mint (not per LB)
+  const xnmCost  = useAmplifier ? 1_000 : 0;
+  const xuniCost = useAmplifier ? 500   : 0;
+  const xblkCost = useAmplifier ? 1     : 0;
+
+  const canAfford = brainsBalance !== null && brainsBalance >= brainsCost
+    && xntBalance !== null && xntBalance >= xntCost
+    && (!useAmplifier || (
+      xnmBalance  !== null && xnmBalance  >= xnmCost &&
+      xuniBalance !== null && xuniBalance >= xuniCost &&
+      xblkBalance !== null && xblkBalance >= xblkCost
+    ));
 
   // ── Fetch balances ───────────────────────────────────────────────
   useEffect(() => {
-    if (!publicKey) { setBrainsBalance(null); setXntBalance(null); return; }
+    if (!publicKey) {
+      setBrainsBalance(null); setXntBalance(null);
+      setXnmBalance(null); setXuniBalance(null); setXblkBalance(null);
+      return;
+    }
+
+    // Helper — fetch SPL token balance (standard Token Program)
+    const fetchSpl = async (mint: PublicKey, setter: (n: number) => void) => {
+      try {
+        const ata = getAssociatedTokenAddressSync(mint, publicKey, false, TOKEN_PROGRAM_ID);
+        const acc = await connection.getParsedAccountInfo(ata);
+        setter((acc?.value?.data as any)?.parsed?.info?.tokenAmount?.uiAmount ?? 0);
+      } catch { setter(0); }
+    };
+
+    // BRAINS — Token-2022
     (async () => {
       try {
         const ata = getAssociatedTokenAddressSync(BRAINS_MINT_PK, publicKey, false, TOKEN_2022_PROGRAM_ID);
@@ -166,12 +201,20 @@ const MintLabWork: FC = () => {
         setBrainsBalance((acc?.value?.data as any)?.parsed?.info?.tokenAmount?.uiAmount ?? 0);
       } catch { setBrainsBalance(0); }
     })();
+
+    // XNT — native balance (SOL equivalent on X1)
     (async () => {
       try {
         const bal = await connection.getBalance(publicKey);
         setXntBalance(bal / LAMPORTS_PER_SOL);
       } catch { setXntBalance(0); }
     })();
+
+    // Xenblocks assets — standard SPL
+    fetchSpl(XNM_MINT_PK,  setXnmBalance);
+    fetchSpl(XUNI_MINT_PK, setXuniBalance);
+    fetchSpl(XBLK_MINT_PK, setXblkBalance);
+
   }, [publicKey?.toBase58()]);
 
   // ── Mint handler ─────────────────────────────────────────────────
@@ -208,68 +251,6 @@ const MintLabWork: FC = () => {
         @keyframes lw-coming { 0%,100%{opacity:.6} 50%{opacity:1} }
         @keyframes lw-spin   { to{transform:rotate(360deg)} }
       `}</style>
-
-      {/* ── Section header ─────────────────────────────────────── */}
-      <div style={{ textAlign:'center', marginBottom: isMobile ? 24 : 36, animation:'fadeUp .5s ease both' }}>
-
-        {/* Coming soon badge */}
-        {!PROGRAM_DEPLOYED && (
-          <div style={{
-            display:'inline-flex', alignItems:'center', gap:8,
-            background:'rgba(191,90,242,.08)', border:'1px solid rgba(191,90,242,.3)',
-            borderRadius:20, padding:'6px 16px', marginBottom:16,
-            animation:'lw-coming 2.5s ease infinite',
-          }}>
-            <div style={{ width:6, height:6, borderRadius:'50%', background:'#bf5af2',
-              boxShadow:'0 0 8px #bf5af2', animation:'lw-pulse 1.5s ease infinite' }} />
-            <span style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 8 : 9,
-              fontWeight:700, color:'#bf5af2', letterSpacing:2 }}>PROGRAM DEPLOYING — UI PREVIEW</span>
-          </div>
-        )}
-
-        <div style={{
-          fontFamily:'Orbitron,monospace', fontSize: isMobile ? 11 : 13,
-          fontWeight:900, letterSpacing:2, marginBottom:6,
-          background:'linear-gradient(90deg,#00d4ff,#bf5af2,#00c98d,#00d4ff)',
-          backgroundSize:'200% auto', WebkitBackgroundClip:'text',
-          WebkitTextFillColor:'transparent', backgroundClip:'text',
-          animation:'lw-shimmer 3s linear infinite', display:'inline-block',
-        }}>MINT LAB WORK 🧪</div>
-
-        <div style={{ fontFamily:'Sora,sans-serif', fontSize: isMobile ? 10 : 12,
-          color:'#8aaac0', marginBottom: isMobile ? 14 : 20 }}>
-          100,000 LB hard cap &nbsp;·&nbsp; 4 progressive tiers &nbsp;·&nbsp;
-          <span style={{ color:'#00c98d' }}>early believers pay less</span>
-        </div>
-
-        {/* Global stats strip */}
-        <div style={{
-          display:'inline-flex', alignItems:'center',
-          background:'rgba(255,255,255,.025)', border:'1px solid rgba(255,255,255,.07)',
-          borderRadius:50, padding: isMobile ? '7px 14px' : '9px 22px',
-          backdropFilter:'blur(8px)', flexWrap:'wrap', gap:0,
-        }}>
-          {[
-            { label:'TOTAL SUPPLY', value:'100,000',              color:'#00d4ff' },
-            { label:'LB MINTED',    value: fmt(mintedTotal),       color:'#00c98d' },
-            { label:'REMAINING',    value: fmt(TOTAL_SUPPLY - mintedTotal), color:'#bf5af2' },
-            { label:'ACTIVE TIER',  value:`TIER ${currentTier.tier}`, color: c },
-          ].map(({ label, value, color }, i, arr) => (
-            <React.Fragment key={label}>
-              <div style={{ textAlign:'center', padding: isMobile ? '2px 10px' : '2px 18px' }}>
-                <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 13 : 18,
-                  fontWeight:900, color, lineHeight:1, marginBottom:2 }}>{value}</div>
-                <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 6 : 7,
-                  color:'#9abacf', letterSpacing:1.5 }}>{label}</div>
-              </div>
-              {i < arr.length - 1 && (
-                <div style={{ width:1, height: isMobile ? 24 : 30,
-                  background:'rgba(255,255,255,.08)', flexShrink:0 }} />
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-      </div>
 
       {/* ── Section tabs ───────────────────────────────────────── */}
       <div style={{
@@ -311,6 +292,48 @@ const MintLabWork: FC = () => {
 
           {/* Left — form */}
           <div style={{ display:'flex', flexDirection:'column', gap: isMobile ? 12 : 14 }}>
+
+            {/* Deploying banner + stats — top of mint form */}
+            {!PROGRAM_DEPLOYED && (
+              <div style={{
+                display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+                background:'rgba(191,90,242,.08)', border:'1px solid rgba(191,90,242,.3)',
+                borderRadius:10, padding:'10px 16px',
+                animation:'lw-coming 2.5s ease infinite',
+              }}>
+                <div style={{ width:6, height:6, borderRadius:'50%', background:'#bf5af2',
+                  boxShadow:'0 0 8px #bf5af2', animation:'lw-pulse 1.5s ease infinite', flexShrink:0 }} />
+                <span style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 8 : 9,
+                  fontWeight:700, color:'#bf5af2', letterSpacing:1.5 }}>PROGRAM DEPLOYING — UI PREVIEW</span>
+              </div>
+            )}
+
+            {/* Mini stats strip */}
+            <div style={{
+              display:'flex', gap:0,
+              background:'rgba(255,255,255,.025)', border:'1px solid rgba(255,255,255,.07)',
+              borderRadius:10, overflow:'hidden',
+            }}>
+              {[
+                { label:'TOTAL SUPPLY', value:'100,000',                          color:'#00d4ff' },
+                { label:'LB MINTED',    value: fmt(mintedTotal),                  color:'#00c98d' },
+                { label:'REMAINING',    value: fmt(TOTAL_SUPPLY - mintedTotal),   color:'#bf5af2' },
+                { label:'ACTIVE TIER',  value:`TIER ${currentTier.tier}`,         color: c        },
+              ].map(({ label, value, color }, i, arr) => (
+                <React.Fragment key={label}>
+                  <div style={{ flex:1, textAlign:'center', padding: isMobile ? '8px 4px' : '10px 8px' }}>
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 11 : 14,
+                      fontWeight:900, color, lineHeight:1, marginBottom:2 }}>{value}</div>
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 6,
+                      color:'#9abacf', letterSpacing:1 }}>{label}</div>
+                  </div>
+                  {i < arr.length - 1 && (
+                    <div style={{ width:1, alignSelf:'stretch',
+                      background:'rgba(255,255,255,.08)' }} />
+                  )}
+                </React.Fragment>
+              ))}
+            </div>
 
             {/* Active tier card */}
             <div style={{
@@ -416,31 +439,67 @@ const MintLabWork: FC = () => {
 
             {/* Balances */}
             {publicKey && (
-              <div style={{ display:'flex', gap:8 }}>
-                {[
-                  { label:'BRAINS', val: brainsBalance, need: brainsCost, color:'#bf5af2', suffix:'BRAINS' },
-                  { label:'XNT',    val: xntBalance,    need: xntCost,    color:'#00c98d', suffix:'XNT'    },
-                ].map(({ label, val, need, color, suffix }) => {
-                  const enough = val !== null && val >= need;
-                  return (
-                    <div key={label} style={{
-                      flex:1, padding:'10px 12px', borderRadius:10, textAlign:'center',
-                      background: enough ? 'rgba(255,255,255,.03)' : 'rgba(255,50,50,.05)',
-                      border:`1px solid ${enough ? color + '22' : 'rgba(255,50,50,.2)'}`,
-                    }}>
-                      <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 13 : 15,
-                        fontWeight:900, color: enough ? color : '#ff6666', marginBottom:2 }}>
-                        {val === null ? '…' : label === 'XNT' ? val.toFixed(3) : fmt(val)}
+              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                {/* BRAINS + XNT always shown */}
+                <div style={{ display:'flex', gap:8 }}>
+                  {[
+                    { label:'BRAINS', val: brainsBalance, need: brainsCost, color:'#bf5af2', suffix:'BRAINS' },
+                    { label:'XNT',    val: xntBalance,    need: xntCost,    color:'#00c98d', suffix:'XNT'    },
+                  ].map(({ label, val, need, color, suffix }) => {
+                    const enough = val !== null && val >= need;
+                    return (
+                      <div key={label} style={{
+                        flex:1, padding:'10px 12px', borderRadius:10, textAlign:'center',
+                        background: enough ? 'rgba(255,255,255,.03)' : 'rgba(255,50,50,.05)',
+                        border:`1px solid ${enough ? color + '22' : 'rgba(255,50,50,.2)'}`,
+                      }}>
+                        <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 13 : 15,
+                          fontWeight:900, color: enough ? color : '#ff6666', marginBottom:2 }}>
+                          {val === null ? '…' : suffix === 'XNT' ? val.toFixed(3) : fmt(val)}
+                        </div>
+                        <div style={{ fontFamily:'Orbitron,monospace', fontSize:7,
+                          color:'#6a8aaa', letterSpacing:1.5 }}>{suffix} BALANCE</div>
+                        {!enough && val !== null && (
+                          <div style={{ fontFamily:'Sora,sans-serif', fontSize:8,
+                            color:'#ff6666', marginTop:2 }}>
+                            need {suffix === 'XNT' ? need.toFixed(3) : fmt(need)}
+                          </div>
+                        )}
                       </div>
-                      <div style={{ fontFamily:'Orbitron,monospace', fontSize:7,
-                        color:'#6a8aaa', letterSpacing:1.5 }}>{suffix} BALANCE</div>
-                      {!enough && val !== null && (
-                        <div style={{ fontFamily:'Sora,sans-serif', fontSize:8,
-                          color:'#ff6666', marginTop:2 }}>need {label === 'XNT' ? need.toFixed(3) : fmt(need)}</div>
-                      )}
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
+
+                {/* Xenblocks balances — shown when amplifier is toggled on */}
+                {useAmplifier && (
+                  <div style={{ display:'flex', gap:8 }}>
+                    {[
+                      { label:'XNM',  val: xnmBalance,  need: xnmCost,  color:'#00d4ff' },
+                      { label:'XUNI', val: xuniBalance,  need: xuniCost, color:'#bf5af2' },
+                      { label:'XBLK', val: xblkBalance,  need: xblkCost, color:'#00c98d' },
+                    ].map(({ label, val, need, color }) => {
+                      const enough = val !== null && val >= need;
+                      return (
+                        <div key={label} style={{
+                          flex:1, padding:'8px 10px', borderRadius:10, textAlign:'center',
+                          background: enough ? 'rgba(255,255,255,.03)' : 'rgba(255,50,50,.05)',
+                          border:`1px solid ${enough ? color + '22' : 'rgba(255,50,50,.2)'}`,
+                        }}>
+                          <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 11 : 13,
+                            fontWeight:900, color: enough ? color : '#ff6666', marginBottom:2 }}>
+                            {val === null ? '…' : fmt(val)}
+                          </div>
+                          <div style={{ fontFamily:'Orbitron,monospace', fontSize:7,
+                            color:'#6a8aaa', letterSpacing:1.5 }}>{label} BALANCE</div>
+                          {!enough && val !== null && (
+                            <div style={{ fontFamily:'Sora,sans-serif', fontSize:8,
+                              color:'#ff6666', marginTop:2 }}>need {fmt(need)}</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
@@ -574,13 +633,25 @@ const MintLabWork: FC = () => {
                 Add a Xenblocks bundle to your mint and receive
                 <span style={{ color:'#ffaa00', fontWeight:700 }}> +{COMBO_BONUS} LB bonus</span> per transaction.
               </div>
-              <div style={{ display:'flex', gap:6 }}>
-                {[{a:'1,000',t:'XNM'},{a:'500',t:'XUNI'},{a:'1',t:'XBLK'}].map(({a,t}) => (
-                  <div key={t} style={{ fontFamily:'Orbitron,monospace', fontSize:8, fontWeight:700,
-                    color:'#6a8aaa', background:'rgba(255,255,255,.04)',
-                    border:'1px solid rgba(255,255,255,.08)', borderRadius:6, padding:'4px 10px',
-                    opacity:.6 }}>{a} {t}</div>
-                ))}
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                {[
+                  { t:'XNM',  a:'1,000', bal: xnmBalance,  need: 1000 },
+                  { t:'XUNI', a:'500',   bal: xuniBalance,  need: 500  },
+                  { t:'XBLK', a:'1',     bal: xblkBalance,  need: 1    },
+                ].map(({ a, t, bal, need }) => {
+                  const enough = bal !== null && bal >= need;
+                  return (
+                    <div key={t} style={{
+                      fontFamily:'Orbitron,monospace', fontSize:8, fontWeight:700,
+                      color: enough ? '#ffaa00' : bal === null ? '#6a8aaa' : '#ff6666',
+                      background: enough ? 'rgba(255,170,0,.08)' : 'rgba(255,255,255,.04)',
+                      border:`1px solid ${enough ? 'rgba(255,170,0,.25)' : 'rgba(255,255,255,.08)'}`,
+                      borderRadius:6, padding:'4px 10px',
+                    }}>
+                      {a} {t}{publicKey && bal !== null ? ` · ${fmt(bal)}` : ''}
+                    </div>
+                  );
+                })}
               </div>
               <button type="button" onClick={() => setActiveTab('amplifier')}
                 style={{ marginTop:10, padding:'6px 14px', borderRadius:8, cursor:'pointer',
@@ -730,18 +801,33 @@ const MintLabWork: FC = () => {
               color:'#fff', letterSpacing:1.5, marginBottom:14 }}>XENBLOCKS BUNDLE REQUIRED PER COMBO MINT</div>
             <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3,1fr)', gap: isMobile ? 8 : 12 }}>
               {[
-                { asset:'XNM',  amount:'1,000', burn:'500 burned', lp:'500 → LP', color:'#00d4ff', rgb:'0,212,255' },
-                { asset:'XUNI', amount:'500',   burn:'250 burned', lp:'250 → LP', color:'#bf5af2', rgb:'191,90,242' },
-                { asset:'XBLK', amount:'1',     burn:'0.5 burned', lp:'0.5 → LP', color:'#00c98d', rgb:'0,201,141' },
-              ].map(({ asset, amount: a, burn, lp, color, rgb: r }) => (
+                { asset:'XNM',  amount:'1,000', burn:'500 burned', lp:'500 → LP', color:'#00d4ff', rgb:'0,212,255',   bal: xnmBalance,  need: 1000 },
+                { asset:'XUNI', amount:'500',   burn:'250 burned', lp:'250 → LP', color:'#bf5af2', rgb:'191,90,242', bal: xuniBalance, need: 500  },
+                { asset:'XBLK', amount:'1',     burn:'0.5 burned', lp:'0.5 → LP', color:'#00c98d', rgb:'0,201,141', bal: xblkBalance, need: 1    },
+              ].map(({ asset, amount: a, burn, lp, color, rgb: r, bal, need }) => {
+                const enough = bal !== null && bal >= need;
+                return (
                 <div key={asset} style={{
-                  background:`rgba(${r},.06)`, border:`1px solid rgba(${r},.2)`,
+                  background:`rgba(${r},.06)`, border:`1px solid ${enough ? 'rgba('+r+',.3)' : bal === null ? 'rgba('+r+',.2)' : 'rgba(255,50,50,.3)'}`,
                   borderRadius:12, padding: isMobile ? '14px' : '16px 18px',
                 }}>
                   <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 14 : 18,
-                    fontWeight:900, color, marginBottom:4 }}>{a}</div>
+                    fontWeight:900, color, marginBottom:2 }}>{a}</div>
                   <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 10 : 12,
-                    fontWeight:700, color, marginBottom:8 }}>{asset}</div>
+                    fontWeight:700, color, marginBottom:6 }}>{asset}</div>
+                  {/* Live balance */}
+                  {publicKey && (
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize:8,
+                      color: enough ? color : bal === null ? '#6a8aaa' : '#ff6666',
+                      marginBottom:8,
+                      background: enough ? `rgba(${r},.08)` : 'rgba(255,50,50,.06)',
+                      border:`1px solid ${enough ? `rgba(${r},.2)` : 'rgba(255,50,50,.2)'}`,
+                      borderRadius:5, padding:'3px 8px', display:'inline-block',
+                    }}>
+                      {bal === null ? 'loading…' : `${fmt(bal)} in wallet`}
+                      {!enough && bal !== null && ` · need ${fmt(need)}`}
+                    </div>
+                  )}
                   <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                       <span style={{ fontSize:10 }}>🔥</span>
@@ -753,7 +839,8 @@ const MintLabWork: FC = () => {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
