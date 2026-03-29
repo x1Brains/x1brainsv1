@@ -281,7 +281,7 @@ export interface Listing {
   active:     boolean;
   nftData?:   NFTData;
 }
-export type PageMode  = 'gallery' | 'market';
+export type PageMode  = 'gallery' | 'market' | 'mint';
 export type MarketTab = 'overview' | 'browse' | 'mylistings' | 'sell' | 'activity';
 
 export interface TradeLog {
@@ -327,7 +327,7 @@ async function saveTrade(trade: { sig: string; type: 'list'|'buy'|'delist'|'boos
 
 // Send transaction - tries signTransaction first to bypass wallet simulation,
 // falls back to sendTransaction if sign fails.
-// skipPreflight: false on all marketplace txs — simulate before submit to protect user funds.
+// skipPreflight: true for list/buy (speed), false for cancel (protect fees on failure).
 async function sendTx(
   tx: Transaction,
   connection: any,

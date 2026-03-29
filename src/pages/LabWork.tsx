@@ -22,6 +22,7 @@ import { BurnedBrainsBar, walletBurnStats } from '../components/BurnedBrainsBar'
 import { PLATFORM_WALLET_STRING, BRAINS_MINT as BRAINS_MINT_STR } from '../constants';
 import { supabase, getLabWorkPtsForWallet, triggerLabWorkRefresh, labWorkSignal } from '../lib/supabase';
 import { rarityColor } from '../utils/nft';
+import MintLabWork from './MintLabWork';
 import type { NFTData, Listing, TradeLog, PageMode, MarketTab } from '../components/LBComponents';
 import {
   useIsMobile, getMarketplaceProgramId,
@@ -971,20 +972,47 @@ const LabWork: FC = () => {
         <div style={{ display:'flex', gap:6, marginBottom: isMobile ? 20 : 30, background:'rgba(255,255,255,.03)',
           borderRadius:14, padding:4, border:'1px solid rgba(255,255,255,.06)', animation:'fadeUp 0.4s ease 0.12s both' }}>
           {([
-            { id:'market',  label:'🛒 MARKETPLACE', sub: listings.length > 0 ? `${listings.length} listed` : 'list & buy NFTs' },
-            { id:'gallery', label:'🧪 MY NFTs',     sub: nfts.length > 0 ? `${nfts.length} found` : 'view your collection' },
-          ] as { id:PageMode; label:string; sub:string }[]).map(m => (
-            <button key={m.id} onClick={() => setPageMode(m.id)} style={{ flex:1, padding: isMobile ? '10px 6px' : '13px 10px',
-              background: pageMode===m.id ? 'linear-gradient(135deg,rgba(0,212,255,.15),rgba(191,90,242,.08))' : 'transparent',
-              border: pageMode===m.id ? '1px solid rgba(0,212,255,.35)' : '1px solid transparent',
-              borderRadius:11, cursor:'pointer', transition:'all 0.18s', textAlign:'center' }}>
-              <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 10 : 12, fontWeight:900,
-                color: pageMode===m.id ? '#00d4ff' : '#4a6a8a', marginBottom:2 }}>{m.label}</div>
-              <div style={{ fontFamily:'Orbitron,monospace', fontSize:7,
-                color: pageMode===m.id ? 'rgba(0,212,255,.55)' : '#3a5a7a', letterSpacing:1 }}>{m.sub}</div>
-            </button>
-          ))}
+            { id:'market',  label:'🛒 MARKETPLACE',   sub: listings.length > 0 ? `${listings.length} listed` : 'list & buy NFTs' },
+            { id:'mint',    label:'🔥 MINT LAB WORK', sub: 'burn BRAINS → get LB' },
+            { id:'gallery', label:'🧪 MY NFTs',       sub: nfts.length > 0 ? `${nfts.length} found` : 'view your collection' },
+          ] as { id:PageMode; label:string; sub:string }[]).map(m => {
+            const isMintTab = m.id === 'mint';
+            const isActive  = pageMode === m.id;
+            return (
+              <button key={m.id} type="button" onClick={() => setPageMode(m.id)}
+                style={{
+                  flex: isMintTab ? 1.4 : 1, padding: isMobile ? '10px 6px' : '13px 10px',
+                  background: isActive && isMintTab
+                    ? 'linear-gradient(135deg,rgba(191,90,242,.18),rgba(191,90,242,.08))'
+                    : isActive
+                    ? 'linear-gradient(135deg,rgba(0,212,255,.15),rgba(191,90,242,.08))'
+                    : isMintTab
+                    ? 'linear-gradient(135deg,rgba(191,90,242,.06),rgba(191,90,242,.02))'
+                    : 'transparent',
+                  border: isActive && isMintTab
+                    ? '1px solid rgba(191,90,242,.7)'
+                    : isActive
+                    ? '1px solid rgba(0,212,255,.35)'
+                    : isMintTab
+                    ? '1px solid rgba(191,90,242,.25)'
+                    : '1px solid transparent',
+                  borderRadius:11, cursor:'pointer', transition:'all 0.18s', textAlign:'center',
+                }}>
+                <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 9 : 11, fontWeight:900,
+                  color: isActive && isMintTab ? '#bf5af2' : isActive ? '#00d4ff' : isMintTab ? '#9a4ad2' : '#4a6a8a',
+                  marginBottom:2 }}>{m.label}</div>
+                <div style={{ fontFamily:'Orbitron,monospace', fontSize:7,
+                  color: isActive && isMintTab ? 'rgba(191,90,242,.55)' : isActive ? 'rgba(0,212,255,.55)' : isMintTab ? 'rgba(191,90,242,.35)' : '#3a5a7a',
+                  letterSpacing:1 }}>{m.sub}</div>
+              </button>
+            );
+          })}
         </div>
+
+        {/* ════════════════════════════════════════════════════════
+            MINT MODE
+        ════════════════════════════════════════════════════════ */}
+        {pageMode === 'mint' && <MintLabWork />}
 
         {/* ════════════════════════════════════════════════════════
             GALLERY MODE
