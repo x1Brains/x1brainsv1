@@ -147,6 +147,9 @@ const MintLabWork: FC = () => {
   const [xblkBalance,    setXblkBalance]    = useState<number | null>(null);
   const [amount,         setAmount]         = useState(1);
   const [useAmplifier,   setUseAmplifier]   = useState(false);
+  const [xnmAmount,      setXnmAmount]      = useState(1_000);  // multiple of 1,000
+  const [xuniAmount,     setXuniAmount]     = useState(500);    // multiple of 500
+  const [xblkAmount,     setXblkAmount]     = useState(1);      // whole number
   const [activeTab,      setActiveTab]      = useState<'mint' | 'tiers' | 'info' | 'amplifier'>('mint');
   const [status,         setStatus]         = useState('');
   const [pending,        setPending]        = useState(false);
@@ -158,14 +161,18 @@ const MintLabWork: FC = () => {
   const tierRemaining = TIER_SIZE - tierMinted;
   const totalPct      = (mintedTotal / TOTAL_SUPPLY) * 100;
 
-  const lbOut       = amount + (useAmplifier ? COMBO_BONUS : 0);
   const brainsCost  = amount * currentTier.brains;
   const xntCost     = parseFloat((amount * currentTier.xnt).toFixed(4));
 
-  // Amplifier bundle is fixed per combo mint (not per LB)
-  const xnmCost  = useAmplifier ? 1_000 : 0;
-  const xuniCost = useAmplifier ? 500   : 0;
-  const xblkCost = useAmplifier ? 1     : 0;
+  const xnmCost  = useAmplifier ? xnmAmount  : 0;
+  const xuniCost = useAmplifier ? xuniAmount : 0;
+  const xblkCost = useAmplifier ? xblkAmount : 0;
+
+  // LB from Xenblocks (mirrors program math)
+  const xnmLb   = useAmplifier ? Math.floor(xnmAmount  / 1_000)       : 0;
+  const xuniLb  = useAmplifier ? Math.floor(xuniAmount / 500) * 4      : 0;
+  const xblkLb  = useAmplifier ? xblkAmount * 8                        : 0;
+  const lbOut   = amount + xnmLb + xuniLb + xblkLb;
 
   const canAfford = brainsBalance !== null && brainsBalance >= brainsCost
     && xntBalance !== null && xntBalance >= xntCost
@@ -416,12 +423,9 @@ const MintLabWork: FC = () => {
                   { label:'LB YOU RECEIVE',   value:`${fmt(lbOut)} LB`,         color:c              },
                   { label:'BRAINS TO BURN',    value:`${fmt(brainsCost)} BRAINS`, color:'#ff6a6a'     },
                   { label:'XNT PLATFORM FEE',  value:`${xntCost} XNT`,           color:'#ffaa00'      },
-                  ...(useAmplifier ? [
-                    { label:'XNM BUNDLE',      value:'1,000 XNM',                color:'#9abacf'      },
-                    { label:'XUNI BUNDLE',     value:'500 XUNI',                 color:'#9abacf'      },
-                    { label:'XBLK BUNDLE',     value:'1 XBLK',                   color:'#9abacf'      },
-                    { label:'AMPLIFIER BONUS', value:`+${COMBO_BONUS} LB`,       color:'#ffaa00'      },
-                  ] : []),
+                  ...(useAmplifier && xnmAmount  > 0 ? [{ label:'XNM',  value:`${fmt(xnmAmount)} → +${xnmLb} LB`,   color:'#00d4ff' }] : []),
+                  ...(useAmplifier && xuniAmount > 0 ? [{ label:'XUNI', value:`${fmt(xuniAmount)} → +${xuniLb} LB`,  color:'#bf5af2' }] : []),
+                  ...(useAmplifier && xblkAmount > 0 ? [{ label:'XBLK', value:`${xblkAmount} → +${xblkLb} LB`,       color:'#00c98d' }] : []),
                 ].map(({ label, value, color }, i, arr) => (
                   <div key={label} style={{
                     display:'flex', justifyContent:'space-between', alignItems:'center',
@@ -433,6 +437,136 @@ const MintLabWork: FC = () => {
                       fontWeight:900, color }}>{value}</span>
                   </div>
                 ))}
+              </div>
+
+              {/* ── Xenblocks Amplifier toggle ── */}
+              <div style={{
+                background: useAmplifier
+                  ? 'linear-gradient(135deg,rgba(255,170,0,.08),rgba(191,90,242,.05))'
+                  : 'rgba(255,255,255,.02)',
+                border: `1px solid ${useAmplifier ? 'rgba(255,170,0,.35)' : 'rgba(255,255,255,.08)'}`,
+                borderRadius:12, padding: isMobile ? '12px 14px' : '14px 16px',
+                transition:'all .2s',
+              }}>
+                {/* Toggle header */}
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: useAmplifier ? 14 : 0 }}>
+                  <div>
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 9 : 10,
+                      fontWeight:900, color: useAmplifier ? '#ffaa00' : '#4a6a8a', letterSpacing:1 }}>
+                      ⚡ XENBLOCKS AMPLIFIER
+                    </div>
+                    <div style={{ fontFamily:'Sora,sans-serif', fontSize:9,
+                      color: useAmplifier ? '#8aaac0' : '#3a5a7a', marginTop:2 }}>
+                      {useAmplifier
+                        ? `+${xnmLb + xuniLb + xblkLb} bonus LB from Xenblocks`
+                        : 'burn XNM, XUNI, XBLK for bonus LB'}
+                    </div>
+                  </div>
+                  {/* Toggle switch */}
+                  <button type="button" onClick={() => setUseAmplifier(p => !p)}
+                    style={{
+                      position:'relative', width:48, height:26, borderRadius:13,
+                      border:'none', cursor:'pointer', outline:'none', flexShrink:0,
+                      background: useAmplifier
+                        ? 'linear-gradient(135deg,#ffaa00,#ff6600)'
+                        : 'rgba(255,255,255,.1)',
+                      boxShadow: useAmplifier ? '0 0 12px rgba(255,170,0,.4)' : 'none',
+                      transition:'all .25s',
+                    }}>
+                    <span style={{
+                      position:'absolute', top:3,
+                      left: useAmplifier ? 25 : 3,
+                      width:20, height:20, borderRadius:'50%',
+                      background:'#fff',
+                      boxShadow: useAmplifier ? '0 0 6px rgba(255,170,0,.6)' : '0 1px 3px rgba(0,0,0,.3)',
+                      transition:'left .25s',
+                      display:'flex', alignItems:'center', justifyContent:'center',
+                      fontSize:10,
+                    }}>{useAmplifier ? '⚡' : '○'}</span>
+                  </button>
+                </div>
+
+                {/* Xenblocks inputs — shown when amplifier is on */}
+                {useAmplifier && (
+                  <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                    {[
+                      {
+                        label:'XNM', step:1_000, val:xnmAmount, set:setXnmAmount,
+                        bal:xnmBalance, lb:xnmLb, color:'#00d4ff', rgb:'0,212,255',
+                        hint:'multiples of 1,000',
+                      },
+                      {
+                        label:'XUNI', step:500, val:xuniAmount, set:setXuniAmount,
+                        bal:xuniBalance, lb:xuniLb, color:'#bf5af2', rgb:'191,90,242',
+                        hint:'multiples of 500',
+                      },
+                      {
+                        label:'XBLK', step:1, val:xblkAmount, set:setXblkAmount,
+                        bal:xblkBalance, lb:xblkLb, color:'#00c98d', rgb:'0,201,141',
+                        hint:'whole numbers',
+                      },
+                    ].map(({ label, step, val, set, bal, lb, color, rgb: r, hint }) => {
+                      const enough = bal !== null && bal >= val;
+                      return (
+                        <div key={label} style={{
+                          background:`rgba(${r},.06)`,
+                          border:`1px solid ${enough ? `rgba(${r},.25)` : val > 0 && bal !== null ? 'rgba(255,50,50,.3)' : `rgba(${r},.15)`}`,
+                          borderRadius:10, padding:'10px 12px',
+                        }}>
+                          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                              <span style={{ fontFamily:'Orbitron,monospace', fontSize:10, fontWeight:900, color }}>{label}</span>
+                              <span style={{ fontFamily:'Sora,sans-serif', fontSize:9, color:'#6a8aaa' }}>{hint}</span>
+                              {lb > 0 && <span style={{ fontFamily:'Orbitron,monospace', fontSize:8, fontWeight:700,
+                                color:'#00c98d', background:'rgba(0,201,141,.1)', border:'1px solid rgba(0,201,141,.2)',
+                                borderRadius:4, padding:'1px 6px' }}>+{lb} LB</span>}
+                            </div>
+                            {/* Balance badge */}
+                            {publicKey && (
+                              <span style={{ fontFamily:'Orbitron,monospace', fontSize:8,
+                                color: enough ? color : bal === null ? '#6a8aaa' : '#ff6666' }}>
+                                {bal === null ? '…' : `${fmt(bal)} bal`}
+                              </span>
+                            )}
+                          </div>
+                          {/* Quick select + custom input */}
+                          <div style={{ display:'flex', gap:5, flexWrap:'wrap', alignItems:'center' }}>
+                            {(label === 'XBLK'
+                              ? [1, 2, 3, 5, 10]
+                              : label === 'XUNI'
+                              ? [500, 1_000, 2_000, 5_000]
+                              : [1_000, 2_000, 5_000, 10_000]
+                            ).map(v => (
+                              <button key={v} type="button" onClick={() => set(v)}
+                                style={{
+                                  padding:'4px 8px', borderRadius:6, cursor:'pointer',
+                                  fontFamily:'Orbitron,monospace', fontSize: isMobile ? 8 : 9, fontWeight:700,
+                                  background: val === v ? `rgba(${r},.2)` : 'rgba(255,255,255,.04)',
+                                  border:`1px solid ${val === v ? color + '55' : 'rgba(255,255,255,.08)'}`,
+                                  color: val === v ? color : '#4a6a8a',
+                                  transition:'all .1s',
+                                }}>{fmt(v)}</button>
+                            ))}
+                            <input type="number" min={step} step={step} value={val}
+                              onChange={e => {
+                                const v = parseInt(e.target.value) || step;
+                                const rounded = Math.max(step, Math.round(v / step) * step);
+                                set(rounded);
+                              }}
+                              style={{
+                                width: isMobile ? 64 : 76, padding:'4px 8px', textAlign:'center',
+                                background:'rgba(255,255,255,.04)',
+                                border:`1px solid rgba(${r},.3)`,
+                                borderRadius:6, outline:'none',
+                                fontFamily:'Orbitron,monospace', fontSize:9, fontWeight:700,
+                                color:'#e0f0ff', caretColor:color,
+                              }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -469,36 +603,6 @@ const MintLabWork: FC = () => {
                   })}
                 </div>
 
-                {/* Xenblocks balances — shown when amplifier is toggled on */}
-                {useAmplifier && (
-                  <div style={{ display:'flex', gap:8 }}>
-                    {[
-                      { label:'XNM',  val: xnmBalance,  need: xnmCost,  color:'#00d4ff' },
-                      { label:'XUNI', val: xuniBalance,  need: xuniCost, color:'#bf5af2' },
-                      { label:'XBLK', val: xblkBalance,  need: xblkCost, color:'#00c98d' },
-                    ].map(({ label, val, need, color }) => {
-                      const enough = val !== null && val >= need;
-                      return (
-                        <div key={label} style={{
-                          flex:1, padding:'8px 10px', borderRadius:10, textAlign:'center',
-                          background: enough ? 'rgba(255,255,255,.03)' : 'rgba(255,50,50,.05)',
-                          border:`1px solid ${enough ? color + '22' : 'rgba(255,50,50,.2)'}`,
-                        }}>
-                          <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 11 : 13,
-                            fontWeight:900, color: enough ? color : '#ff6666', marginBottom:2 }}>
-                            {val === null ? '…' : fmt(val)}
-                          </div>
-                          <div style={{ fontFamily:'Orbitron,monospace', fontSize:7,
-                            color:'#6a8aaa', letterSpacing:1.5 }}>{label} BALANCE</div>
-                          {!enough && val !== null && (
-                            <div style={{ fontFamily:'Sora,sans-serif', fontSize:8,
-                              color:'#ff6666', marginTop:2 }}>need {fmt(need)}</div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
             )}
 
