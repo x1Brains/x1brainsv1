@@ -13,8 +13,8 @@ import {
 } from '@solana/web3.js';
 import {
   TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
-  getAssociatedTokenAddressSync, getMint,
-  createBurnCheckedInstruction, createAssociatedTokenAccountInstruction,
+  getAssociatedTokenAddressSync,
+  createAssociatedTokenAccountInstruction,
   getAccount,
 } from '@solana/spl-token';
 import { BRAINS_MINT as BRAINS_MINT_STR, PLATFORM_WALLET_STRING } from '../constants';
@@ -300,8 +300,8 @@ const MintLabWork: FC = () => {
 
       // 2. Build mint_lb CPI instruction
       // Anchor discriminator = sha256("global:mint_lb")[0..8]
-      const { createHash } = await import('crypto');
-      const disc = createHash('sha256').update('global:mint_lb').digest().slice(0, 8);
+      // Pre-computed: sha256("global:mint_lb")[0..8]
+      const disc = Buffer.from([225, 191, 66, 41, 247, 180, 201, 81]);
       // brains_amount arg as u64 LE (raw units — program expects whole BRAINS, not decimals)
       const argBuf = Buffer.alloc(8);
       argBuf.writeBigUInt64LE(BigInt(brainsCost));
