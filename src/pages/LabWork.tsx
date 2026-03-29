@@ -519,9 +519,9 @@ const LabWork: FC = () => {
     // then progressively enrich image/attributes in background
     const withMeta = await batchEnrichListings(connection, raw);
     setListings([...withMeta]);
-    // Fetch off-chain metadata (images/attributes) in large parallel batches
-    // 20 concurrent — X1 is fast, external image hosts are the bottleneck not the chain
-    const META_BATCH = 20;
+    // Fetch off-chain metadata (images/attributes) — 50 concurrent
+    // Images are the real bottleneck (IPFS/Arweave latency), not the chain
+    const META_BATCH = 50;
     let current = [...withMeta];
     const needsMeta = withMeta.map((l, i) => ({ l, i })).filter(({ l }) => l.nftData?.metaUri && !l.nftData?.image);
     for (let b = 0; b < needsMeta.length; b += META_BATCH) {
@@ -802,12 +802,62 @@ const LabWork: FC = () => {
     : nfts, [nfts, searchDebounced]);
   const groups      = useMemo(() => groupByCollection(filtered), [filtered]);
   const myListings  = useMemo(() => listings.filter(l => l.seller === publicKey?.toBase58()), [listings, publicKey]);
-  // Unique collections in marketplace listings — visible without wallet connection
   const listingCollections = useMemo(() => {
     const s = new Set<string>();
     listings.forEach(l => s.add(l.nftData?.collection || l.nftData?.symbol || 'Unknown'));
     return s.size;
   }, [listings]);
+
+  // Browse tab collection map — memoized
+  const browseData = useMemo(() => {
+    const colMap2 = new Map<string, { count: number; floor: number; items: Listing[]; displayName: string }>();
+    listings.forEach(l => {
+      const rawName = l.nftData?.collection || l.nftData?.symbol || 'Unknown';
+      const key = rawName.trim().toUpperCase();
+      if (!colMap2.has(key)) colMap2.set(key, { count:0, floor:Infinity, items:[], displayName: rawName });
+      const e = colMap2.get(key)!;
+      if (rawName.length > e.displayName.length) e.displayName = rawName;
+      e.count++; e.floor = Math.min(e.floor, l.price); e.items.push(l);
+    });
+    const collections2 = Array.from(colMap2.entries())
+      .sort((a,b) => b[1].count - a[1].count)
+      .map(([, data]) => [data.displayName, data] as [string, typeof data]);
+    const filteredListings = browseCollection
+      ? listings.filter(l => {
+          const rawName = l.nftData?.collection || l.nftData?.symbol || 'Unknown';
+          return rawName.trim().toUpperCase() === browseCollection.trim().toUpperCase();
+        })
+      : listings;
+    return { colMap2, collections2, filteredListings };
+  }, [listings, browseCollection]);
+  const overviewData = useMemo(() => {
+    const sales       = tradeLogs.filter(l => l.type === 'buy' && l.price);
+    const totalVolXnt = sales.reduce((s, l) => s + (l.price ?? 0), 0) / 1e9;
+    const biggestSale = sales.reduce((best, l) => (!best || (l.price ?? 0) > (best.price ?? 0)) ? l : best, null as TradeLog | null);
+    const floorListing = listings.length > 0 ? listings.reduce((a, b) => a.price < b.price ? a : b) : null;
+
+    const colMap = new Map<string, { count: number; floor: number; items: Listing[]; volume: number; displayName: string }>();
+    listings.forEach(l => {
+      const rawName = l.nftData?.collection || l.nftData?.symbol || 'Unknown';
+      const key = rawName.trim().toUpperCase();
+      if (!colMap.has(key)) colMap.set(key, { count:0, floor:Infinity, items:[], volume:0, displayName: rawName });
+      const e = colMap.get(key)!;
+      if (rawName.length > e.displayName.length) e.displayName = rawName;
+      e.count++; e.floor = Math.min(e.floor, l.price); e.items.push(l);
+    });
+    sales.forEach(s => {
+      const rawNftCol = s.nftData?.collection || s.nftData?.symbol;
+      if (rawNftCol) {
+        const key = rawNftCol.trim().toUpperCase();
+        if (colMap.has(key)) colMap.get(key)!.volume += s.price ?? 0;
+      }
+    });
+    const topCollections = Array.from(colMap.entries())
+      .sort((a,b) => b[1].count - a[1].count).slice(0, 6)
+      .map(([, data]) => [data.displayName, data] as [string, typeof data]);
+
+    return { sales, totalVolXnt, biggestSale, floorListing, colMap, topCollections };
+  }, [listings, tradeLogs]);
 
   // ─────────────────────────────────────────────────────────────
   //  RENDER
@@ -1204,34 +1254,7 @@ const LabWork: FC = () => {
                 OVERVIEW TAB
             ══════════════════════════════════════ */}
             {marketTab === 'overview' && (() => {
-              const sales        = tradeLogs.filter(l => l.type === 'buy' && l.price);
-              const totalVolXnt  = sales.reduce((s, l) => s + (l.price ?? 0), 0) / 1e9;
-              const biggestSale  = sales.reduce((best, l) => (!best || (l.price ?? 0) > (best.price ?? 0)) ? l : best, null as TradeLog | null);
-              const floorListing = listings.length > 0 ? listings.reduce((a, b) => a.price < b.price ? a : b) : null;
-
-              // Build collection map — used for Top Collections AND Browse preview
-              const colMap = new Map<string, { count: number; floor: number; items: Listing[]; volume: number; displayName: string }>();
-              listings.forEach(l => {
-                // Use collection name first, then symbol — normalize to uppercase for dedup
-                const rawName = l.nftData?.collection || l.nftData?.symbol || 'Unknown';
-                const key = rawName.trim().toUpperCase();
-                if (!colMap.has(key)) colMap.set(key, { count:0, floor:Infinity, items:[], volume:0, displayName: rawName });
-                const e = colMap.get(key)!;
-                // Prefer longer/more descriptive display name
-                if (rawName.length > e.displayName.length) e.displayName = rawName;
-                e.count++; e.floor = Math.min(e.floor, l.price); e.items.push(l);
-              });
-              // Add volume from sales
-              sales.forEach(s => {
-                const rawNftCol = s.nftData?.collection || s.nftData?.symbol;
-                if (rawNftCol) {
-                  const key = rawNftCol.trim().toUpperCase();
-                  if (colMap.has(key)) colMap.get(key)!.volume += s.price ?? 0;
-                }
-              });
-              const topCollections = Array.from(colMap.entries())
-                .sort((a,b) => b[1].count - a[1].count).slice(0, 6)
-                .map(([, data]) => [data.displayName, data] as [string, typeof data]);
+              const { sales, totalVolXnt, biggestSale, floorListing, colMap, topCollections } = overviewData;
 
               return (
                 <div style={{ animation:'fadeUp 0.3s ease both' }}>
@@ -1587,25 +1610,7 @@ const LabWork: FC = () => {
                 BROWSE TAB — collection picker + filtered grid
             ══════════════════════════════════════ */}
             {marketTab === 'browse' && (() => {
-              // Build collection list for picker — normalize key to deduplicate same collection appearing under different name/symbol
-              const colMap2 = new Map<string, { count: number; floor: number; items: Listing[]; displayName: string }>();
-              listings.forEach(l => {
-                const rawName = l.nftData?.collection || l.nftData?.symbol || 'Unknown';
-                const key = rawName.trim().toUpperCase();
-                if (!colMap2.has(key)) colMap2.set(key, { count:0, floor:Infinity, items:[], displayName: rawName });
-                const e = colMap2.get(key)!;
-                if (rawName.length > e.displayName.length) e.displayName = rawName;
-                e.count++; e.floor = Math.min(e.floor, l.price); e.items.push(l);
-              });
-              const collections2 = Array.from(colMap2.entries())
-                .sort((a,b) => b[1].count - a[1].count)
-                .map(([, data]) => [data.displayName, data] as [string, typeof data]);
-              const filteredListings = browseCollection
-                ? listings.filter(l => {
-                    const rawName = l.nftData?.collection || l.nftData?.symbol || 'Unknown';
-                    return rawName.trim().toUpperCase() === browseCollection.trim().toUpperCase();
-                  })
-                : listings;
+              const { colMap2, collections2, filteredListings } = browseData;
               const visible  = filteredListings.slice(0, listingsPage);
               const hasMore  = filteredListings.length > listingsPage;
 
