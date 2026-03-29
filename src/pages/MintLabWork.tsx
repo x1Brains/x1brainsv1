@@ -8,18 +8,21 @@
 
 import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import {
-  TOKEN_2022_PROGRAM_ID,
-  TOKEN_PROGRAM_ID,
-  getAssociatedTokenAddressSync,
+  PublicKey, LAMPORTS_PER_SOL, Transaction, SystemProgram,
+} from '@solana/web3.js';
+import {
+  TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddressSync, getMint,
+  createBurnCheckedInstruction, createAssociatedTokenAccountInstruction,
+  getAccount,
 } from '@solana/spl-token';
 import { BRAINS_MINT as BRAINS_MINT_STR, PLATFORM_WALLET_STRING } from '../constants';
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 
-const PROGRAM_DEPLOYED = false;       // flip when Anchor program is deployed
-const MINT_PROGRAM_ID  = '';          // set program ID here when deployed
+const PROGRAM_DEPLOYED = true;       // flip when Anchor program is deployed
+const MINT_PROGRAM_ID  = '3B6oAfmL7aGVAbBdu7zW3jqEVWK6o1nwFiufuSuFV6tN';          // set program ID here when deployed
 const TREASURY_WALLET  = PLATFORM_WALLET_STRING;
 const BRAINS_MINT_PK   = new PublicKey(BRAINS_MINT_STR);
 
@@ -223,6 +226,23 @@ const MintLabWork: FC = () => {
 
   }, [publicKey?.toBase58()]);
 
+  // ── Read mintedTotal from on-chain GlobalState ───────────────────
+  useEffect(() => {
+    if (!PROGRAM_DEPLOYED) return;
+    (async () => {
+      try {
+        const programId = new PublicKey(MINT_PROGRAM_ID);
+        const [statePda] = PublicKey.findProgramAddressSync([Buffer.from('lb_state')], programId);
+        const info = await connection.getAccountInfo(statePda);
+        if (!info) return;
+        // GlobalState layout: 8 (discriminator) + 32 (admin) + 32 (treasury) + 32 (lb_mint) + 8 (total_minted) + ...
+        // total_minted is u64 at offset 8+32+32+32 = 104, decimals=2 so divide by 100
+        const totalMintedRaw = info.data.readBigUInt64LE(104);
+        setMintedTotal(Number(totalMintedRaw) / 100);
+      } catch {}
+    })();
+  }, []);
+
   // ── Mint handler ─────────────────────────────────────────────────
   const handleMint = useCallback(async () => {
     if (!PROGRAM_DEPLOYED) {
@@ -233,13 +253,104 @@ const MintLabWork: FC = () => {
     if (!canAfford) { setStatus('❌ Insufficient BRAINS or XNT balance.'); return; }
     setPending(true); setStatus('Preparing mint…');
     try {
-      // TODO when program deploys:
-      // 1. Burn brainsCost BRAINS via createBurnCheckedInstruction (Token-2022)
-      // 2. Transfer xntCost XNT lamports to TREASURY_WALLET
-      // 3. If useAmplifier: transfer XNM/XUNI/XBLK bundle — 50% burned, 50% to TREASURY_WALLET
-      // 4. CPI to mint_lb program → mints lbOut LB to buyer ATA
-      // 5. Program checks admin pause flag before executing
-      setStatus('❌ Program not yet deployed.');
+      const programId  = new PublicKey(MINT_PROGRAM_ID);
+      const treasuryPk = new PublicKey(TREASURY_WALLET);
+      const TOKEN_2022  = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+
+      // Derive PDAs — must match lib.rs seeds exactly
+      const [statePda]    = PublicKey.findProgramAddressSync([Buffer.from('lb_state')],    programId);
+      const [mintAuthPda] = PublicKey.findProgramAddressSync([Buffer.from('lb_mint_auth')], programId);
+      const [lbMintPda]   = PublicKey.findProgramAddressSync([Buffer.from('lb_mint')],      programId);
+
+      // ATAs
+      const buyerBrainsAta = getAssociatedTokenAddressSync(BRAINS_MINT_PK, publicKey,  false, TOKEN_2022);
+      const buyerLbAta     = getAssociatedTokenAddressSync(lbMintPda,      publicKey,  false, TOKEN_2022);
+      const treasuryLbAta  = getAssociatedTokenAddressSync(lbMintPda,      treasuryPk, false, TOKEN_2022);
+
+      const { blockhash } = await connection.getLatestBlockhash('confirmed');
+      const tx = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash });
+
+      // Create buyer LB ATA if needed
+      try {
+        await getAccount(connection, buyerLbAta, 'confirmed', TOKEN_2022);
+      } catch {
+        tx.add(createAssociatedTokenAccountInstruction(
+          publicKey, buyerLbAta, publicKey, lbMintPda, TOKEN_2022,
+        ));
+      }
+
+      // Create treasury LB ATA if needed
+      try {
+        await getAccount(connection, treasuryLbAta, 'confirmed', TOKEN_2022);
+      } catch {
+        tx.add(createAssociatedTokenAccountInstruction(
+          publicKey, treasuryLbAta, treasuryPk, lbMintPda, TOKEN_2022,
+        ));
+      }
+
+      // 1. Transfer XNT fee to treasury (native lamports — program validates this internally)
+      const xntLamports = Math.floor(xntCost * LAMPORTS_PER_SOL);
+      if (xntLamports > 0) {
+        tx.add(SystemProgram.transfer({
+          fromPubkey: publicKey,
+          toPubkey:   treasuryPk,
+          lamports:   xntLamports,
+        }));
+      }
+
+      // 2. Build mint_lb CPI instruction
+      // Anchor discriminator = sha256("global:mint_lb")[0..8]
+      const { createHash } = await import('crypto');
+      const disc = createHash('sha256').update('global:mint_lb').digest().slice(0, 8);
+      // brains_amount arg as u64 LE (raw units — program expects whole BRAINS, not decimals)
+      const argBuf = Buffer.alloc(8);
+      argBuf.writeBigUInt64LE(BigInt(brainsCost));
+      const data = Buffer.concat([disc, argBuf]);
+
+      // Account order matches MintLb<'info> struct exactly:
+      // 0 buyer, 1 state, 2 lb_mint, 3 lb_mint_authority,
+      // 4 buyer_lb_ata, 5 brains_mint, 6 buyer_brains_ata,
+      // 7 treasury, 8 treasury_lb_ata,
+      // 9 token_2022_program, 10 system_program
+      tx.add({
+        programId,
+        keys: [
+          { pubkey: publicKey,               isSigner: true,  isWritable: true  }, // 0 buyer
+          { pubkey: statePda,                isSigner: false, isWritable: true  }, // 1 state
+          { pubkey: lbMintPda,               isSigner: false, isWritable: true  }, // 2 lb_mint
+          { pubkey: mintAuthPda,             isSigner: false, isWritable: false }, // 3 lb_mint_authority
+          { pubkey: buyerLbAta,              isSigner: false, isWritable: true  }, // 4 buyer_lb_ata
+          { pubkey: BRAINS_MINT_PK,          isSigner: false, isWritable: true  }, // 5 brains_mint
+          { pubkey: buyerBrainsAta,          isSigner: false, isWritable: true  }, // 6 buyer_brains_ata
+          { pubkey: treasuryPk,              isSigner: false, isWritable: true  }, // 7 treasury
+          { pubkey: treasuryLbAta,           isSigner: false, isWritable: true  }, // 8 treasury_lb_ata
+          { pubkey: TOKEN_2022,              isSigner: false, isWritable: false }, // 9 token_2022_program
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // 10 system_program
+        ],
+        data,
+      } as any);
+
+      setStatus('Awaiting wallet approval…');
+      const signed = await signTransaction(tx);
+      const sig    = await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: false, maxRetries: 3, preflightCommitment: 'confirmed',
+      });
+
+      setStatus('Confirming…');
+      for (let i = 0; i < 40; i++) {
+        if (i) await new Promise(r => setTimeout(r, 1500));
+        const s = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
+        if (s?.value?.err) throw new Error('On-chain error: ' + JSON.stringify(s.value.err));
+        const conf = s?.value?.confirmationStatus;
+        if (conf === 'confirmed' || conf === 'finalized') break;
+      }
+
+      setStatus(`✅ Minted ${fmt(lbOut)} LB! <a href="https://explorer.mainnet.x1.xyz/tx/${sig}" target="_blank" rel="noopener" style="color:#00d4ff;text-decoration:underline">View Tx ↗</a>`);
+
+      // Refresh balances + supply counter
+      setBrainsBalance(null); setXntBalance(null);
+      setMintedTotal(prev => +(prev + lbOut).toFixed(2));
+
     } catch (e: any) {
       setStatus(`❌ ${e?.message?.slice(0, 120) ?? 'Transaction failed'}`);
     } finally { setPending(false); }
@@ -617,7 +728,7 @@ const MintLabWork: FC = () => {
                 fontFamily:'Sora,sans-serif', fontSize:11,
                 color: status.startsWith('✅') ? '#00c98d'
                   : status.startsWith('⏳') ? '#bf5af2' : '#ff6666',
-              }}>{status}</div>
+              }} dangerouslySetInnerHTML={{ __html: status }} />
             )}
 
             {/* Mint button */}
