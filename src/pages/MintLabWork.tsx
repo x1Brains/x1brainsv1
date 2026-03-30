@@ -75,19 +75,9 @@ function readU64LE(data: Uint8Array, offset: number): number {
   return Number(value);
 }
 
-function parseGlobalState(data: Uint8Array): {
-  totalMinted: number;
-  paused: boolean;
-  tierRates: { brains: number; xntLamports: number }[];
-} {
-  const totalMinted = readU64LE(data, 104) / 100;
-  const paused      = data[112] === 1;
-  const tierRates: { brains: number; xntLamports: number }[] = [];
-  for (let i = 0; i < 4; i++) {
-    const off = 114 + i * 16;
-    tierRates.push({ brains: readU64LE(data, off), xntLamports: readU64LE(data, off + 8) });
-  }
-  return { totalMinted, paused, tierRates };
+// Reads only total_minted and paused — tier rates are hardcoded in the program
+function parseGlobalState(data: Uint8Array): { totalMinted: number; paused: boolean } {
+  return { totalMinted: readU64LE(data, 104) / 100, paused: data[112] === 1 };
 }
 
 function fmt(n: number, dec = 0) {
@@ -183,12 +173,13 @@ const MintLabWork: FC = () => {
   // On-chain state
   const [mintedTotal,  setMintedTotal]  = useState(0);
   const [paused,       setPaused]       = useState(false);
-  const [tierRates,    setTierRates]    = useState<{ brains: number; xntLamports: number }[]>([
+  // Tier rates hardcoded — match program constants exactly
+  const tierRates = [
     { brains: 8,  xntLamports: 500_000_000  },
     { brains: 18, xntLamports: 750_000_000  },
     { brains: 26, xntLamports: 1_000_000_000 },
     { brains: 33, xntLamports: 1_500_000_000 },
-  ]);
+  ];
 
   // Balances
   const [brainsBalance, setBrainsBalance] = useState<number | null>(null);
@@ -200,9 +191,9 @@ const MintLabWork: FC = () => {
   // Mint form
   const [amount,       setAmount]       = useState(1);
   const [useAmplifier, setUseAmplifier] = useState(false);
-  const [xnmAmount,    setXnmAmount]    = useState(1_000);
-  const [xuniAmount,   setXuniAmount]   = useState(500);
-  const [xblkAmount,   setXblkAmount]   = useState(1);
+  const [xnmAmount,    setXnmAmount]    = useState(0);
+  const [xuniAmount,   setXuniAmount]   = useState(0);
+  const [xblkAmount,   setXblkAmount]   = useState(0);
   const [activeTab,    setActiveTab]    = useState<'mint' | 'tiers' | 'info' | 'amplifier'>('mint');
   const [status,       setStatus]       = useState('');
   const [pending,      setPending]      = useState(false);
@@ -226,11 +217,11 @@ const MintLabWork: FC = () => {
   const canAfford = !paused
     && brainsBalance !== null && brainsBalance >= brainsCost
     && xntBalance    !== null && xntBalance    >= xntCost + XNT_RENT_BUFFER
-    && (!useAmplifier || (
-      xnmBalance  !== null && xnmBalance  >= xnmAmount &&
-      xuniBalance !== null && xuniBalance >= xuniAmount &&
-      xblkBalance !== null && xblkBalance >= xblkAmount
-    ));
+    && (!useAmplifier || ((xnmAmount > 0 || xuniAmount > 0 || xblkAmount > 0) && (
+      (xnmAmount  === 0 || (xnmBalance  !== null && xnmBalance  >= xnmAmount)) &&
+      (xuniAmount === 0 || (xuniBalance !== null && xuniBalance >= xuniAmount)) &&
+      (xblkAmount === 0 || (xblkBalance !== null && xblkBalance >= xblkAmount))
+    )));
 
   // ── Fetch GlobalState ────────────────────────────────────────────
   const fetchGlobalState = useCallback(async () => {
@@ -242,7 +233,6 @@ const MintLabWork: FC = () => {
       const parsed = parseGlobalState(info.data as Uint8Array);
       setMintedTotal(parsed.totalMinted);
       setPaused(parsed.paused);
-      if (parsed.tierRates.every(r => r.brains > 0)) setTierRates(parsed.tierRates);
     } catch {}
   }, [connection]);
 
@@ -567,9 +557,9 @@ const MintLabWork: FC = () => {
                   { label:'LB YOU RECEIVE',  value:`${fmt(lbOut)} LB`,          color:c         },
                   { label:'BRAINS TO BURN',  value:`${fmt(brainsCost)} BRAINS`, color:'#ff6a6a' },
                   { label:'XNT PLATFORM FEE',value:`${xntCost} XNT`,            color:'#ffaa00' },
-                  ...(useAmplifier && xnmAmount  > 0 ? [{ label:'XNM',  value:`${fmt(xnmAmount)} → +${xnmLb} LB`,  color:'#00d4ff' }] : []),
-                  ...(useAmplifier && xuniAmount > 0 ? [{ label:'XUNI', value:`${fmt(xuniAmount)} → +${xuniLb} LB`, color:'#bf5af2' }] : []),
-                  ...(useAmplifier && xblkAmount > 0 ? [{ label:'XBLK', value:`${xblkAmount} → +${xblkLb} LB`,      color:'#00c98d' }] : []),
+                  ...(useAmplifier && xnmAmount  > 0 ? [{ label:'XNM',  value:`${fmt(xnmAmount)} → +${xnmLb} LB`,  color:'#7a9ab8' }] : []),
+                  ...(useAmplifier && xuniAmount > 0 ? [{ label:'XUNI', value:`${fmt(xuniAmount)} → +${xuniLb} LB`, color:'#7a9ab8' }] : []),
+                  ...(useAmplifier && xblkAmount > 0 ? [{ label:'XBLK', value:`${xblkAmount} → +${xblkLb} LB`,      color:'#7a9ab8' }] : []),
                 ].map(({ label, value, color }, i, arr) => (
                   <div key={label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'9px 14px',
                     borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
@@ -604,9 +594,9 @@ const MintLabWork: FC = () => {
                 {useAmplifier && (
                   <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                     {[
-                      { label:'XNM',  step:1_000, val:xnmAmount,  set:setXnmAmount,  bal:xnmBalance,  lb:xnmLb,  color:'#00d4ff', rgb:'0,212,255',   hint:'multiples of 1,000', presets:[1_000, 2_000, 5_000, 10_000] },
-                      { label:'XUNI', step:500,   val:xuniAmount, set:setXuniAmount, bal:xuniBalance, lb:xuniLb, color:'#bf5af2', rgb:'191,90,242', hint:'multiples of 500',   presets:[500, 1_000, 2_000, 5_000] },
-                      { label:'XBLK', step:1,     val:xblkAmount, set:setXblkAmount, bal:xblkBalance, lb:xblkLb, color:'#00c98d', rgb:'0,201,141', hint:'whole numbers',       presets:[1, 2, 3, 5, 10] },
+                      { label:'XNM',  step:1_000, val:xnmAmount,  set:setXnmAmount,  bal:xnmBalance,  lb:xnmLb,  color:'#00d4ff', rgb:'0,212,255',   hint:'multiples of 1,000 or 0', presets:[0, 1_000, 2_000, 5_000, 10_000] },
+                      { label:'XUNI', step:500,   val:xuniAmount, set:setXuniAmount, bal:xuniBalance, lb:xuniLb, color:'#bf5af2', rgb:'191,90,242', hint:'multiples of 500 or 0',   presets:[0, 500, 1_000, 2_000, 5_000] },
+                      { label:'XBLK', step:1,     val:xblkAmount, set:setXblkAmount, bal:xblkBalance, lb:xblkLb, color:'#00c98d', rgb:'0,201,141', hint:'whole numbers or 0',  presets:[0, 1, 2, 3, 5, 10] },
                     ].map(({ label, step, val, set, bal, lb, color, rgb: r, hint, presets }) => {
                       const enough = bal !== null && bal >= val;
                       return (
@@ -636,7 +626,7 @@ const MintLabWork: FC = () => {
                                   color: val === v ? color : '#4a6a8a', transition:'all .1s' }}>{fmt(v)}</button>
                             ))}
                             <input type="number" min={step} step={step} value={val}
-                              onChange={e => { const v = parseInt(e.target.value) || step; set(Math.max(step, Math.round(v / step) * step)); }}
+                              onChange={e => { const v = parseInt(e.target.value); if (isNaN(v) || v === 0) { set(0); return; } set(Math.max(step, Math.round(v / step) * step)); }}
                               style={{ width: isMobile ? 64 : 76, padding:'4px 8px', textAlign:'center',
                                 background:'rgba(255,255,255,.04)', border:`1px solid rgba(${r},.3)`, borderRadius:6, outline:'none',
                                 fontFamily:'Orbitron,monospace', fontSize:9, fontWeight:700, color:'#e0f0ff', caretColor:color }} />
