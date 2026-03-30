@@ -1012,13 +1012,12 @@ const LabWork: FC = () => {
             <span style={{ color:'#ff8c00' }}>Mint LB</span>
             {!isMobile && (
               <>
-                <span style={{ color:'#9abacf' }}> — powered by X1 blockchain & native XNT</span>
                 <br />
                 <span style={{ color:'#ff6644' }}>🔥 Burn BRAINS → Mint LB</span>
                 <span style={{ color:'#6a8aaa' }}> &nbsp;·&nbsp; </span>
                 <span style={{ color:'#ffaa33' }}>⚡ Xenblocks Amplifier: burn XNM · XUNI · XBLK for bonus LB</span>
                 <span style={{ color:'#6a8aaa' }}> &nbsp;·&nbsp; </span>
-                <span style={{ color:'#9abacf' }}>100,000 LB hard cap · deflationary forever</span>
+                <span style={{ color:'#9abacf' }}>100,000 LB hard cap</span>
               </>
             )}
             {isMobile && (
@@ -2004,7 +2003,8 @@ const LabWork: FC = () => {
         )}
 
 
-                {/* ── Platform fee notice — bottom of page ── */}
+                {/* ── Platform fee notice — marketplace tabs only ── */}
+        {pageMode !== 'mint' && (
         <div style={{ display:'flex', alignItems:'center', gap:10, margin: isMobile ? '28px 0 8px' : '40px 0 8px', padding:'10px 14px',
           background:'rgba(191,90,242,.04)', border:'1px solid rgba(191,90,242,.12)', borderRadius:10, opacity:0.7 }}>
           <span style={{ fontSize:14 }}>💎</span>
@@ -2017,6 +2017,7 @@ const LabWork: FC = () => {
             </div>
           </div>
         </div>
+        )}
 
         <Footer />
       </div>
