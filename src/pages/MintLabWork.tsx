@@ -624,25 +624,6 @@ const MintLabWork: FC = () => {
               ))}
             </div>
 
-            {/* Burned / Protocol Stats */}
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:0, background:'rgba(255,255,255,.02)', border:'1px solid rgba(255,255,255,.06)', borderRadius:10, overflow:'hidden' }}>
-              {[
-                { label:'BRAINS BURNED', value: brainsBurned !== null ? fmt(brainsBurned) : '…', col:'#ff6a6a', icon:'🔥' },
-                { label:'XNM BURNED', value: xnmBurned !== null ? fmt(xnmBurned) : '…', col:'#7a9ab8', icon:'🔥' },
-                { label:'XUNI BURNED', value: xuniBurned !== null ? fmt(xuniBurned) : '…', col:'#7a9ab8', icon:'🔥' },
-                { label:'XBLK BURNED', value: xblkBurned !== null ? xblkBurned.toFixed(2) : '…', col:'#7a9ab8', icon:'🔥' },
-              ].map(({ label, value, col, icon }, i, arr) => (
-                <React.Fragment key={label}>
-                  <div style={{ textAlign:'center', padding: isMobile ? '8px 4px' : '10px 6px' }}>
-                    <div style={{ fontSize: isMobile ? 8 : 10, marginBottom:2 }}>{icon}</div>
-                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 9 : 11, fontWeight:900, color:col, lineHeight:1, marginBottom:2 }}>{value}</div>
-                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 6, color:'#4a6a8a', letterSpacing:.8 }}>{label}</div>
-                  </div>
-                  {i < arr.length - 1 && <div style={{ width:1, alignSelf:'stretch', background:'rgba(255,255,255,.06)' }} />}
-                </React.Fragment>
-              ))}
-            </div>
-
             {/* Active tier card */}
             <div style={{ background:`linear-gradient(135deg,rgba(${rgb},.08),rgba(255,255,255,.02))`, border:`1px solid ${c}44`, borderRadius:16, padding: isMobile ? '16px' : '20px 22px', position:'relative', overflow:'hidden' }}>
               <div style={{ position:'absolute', top:0, left:'10%', right:'10%', height:1, background:`linear-gradient(90deg,transparent,${c},transparent)` }} />
