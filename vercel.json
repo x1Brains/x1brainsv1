@@ -21,6 +21,10 @@
     {
       "path": "/api/cron-snapshot",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron-collect-lb-fees",
+      "schedule": "0 0 * * *"
     }
   ],
   "headers": [
