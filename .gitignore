@@ -5,3 +5,6 @@ dist/
 .next/
 .env
 *.Zone.Identifier
+target/
+check.js
+check_tokens.js
