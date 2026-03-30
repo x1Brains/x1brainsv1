@@ -96,6 +96,10 @@ const Ember: FC<{ delay: number; x: number; size: number; duration: number }> = 
 // ─────────────────────────────────────────────
 // streamWalletBurnTotal
 // ─────────────────────────────────────────────
+// Cache-first: loads Supabase burn_events immediately, displays total,
+// then only scans chain for signatures NEWER than the last cached sig.
+// New burns are upserted back to Supabase so the next load is instant.
+// ─────────────────────────────────────────────
 async function streamWalletBurnTotal(
   connection: ReturnType<typeof useConnection>['connection'],
   walletPubkey: PublicKey,
@@ -103,37 +107,68 @@ async function streamWalletBurnTotal(
   signal: AbortSignal,
   onProgress: (runningTotal: number, done: boolean) => void,
 ): Promise<void> {
+  const { getBurnEventsForWallet, upsertBurnEvents } = await import('../lib/supabase');
+
   const mintPubkey      = new PublicKey(BRAINS_MINT);
   const mintStr         = mintPubkey.toBase58();
   const TOKEN_2022_PROG = TOKEN_2022_PROGRAM_ID;
   const divisor         = Math.pow(10, decimals);
+  const walletStr       = walletPubkey.toBase58();
 
+  // ── 1. Load cache from Supabase ──────────────────────────────────────────
+  let cachedTotal = 0;
+  let newestCachedSig: string | undefined;
+  try {
+    const cached = await getBurnEventsForWallet(walletStr);
+    if (cached.length) {
+      cachedTotal = cached.reduce((s, r) => s + r.amount, 0);
+      // getBurnEventsForWallet orders by block_time DESC — first row is newest
+      newestCachedSig = cached[0].sig;
+    }
+  } catch { /* cache miss — full scan */ }
+
+  if (signal.aborted) return;
+
+  // Display cached total immediately so UI isn't blank
+  if (cachedTotal > 0) onProgress(cachedTotal, false);
+
+  // ── 2. Resolve ATA ───────────────────────────────────────────────────────
   let ataAddress: PublicKey | null = null;
   try {
     ataAddress = getAssociatedTokenAddressSync(mintPubkey, walletPubkey, false, TOKEN_2022_PROG);
   } catch { }
 
-  let scanAddress = ataAddress ?? walletPubkey;
+  // If ATA doesn't exist on-chain the wallet never held BRAINS.
+  // If we already have a cached total that's fine — just return it as final.
   try {
     if (ataAddress) {
       const info = await connection.getAccountInfo(ataAddress);
-      if (!info) scanAddress = walletPubkey;
+      if (!info) {
+        // Wallet never held BRAINS — cached total (0 or prior) is definitive
+        onProgress(cachedTotal, true);
+        return;
+      }
     }
-  } catch { scanAddress = walletPubkey; }
+  } catch { }
 
-  let runningTotal = 0;
+  const scanAddress = ataAddress ?? walletPubkey;
+
+  // ── 3. Incremental chain scan — only sigs NEWER than newestCachedSig ─────
+  let runningTotal = cachedTotal;
   let before: string | undefined;
   const PAGE_SIZE = 100;
+  const newEvents: Array<{ sig: string; wallet: string; amount: number; block_time: number }> = [];
 
   while (true) {
     if (signal.aborted) { onProgress(runningTotal, true); return; }
 
     const sigs = await connection.getSignaturesForAddress(scanAddress, {
       limit: PAGE_SIZE,
-      ...(before ? { before } : {}),
+      ...(before         ? { before } : {}),
+      ...(newestCachedSig ? { until: newestCachedSig } : {}),
     });
 
-    if (!sigs.length) { onProgress(runningTotal, true); return; }
+    if (!sigs.length) { onProgress(runningTotal, true); break; }
 
     const txs = await connection.getParsedTransactions(
       sigs.map(s => s.signature),
@@ -141,7 +176,8 @@ async function streamWalletBurnTotal(
     );
 
     let pageTotal = 0;
-    for (const tx of txs) {
+    for (let i = 0; i < txs.length; i++) {
+      const tx = txs[i];
       if (!tx || tx.meta?.err) continue;
 
       const allIxs: unknown[] = [...(tx.transaction.message.instructions ?? [])];
@@ -157,7 +193,6 @@ async function streamWalletBurnTotal(
         const info   = parsed.info as Record<string, unknown> | undefined;
         if (!info || (info.mint as string) !== mintStr) continue;
 
-        const walletStr   = walletPubkey.toBase58();
         const ataStr      = ataAddress?.toBase58();
         const accountKeys = (tx.transaction.message.accountKeys ?? []) as Array<{ pubkey?: { toBase58?: () => string } }>;
 
@@ -176,15 +211,35 @@ async function streamWalletBurnTotal(
         const preUi     = (preEntry  as any)?.uiTokenAmount?.uiAmount  ?? null;
         const postUi    = (postEntry as any)?.uiTokenAmount?.uiAmount ?? null;
 
+        let burnAmount = 0;
         if (preUi !== null && postUi !== null) {
           const diff = preUi - postUi;
-          if (diff > 0) { pageTotal += diff; break; }
+          if (diff <= 0) continue;
+          burnAmount = diff;
         } else {
+          // Ownership check via authority/account before counting
+          const authority = info.authority as string | undefined;
+          const account   = info.account   as string | undefined;
+          const isOurBurn = authority === walletStr
+            || account === ataStr
+            || account === walletStr;
+          if (!isOurBurn) continue;
+
           const ta  = info.tokenAmount as Record<string, unknown> | undefined;
           const ui  = ta ? Number((ta as any).uiAmount ?? 0) : 0;
           const raw = ta ? Number((ta as any).amount  ?? 0) : Number(info.amount ?? 0);
-          pageTotal += ui > 0 ? ui : raw / divisor;
-          break;
+          burnAmount = ui > 0 ? ui : raw / divisor;
+        }
+
+        if (burnAmount > 0) {
+          pageTotal += burnAmount;
+          newEvents.push({
+            sig:        sigs[i].signature,
+            wallet:     walletStr,
+            amount:     burnAmount,
+            block_time: sigs[i].blockTime ?? 0,
+          });
+          break; // one burn per tx
         }
       }
     }
@@ -192,8 +247,13 @@ async function streamWalletBurnTotal(
     runningTotal += pageTotal;
     const done = sigs.length < PAGE_SIZE;
     onProgress(runningTotal, done);
-    if (done) return;
+    if (done) break;
     before = sigs[sigs.length - 1].signature;
+  }
+
+  // ── 4. Persist new burns to Supabase cache ───────────────────────────────
+  if (newEvents.length) {
+    try { await upsertBurnEvents(newEvents); } catch { /* non-fatal */ }
   }
 }
 
