@@ -8,8 +8,10 @@
 import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import {
-  PublicKey, LAMPORTS_PER_SOL, Transaction,
+  PublicKey, LAMPORTS_PER_SOL,
   TransactionInstruction, SystemProgram,
+  TransactionMessage, VersionedTransaction,
+  ComputeBudgetProgram,
 } from '@solana/web3.js';
 import {
   TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
@@ -203,6 +205,11 @@ const MintLabWork: FC = () => {
   const [xblkAmount,   setXblkAmount]   = useState(0);
   const [activeTab,    setActiveTab]    = useState<'mint' | 'tiers' | 'info' | 'amplifier'>('mint');
   const [status,       setStatus]       = useState('');
+  interface MintReceipt {
+    sig: string; lbOut: number; brainsCost: number; xntCost: string;
+    xnmAmt: number; xuniAmt: number; xblkAmt: number; isCombo: boolean;
+  }
+  const [mintReceipt,  setMintReceipt]  = useState<MintReceipt | null>(null);
   const [pending,      setPending]      = useState(false);
 
   // ── Derived ──────────────────────────────────────────────────────
@@ -391,6 +398,7 @@ const MintLabWork: FC = () => {
     if (!canAfford) { setStatus('❌ Insufficient balance.'); return; }
     if (paused) { setStatus('❌ Minting is currently paused.'); return; }
 
+    setMintReceipt(null);
     setPending(true);
     setStatus('Preparing mint…');
 
@@ -406,28 +414,29 @@ const MintLabWork: FC = () => {
       const buyerLbAta     = getAssociatedTokenAddressSync(lbMintPda,      publicKey,  false, TOKEN_2022);
       const treasuryLbAta  = getAssociatedTokenAddressSync(lbMintPda,      treasuryPk, false, TOKEN_2022);
 
-      const { blockhash } = await connection.getLatestBlockhash('confirmed');
-      const tx = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash });
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+
+      // Collect all instructions
+      const ixs: TransactionInstruction[] = [];
+
+      // Compute budget — ensures enough CU for Token-2022 transfer fee CPIs
+      ixs.push(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
 
       // Create buyer LB ATA if needed
       try { await getAccount(connection, buyerLbAta, 'confirmed', TOKEN_2022); }
-      catch { tx.add(createAssociatedTokenAccountInstruction(publicKey, buyerLbAta, publicKey, lbMintPda, TOKEN_2022)); }
+      catch { ixs.push(createAssociatedTokenAccountInstruction(publicKey, buyerLbAta, publicKey, lbMintPda, TOKEN_2022)); }
 
       // Create treasury LB ATA if needed
       try { await getAccount(connection, treasuryLbAta, 'confirmed', TOKEN_2022); }
-      catch { tx.add(createAssociatedTokenAccountInstruction(publicKey, treasuryLbAta, treasuryPk, lbMintPda, TOKEN_2022)); }
+      catch { ixs.push(createAssociatedTokenAccountInstruction(publicKey, treasuryLbAta, treasuryPk, lbMintPda, TOKEN_2022)); }
 
       if (!useAmplifier) {
         // ── mint_lb ──────────────────────────────────────────────────
-        // NOTE: Do NOT add SystemProgram.transfer for XNT.
-        // The program handles the XNT fee internally.
         const data = Buffer.concat([
           Buffer.from(DISC_MINT_LB),
-          encodeU64LE(brainsCost), // whole BRAINS — program multiplies by decimals internally
+          encodeU64LE(brainsCost),
         ]);
-
-        // Account order must match MintLb<'info> struct exactly
-        tx.add(new TransactionInstruction({
+        ixs.push(new TransactionInstruction({
           programId,
           keys: [
             { pubkey: publicKey,               isSigner: true,  isWritable: true  }, // 0  buyer
@@ -447,7 +456,6 @@ const MintLabWork: FC = () => {
 
       } else {
         // ── combo_mint_lb ─────────────────────────────────────────────
-        // All Xenblocks tokens are Token-2022
         const buyerXnmAta     = getAssociatedTokenAddressSync(XNM_MINT_PK,  publicKey,  false, TOKEN_2022);
         const buyerXuniAta    = getAssociatedTokenAddressSync(XUNI_MINT_PK, publicKey,  false, TOKEN_2022);
         const buyerXblkAta    = getAssociatedTokenAddressSync(XBLK_MINT_PK, publicKey,  false, TOKEN_2022);
@@ -455,17 +463,16 @@ const MintLabWork: FC = () => {
         const treasuryXuniAta = getAssociatedTokenAddressSync(XUNI_MINT_PK, treasuryPk, false, TOKEN_2022);
         const treasuryXblkAta = getAssociatedTokenAddressSync(XBLK_MINT_PK, treasuryPk, false, TOKEN_2022);
 
-        // Create treasury Xenblocks ATAs if needed (Token-2022)
+        // Create treasury Xenblocks ATAs if needed
         for (const [mint, ata, owner] of [
           [XNM_MINT_PK,  treasuryXnmAta,  treasuryPk],
           [XUNI_MINT_PK, treasuryXuniAta, treasuryPk],
           [XBLK_MINT_PK, treasuryXblkAta, treasuryPk],
         ] as [PublicKey, PublicKey, PublicKey][]) {
           try { await getAccount(connection, ata, 'confirmed', TOKEN_2022); }
-          catch { tx.add(createAssociatedTokenAccountInstruction(publicKey, ata, owner, mint, TOKEN_2022)); }
+          catch { ixs.push(createAssociatedTokenAccountInstruction(publicKey, ata, owner, mint, TOKEN_2022)); }
         }
 
-        // combo_mint_lb args: brains, xnm, xuni, xblk (all u64 LE, whole units)
         const data = Buffer.concat([
           Buffer.from(DISC_COMBO_MINT_LB),
           encodeU64LE(brainsCost),
@@ -474,8 +481,7 @@ const MintLabWork: FC = () => {
           encodeU64LE(xblkAmount),
         ]);
 
-        // Account order must match ComboMintLb<'info> struct exactly
-        tx.add(new TransactionInstruction({
+        ixs.push(new TransactionInstruction({
           programId,
           keys: [
             { pubkey: publicKey,               isSigner: true,  isWritable: true  }, // 0  buyer
@@ -503,11 +509,19 @@ const MintLabWork: FC = () => {
         }));
       }
 
+      // Build versioned transaction (v0) — better compatibility with Backpack mobile
+      const message = new TransactionMessage({
+        payerKey:    publicKey,
+        recentBlockhash: blockhash,
+        instructions: ixs,
+      }).compileToV0Message();
+
+      const vtx = new VersionedTransaction(message);
+
       setStatus('Awaiting wallet approval…');
-      // Use wallet adapter sendTransaction with skipPreflight — this bypasses Backpack
-      // mobile's internal pre-sign simulation which incorrectly rejects Token-2022
-      // transfer fee CPIs with error 0xbc4 (TransferFeeCalculation).
-      const sig = await sendTransaction(tx, connection, {
+      // sendTransaction with skipPreflight bypasses Backpack mobile's internal
+      // Token-2022 simulation which incorrectly rejects transfer fee CPIs (0xbc4).
+      const sig = await sendTransaction(vtx, connection, {
         skipPreflight: true,
         maxRetries: 3,
         preflightCommitment: 'confirmed',
@@ -522,7 +536,14 @@ const MintLabWork: FC = () => {
         if (conf === 'confirmed' || conf === 'finalized') break;
       }
 
-      setStatus(`✅ Minted ${fmt(lbOut)} LB! <a href="https://explorer.mainnet.x1.xyz/tx/${sig}" target="_blank" rel="noopener" style="color:#00d4ff;text-decoration:underline">View Tx ↗</a>`);
+      setStatus('✅');
+      setMintReceipt({
+        sig, lbOut, brainsCost, xntCost: xntDisplay,
+        xnmAmt: useAmplifier ? xnmAmount : 0,
+        xuniAmt: useAmplifier ? xuniAmount : 0,
+        xblkAmt: useAmplifier ? xblkAmount : 0,
+        isCombo: useAmplifier,
+      });
 
       // Refresh everything after 2s for chain to settle
       setTimeout(() => {
@@ -788,14 +809,139 @@ const MintLabWork: FC = () => {
               </div>
             )}
 
-            {/* Status */}
-            {status && (
+            {/* Mint Receipt */}
+            {mintReceipt && (
+              <div style={{
+                borderRadius: 14, overflow: 'hidden',
+                border: '1px solid rgba(0,201,141,.35)',
+                background: 'linear-gradient(135deg,rgba(0,201,141,.08),rgba(0,150,100,.04))',
+                marginBottom: 8,
+              }}>
+                {/* Header */}
+                <div style={{
+                  padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  borderBottom: '1px solid rgba(0,201,141,.15)',
+                  background: 'rgba(0,201,141,.06)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 18 }}>✅</span>
+                    <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 900, color: '#00c98d', letterSpacing: 2 }}>
+                      MINT CONFIRMED
+                    </span>
+                  </div>
+                  <a href={`https://explorer.mainnet.x1.xyz/tx/${mintReceipt.sig}`}
+                    target="_blank" rel="noopener noreferrer"
+                    style={{
+                      fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
+                      color: '#00d4ff', letterSpacing: 1.5, textDecoration: 'none',
+                      padding: '4px 10px', borderRadius: 6,
+                      border: '1px solid rgba(0,212,255,.3)',
+                      background: 'rgba(0,212,255,.08)',
+                      display: 'flex', alignItems: 'center', gap: 5,
+                    }}>
+                    VIEW TX ↗
+                  </a>
+                </div>
+
+                {/* LB Received — hero number */}
+                <div style={{ padding: '14px 16px 10px', textAlign: 'center', borderBottom: '1px solid rgba(0,201,141,.1)' }}>
+                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a8a7a', letterSpacing: 2, marginBottom: 4 }}>
+                    LAB WORK TOKENS RECEIVED
+                  </div>
+                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 32, fontWeight: 900, color: '#00c98d', letterSpacing: 2, lineHeight: 1,
+                    textShadow: '0 0 20px rgba(0,201,141,.5)' }}>
+                    +{fmt(mintReceipt.lbOut)} <span style={{ fontSize: 16, color: '#00a070' }}>LB</span>
+                  </div>
+                </div>
+
+                {/* Burn breakdown */}
+                <div style={{ padding: '10px 16px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#4a6a5a', letterSpacing: 2, marginBottom: 2 }}>
+                    BURNED / PAID
+                  </div>
+
+                  {/* BRAINS burned */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12 }}>🔥</span>
+                      <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#9abacf' }}>BRAINS Burned</span>
+                    </div>
+                    <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: '#ff6644' }}>
+                      -{fmt(mintReceipt.brainsCost)}
+                    </span>
+                  </div>
+
+                  {/* XNT fee */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12 }}>💎</span>
+                      <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#9abacf' }}>XNT Platform Fee</span>
+                    </div>
+                    <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: '#00d4ff' }}>
+                      -{mintReceipt.xntCost} XNT
+                    </span>
+                  </div>
+
+                  {/* Xenblocks assets if combo */}
+                  {mintReceipt.isCombo && (
+                    <>
+                      {mintReceipt.xnmAmt > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 12 }}>⚡</span>
+                            <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#9abacf' }}>XNM (50% burned)</span>
+                          </div>
+                          <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: '#ffaa33' }}>
+                            -{fmt(mintReceipt.xnmAmt)} <span style={{ fontSize: 9, color: '#aa7722' }}>+{fmt(Math.floor(mintReceipt.xnmAmt / 1000))} LB</span>
+                          </span>
+                        </div>
+                      )}
+                      {mintReceipt.xuniAmt > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 12 }}>🔮</span>
+                            <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#9abacf' }}>XUNI (50% burned)</span>
+                          </div>
+                          <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: '#bf5af2' }}>
+                            -{fmt(mintReceipt.xuniAmt)} <span style={{ fontSize: 9, color: '#8833cc' }}>+{fmt(Math.floor(mintReceipt.xuniAmt / 500) * 4)} LB</span>
+                          </span>
+                        </div>
+                      )}
+                      {mintReceipt.xblkAmt > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 12 }}>🧱</span>
+                            <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#9abacf' }}>XBLK (50% burned)</span>
+                          </div>
+                          <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: '#00c98d' }}>
+                            -{fmt(mintReceipt.xblkAmt)} <span style={{ fontSize: 9, color: '#008855' }}>+{fmt(mintReceipt.xblkAmt * 8)} LB</span>
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* TX sig */}
+                  <div style={{ marginTop: 6, padding: '7px 10px', borderRadius: 7,
+                    background: 'rgba(0,0,0,.25)', border: '1px solid rgba(255,255,255,.06)' }}>
+                    <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#4a6070', letterSpacing: 1.5, marginBottom: 3 }}>TX SIGNATURE</div>
+                    <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#5a8090', wordBreak: 'break-all', lineHeight: 1.5 }}>
+                      {mintReceipt.sig}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Status (loading / error) */}
+            {status && status !== '✅' && (
               <div style={{ padding:'10px 14px', borderRadius:10,
-                background: status.startsWith('✅') ? 'rgba(0,201,141,.08)' : status.startsWith('⏳') ? 'rgba(191,90,242,.08)' : 'rgba(255,50,50,.08)',
-                border:`1px solid ${status.startsWith('✅') ? 'rgba(0,201,141,.3)' : status.startsWith('⏳') ? 'rgba(191,90,242,.3)' : 'rgba(255,50,50,.25)'}`,
+                background: status.startsWith('❌') ? 'rgba(255,50,50,.08)' : 'rgba(191,90,242,.08)',
+                border:`1px solid ${status.startsWith('❌') ? 'rgba(255,50,50,.25)' : 'rgba(191,90,242,.3)'}`,
                 fontFamily:'Sora,sans-serif', fontSize:11,
-                color: status.startsWith('✅') ? '#00c98d' : status.startsWith('⏳') ? '#bf5af2' : '#ff6666' }}
-                dangerouslySetInnerHTML={{ __html: status }} />
+                color: status.startsWith('❌') ? '#ff6666' : '#bf5af2' }}>
+                {status}
+              </div>
             )}
 
             {/* Mint button */}
