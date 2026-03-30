@@ -862,14 +862,14 @@ const Portfolio: FC = () => {
 
   // The active PublicKey — either connected wallet or watched address
   const activePublicKey: PublicKey | null = useMemo(() => {
-    if (publicKey) return publicKey;
+    // When watching another wallet, always use the watched address
     if (isWatching && watchAddress) {
       try { return new PublicKey(watchAddress); } catch { return null; }
     }
-    return null;
+    return publicKey ?? null;
   }, [publicKey, isWatching, watchAddress]);
 
-  const isReadOnly = isWatching && !publicKey; // true when watching a foreign wallet
+  const isReadOnly = isWatching; // read-only whenever watching another wallet // true when watching a foreign wallet
 
   // ── SEND FEATURE STATE ──────────────────────────────────────────────────────
   const [activeSendMint,  setActiveSendMint]  = useState<string | null>(null);
