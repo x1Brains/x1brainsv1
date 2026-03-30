@@ -11,3 +11,6 @@ check_tokens.js
 target/deploy/*-keypair.json
 id.json
 *keypair*.json
+target/deploy/*-keypair.json
+id.json
+*keypair*.json
