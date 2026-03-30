@@ -172,7 +172,7 @@ interface MintReceipt {
   xnmAmt: number; xuniAmt: number; xblkAmt: number; isCombo: boolean;
 }
 
-const MintLabWork: FC = () => { // v2
+const MintLabWork: FC = () => {
   const { publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
   const isMobile = useIsMobile();
@@ -186,6 +186,8 @@ const MintLabWork: FC = () => { // v2
   const [xnmBurned,    setXnmBurned]    = useState<number | null>(null);
   const [xuniBurned,   setXuniBurned]   = useState<number | null>(null);
   const [xblkBurned,   setXblkBurned]   = useState<number | null>(null);
+  const [brainsPrice,  setBrainsPrice]  = useState<number | null>(null);
+  const BRAINS_INITIAL_SUPPLY = 8_880_000;
 
   // Tier rates hardcoded — match program constants exactly
   const tierRates = [
@@ -298,22 +300,26 @@ const MintLabWork: FC = () => { // v2
         connection.getParsedAccountInfo(XBLK_MINT_PK),
       ]);
 
-      // BRAINS burned = mintedTotal * avg_brains_per_lb
-      // Simpler: read it from total_minted * current tier brains — but that changes per tier
-      // Best: derive from LB minted × weighted avg — instead just show total BRAINS burned
-      // We compute it as: minted LB × brains cost (from tiers)
-      // For now read treasury XNT balance as proxy + show LB minted as primary stat
-      // Actual BRAINS burned: since each LB costs 8-33 BRAINS, derive from supply diff
-      // BRAINS: read current supply from mint — burned = original_supply - current_supply
-      // Since we don't store original supply, use parsed supply change approach
+      // Real BRAINS burned = initial supply (8,880,000) - current circulating supply
       if (brainsMint.status === 'fulfilled') {
         const info = (brainsMint.value?.value?.data as any)?.parsed?.info;
-        if (info?.supply && info?.decimals !== undefined) {
-          // We can't know original supply without a snapshot
-          // Best proxy: sum from GlobalState total_minted * weighted avg brains/LB
-          // Leave brainsBurned as null — it's set from mintedTotal in the main component
+        if (info?.supply !== undefined && info?.decimals !== undefined) {
+          const currentSupply = Number(info.supply) / Math.pow(10, info.decimals);
+          const burned = Math.max(0, BRAINS_INITIAL_SUPPLY - currentSupply);
+          setBrainsBurned(burned);
         }
       }
+
+      // Fetch BRAINS price from XDEX
+      try {
+        const priceRes = await fetch(`/api/xdex-price/api/xendex/token/price?network=mainnet&token=${BRAINS_MINT_STR}`,
+          { signal: AbortSignal.timeout(4000) });
+        if (priceRes.ok) {
+          const priceData = await priceRes.json();
+          const p = priceData?.price ?? priceData?.priceUsd ?? priceData?.data?.price ?? null;
+          if (p && Number(p) > 0) setBrainsPrice(Number(p));
+        }
+      } catch { /* price optional */ }
 
       // 50/50 split: treasury holds exactly what was burned.
       // So burned amount = treasury ATA balance for each asset.
@@ -635,14 +641,20 @@ const MintLabWork: FC = () => { // v2
             {/* Burn stats strip */}
             <div style={{ display:'flex', gap:0, background:'rgba(255,50,50,.04)', border:'1px solid rgba(255,100,100,.1)', borderRadius:10, overflow:'hidden' }}>
               {[
-                { label:'BRAINS BURNED', value: mintedTotal > 0 ? '~' + fmt(Math.round(mintedTotal * 8)) + '+' : '—', col:'#ff6a6a' },
-                { label:'XNM BURNED',    value: xnmBurned  !== null ? fmt(xnmBurned)  : '—', col:'#7a9ab8' },
-                { label:'XUNI BURNED',   value: xuniBurned !== null ? fmt(xuniBurned) : '—', col:'#7a9ab8' },
-                { label:'XBLK BURNED',   value: xblkBurned !== null ? xblkBurned.toFixed(1) : '—', col:'#7a9ab8' },
-              ].map(({ label, value, col }, i, arr) => (
+                {
+                  label: 'BRAINS BURNED',
+                  value: brainsBurned !== null ? fmt(Math.round(brainsBurned)) : (mintedTotal > 0 ? '~' + fmt(Math.round(mintedTotal * 8)) + '+' : '—'),
+                  sub:   brainsBurned !== null && brainsPrice !== null ? `$${(brainsBurned * brainsPrice).toLocaleString(undefined, { maximumFractionDigits: 0 })} USD` : null,
+                  col:   '#ff6a6a',
+                },
+                { label:'XNM BURNED',    value: xnmBurned  !== null ? fmt(xnmBurned)              : '—', sub: null, col:'#7a9ab8' },
+                { label:'XUNI BURNED',   value: xuniBurned !== null ? fmt(xuniBurned)             : '—', sub: null, col:'#7a9ab8' },
+                { label:'XBLK BURNED',   value: xblkBurned !== null ? xblkBurned.toFixed(1)       : '—', sub: null, col:'#7a9ab8' },
+              ].map(({ label, value, sub, col }, i, arr) => (
                 <React.Fragment key={label}>
                   <div style={{ flex:1, textAlign:'center', padding: isMobile ? '6px 4px' : '8px 6px' }}>
-                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 10 : 12, fontWeight:900, color:col, lineHeight:1, marginBottom:2 }}>{value}</div>
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 10 : 12, fontWeight:900, color:col, lineHeight:1, marginBottom: sub ? 1 : 2 }}>{value}</div>
+                    {sub && <div style={{ fontFamily:'Sora,sans-serif', fontSize: isMobile ? 7 : 8, color:'#00c98d', marginBottom:1 }}>{sub}</div>}
                     <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 6, color:'#6a8aaa', letterSpacing:1 }}>🔥 {label}</div>
                   </div>
                   {i < arr.length - 1 && <div style={{ width:1, alignSelf:'stretch', background:'rgba(255,255,255,.06)' }} />}
