@@ -19,7 +19,7 @@ const RPC: Record<string, string> = {
 };
 
 const PROGRAM_ID   = "3B6oAfmL7aGVAbBdu7zW3jqEVWK6o1nwFiufuSuFV6tN";
-const METADATA_URI = "https://arweave.net/UOmOXr_4gkpPUSOA2W530El_GH-aCapEIiVhWf01t00";
+const METADATA_URI = "https://arweave.net/gKd6Z_lgNccfnvX_rgOLRRIvecppjC8FsC0a1Xel2NE";
 const TOKEN_2022   = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
 function disc(name: string): Buffer {
