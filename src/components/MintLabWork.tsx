@@ -166,7 +166,7 @@ const TierBar: FC<{
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 
 const MintLabWork: FC = () => {
-  const { publicKey, signTransaction } = useWallet();
+  const { publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
   const isMobile = useIsMobile();
 
@@ -387,7 +387,7 @@ const MintLabWork: FC = () => {
 
   // ── Mint handler ─────────────────────────────────────────────────
   const handleMint = useCallback(async () => {
-    if (!publicKey || !signTransaction) return;
+    if (!publicKey || !sendTransaction) return;
     if (!canAfford) { setStatus('❌ Insufficient balance.'); return; }
     if (paused) { setStatus('❌ Minting is currently paused.'); return; }
 
@@ -504,12 +504,13 @@ const MintLabWork: FC = () => {
       }
 
       setStatus('Awaiting wallet approval…');
-      const signed = await signTransaction(tx);
-      // skipPreflight: true — Backpack (especially mobile) incorrectly fails simulation
-      // on Token-2022 transfer fee CPIs (error 0xbc4 / TransferFeeCalculation).
-      // The tx is valid and executes correctly on-chain; simulation is the false negative.
-      const sig    = await connection.sendRawTransaction(signed.serialize(), {
-        skipPreflight: true, maxRetries: 3, preflightCommitment: 'confirmed',
+      // Use wallet adapter sendTransaction with skipPreflight — this bypasses Backpack
+      // mobile's internal pre-sign simulation which incorrectly rejects Token-2022
+      // transfer fee CPIs with error 0xbc4 (TransferFeeCalculation).
+      const sig = await sendTransaction(tx, connection, {
+        skipPreflight: true,
+        maxRetries: 3,
+        preflightCommitment: 'confirmed',
       });
 
       setStatus('Confirming…');
@@ -533,7 +534,7 @@ const MintLabWork: FC = () => {
     } catch (e: any) {
       setStatus(`❌ ${e?.message?.slice(0, 120) ?? 'Transaction failed'}`);
     } finally { setPending(false); }
-  }, [publicKey, signTransaction, canAfford, paused, amount, brainsCost, xntCost,
+  }, [publicKey, sendTransaction, canAfford, paused, amount, brainsCost, xntCost,
       useAmplifier, xnmAmount, xuniAmount, xblkAmount, lbOut, fetchGlobalState, fetchBalances, fetchBurnStats, connection]);
 
   // ─────────────────────────────────────────────────────────────────
