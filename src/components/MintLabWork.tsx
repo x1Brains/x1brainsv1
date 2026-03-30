@@ -810,138 +810,72 @@ const MintLabWork: FC = () => {
               </div>
             )}
 
-            {/* Mint Receipt */}
-            {mintReceipt && (
+            {/* Status / Receipt bar */}
+            {(status || mintReceipt) && (
               <div style={{
-                borderRadius: 14, overflow: 'hidden',
-                border: '1px solid rgba(0,201,141,.35)',
-                background: 'linear-gradient(135deg,rgba(0,201,141,.08),rgba(0,150,100,.04))',
-                marginBottom: 8,
+                borderRadius: 10, overflow: 'hidden',
+                background: mintReceipt ? 'rgba(0,201,141,.08)' : status.startsWith('❌') ? 'rgba(255,50,50,.08)' : 'rgba(191,90,242,.08)',
+                border: `1px solid ${mintReceipt ? 'rgba(0,201,141,.3)' : status.startsWith('❌') ? 'rgba(255,50,50,.25)' : 'rgba(191,90,242,.3)'}`,
               }}>
-                {/* Header */}
-                <div style={{
-                  padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  borderBottom: '1px solid rgba(0,201,141,.15)',
-                  background: 'rgba(0,201,141,.06)',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 18 }}>✅</span>
-                    <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 900, color: '#00c98d', letterSpacing: 2 }}>
-                      MINT CONFIRMED
-                    </span>
-                  </div>
-                  <a href={`https://explorer.mainnet.x1.xyz/tx/${mintReceipt.sig}`}
-                    target="_blank" rel="noopener noreferrer"
-                    style={{
-                      fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
-                      color: '#00d4ff', letterSpacing: 1.5, textDecoration: 'none',
-                      padding: '4px 10px', borderRadius: 6,
-                      border: '1px solid rgba(0,212,255,.3)',
-                      background: 'rgba(0,212,255,.08)',
-                      display: 'flex', alignItems: 'center', gap: 5,
-                    }}>
-                    VIEW TX ↗
-                  </a>
-                </div>
-
-                {/* LB Received — hero number */}
-                <div style={{ padding: '14px 16px 10px', textAlign: 'center', borderBottom: '1px solid rgba(0,201,141,.1)' }}>
-                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a8a7a', letterSpacing: 2, marginBottom: 4 }}>
-                    LAB WORK TOKENS RECEIVED
-                  </div>
-                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 32, fontWeight: 900, color: '#00c98d', letterSpacing: 2, lineHeight: 1,
-                    textShadow: '0 0 20px rgba(0,201,141,.5)' }}>
-                    +{fmt(mintReceipt.lbOut)} <span style={{ fontSize: 16, color: '#00a070' }}>LB</span>
-                  </div>
-                </div>
-
-                {/* Burn breakdown */}
-                <div style={{ padding: '10px 16px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#4a6a5a', letterSpacing: 2, marginBottom: 2 }}>
-                    BURNED / PAID
-                  </div>
-
-                  {/* BRAINS burned */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: 12 }}>🔥</span>
-                      <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#9abacf' }}>BRAINS Burned</span>
+                {mintReceipt ? (
+                  <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {/* Top row — LB received + TX link */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 16 }}>✅</span>
+                        <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 900, color: '#00c98d', letterSpacing: 1 }}>
+                          +{fmt(mintReceipt.lbOut)} LB MINTED
+                        </span>
+                      </div>
+                      <a href={`https://explorer.mainnet.x1.xyz/tx/${mintReceipt.sig}`}
+                        target="_blank" rel="noopener noreferrer"
+                        style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#00d4ff',
+                          letterSpacing: 1.5, textDecoration: 'none', padding: '3px 9px', borderRadius: 5,
+                          border: '1px solid rgba(0,212,255,.3)', background: 'rgba(0,212,255,.08)' }}>
+                        VIEW TX ↗
+                      </a>
                     </div>
-                    <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: '#ff6644' }}>
-                      -{fmt(mintReceipt.brainsCost)}
-                    </span>
-                  </div>
-
-                  {/* XNT fee */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: 12 }}>💎</span>
-                      <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#9abacf' }}>XNT Platform Fee</span>
-                    </div>
-                    <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: '#00d4ff' }}>
-                      -{mintReceipt.xntCost.toFixed(4)} XNT
-                    </span>
-                  </div>
-
-                  {/* Xenblocks assets if combo */}
-                  {mintReceipt.isCombo && (
-                    <>
+                    {/* Burn breakdown */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#ff6644',
+                        padding: '2px 8px', borderRadius: 5, background: 'rgba(255,100,68,.08)', border: '1px solid rgba(255,100,68,.2)' }}>
+                        🔥 -{fmt(mintReceipt.brainsCost)} BRAINS
+                      </span>
+                      <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#00d4ff',
+                        padding: '2px 8px', borderRadius: 5, background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.2)' }}>
+                        💎 -{mintReceipt.xntCost.toFixed(4)} XNT
+                      </span>
                       {mintReceipt.xnmAmt > 0 && (
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontSize: 12 }}>⚡</span>
-                            <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#9abacf' }}>XNM (50% burned)</span>
-                          </div>
-                          <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: '#ffaa33' }}>
-                            -{fmt(mintReceipt.xnmAmt)} <span style={{ fontSize: 9, color: '#aa7722' }}>+{fmt(Math.floor(mintReceipt.xnmAmt / 1000))} LB</span>
-                          </span>
-                        </div>
+                        <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#ffaa33',
+                          padding: '2px 8px', borderRadius: 5, background: 'rgba(255,170,51,.08)', border: '1px solid rgba(255,170,51,.2)' }}>
+                          ⚡ -{fmt(mintReceipt.xnmAmt)} XNM → +{fmt(Math.floor(mintReceipt.xnmAmt / 1000))} LB
+                        </span>
                       )}
                       {mintReceipt.xuniAmt > 0 && (
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontSize: 12 }}>🔮</span>
-                            <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#9abacf' }}>XUNI (50% burned)</span>
-                          </div>
-                          <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: '#bf5af2' }}>
-                            -{fmt(mintReceipt.xuniAmt)} <span style={{ fontSize: 9, color: '#8833cc' }}>+{fmt(Math.floor(mintReceipt.xuniAmt / 500) * 4)} LB</span>
-                          </span>
-                        </div>
+                        <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#bf5af2',
+                          padding: '2px 8px', borderRadius: 5, background: 'rgba(191,90,242,.08)', border: '1px solid rgba(191,90,242,.2)' }}>
+                          🔮 -{fmt(mintReceipt.xuniAmt)} XUNI → +{fmt(Math.floor(mintReceipt.xuniAmt / 500) * 4)} LB
+                        </span>
                       )}
                       {mintReceipt.xblkAmt > 0 && (
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontSize: 12 }}>🧱</span>
-                            <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#9abacf' }}>XBLK (50% burned)</span>
-                          </div>
-                          <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: '#00c98d' }}>
-                            -{fmt(mintReceipt.xblkAmt)} <span style={{ fontSize: 9, color: '#008855' }}>+{fmt(mintReceipt.xblkAmt * 8)} LB</span>
-                          </span>
-                        </div>
+                        <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#00c98d',
+                          padding: '2px 8px', borderRadius: 5, background: 'rgba(0,201,141,.08)', border: '1px solid rgba(0,201,141,.2)' }}>
+                          🧱 -{fmt(mintReceipt.xblkAmt)} XBLK → +{fmt(mintReceipt.xblkAmt * 8)} LB
+                        </span>
                       )}
-                    </>
-                  )}
-
-                  {/* TX sig */}
-                  <div style={{ marginTop: 6, padding: '7px 10px', borderRadius: 7,
-                    background: 'rgba(0,0,0,.25)', border: '1px solid rgba(255,255,255,.06)' }}>
-                    <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#4a6070', letterSpacing: 1.5, marginBottom: 3 }}>TX SIGNATURE</div>
-                    <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#5a8090', wordBreak: 'break-all', lineHeight: 1.5 }}>
+                    </div>
+                    {/* TX sig */}
+                    <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#3a6050',
+                      wordBreak: 'break-all', lineHeight: 1.4 }}>
                       {mintReceipt.sig}
                     </div>
                   </div>
-                </div>
-              </div>
-            )}
-
-            {/* Status (loading / error) */}
-            {status && status !== '✅' && (
-              <div style={{ padding:'10px 14px', borderRadius:10,
-                background: status.startsWith('❌') ? 'rgba(255,50,50,.08)' : 'rgba(191,90,242,.08)',
-                border:`1px solid ${status.startsWith('❌') ? 'rgba(255,50,50,.25)' : 'rgba(191,90,242,.3)'}`,
-                fontFamily:'Sora,sans-serif', fontSize:11,
-                color: status.startsWith('❌') ? '#ff6666' : '#bf5af2' }}>
-                {status}
+                ) : (
+                  <div style={{ padding: '10px 14px', fontFamily: 'Sora,sans-serif', fontSize: 11,
+                    color: status.startsWith('❌') ? '#ff6666' : '#bf5af2' }}>
+                    {status}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1233,4 +1167,3 @@ const MintLabWork: FC = () => {
 };
 
 export default MintLabWork;
-// Mon Mar 30 14:04:15 EDT 2026
