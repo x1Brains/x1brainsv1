@@ -167,6 +167,11 @@ const TierBar: FC<{
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 
+interface MintReceipt {
+  sig: string; lbOut: number; brainsCost: number; xntCost: number;
+  xnmAmt: number; xuniAmt: number; xblkAmt: number; isCombo: boolean;
+}
+
 const MintLabWork: FC = () => {
   const { publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
@@ -205,10 +210,6 @@ const MintLabWork: FC = () => {
   const [xblkAmount,   setXblkAmount]   = useState(0);
   const [activeTab,    setActiveTab]    = useState<'mint' | 'tiers' | 'info' | 'amplifier'>('mint');
   const [status,       setStatus]       = useState('');
-  interface MintReceipt {
-    sig: string; lbOut: number; brainsCost: number; xntCost: string;
-    xnmAmt: number; xuniAmt: number; xblkAmt: number; isCombo: boolean;
-  }
   const [mintReceipt,  setMintReceipt]  = useState<MintReceipt | null>(null);
   const [pending,      setPending]      = useState(false);
 
@@ -538,7 +539,7 @@ const MintLabWork: FC = () => {
 
       setStatus('✅');
       setMintReceipt({
-        sig, lbOut, brainsCost, xntCost: xntDisplay,
+        sig, lbOut, brainsCost, xntCost,
         xnmAmt: useAmplifier ? xnmAmount : 0,
         xuniAmt: useAmplifier ? xuniAmount : 0,
         xblkAmt: useAmplifier ? xblkAmount : 0,
@@ -878,7 +879,7 @@ const MintLabWork: FC = () => {
                       <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#9abacf' }}>XNT Platform Fee</span>
                     </div>
                     <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: '#00d4ff' }}>
-                      -{mintReceipt.xntCost} XNT
+                      -{mintReceipt.xntCost.toFixed(4)} XNT
                     </span>
                   </div>
 
