@@ -46,6 +46,8 @@ import {
 
 const BRAINS_DECIMALS = 9;
 const BRAINS_MINT_PK  = new PublicKey(BRAINS_MINT_STR);
+const LB_PROGRAM_ID   = new PublicKey('3B6oAfmL7aGVAbBdu7zW3jqEVWK6o1nwFiufuSuFV6tN');
+const LB_TOTAL_SUPPLY = 100_000;
 
 const BOOST_TIERS = [
   { id: 'spark',       label: '⚡ SPARK',       brains: 1_000,  days: 1,  color: '#00d4ff', desc: '24 hours spotlight' },
@@ -362,6 +364,7 @@ const LabWork: FC = () => {
   // Page state
   const [pageMode, setPageMode]     = useState<PageMode>('market');
   const [marketTab, setMarketTab]   = useState<MarketTab>('overview');
+  const [lbMinted, setLbMinted]     = useState<number>(0);
   const [showListModal, setShowListModal] = useState(false);
 
   // Gallery state
@@ -543,6 +546,20 @@ const LabWork: FC = () => {
       // Tiny yield so React can paint between batches
       await new Promise(r => setTimeout(r, 0));
     }
+  }, [connection]);
+
+  // Fetch LB total minted from on-chain GlobalState PDA
+  useEffect(() => {
+    (async () => {
+      try {
+        const [statePda] = PublicKey.findProgramAddressSync([Buffer.from('lb_state')], LB_PROGRAM_ID);
+        const info = await connection.getAccountInfo(statePda);
+        if (!info?.data) return;
+        const view = new DataView(info.data.buffer, info.data.byteOffset, info.data.byteLength);
+        const raw = view.getBigUint64(104, true);
+        setLbMinted(Number(raw) / 100); // 2 decimals
+      } catch {}
+    })();
   }, [connection]);
 
   const loadActivity = useCallback(async () => {
@@ -946,20 +963,30 @@ const LabWork: FC = () => {
               background:'linear-gradient(90deg,transparent,rgba(0,212,255,.2),rgba(191,90,242,.15),transparent)',
               pointerEvents:'none', animation:'hdr-shimmer 5s ease-in-out infinite' }} />
             <h1 style={{ fontFamily:'Orbitron,monospace',
-              fontSize: isMobile ? 26 : 48, fontWeight:900,
-              letterSpacing: isMobile ? 2 : 4, margin:'0 0 4px', lineHeight:1.05,
+              fontSize: isMobile ? 22 : 42, fontWeight:900,
+              letterSpacing: isMobile ? 1 : 3, margin:'0 0 4px', lineHeight:1.05,
               textTransform:'uppercase', position:'relative' }}>
+              <span style={{
+                background:'linear-gradient(90deg,#ff8c00,#ffb700)',
+                backgroundSize:'200% auto',
+                WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text',
+                display:'inline',
+              }}>X1 Brains</span>
+              <span style={{ WebkitTextFillColor:'initial', backgroundClip:'initial', background:'none',
+                marginLeft: isMobile ? 6 : 10, fontSize: isMobile ? 18 : 32,
+                display:'inline-block',
+                verticalAlign:'middle' }}>🧠</span>
               <span style={{
                 background:'linear-gradient(90deg,#00d4ff,#bf5af2,#00c98d,#00d4ff)',
                 backgroundSize:'200% auto',
                 WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text',
                 animation:'hdr-shimmer 3s linear infinite', display:'inline',
-              }}>X1 LAB WORK</span>
+                marginLeft: isMobile ? 6 : 10,
+              }}>{isMobile ? 'Lab Work' : 'Lab Work'}</span>
               <span style={{ WebkitTextFillColor:'initial', backgroundClip:'initial', background:'none',
-                marginLeft: isMobile ? 8 : 12, fontSize: isMobile ? 22 : 40,
+                marginLeft: isMobile ? 6 : 10, fontSize: isMobile ? 18 : 36,
                 display:'inline-block', animation:'hdr-float 2.5s ease-in-out infinite',
                 verticalAlign:'middle' }}>🧪</span>
-
             </h1>
           </div>
 
@@ -968,7 +995,7 @@ const LabWork: FC = () => {
             animation:'fadeUp 0.5s ease 0.12s both' }}>
             <span style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 6 : 8,
               color:'#9abace', letterSpacing: isMobile ? 2 : 3 }}>
-              X1 BLOCKCHAIN · NFT SCANNER & MARKETPLACE
+              X1 BLOCKCHAIN · NFT SCANNER & MARKETPLACE · MINT LB TOKEN
             </span>
           </div>
 
@@ -979,7 +1006,8 @@ const LabWork: FC = () => {
             Scan &nbsp;·&nbsp; Inspect &nbsp;·&nbsp;
             <span style={{ color:'#00c98d' }}>List</span> &nbsp;·&nbsp;
             <span style={{ color:'#00d4ff' }}>Buy</span> &nbsp;·&nbsp;
-            <span style={{ color:'#bf5af2' }}>Sell</span>
+            <span style={{ color:'#bf5af2' }}>Sell</span> &nbsp;·&nbsp;
+            <span style={{ color:'#ff8c00' }}>Mint LB</span>
             {!isMobile && <span style={{ color:'#9abacf' }}> — powered by X1 blockchain & native XNT</span>}
           </div>
 
@@ -993,13 +1021,15 @@ const LabWork: FC = () => {
                 { label:'LISTED',      color:'#00c98d', value: listings.length },
                 { label:'MY NFTs',     color:'#00d4ff', value: nfts.length     },
                 { label:'COLLECTIONS', color:'#bf5af2', value: listingCollections },
+                { label:'LB MINTED',   color:'#ff8c00', value: lbMinted > 0 ? lbMinted.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—' },
+                { label:'LB CAP',      color:'#ffb700', value: LB_TOTAL_SUPPLY.toLocaleString() },
                 { label:'CHAIN',       color:'#ff8c00', value: 'X1'            },
               ].map(({ label, color, value }, i, arr) => (
                 <React.Fragment key={label}>
-                  <div style={{ textAlign:'center', padding: isMobile ? '2px 12px' : '2px 20px' }}>
-                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 18 : 24,
+                  <div style={{ textAlign:'center', padding: isMobile ? '2px 10px' : '2px 18px' }}>
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 16 : 22,
                       fontWeight:900, color, lineHeight:1, marginBottom:2 }}>{value}</div>
-                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 6 : 7,
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 7,
                       color:'#9abacf', letterSpacing:1.5 }}>{label}</div>
                   </div>
                   {i < arr.length - 1 && (
