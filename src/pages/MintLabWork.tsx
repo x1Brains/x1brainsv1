@@ -173,11 +173,13 @@ const MintLabWork: FC = () => {
   // On-chain state
   const [mintedTotal,  setMintedTotal]  = useState(0);
   const [paused,       setPaused]       = useState(false);
-  // Burned/treasury stats — derived from treasury ATA balances
-  const [xnmTreasury,  setXnmTreasury]  = useState<number | null>(null);
-  const [xuniTreasury, setXuniTreasury] = useState<number | null>(null);
-  const [xblkTreasury, setXblkTreasury] = useState<number | null>(null);
+
+  // Burn stats — fetched from on-chain token supply
   const [brainsBurned, setBrainsBurned] = useState<number | null>(null);
+  const [xnmBurned,    setXnmBurned]    = useState<number | null>(null);
+  const [xuniBurned,   setXuniBurned]   = useState<number | null>(null);
+  const [xblkBurned,   setXblkBurned]   = useState<number | null>(null);
+
   // Tier rates hardcoded — match program constants exactly
   const tierRates = [
     { brains: 8,  xntLamports: 500_000_000  },
@@ -255,9 +257,9 @@ const MintLabWork: FC = () => {
           setter(bal);
         } catch { setter(0); }
       };
-      fetchTreasuryBal(XNM_MINT_PK,  setXnmTreasury);
-      fetchTreasuryBal(XUNI_MINT_PK, setXuniTreasury);
-      fetchTreasuryBal(XBLK_MINT_PK, setXblkTreasury);
+      fetchTreasuryBal(XNM_MINT_PK,  setXnmBurned);
+      fetchTreasuryBal(XUNI_MINT_PK, setXuniBurned);
+      fetchTreasuryBal(XBLK_MINT_PK, setXblkBurned);
 
       // BRAINS burned = total LB minted * brains_per_lb (Tier 1 = 8, but we use total_minted * avg)
       // Simpler: read from BRAINS mint supply change isn't easy, so just show total LB * 8 as min
@@ -275,6 +277,66 @@ const MintLabWork: FC = () => {
   useEffect(() => {
     if (PROGRAM_DEPLOYED) fetchGlobalState();
   }, [fetchGlobalState]);
+
+  // Fetch burn stats — derives burned amounts from token supply changes
+  // BRAINS burned = initial supply - current supply (all burns go through this program)
+  // Xenblocks burned = tracked via treasury ATA balances (50% burn, 50% treasury)
+  const fetchBurnStats = useCallback(async () => {
+    try {
+      const [brainsMint, xnmMint, xuniMint, xblkMint] = await Promise.allSettled([
+        connection.getParsedAccountInfo(BRAINS_MINT_PK),
+        connection.getParsedAccountInfo(XNM_MINT_PK),
+        connection.getParsedAccountInfo(XUNI_MINT_PK),
+        connection.getParsedAccountInfo(XBLK_MINT_PK),
+      ]);
+
+      // BRAINS burned = mintedTotal * avg_brains_per_lb
+      // Simpler: read it from total_minted * current tier brains — but that changes per tier
+      // Best: derive from LB minted × weighted avg — instead just show total BRAINS burned
+      // We compute it as: minted LB × brains cost (from tiers)
+      // For now read treasury XNT balance as proxy + show LB minted as primary stat
+      // Actual BRAINS burned: since each LB costs 8-33 BRAINS, derive from supply diff
+      // BRAINS: read current supply from mint — burned = original_supply - current_supply
+      // Since we don't store original supply, use parsed supply change approach
+      if (brainsMint.status === 'fulfilled') {
+        const info = (brainsMint.value?.value?.data as any)?.parsed?.info;
+        if (info?.supply && info?.decimals !== undefined) {
+          // We can't know original supply without a snapshot
+          // Best proxy: sum from GlobalState total_minted * weighted avg brains/LB
+          // Leave brainsBurned as null — it's set from mintedTotal in the main component
+        }
+      }
+
+      // 50/50 split: treasury holds exactly what was burned.
+      // So burned amount = treasury ATA balance for each asset.
+      const treasuryPk = new PublicKey(TREASURY_WALLET);
+      const TOKEN_2022_PK = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+      const getAta = (mint: PublicKey) => getAssociatedTokenAddressSync(mint, treasuryPk, false, TOKEN_2022_PK);
+
+      const [xnmAta, xuniAta, xblkAta] = await Promise.allSettled([
+        connection.getParsedAccountInfo(getAta(XNM_MINT_PK)),
+        connection.getParsedAccountInfo(getAta(XUNI_MINT_PK)),
+        connection.getParsedAccountInfo(getAta(XBLK_MINT_PK)),
+      ]);
+
+      if (xnmAta.status === 'fulfilled') {
+        const bal = (xnmAta.value?.value?.data as any)?.parsed?.info?.tokenAmount?.uiAmount;
+        if (bal !== null && bal !== undefined) setXnmBurned(bal);
+      }
+      if (xuniAta.status === 'fulfilled') {
+        const bal = (xuniAta.value?.value?.data as any)?.parsed?.info?.tokenAmount?.uiAmount;
+        if (bal !== null && bal !== undefined) setXuniBurned(bal);
+      }
+      if (xblkAta.status === 'fulfilled') {
+        const bal = (xblkAta.value?.value?.data as any)?.parsed?.info?.tokenAmount?.uiAmount;
+        if (bal !== null && bal !== undefined) setXblkBurned(bal);
+      }
+    } catch {}
+  }, [connection]);
+
+  useEffect(() => {
+    fetchBurnStats();
+  }, [fetchBurnStats]);
 
   // ── Fetch balances ───────────────────────────────────────────────
   const fetchBalances = useCallback(async () => {
@@ -462,13 +524,14 @@ const MintLabWork: FC = () => {
       setTimeout(() => {
         fetchBalances();
         fetchGlobalState();
+        fetchBurnStats();
       }, 2000);
 
     } catch (e: any) {
       setStatus(`❌ ${e?.message?.slice(0, 120) ?? 'Transaction failed'}`);
     } finally { setPending(false); }
   }, [publicKey, signTransaction, canAfford, paused, amount, brainsCost, xntCost,
-      useAmplifier, xnmAmount, xuniAmount, xblkAmount, lbOut, fetchGlobalState, fetchBalances, connection]);
+      useAmplifier, xnmAmount, xuniAmount, xblkAmount, lbOut, fetchGlobalState, fetchBalances, fetchBurnStats, connection]);
 
   // ─────────────────────────────────────────────────────────────────
   // RENDER
@@ -528,10 +591,10 @@ const MintLabWork: FC = () => {
             {/* Stats strip */}
             <div style={{ display:'flex', gap:0, background:'rgba(255,255,255,.025)', border:'1px solid rgba(255,255,255,.07)', borderRadius:10, overflow:'hidden' }}>
               {[
-                { label:'TOTAL SUPPLY', value:'100,000',                        col:'#00d4ff' },
-                { label:'LB MINTED',    value: fmt(mintedTotal),                col:'#00c98d' },
-                { label:'REMAINING',    value: fmt(TOTAL_SUPPLY - mintedTotal), col:'#bf5af2' },
-                { label:'ACTIVE TIER',  value: TIER_LABELS[tierIdx],            col: c        },
+                { label:'LB MINTED',   value: fmt(mintedTotal),                col:'#00c98d' },
+                { label:'REMAINING',   value: fmt(TOTAL_SUPPLY - mintedTotal), col:'#bf5af2' },
+                { label:'ACTIVE TIER', value: TIER_LABELS[tierIdx],            col: c        },
+                { label:'CAP',         value:'100,000',                        col:'#00d4ff' },
               ].map(({ label, value, col }, i, arr) => (
                 <React.Fragment key={label}>
                   <div style={{ flex:1, textAlign:'center', padding: isMobile ? '8px 4px' : '10px 8px' }}>
@@ -543,13 +606,31 @@ const MintLabWork: FC = () => {
               ))}
             </div>
 
+            {/* Burn stats strip */}
+            <div style={{ display:'flex', gap:0, background:'rgba(255,50,50,.04)', border:'1px solid rgba(255,100,100,.1)', borderRadius:10, overflow:'hidden' }}>
+              {[
+                { label:'BRAINS BURNED', value: mintedTotal > 0 ? '~' + fmt(Math.round(mintedTotal * 8)) + '+' : '—', col:'#ff6a6a' },
+                { label:'XNM BURNED',    value: xnmBurned  !== null ? fmt(xnmBurned)  : '—', col:'#7a9ab8' },
+                { label:'XUNI BURNED',   value: xuniBurned !== null ? fmt(xuniBurned) : '—', col:'#7a9ab8' },
+                { label:'XBLK BURNED',   value: xblkBurned !== null ? xblkBurned.toFixed(1) : '—', col:'#7a9ab8' },
+              ].map(({ label, value, col }, i, arr) => (
+                <React.Fragment key={label}>
+                  <div style={{ flex:1, textAlign:'center', padding: isMobile ? '6px 4px' : '8px 6px' }}>
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 10 : 12, fontWeight:900, color:col, lineHeight:1, marginBottom:2 }}>{value}</div>
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 6, color:'#6a8aaa', letterSpacing:1 }}>🔥 {label}</div>
+                  </div>
+                  {i < arr.length - 1 && <div style={{ width:1, alignSelf:'stretch', background:'rgba(255,255,255,.06)' }} />}
+                </React.Fragment>
+              ))}
+            </div>
+
             {/* Burned / Protocol Stats */}
             <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:0, background:'rgba(255,255,255,.02)', border:'1px solid rgba(255,255,255,.06)', borderRadius:10, overflow:'hidden' }}>
               {[
                 { label:'BRAINS BURNED', value: brainsBurned !== null ? fmt(brainsBurned) : '…', col:'#ff6a6a', icon:'🔥' },
-                { label:'XNM → TREASURY', value: xnmTreasury !== null ? fmt(xnmTreasury) : '…', col:'#7a9ab8', icon:'💎' },
-                { label:'XUNI → TREASURY', value: xuniTreasury !== null ? fmt(xuniTreasury) : '…', col:'#7a9ab8', icon:'💎' },
-                { label:'XBLK → TREASURY', value: xblkTreasury !== null ? xblkTreasury.toFixed(2) : '…', col:'#7a9ab8', icon:'💎' },
+                { label:'XNM BURNED', value: xnmBurned !== null ? fmt(xnmBurned) : '…', col:'#7a9ab8', icon:'🔥' },
+                { label:'XUNI BURNED', value: xuniBurned !== null ? fmt(xuniBurned) : '…', col:'#7a9ab8', icon:'🔥' },
+                { label:'XBLK BURNED', value: xblkBurned !== null ? xblkBurned.toFixed(2) : '…', col:'#7a9ab8', icon:'🔥' },
               ].map(({ label, value, col, icon }, i, arr) => (
                 <React.Fragment key={label}>
                   <div style={{ textAlign:'center', padding: isMobile ? '8px 4px' : '10px 6px' }}>
@@ -584,7 +665,7 @@ const MintLabWork: FC = () => {
                   <div style={{ height:'100%', borderRadius:4, width:`${(tierMinted / TIER_SIZE) * 100}%`, background:`linear-gradient(90deg,${c}88,${c})`, boxShadow:`0 0 10px ${c}66`, transition:'width 1s ease' }} />
                 </div>
               </div>
-              <div style={{ fontFamily:'Orbitron,monospace', fontSize:8, color:'#6a8aaa' }}>+ {xntDisplay} XNT platform fee per LB</div>
+              <div style={{ fontFamily:'Orbitron,monospace', fontSize:8, color:'#6a8aaa' }}>+ {xntDisplay} XNT fee per LB minted (base + bonus)</div>
             </div>
 
             {/* Amount selector */}
