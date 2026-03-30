@@ -14,14 +14,47 @@ import {
 } from '../constants';
 
 // LB token — part of the BRAINS ecosystem, shown separately from generic Token-2022 list
-const LB_MINT        = 'Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6';
-const LB_LOGO        = 'https://arweave.net/gKd6Z_lgNccfnvX_rgOLRRIvecppjC8FsC0a1Xel2NE';
+const LB_MINT = 'Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6';
+const LB_METADATA_URI = 'https://arweave.net/gKd6Z_lgNccfnvX_rgOLRRIvecppjC8FsC0a1Xel2NE';
 // Known-logo mints — skip slow fetchLogoSafe for these, return logo instantly
 const KNOWN_LOGOS: Record<string, string> = {
   [BRAINS_MINT]: BRAINS_LOGO,
-  [LB_MINT]:     LB_LOGO,
   [XNT_WRAPPED]: XNT_INFO.logoUri,
 };
+
+// Resolve LB image once at startup — fetches Arweave metadata JSON via proxy,
+// extracts image field, caches result. Falls back to proxy URL if image field missing.
+let _lbLogoCache: string | undefined;
+let _lbLogoFetching = false;
+async function getLbLogo(): Promise<string | undefined> {
+  if (_lbLogoCache) return _lbLogoCache;
+  if (_lbLogoFetching) return undefined;
+  _lbLogoFetching = true;
+  try {
+    const proxyUrl = `/api/nft-meta/${LB_METADATA_URI.replace(/^https?:\/\//, '')}`;
+    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error('fetch failed');
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('image')) {
+      _lbLogoCache = proxyUrl;
+    } else {
+      const json = await res.json();
+      const img: string = json?.image || json?.icon || json?.logo || '';
+      if (img) {
+        // If the image is itself an Arweave URL, proxy it too
+        _lbLogoCache = img.startsWith('http')
+          ? `/api/nft-meta/${img.replace(/^https?:\/\//, '')}`
+          : img;
+      }
+    }
+  } catch {
+    // Last resort: use direct arweave URL
+    _lbLogoCache = LB_METADATA_URI;
+  } finally { _lbLogoFetching = false; }
+  return _lbLogoCache;
+}
+// Kick off the fetch immediately so it's ready by the time tokens load
+getLbLogo();
 import { fetchOffChainLogo, resolveUri } from '../utils';
 import burnBrainImg from '../assets/images1st.jpg';
 
@@ -415,7 +448,9 @@ async function resolveTokenMeta(
   // ── Batch T2022 extension cache (populated before this function is called) ──
   if (t2022Cache?.has(mint)) {
     const m      = t2022Cache.get(mint)!;
-    const logoUri = knownLogo ?? (m.uri ? await fetchLogoSafe(m.uri) : undefined);
+    const logoUri = knownLogo
+      ?? (mint === LB_MINT ? await getLbLogo() : undefined)
+      ?? (m.uri ? await fetchLogoSafe(m.uri) : undefined);
     const base: ResolvedMeta = { name: m.name || 'Unknown', symbol: m.symbol || '???', logoUri, metaUri: m.uri || undefined, metaSource: 'token2022ext' };
     return override ? { ...base, ...override } : base;
   }
@@ -438,7 +473,7 @@ async function resolveTokenMeta(
   const xdex = tryXdexRegistry(xdexRegistry, mint);
   if (xdex) return override ? { ...xdex, ...override } : xdex;
   if (mint === BRAINS_MINT) return { name: 'Brains', symbol: 'BRAINS', logoUri: BRAINS_LOGO, metaSource: 'xdex' };
-  if (mint === LB_MINT)     return { name: 'Lab Work', symbol: 'LB', logoUri: LB_LOGO, metaSource: 'xdex' };
+  if (mint === LB_MINT)     return { name: 'Lab Work', symbol: 'LB', logoUri: await getLbLogo(), metaSource: 'xdex' };
   if (override) return { name: override.name, symbol: override.symbol, logoUri: XNT_INFO.logoUri, metaSource: 'xdex' };
   const mplex = await tryMetaplexPDA(connection, mint);
   if (mplex) return mplex;
