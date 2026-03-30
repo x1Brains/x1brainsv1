@@ -556,10 +556,10 @@ const LabWork: FC = () => {
         const info = await connection.getAccountInfo(statePda);
         if (!info?.data) return;
         const data = info.data as Uint8Array;
-        // Read u64 LE at offset 104 — same as MintLabWork parseGlobalState
-        let val = 0;
-        for (let i = 0; i < 8; i++) val += data[104 + i] * Math.pow(2, 8 * i);
-        setLbMinted(val / 100); // 2 decimals
+        // Read u64 LE at offset 104 using DataView for precision
+        const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+        const raw = view.getBigUint64(104, true);
+        setLbMinted(Number(raw) / 100); // 2 decimals
       } catch {}
     })();
   }, [connection]);
@@ -1016,17 +1016,17 @@ const LabWork: FC = () => {
               borderRadius:50, padding: isMobile ? '8px 16px' : '10px 24px',
               backdropFilter:'blur(8px)', flexWrap:'wrap', gap:0 }}>
               {[
-                { label:'LISTED',      value: listings.length },
-                { label:'MY NFTs',     value: nfts.length     },
-                { label:'COLLECTIONS', value: listingCollections },
-                { label:'LB MINTED',   value: lbMinted > 0 ? lbMinted.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—' },
-                { label:'LB CAP',      value: LB_TOTAL_SUPPLY.toLocaleString() },
-                { label:'CHAIN',       value: 'X1' },
-              ].map(({ label, value }, i, arr) => (
+                { label:'LISTED',      value: listings.length,      orange: false },
+                { label:'MY NFTs',     value: nfts.length,          orange: false },
+                { label:'COLLECTIONS', value: listingCollections,   orange: false },
+                { label:'LB MINTED',   value: lbMinted > 0 ? lbMinted.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—', orange: false },
+                { label:'LB CAP',      value: LB_TOTAL_SUPPLY.toLocaleString(), orange: false },
+                { label:'CHAIN',       value: 'X1',                 orange: true  },
+              ].map(({ label, value, orange }, i, arr) => (
                 <React.Fragment key={label}>
                   <div style={{ textAlign:'center', padding: isMobile ? '2px 10px' : '2px 18px' }}>
                     <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 16 : 22,
-                      fontWeight:900, color:'#8aa0b8', lineHeight:1, marginBottom:2 }}>{value}</div>
+                      fontWeight:900, color: orange ? '#ff8c00' : '#8aa0b8', lineHeight:1, marginBottom:2 }}>{value}</div>
                     <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 7,
                       color:'#4a6070', letterSpacing:1.5 }}>{label}</div>
                   </div>
