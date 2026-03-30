@@ -959,13 +959,7 @@ const LabWork: FC = () => {
                 marginLeft: isMobile ? 8 : 12, fontSize: isMobile ? 22 : 40,
                 display:'inline-block', animation:'hdr-float 2.5s ease-in-out infinite',
                 verticalAlign:'middle' }}>🧪</span>
-              <span style={{
-                background:'linear-gradient(90deg,#00c98d,#00d4ff,#bf5af2,#00c98d)',
-                backgroundSize:'200% auto',
-                WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text',
-                animation:'hdr-shimmer 3s linear infinite 0.5s',
-                display:'inline', marginLeft: isMobile ? 8 : 12,
-              }}>NFTs</span>
+
             </h1>
           </div>
 
