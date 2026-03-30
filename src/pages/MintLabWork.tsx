@@ -77,7 +77,7 @@ function readU64LE(data: Uint8Array, offset: number): number {
 
 // Reads only total_minted and paused — tier rates are hardcoded in the program
 function parseGlobalState(data: Uint8Array): { totalMinted: number; paused: boolean } {
-  return { totalMinted: readU64LE(data, 104) / 100, paused: data[112] === 1 };
+  return { totalMinted: readU64LE(data, 104), paused: data[112] === 1 };
 }
 
 function fmt(n: number, dec = 0) {
@@ -173,6 +173,11 @@ const MintLabWork: FC = () => {
   // On-chain state
   const [mintedTotal,  setMintedTotal]  = useState(0);
   const [paused,       setPaused]       = useState(false);
+  // Burned/treasury stats — derived from treasury ATA balances
+  const [xnmTreasury,  setXnmTreasury]  = useState<number | null>(null);
+  const [xuniTreasury, setXuniTreasury] = useState<number | null>(null);
+  const [xblkTreasury, setXblkTreasury] = useState<number | null>(null);
+  const [brainsBurned, setBrainsBurned] = useState<number | null>(null);
   // Tier rates hardcoded — match program constants exactly
   const tierRates = [
     { brains: 8,  xntLamports: 500_000_000  },
@@ -207,12 +212,15 @@ const MintLabWork: FC = () => {
   const totalPct      = (mintedTotal / TOTAL_SUPPLY) * 100;
 
   const brainsCost    = amount * currentTier.brains;
-  const xntCost       = parseFloat(((amount * currentTier.xntLamports) / LAMPORTS_PER_SOL).toFixed(4));
 
-  const xnmLb  = useAmplifier ? Math.floor(xnmAmount  / 1_000)     : 0;
-  const xuniLb = useAmplifier ? Math.floor(xuniAmount / 500) * 4    : 0;
-  const xblkLb = useAmplifier ? xblkAmount * 8                      : 0;
+  // Compute bonus LB first so xntCost can use lbOut (total LB, not just base)
+  const xnmLb  = useAmplifier ? Math.floor(xnmAmount  / 1_000)  : 0;
+  const xuniLb = useAmplifier ? Math.floor(xuniAmount / 500) * 4 : 0;
+  const xblkLb = useAmplifier ? xblkAmount * 8                   : 0;
   const lbOut  = amount + xnmLb + xuniLb + xblkLb;
+
+  // XNT fee charged on ALL LB minted (including xenblocks bonus) — not just base LB
+  const xntCost = parseFloat(((lbOut * currentTier.xntLamports) / LAMPORTS_PER_SOL).toFixed(4));
 
   const canAfford = !paused
     && brainsBalance !== null && brainsBalance >= brainsCost
@@ -226,13 +234,41 @@ const MintLabWork: FC = () => {
   // ── Fetch GlobalState ────────────────────────────────────────────
   const fetchGlobalState = useCallback(async () => {
     try {
-      const programId = new PublicKey(MINT_PROGRAM_ID);
+      const programId  = new PublicKey(MINT_PROGRAM_ID);
+      const treasuryPk = new PublicKey(TREASURY_WALLET);
+      const TOKEN2022  = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+
       const [statePda] = PublicKey.findProgramAddressSync([Buffer.from('lb_state')], programId);
       const info = await connection.getAccountInfo(statePda);
       if (!info) return;
       const parsed = parseGlobalState(info.data as Uint8Array);
       setMintedTotal(parsed.totalMinted);
       setPaused(parsed.paused);
+
+      // Fetch treasury xenblocks ATA balances — these = 50% of total burned
+      // so totalBurned = treasury balance (the other 50% is gone forever)
+      const fetchTreasuryBal = async (mint: PublicKey, setter: (n: number) => void) => {
+        try {
+          const ata = getAssociatedTokenAddressSync(mint, treasuryPk, false, TOKEN_2022_PROGRAM_ID);
+          const acc = await connection.getParsedAccountInfo(ata);
+          const bal = (acc?.value?.data as any)?.parsed?.info?.tokenAmount?.uiAmount ?? 0;
+          setter(bal);
+        } catch { setter(0); }
+      };
+      fetchTreasuryBal(XNM_MINT_PK,  setXnmTreasury);
+      fetchTreasuryBal(XUNI_MINT_PK, setXuniTreasury);
+      fetchTreasuryBal(XBLK_MINT_PK, setXblkTreasury);
+
+      // BRAINS burned = total LB minted * brains_per_lb (Tier 1 = 8, but we use total_minted * avg)
+      // Simpler: read from BRAINS mint supply change isn't easy, so just show total LB * 8 as min
+      // Actually we can compute: brains burned = sum across tiers
+      // For now show based on total_minted and current tier
+      const lb = parsed.totalMinted;
+      const t1 = Math.min(lb, 25000);
+      const t2 = Math.min(Math.max(lb - 25000, 0), 25000);
+      const t3 = Math.min(Math.max(lb - 50000, 0), 25000);
+      const t4 = Math.max(lb - 75000, 0);
+      setBrainsBurned(t1*8 + t2*18 + t3*26 + t4*33);
     } catch {}
   }, [connection]);
 
@@ -503,6 +539,25 @@ const MintLabWork: FC = () => {
                     <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 6, color:'#9abacf', letterSpacing:1 }}>{label}</div>
                   </div>
                   {i < arr.length - 1 && <div style={{ width:1, alignSelf:'stretch', background:'rgba(255,255,255,.08)' }} />}
+                </React.Fragment>
+              ))}
+            </div>
+
+            {/* Burned / Protocol Stats */}
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:0, background:'rgba(255,255,255,.02)', border:'1px solid rgba(255,255,255,.06)', borderRadius:10, overflow:'hidden' }}>
+              {[
+                { label:'BRAINS BURNED', value: brainsBurned !== null ? fmt(brainsBurned) : '…', col:'#ff6a6a', icon:'🔥' },
+                { label:'XNM → TREASURY', value: xnmTreasury !== null ? fmt(xnmTreasury) : '…', col:'#7a9ab8', icon:'💎' },
+                { label:'XUNI → TREASURY', value: xuniTreasury !== null ? fmt(xuniTreasury) : '…', col:'#7a9ab8', icon:'💎' },
+                { label:'XBLK → TREASURY', value: xblkTreasury !== null ? xblkTreasury.toFixed(2) : '…', col:'#7a9ab8', icon:'💎' },
+              ].map(({ label, value, col, icon }, i, arr) => (
+                <React.Fragment key={label}>
+                  <div style={{ textAlign:'center', padding: isMobile ? '8px 4px' : '10px 6px' }}>
+                    <div style={{ fontSize: isMobile ? 8 : 10, marginBottom:2 }}>{icon}</div>
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 9 : 11, fontWeight:900, color:col, lineHeight:1, marginBottom:2 }}>{value}</div>
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 6, color:'#4a6a8a', letterSpacing:.8 }}>{label}</div>
+                  </div>
+                  {i < arr.length - 1 && <div style={{ width:1, alignSelf:'stretch', background:'rgba(255,255,255,.06)' }} />}
                 </React.Fragment>
               ))}
             </div>
