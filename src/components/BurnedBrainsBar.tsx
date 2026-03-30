@@ -99,6 +99,10 @@ const Ember: FC<{ delay: number; x: number; size: number; duration: number }> = 
 // Cache-first: loads Supabase burn_events immediately, displays total,
 // then only scans chain for signatures NEWER than the last cached sig.
 // New burns are upserted back to Supabase so the next load is instant.
+//
+// VERSION FLAG: if 'brains_burn_v2_<wallet>' is not set in localStorage,
+// a full clean rescan is forced to replace any stale pre-bugfix cache data.
+// After the full scan the flag is written and incremental scans are used.
 // ─────────────────────────────────────────────
 async function streamWalletBurnTotal(
   connection: ReturnType<typeof useConnection>['connection'],
@@ -107,45 +111,54 @@ async function streamWalletBurnTotal(
   signal: AbortSignal,
   onProgress: (runningTotal: number, done: boolean) => void,
 ): Promise<void> {
-  const { getBurnEventsForWallet, upsertBurnEvents } = await import('../lib/supabase');
+  const { getBurnEventsForWallet, upsertBurnEvents, replaceBurnEventsForWallet } = await import('../lib/supabase');
 
   const mintPubkey      = new PublicKey(BRAINS_MINT);
   const mintStr         = mintPubkey.toBase58();
   const TOKEN_2022_PROG = TOKEN_2022_PROGRAM_ID;
   const divisor         = Math.pow(10, decimals);
   const walletStr       = walletPubkey.toBase58();
+  const cleanScanFlag   = `brains_burn_v2_${walletStr}`;
 
-  // ── 1. Load cache from Supabase ──────────────────────────────────────────
+  // ── 1. Check if we need a full clean rescan ──────────────────────────────
+  let forceFullScan = false;
+  try { forceFullScan = !localStorage.getItem(cleanScanFlag); } catch { }
+
+  // ── 2. Load cache from Supabase (skip if forcing full scan) ──────────────
   let cachedTotal = 0;
   let newestCachedSig: string | undefined;
-  try {
-    const cached = await getBurnEventsForWallet(walletStr);
-    if (cached.length) {
-      cachedTotal = cached.reduce((s, r) => s + r.amount, 0);
-      // getBurnEventsForWallet orders by block_time DESC — first row is newest
-      newestCachedSig = cached[0].sig;
-    }
-  } catch { /* cache miss — full scan */ }
+  if (!forceFullScan) {
+    try {
+      const cached = await getBurnEventsForWallet(walletStr);
+      if (cached.length) {
+        cachedTotal = cached.reduce((s, r) => s + r.amount, 0);
+        // getBurnEventsForWallet orders by block_time DESC — first row is newest
+        newestCachedSig = cached[0].sig;
+      }
+    } catch { /* cache miss — full scan */ }
 
-  if (signal.aborted) return;
+    if (signal.aborted) return;
+    // Display cached total immediately so UI isn't blank
+    if (cachedTotal > 0) onProgress(cachedTotal, false);
+  }
 
-  // Display cached total immediately so UI isn't blank
-  if (cachedTotal > 0) onProgress(cachedTotal, false);
-
-  // ── 2. Resolve ATA ───────────────────────────────────────────────────────
+  // ── 3. Resolve ATA ───────────────────────────────────────────────────────
   let ataAddress: PublicKey | null = null;
   try {
     ataAddress = getAssociatedTokenAddressSync(mintPubkey, walletPubkey, false, TOKEN_2022_PROG);
   } catch { }
 
   // If ATA doesn't exist on-chain the wallet never held BRAINS.
-  // If we already have a cached total that's fine — just return it as final.
   try {
     if (ataAddress) {
       const info = await connection.getAccountInfo(ataAddress);
       if (!info) {
         // Wallet never held BRAINS — cached total (0 or prior) is definitive
-        onProgress(cachedTotal, true);
+        if (forceFullScan) {
+          try { await replaceBurnEventsForWallet(walletStr, []); } catch { }
+          try { localStorage.setItem(cleanScanFlag, '1'); } catch { }
+        }
+        onProgress(0, true);
         return;
       }
     }
@@ -153,19 +166,19 @@ async function streamWalletBurnTotal(
 
   const scanAddress = ataAddress ?? walletPubkey;
 
-  // ── 3. Incremental chain scan — only sigs NEWER than newestCachedSig ─────
-  let runningTotal = cachedTotal;
+  // ── 4. Chain scan — full or incremental ──────────────────────────────────
+  let runningTotal = forceFullScan ? 0 : cachedTotal;
   let before: string | undefined;
   const PAGE_SIZE = 100;
-  const newEvents: Array<{ sig: string; wallet: string; amount: number; block_time: number }> = [];
+  const allEvents: Array<{ sig: string; wallet: string; amount: number; block_time: number }> = [];
 
   while (true) {
     if (signal.aborted) { onProgress(runningTotal, true); return; }
 
     const sigs = await connection.getSignaturesForAddress(scanAddress, {
       limit: PAGE_SIZE,
-      ...(before         ? { before } : {}),
-      ...(newestCachedSig ? { until: newestCachedSig } : {}),
+      ...(before                          ? { before } : {}),
+      ...(!forceFullScan && newestCachedSig ? { until: newestCachedSig } : {}),
     });
 
     if (!sigs.length) { onProgress(runningTotal, true); break; }
@@ -233,7 +246,7 @@ async function streamWalletBurnTotal(
 
         if (burnAmount > 0) {
           pageTotal += burnAmount;
-          newEvents.push({
+          allEvents.push({
             sig:        sigs[i].signature,
             wallet:     walletStr,
             amount:     burnAmount,
@@ -251,11 +264,18 @@ async function streamWalletBurnTotal(
     before = sigs[sigs.length - 1].signature;
   }
 
-  // ── 4. Persist new burns to Supabase cache ───────────────────────────────
-  if (newEvents.length) {
-    try { await upsertBurnEvents(newEvents); } catch { /* non-fatal */ }
-  }
+  // ── 5. Persist to Supabase + mark clean scan done ────────────────────────
+  try {
+    if (forceFullScan) {
+      // Replace all stale rows with verified-clean data
+      await replaceBurnEventsForWallet(walletStr, allEvents);
+      try { localStorage.setItem(cleanScanFlag, '1'); } catch { }
+    } else if (allEvents.length) {
+      await upsertBurnEvents(allEvents);
+    }
+  } catch { /* non-fatal */ }
 }
+
 
 // ─────────────────────────────────────────────
 // STATE INTERFACES

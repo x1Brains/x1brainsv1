@@ -340,6 +340,18 @@ export async function upsertBurnEvents(events: BurnEventRow[]): Promise<void> {
   } catch {}
 }
 
+/** Delete all cached burn events for a wallet then insert fresh ones.
+ *  Used after a full rescan to replace stale/corrupt cache data. */
+export async function replaceBurnEventsForWallet(wallet: string, events: BurnEventRow[]): Promise<void> {
+  if (!supabase) return;
+  try {
+    await supabase.from('burn_events').delete().eq('wallet', wallet);
+    if (events.length > 0) {
+      await supabase.from('burn_events').upsert(events, { onConflict: 'sig', ignoreDuplicates: true });
+    }
+  } catch {}
+}
+
 /** Get the most recent block_time stored (resume point for RPC scan) */
 export async function getLatestBurnBlockTime(): Promise<number> {
   if (!supabase) return 0;
