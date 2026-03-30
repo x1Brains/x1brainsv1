@@ -555,9 +555,11 @@ const LabWork: FC = () => {
         const [statePda] = PublicKey.findProgramAddressSync([Buffer.from('lb_state')], LB_PROGRAM_ID);
         const info = await connection.getAccountInfo(statePda);
         if (!info?.data) return;
-        const view = new DataView(info.data.buffer, info.data.byteOffset, info.data.byteLength);
-        const raw = view.getBigUint64(104, true);
-        setLbMinted(Number(raw) / 100); // 2 decimals
+        const data = info.data as Uint8Array;
+        // Read u64 LE at offset 104 — same as MintLabWork parseGlobalState
+        let val = 0;
+        for (let i = 0; i < 8; i++) val += data[104 + i] * Math.pow(2, 8 * i);
+        setLbMinted(val / 100); // 2 decimals
       } catch {}
     })();
   }, [connection]);
@@ -1000,15 +1002,31 @@ const LabWork: FC = () => {
           </div>
 
           {/* Subtitle */}
-          <div style={{ fontFamily:'Sora,sans-serif', fontSize: isMobile ? 10 : 13, color:'#8aaac0',
+          <div style={{ fontFamily:'Sora,sans-serif', fontSize: isMobile ? 9 : 12, color:'#8aaac0',
             marginBottom: isMobile ? 20 : 28, marginTop: isMobile ? 6 : 8,
-            letterSpacing:.5, animation:'fadeUp 0.5s ease 0.15s both' }}>
+            letterSpacing:.5, animation:'fadeUp 0.5s ease 0.15s both', lineHeight: 1.6 }}>
             Scan &nbsp;·&nbsp; Inspect &nbsp;·&nbsp;
             <span style={{ color:'#00c98d' }}>List</span> &nbsp;·&nbsp;
             <span style={{ color:'#00d4ff' }}>Buy</span> &nbsp;·&nbsp;
             <span style={{ color:'#bf5af2' }}>Sell</span> &nbsp;·&nbsp;
             <span style={{ color:'#ff8c00' }}>Mint LB</span>
-            {!isMobile && <span style={{ color:'#9abacf' }}> — powered by X1 blockchain & native XNT</span>}
+            {!isMobile && (
+              <>
+                <span style={{ color:'#9abacf' }}> — powered by X1 blockchain & native XNT</span>
+                <br />
+                <span style={{ color:'#ff6644' }}>🔥 Burn BRAINS → Mint LB</span>
+                <span style={{ color:'#6a8aaa' }}> &nbsp;·&nbsp; </span>
+                <span style={{ color:'#ffaa33' }}>⚡ Xenblocks Amplifier: burn XNM · XUNI · XBLK for bonus LB</span>
+                <span style={{ color:'#6a8aaa' }}> &nbsp;·&nbsp; </span>
+                <span style={{ color:'#9abacf' }}>100,000 LB hard cap · deflationary forever</span>
+              </>
+            )}
+            {isMobile && (
+              <>
+                <br />
+                <span style={{ color:'#ff6644', fontSize: 9 }}>🔥 Burn BRAINS → LB &nbsp;·&nbsp; ⚡ XNM·XUNI·XBLK amplifier</span>
+              </>
+            )}
           </div>
 
           {/* Stats — always visible, no wallet required */}
