@@ -1002,30 +1002,11 @@ const LabWork: FC = () => {
           </div>
 
           {/* Subtitle */}
-          <div style={{ fontFamily:'Sora,sans-serif', fontSize: isMobile ? 9 : 12, color:'#8aaac0',
+          <div style={{ fontFamily:'Sora,sans-serif', fontSize: isMobile ? 9 : 12, color:'#6a8aaa',
             marginBottom: isMobile ? 20 : 28, marginTop: isMobile ? 6 : 8,
             letterSpacing:.5, animation:'fadeUp 0.5s ease 0.15s both', lineHeight: 1.6 }}>
-            Scan &nbsp;·&nbsp; Inspect &nbsp;·&nbsp;
-            <span style={{ color:'#00c98d' }}>List</span> &nbsp;·&nbsp;
-            <span style={{ color:'#00d4ff' }}>Buy</span> &nbsp;·&nbsp;
-            <span style={{ color:'#bf5af2' }}>Sell</span> &nbsp;·&nbsp;
-            <span style={{ color:'#ff8c00' }}>Mint LB</span>
-            {!isMobile && (
-              <>
-                <br />
-                <span style={{ color:'#ff6644' }}>🔥 Burn BRAINS → Mint LB</span>
-                <span style={{ color:'#6a8aaa' }}> &nbsp;·&nbsp; </span>
-                <span style={{ color:'#ffaa33' }}>⚡ Xenblocks Amplifier: burn XNM · XUNI · XBLK for bonus LB</span>
-                <span style={{ color:'#6a8aaa' }}> &nbsp;·&nbsp; </span>
-                <span style={{ color:'#9abacf' }}>100,000 LB hard cap</span>
-              </>
-            )}
-            {isMobile && (
-              <>
-                <br />
-                <span style={{ color:'#ff6644', fontSize: 9 }}>🔥 Burn BRAINS → LB &nbsp;·&nbsp; ⚡ XNM·XUNI·XBLK amplifier</span>
-              </>
-            )}
+            Scan &nbsp;·&nbsp; Inspect &nbsp;·&nbsp; List &nbsp;·&nbsp; Buy &nbsp;·&nbsp; Sell &nbsp;·&nbsp; Mint LB
+            {!isMobile && <span> — powered by X1 blockchain & native XNT</span>}
           </div>
 
           {/* Stats — always visible, no wallet required */}
@@ -1035,19 +1016,19 @@ const LabWork: FC = () => {
               borderRadius:50, padding: isMobile ? '8px 16px' : '10px 24px',
               backdropFilter:'blur(8px)', flexWrap:'wrap', gap:0 }}>
               {[
-                { label:'LISTED',      color:'#00c98d', value: listings.length },
-                { label:'MY NFTs',     color:'#00d4ff', value: nfts.length     },
-                { label:'COLLECTIONS', color:'#bf5af2', value: listingCollections },
-                { label:'LB MINTED',   color:'#ff8c00', value: lbMinted > 0 ? lbMinted.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—' },
-                { label:'LB CAP',      color:'#ffb700', value: LB_TOTAL_SUPPLY.toLocaleString() },
-                { label:'CHAIN',       color:'#ff8c00', value: 'X1'            },
-              ].map(({ label, color, value }, i, arr) => (
+                { label:'LISTED',      value: listings.length },
+                { label:'MY NFTs',     value: nfts.length     },
+                { label:'COLLECTIONS', value: listingCollections },
+                { label:'LB MINTED',   value: lbMinted > 0 ? lbMinted.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—' },
+                { label:'LB CAP',      value: LB_TOTAL_SUPPLY.toLocaleString() },
+                { label:'CHAIN',       value: 'X1' },
+              ].map(({ label, value }, i, arr) => (
                 <React.Fragment key={label}>
                   <div style={{ textAlign:'center', padding: isMobile ? '2px 10px' : '2px 18px' }}>
                     <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 16 : 22,
-                      fontWeight:900, color, lineHeight:1, marginBottom:2 }}>{value}</div>
+                      fontWeight:900, color:'#8aa0b8', lineHeight:1, marginBottom:2 }}>{value}</div>
                     <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 7,
-                      color:'#9abacf', letterSpacing:1.5 }}>{label}</div>
+                      color:'#4a6070', letterSpacing:1.5 }}>{label}</div>
                   </div>
                   {i < arr.length - 1 && (
                     <div style={{ width:1, height: isMobile ? 26 : 34,
