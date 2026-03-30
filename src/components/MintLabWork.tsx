@@ -172,7 +172,7 @@ interface MintReceipt {
   xnmAmt: number; xuniAmt: number; xblkAmt: number; isCombo: boolean;
 }
 
-const MintLabWork: FC = () => {
+const MintLabWork: FC = () => { // v2
   const { publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
   const isMobile = useIsMobile();
