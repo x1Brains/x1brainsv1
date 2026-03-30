@@ -12,6 +12,16 @@ import {
   BRAINS_MINT, XNT_WRAPPED, XDEX_API,
   BRAINS_LOGO, XNT_INFO, METADATA_PROGRAM_ID_STRING,
 } from '../constants';
+
+// LB token — part of the BRAINS ecosystem, shown separately from generic Token-2022 list
+const LB_MINT        = 'Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6';
+const LB_LOGO        = 'https://arweave.net/gKd6Z_lgNccfnvX_rgOLRRIvecppjC8FsC0a1Xel2NE';
+// Known-logo mints — skip slow fetchLogoSafe for these, return logo instantly
+const KNOWN_LOGOS: Record<string, string> = {
+  [BRAINS_MINT]: BRAINS_LOGO,
+  [LB_MINT]:     LB_LOGO,
+  [XNT_WRAPPED]: XNT_INFO.logoUri,
+};
 import { fetchOffChainLogo, resolveUri } from '../utils';
 import burnBrainImg from '../assets/images1st.jpg';
 
@@ -25,7 +35,7 @@ async function fetchLogoSafe(uri: string): Promise<string | undefined> {
   if (isLocalhost && uri) {
     try {
       const proxied = `https://corsproxy.io/?${encodeURIComponent(uri)}`;
-      const res = await fetch(proxied, { signal: AbortSignal.timeout(6000) });
+      const res = await fetch(proxied, { signal: AbortSignal.timeout(2000) });
       if (!res.ok) return undefined;
       const ct = res.headers.get('content-type') || '';
       if (ct.includes('image')) return proxied;
@@ -265,6 +275,33 @@ async function fetchXDexMintRegistry(): Promise<Map<string, XDexMintInfo>> {
 // ─────────────────────────────────────────────
 // METADATA RESOLUTION
 // ─────────────────────────────────────────────
+
+// Batch-fetch Token-2022 on-mint metadata for all mints in ONE RPC call.
+// Replaces N serial getParsedAccountInfo calls with a single getMultipleParsedAccounts.
+async function batchFetchToken2022Extensions(
+  connection: any, mints: string[],
+): Promise<Map<string, { name: string; symbol: string; uri: string }>> {
+  const result = new Map<string, { name: string; symbol: string; uri: string }>();
+  if (!mints.length) return result;
+  try {
+    const pubkeys  = mints.map(m => new PublicKey(m));
+    const response = await connection.getMultipleParsedAccounts(pubkeys, { commitment: 'confirmed' });
+    const accounts: any[] = response?.value ?? [];
+    accounts.forEach((acct: any, idx: number) => {
+      if (!acct?.data?.parsed) return;
+      const ext = (acct.data.parsed?.info?.extensions ?? []).find((e: any) => e?.extension === 'tokenMetadata');
+      if (!ext?.state) return;
+      const name   = (ext.state.name   ?? '').replace(/\0/g, '').trim();
+      const symbol = (ext.state.symbol ?? '').replace(/\0/g, '').trim();
+      const uri    = (ext.state.uri    ?? '').replace(/\0/g, '').trim();
+      if (!name && !symbol) return;
+      result.set(mints[idx], { name, symbol, uri });
+    });
+  } catch { }
+  return result;
+}
+
+// Fallback single-mint fetch (used only when batch cache misses)
 async function tryToken2022Extension(connection: any, mint: string): Promise<ResolvedMeta | null> {
   try {
     const info   = await connection.getParsedAccountInfo(new PublicKey(mint));
@@ -276,7 +313,8 @@ async function tryToken2022Extension(connection: any, mint: string): Promise<Res
     const symbol = (ext.state.symbol ?? '').replace(/\0/g, '').trim();
     const uri    = (ext.state.uri    ?? '').replace(/\0/g, '').trim();
     if (!name && !symbol) return null;
-    const logoUri = uri ? await fetchLogoSafe(uri) : undefined;
+    const knownLogo = KNOWN_LOGOS[mint];
+    const logoUri   = knownLogo ?? (uri ? await fetchLogoSafe(uri) : undefined);
     return { name: name || symbol || 'Unknown', symbol: symbol || name.slice(0, 6).toUpperCase() || '???', logoUri, metaUri: uri || undefined, metaSource: 'token2022ext' };
   } catch { return null; }
 }
@@ -369,18 +407,28 @@ async function resolveTokenMeta(
   connection: any, mint: string, xdexRegistry: Map<string, XDexMintInfo>,
   metaplexCache?: Map<string, { name: string; symbol: string; uri: string }>,
   logoCache?: Map<string, string | undefined>,
+  t2022Cache?: Map<string, { name: string; symbol: string; uri: string }>,
 ): Promise<ResolvedMeta> {
-  const override = TOKEN_NAME_OVERRIDES[mint];
+  const override    = TOKEN_NAME_OVERRIDES[mint];
+  const knownLogo   = KNOWN_LOGOS[mint];
+
+  // ── Batch T2022 extension cache (populated before this function is called) ──
+  if (t2022Cache?.has(mint)) {
+    const m      = t2022Cache.get(mint)!;
+    const logoUri = knownLogo ?? (m.uri ? await fetchLogoSafe(m.uri) : undefined);
+    const base: ResolvedMeta = { name: m.name || 'Unknown', symbol: m.symbol || '???', logoUri, metaUri: m.uri || undefined, metaSource: 'token2022ext' };
+    return override ? { ...base, ...override } : base;
+  }
+
+  // ── Fallback single-call T2022 (should rarely fire after batching) ──
   const t2022 = await tryToken2022Extension(connection, mint);
   if (t2022) return override ? { ...t2022, ...override } : t2022;
+
   if (metaplexCache?.has(mint)) {
     const m       = metaplexCache.get(mint)!;
-    let logoUri   = logoCache?.get(mint);
+    let logoUri   = knownLogo ?? logoCache?.get(mint);
     if (logoUri === undefined && m.uri) {
       const fetched = await fetchLogoSafe(m.uri);
-      // If fetchLogoSafe succeeds it returns the image URL directly.
-      // If it fails/returns undefined, fall back to the raw metadata URI so
-      // NFTImage can fetch the JSON itself and extract the image field.
       logoUri = fetched ?? m.uri;
       logoCache?.set(mint, logoUri);
     }
@@ -390,6 +438,7 @@ async function resolveTokenMeta(
   const xdex = tryXdexRegistry(xdexRegistry, mint);
   if (xdex) return override ? { ...xdex, ...override } : xdex;
   if (mint === BRAINS_MINT) return { name: 'Brains', symbol: 'BRAINS', logoUri: BRAINS_LOGO, metaSource: 'xdex' };
+  if (mint === LB_MINT)     return { name: 'Lab Work', symbol: 'LB', logoUri: LB_LOGO, metaSource: 'xdex' };
   if (override) return { name: override.name, symbol: override.symbol, logoUri: XNT_INFO.logoUri, metaSource: 'xdex' };
   const mplex = await tryMetaplexPDA(connection, mint);
   if (mplex) return mplex;
@@ -824,6 +873,7 @@ const Portfolio: FC = () => {
 
   const [xntBalance, setXntBalance]           = useState<number | null>(null);
   const [brainsToken, setBrainsToken]         = useState<TokenData | null>(null);
+  const [lbToken, setLbToken]                 = useState<TokenData | null>(null);
   const [splTokens, setSplTokens]             = useState<TokenData[]>([]);
   const [token2022s, setToken2022s]           = useState<TokenData[]>([]);
   const [lpTokens, setLpTokens]               = useState<TokenData[]>([]);
@@ -970,7 +1020,7 @@ const Portfolio: FC = () => {
   }, []);
 
   const reset = () => {
-    setXntBalance(null); setBrainsToken(null); setSplTokens([]); setToken2022s([]); setLpTokens([]); setNftTokens([]);
+    setXntBalance(null); setBrainsToken(null); setLbToken(null); setSplTokens([]); setToken2022s([]); setLpTokens([]); setNftTokens([]);
     setMinerStatus({ isMiner: false, blocks: 0, rank: null, isActive: false, loading: false });
     setUserEvmAddress('');
   };
@@ -1059,12 +1109,19 @@ const Portfolio: FC = () => {
       });
       // Include BOTH spl and token-2022 mints in metaplex batch — NFTs can be either
       const allNonZeroMints = Array.from(new Set(nonZero.map((a: any) => a.account.data.parsed.info.mint as string)));
-      const splMints = allNonZeroMints; // keep splMints name for compat
+      const t2022NonZeroMints = Array.from(new Set(
+        nonZero.filter((a: any) => a.is2022).map((a: any) => a.account.data.parsed.info.mint as string)
+      ));
       setLoadingLabel(`Resolving metadata for ${allAccounts.length} tokens...`);
-      const metaplexCache = await batchFetchMetaplexPDAs(connection, allNonZeroMints);
+      // Batch both metaplex PDAs AND Token-2022 extensions in parallel — one RPC call each
+      const [metaplexCache, t2022ExtCache] = await Promise.all([
+        batchFetchMetaplexPDAs(connection, allNonZeroMints),
+        batchFetchToken2022Extensions(connection, t2022NonZeroMints),
+      ]);
       const logoCache     = new Map<string, string | undefined>();
       const spl: TokenData[] = [], t2022: TokenData[] = [], lp: TokenData[] = [];
       let brains: TokenData | null = null;
+      let lb:     TokenData | null = null;
       const results = await Promise.allSettled(allAccounts.map(async acc => {
         const info    = acc.account.data.parsed.info;
         // NFTs with decimals=0 sometimes return uiAmount=null — use uiAmountString fallback
@@ -1075,7 +1132,7 @@ const Portfolio: FC = () => {
         if (balance < 0) return null; // skip negative balances only
         const mint = info.mint as string;
         const isLP = checkIsLP(mint, globalLPMints, walletLP);
-        const meta = await resolveTokenMeta(connection, mint, xdexRegistry, metaplexCache, logoCache);
+        const meta = await resolveTokenMeta(connection, mint, xdexRegistry, metaplexCache, logoCache, t2022ExtCache);
         return { mint, balance, decimals: info.tokenAmount.decimals, isToken2022: acc.is2022, isLP, name: meta.name, symbol: meta.symbol, logoUri: meta.logoUri, metaUri: meta.metaUri, metaSource: meta.metaSource };
       }));
       const nfts: TokenData[] = [];
@@ -1085,7 +1142,7 @@ const Portfolio: FC = () => {
         const td: TokenData = { mint: t.mint, balance: t.balance, decimals: t.decimals, isToken2022: t.isToken2022, name: t.name, symbol: t.symbol, logoUri: t.logoUri, metaUri: (t as any).metaUri, metaSource: t.metaSource };
         // Detect NFTs — decimals=0 is the canonical NFT fingerprint on Solana
         // Only include NFTs currently held (balance > 0) — sent/transferred NFTs are excluded
-        if (!t.isLP && t.mint !== BRAINS_MINT && t.decimals === 0) {
+        if (!t.isLP && t.mint !== BRAINS_MINT && t.mint !== LB_MINT && t.decimals === 0) {
           if (t.balance <= 0) continue; // skip NFTs no longer in wallet
           // If no metaUri yet, fetch Metaplex PDA directly to get the raw metadata URI
           if (!td.metaUri && !td.logoUri) {
@@ -1125,6 +1182,7 @@ const Portfolio: FC = () => {
           nfts.push(td);
         } else if (t.isLP)                      lp.push(td);
         else if (t.mint === BRAINS_MINT)         brains = td;
+        else if (t.mint === LB_MINT)             lb = td;
         else if (t.isToken2022)                  t2022.push(td);
         else                                     spl.push(td);
       }
@@ -1132,7 +1190,7 @@ const Portfolio: FC = () => {
       t2022.sort((a, b) => b.balance - a.balance);
       lp.sort((a, b) => b.balance - a.balance);
       nfts.sort((a, b) => a.name.localeCompare(b.name));
-      setBrainsToken(brains); setSplTokens(spl); setToken2022s(t2022); setLpTokens(lp); setNftTokens(nfts);
+      setBrainsToken(brains); setLbToken(lb); setSplTokens(spl); setToken2022s(t2022); setLpTokens(lp); setNftTokens(nfts);
     } catch (err) { console.error('[Portfolio]', err); }
     finally { setLoading(false); }
   };
@@ -1162,17 +1220,18 @@ const Portfolio: FC = () => {
     finally { setBurning(false); }
   };
 
-  const t22Count    = token2022s.length + (brainsToken ? 1 : 0);
+  const t22Count    = token2022s.length + (brainsToken ? 1 : 0) + (lbToken ? 1 : 0);
   const totalTokens = 1 + splTokens.length + t22Count + lpTokens.length + nftTokens.length;
 
   // USD price lookup — collect all mints for batch price fetching
   const allMints = useMemo(() => {
     const mints: string[] = [XNT_WRAPPED];
     if (brainsToken) mints.push(brainsToken.mint);
+    if (lbToken)     mints.push(lbToken.mint);
     for (const t of splTokens) mints.push(t.mint);
     for (const t of token2022s) mints.push(t.mint);
     return mints;
-  }, [brainsToken, splTokens, token2022s]);
+  }, [brainsToken, lbToken, splTokens, token2022s]);
   const tokenPrices = useTokenPrices(allMints);
 
   // Compute total portfolio USD — uses live tokenPrices which auto-refreshes every 30s
@@ -1185,22 +1244,23 @@ const Portfolio: FC = () => {
       ...splTokens.map(t => ({ mint: t.mint, balance: t.balance })),
       ...token2022s.map(t => ({ mint: t.mint, balance: t.balance })),
       ...(brainsToken ? [{ mint: brainsToken.mint, balance: brainsToken.balance }] : []),
+      ...(lbToken     ? [{ mint: lbToken.mint,     balance: lbToken.balance }]     : []),
     ];
     for (const t of allTokens) {
       const p = tokenPrices.get(t.mint);
       if (p && p > 0) { total += p * t.balance; hasAny = true; }
     }
     return hasAny ? total : null;
-  }, [tokenPrices, xntBalance, splTokens, token2022s, brainsToken]);
+  }, [tokenPrices, xntBalance, splTokens, token2022s, brainsToken, lbToken]);
 
   const xenBlocksWalletTokens: WalletTokenSnapshot[] = [
     ...(xntBalance !== null ? [{ mint: 'native-xnt', symbol: 'XNT', name: 'X1 Native Token', balance: xntBalance, logoUri: XNT_INFO.logoUri } as WalletTokenSnapshot] : []),
     ...splTokens.map(t => ({ mint: t.mint, symbol: t.symbol, name: t.name, balance: t.balance, logoUri: t.logoUri } as WalletTokenSnapshot)),
     ...token2022s.map(t => ({ mint: t.mint, symbol: t.symbol, name: t.name, balance: t.balance, logoUri: t.logoUri } as WalletTokenSnapshot)),
     ...(brainsToken ? [{ mint: brainsToken.mint, symbol: brainsToken.symbol, name: brainsToken.name, balance: brainsToken.balance, logoUri: brainsToken.logoUri } as WalletTokenSnapshot] : []),
+    ...(lbToken     ? [{ mint: lbToken.mint,     symbol: lbToken.symbol,     name: lbToken.name,     balance: lbToken.balance,     logoUri: lbToken.logoUri     } as WalletTokenSnapshot] : []),
   ];
 
-  // ── Snapshot tokens for portfolio history ─────────────────────────────────
   // ── Snapshot tokens for portfolio history ─────────────────────────────────
   // Guard: only snapshot once prices are loaded AND symbols are resolved.
   // Filtering out raw mint addresses prevents them being saved to Supabase.
@@ -1213,6 +1273,7 @@ const Portfolio: FC = () => {
       ...splTokens.map(t => ({ mint: t.mint, symbol: t.symbol, balance: t.balance })),
       ...token2022s.map(t => ({ mint: t.mint, symbol: t.symbol, balance: t.balance })),
       ...(brainsToken ? [{ mint: brainsToken.mint, symbol: brainsToken.symbol, balance: brainsToken.balance }] : []),
+      ...(lbToken     ? [{ mint: lbToken.mint,     symbol: lbToken.symbol,     balance: lbToken.balance }]     : []),
     ];
     for (const t of allT) {
       if (isMintAddr(t.symbol)) continue; // skip unresolved symbols
@@ -1221,7 +1282,7 @@ const Portfolio: FC = () => {
       if (usd > 0) result.push({ mint: t.mint, symbol: t.symbol, balance: t.balance, usd, price });
     }
     return result;
-  }, [tokenPrices, xntBalance, splTokens, token2022s, brainsToken]);
+  }, [tokenPrices, xntBalance, splTokens, token2022s, brainsToken, lbToken]);
 
   // Take a silent daily snapshot when portfolio loads with prices.
   // allTokenCount uses resolved-symbol count so the hook waits for metadata.
@@ -1231,9 +1292,10 @@ const Portfolio: FC = () => {
       (xntBalance !== null ? 1 : 0) +
       splTokens.filter(t => !isMintAddr(t.symbol)).length +
       token2022s.filter(t => !isMintAddr(t.symbol)).length +
-      (brainsToken && !isMintAddr(brainsToken.symbol) ? 1 : 0)
+      (brainsToken && !isMintAddr(brainsToken.symbol) ? 1 : 0) +
+      (lbToken     && !isMintAddr(lbToken.symbol)     ? 1 : 0)
     );
-  }, [xntBalance, splTokens, token2022s, brainsToken]);
+  }, [xntBalance, splTokens, token2022s, brainsToken, lbToken]);
   // Save daily snapshots for both connected wallets AND watched wallets.
   // Watching a wallet builds up its history so the chart fills in over time
   // for anyone who views it on x1brains.io — useful public data, not PII.
@@ -1382,24 +1444,66 @@ const Portfolio: FC = () => {
                   />
                 )}
 
-                {/* 2. BRAINS + burn */}
-                {brainsToken && !isReadOnly && (
+                {/* 2. BRAINS ECOSYSTEM — BRAINS + LB */}
+                {(brainsToken || lbToken) && !isReadOnly && (
                   <div ref={burnRef}>
-                    <SectionHeader label="BRAINS Token" color="#ff8c00" />
-                    <TokenCard token={brainsToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.1}
-                      usdPrice={tokenPrices.get(brainsToken.mint) ?? null}
-                      onSend={() => setActiveSendMint(m => m === brainsToken.mint ? null : brainsToken.mint)}
-                      sendActive={activeSendMint === brainsToken.mint}
-                    />
-                    {activeSendMint === brainsToken.mint && (
-                      <SendPanel
-                        token={brainsToken} wallet={wallet} connection={connection} isMobile={isMobile}
-                        savedAddresses={savedAddresses}
-                        onSaveAddress={handleSaveAddress}
-                        onDeleteAddress={handleDeleteAddress}
-                        onSendComplete={handleSendComplete}
-                        onClose={() => setActiveSendMint(null)}
-                      />
+                    <SectionHeader label="BRAINS Ecosystem" color="#ff8c00" />
+
+                    {/* BRAINS token card */}
+                    {brainsToken && (
+                      <>
+                        <TokenCard token={brainsToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.1}
+                          usdPrice={tokenPrices.get(brainsToken.mint) ?? null}
+                          onSend={() => setActiveSendMint(m => m === brainsToken.mint ? null : brainsToken.mint)}
+                          sendActive={activeSendMint === brainsToken.mint}
+                        />
+                        {activeSendMint === brainsToken.mint && (
+                          <SendPanel
+                            token={brainsToken} wallet={wallet} connection={connection} isMobile={isMobile}
+                            savedAddresses={savedAddresses}
+                            onSaveAddress={handleSaveAddress}
+                            onDeleteAddress={handleDeleteAddress}
+                            onSendComplete={handleSendComplete}
+                            onClose={() => setActiveSendMint(null)}
+                          />
+                        )}
+                      </>
+                    )}
+
+                    {/* LB (Lab Work) token card */}
+                    {lbToken && (
+                      <>
+                        <div style={{
+                          display: 'flex', alignItems: 'center', gap: 8,
+                          padding: '6px 4px 4px',
+                          fontFamily: 'Orbitron, monospace', fontSize: 9, fontWeight: 700,
+                          letterSpacing: 2, color: '#00c98d',
+                          textTransform: 'uppercase',
+                        }}>
+                          <span>🧪</span>
+                          <span>Lab Work Token</span>
+                          <span style={{
+                            fontSize: 7, padding: '2px 7px', borderRadius: 5,
+                            background: 'rgba(0,201,141,.10)', border: '1px solid rgba(0,201,141,.30)',
+                            color: '#00c98d', letterSpacing: 1.5,
+                          }}>STAKING · FARMING SOON</span>
+                        </div>
+                        <TokenCard token={lbToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.15}
+                          usdPrice={tokenPrices.get(lbToken.mint) ?? null}
+                          onSend={() => setActiveSendMint(m => m === lbToken.mint ? null : lbToken.mint)}
+                          sendActive={activeSendMint === lbToken.mint}
+                        />
+                        {activeSendMint === lbToken.mint && (
+                          <SendPanel
+                            token={lbToken} wallet={wallet} connection={connection} isMobile={isMobile}
+                            savedAddresses={savedAddresses}
+                            onSaveAddress={handleSaveAddress}
+                            onDeleteAddress={handleDeleteAddress}
+                            onSendComplete={handleSendComplete}
+                            onClose={() => setActiveSendMint(null)}
+                          />
+                        )}
+                      </>
                     )}
 
                     <div style={{
@@ -1547,6 +1651,39 @@ const Portfolio: FC = () => {
                   </div>
                 </div>
 
+                {/* 2b. BRAINS ECOSYSTEM — read-only mode (no burn panel) */}
+                {isReadOnly && (brainsToken || lbToken) && (
+                  <div>
+                    <SectionHeader label="BRAINS Ecosystem" color="#ff8c00" />
+                    {brainsToken && (
+                      <TokenCard token={brainsToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.05}
+                        usdPrice={tokenPrices.get(brainsToken.mint) ?? null}
+                      />
+                    )}
+                    {lbToken && (
+                      <>
+                        <div style={{
+                          display: 'flex', alignItems: 'center', gap: 8,
+                          padding: '6px 4px 4px',
+                          fontFamily: 'Orbitron, monospace', fontSize: 9, fontWeight: 700,
+                          letterSpacing: 2, color: '#00c98d', textTransform: 'uppercase',
+                        }}>
+                          <span>🧪</span>
+                          <span>Lab Work Token</span>
+                          <span style={{
+                            fontSize: 7, padding: '2px 7px', borderRadius: 5,
+                            background: 'rgba(0,201,141,.10)', border: '1px solid rgba(0,201,141,.30)',
+                            color: '#00c98d', letterSpacing: 1.5,
+                          }}>STAKING · FARMING SOON</span>
+                        </div>
+                        <TokenCard token={lbToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.1}
+                          usdPrice={tokenPrices.get(lbToken.mint) ?? null}
+                        />
+                      </>
+                    )}
+                  </div>
+                )}
+
                 {/* 3. SPL Tokens */}
                 {showSPL && (() => {
                   const visible = splTokens
@@ -1588,25 +1725,9 @@ const Portfolio: FC = () => {
                     .filter(t => !hideZeroBalance || t.balance > 0)
                     .filter(t => !hideUnpriced || (tokenPrices.get(t.mint) ?? 0) > 0);
                   const hidden  = token2022s.filter(t => t.balance <= 0).length;
-                  return (brainsToken || token2022s.length > 0) ? (
+                  return token2022s.length > 0 ? (
                     <div ref={t22Ref}>
-                      <SectionHeader label="Token-2022 Extensions" count={(brainsToken ? 1 : 0) + visible.length} color="#ffb700" hiddenCount={hideZeroBalance ? hidden : 0} />
-                      {brainsToken && (
-                        <React.Fragment>
-                          <TokenCard token={brainsToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.05}
-                            usdPrice={tokenPrices.get(brainsToken.mint) ?? null}
-                            onSend={() => setActiveSendMint(m => m === brainsToken.mint ? null : brainsToken.mint)}
-                            sendActive={activeSendMint === brainsToken.mint}
-                          />
-                          {activeSendMint === brainsToken.mint && (
-                            <SendPanel token={brainsToken} wallet={wallet} connection={connection} isMobile={isMobile}
-                              savedAddresses={savedAddresses} onSaveAddress={handleSaveAddress}
-                              onDeleteAddress={handleDeleteAddress} onSendComplete={handleSendComplete}
-                              onClose={() => setActiveSendMint(null)}
-                            />
-                          )}
-                        </React.Fragment>
-                      )}
+                      <SectionHeader label="Token-2022 Extensions" count={visible.length} color="#ffb700" hiddenCount={hideZeroBalance ? hidden : 0} />
                       {visible.map((t, i) => (
                         <React.Fragment key={t.mint}>
                           <TokenCard token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * (i + 1)}
