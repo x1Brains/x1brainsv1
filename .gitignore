@@ -8,3 +8,6 @@ dist/
 target/
 check.js
 check_tokens.js
+target/deploy/*-keypair.json
+id.json
+*keypair*.json
