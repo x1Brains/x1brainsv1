@@ -13,6 +13,7 @@ import BurnHistory         from './pages/BurnHistory';
 import RewardsSeason       from './pages/RewardsSeason';
 import AdminRewards        from './pages/AdminRewards';
 import IncineratorEngine   from './pages/IncineratorEngine';
+import MintAdmin        from './pages/MintAdmin';
 import AnalyticsDashboard  from './pages/AnalyticsDashboard';
 import { usePageView }     from './hooks/usePageView';
 
@@ -29,6 +30,7 @@ const AppInner: FC = () => {
       <Route path="/incinerator-engine"     element={<IncineratorEngine />} />
       <Route path="/rewards"               element={<RewardsSeason />} />
       <Route path="/x9b7r41ns/ctrl"         element={<AdminRewards />} />
+      <Route path="/x9b7r41ns/mint-ctrl"         element={<MintAdmin />} />
       <Route path="/x9b7r41ns/analytics"    element={<AnalyticsDashboard />} />
       <Route path="*"                       element={<Navigate to="/" replace />} />
     </Routes>
