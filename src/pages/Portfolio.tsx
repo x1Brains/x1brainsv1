@@ -1725,9 +1725,41 @@ const Portfolio: FC = () => {
                     .filter(t => !hideZeroBalance || t.balance > 0)
                     .filter(t => !hideUnpriced || (tokenPrices.get(t.mint) ?? 0) > 0);
                   const hidden  = token2022s.filter(t => t.balance <= 0).length;
-                  return token2022s.length > 0 ? (
+                  return (brainsToken || lbToken || token2022s.length > 0) ? (
                     <div ref={t22Ref}>
-                      <SectionHeader label="Token-2022 Extensions" count={visible.length} color="#ffb700" hiddenCount={hideZeroBalance ? hidden : 0} />
+                      <SectionHeader label="Token-2022 Extensions" count={(brainsToken ? 1 : 0) + (lbToken ? 1 : 0) + visible.length} color="#ffb700" hiddenCount={hideZeroBalance ? hidden : 0} />
+                      {brainsToken && (
+                        <React.Fragment>
+                          <TokenCard token={brainsToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.05}
+                            usdPrice={tokenPrices.get(brainsToken.mint) ?? null}
+                            onSend={isReadOnly ? undefined : () => setActiveSendMint(m => m === brainsToken.mint ? null : brainsToken.mint)}
+                            sendActive={!isReadOnly && activeSendMint === brainsToken.mint}
+                          />
+                          {!isReadOnly && activeSendMint === brainsToken.mint && (
+                            <SendPanel token={brainsToken} wallet={wallet} connection={connection} isMobile={isMobile}
+                              savedAddresses={savedAddresses} onSaveAddress={handleSaveAddress}
+                              onDeleteAddress={handleDeleteAddress} onSendComplete={handleSendComplete}
+                              onClose={() => setActiveSendMint(null)}
+                            />
+                          )}
+                        </React.Fragment>
+                      )}
+                      {lbToken && (
+                        <React.Fragment>
+                          <TokenCard token={lbToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.07}
+                            usdPrice={tokenPrices.get(lbToken.mint) ?? null}
+                            onSend={isReadOnly ? undefined : () => setActiveSendMint(m => m === lbToken.mint ? null : lbToken.mint)}
+                            sendActive={!isReadOnly && activeSendMint === lbToken.mint}
+                          />
+                          {!isReadOnly && activeSendMint === lbToken.mint && (
+                            <SendPanel token={lbToken} wallet={wallet} connection={connection} isMobile={isMobile}
+                              savedAddresses={savedAddresses} onSaveAddress={handleSaveAddress}
+                              onDeleteAddress={handleDeleteAddress} onSendComplete={handleSendComplete}
+                              onClose={() => setActiveSendMint(null)}
+                            />
+                          )}
+                        </React.Fragment>
+                      )}
                       {visible.map((t, i) => (
                         <React.Fragment key={t.mint}>
                           <TokenCard token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * (i + 1)}
