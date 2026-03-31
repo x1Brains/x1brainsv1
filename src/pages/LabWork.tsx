@@ -1036,11 +1036,12 @@ const LabWork: FC = () => {
                 { label:'CHAIN',       value: 'X1',                 orange: true  },
               ].map(({ label, value, orange }, i, arr) => (
                 <React.Fragment key={label}>
-                  <div style={{ textAlign:'center', padding: isMobile ? '2px 10px' : '2px 18px' }}>
-                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 16 : 22,
-                      fontWeight:900, color: orange ? '#ff8c00' : '#8aa0b8', lineHeight:1, marginBottom:2 }}>{value}</div>
-                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 7,
-                      color:'#4a6070', letterSpacing:1.5 }}>{label}</div>
+                  <div style={{ textAlign:'center', padding: isMobile ? '2px 6px' : '2px 18px', minWidth: isMobile ? 38 : 'auto' }}>
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 11 : 22,
+                      fontWeight:900, color: orange ? '#ff8c00' : '#8aa0b8', lineHeight:1, marginBottom:2,
+                      whiteSpace:'nowrap' }}>{value}</div>
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 4 : 7,
+                      color:'#4a6070', letterSpacing:1.5, whiteSpace:'nowrap' }}>{label}</div>
                   </div>
                   {i < arr.length - 1 && (
                     <div style={{ width:1, height: isMobile ? 26 : 34,
