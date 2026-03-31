@@ -404,7 +404,7 @@ const Home: FC = () => {
               overflow: 'hidden',
               transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             }}
-            onClick={() => navigate('/incinerator-engine')}
+            onClick={() => navigate('/burn-history')}
             onMouseEnter={e => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = '#ff8c00'; el.style.transform = 'translateY(-6px)'; el.style.boxShadow = '0 16px 50px rgba(0,0,0,0.5), 0 0 30px #ff8c0020'; }}
             onMouseLeave={e => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = '#ff8c0030'; el.style.transform = 'translateY(0)'; el.style.boxShadow = 'none'; }}
           >
@@ -438,7 +438,7 @@ const Home: FC = () => {
 
             {/* BURN EARN ASCEND sub-link */}
             <button
-              onClick={e => { e.stopPropagation(); navigate('/burn-history'); }}
+              onClick={e => { e.stopPropagation(); navigate('/incinerator-engine'); }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10, width: '100%',
                 background: 'rgba(255,183,0,0.06)', border: '1px solid rgba(255,183,0,0.15)',

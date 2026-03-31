@@ -275,7 +275,7 @@ pub mod lb_mint {
         require!(ctx.accounts.buyer_brains_ata.amount >= brains_raw, LbError::InsufficientBrains);
         token_interface::burn(CpiContext::new(ctx.accounts.token_2022_program.to_account_info(), BurnInterface { mint: ctx.accounts.brains_mint.to_account_info(), from: ctx.accounts.buyer_brains_ata.to_account_info(), authority: ctx.accounts.buyer.to_account_info() }), brains_raw)?;
 
-        let xnt_total = xnt_lamports_per_lb.checked_mul(base_lb).ok_or(LbError::Overflow)?;
+        let xnt_total = xnt_lamports_per_lb.checked_mul(total_lb).ok_or(LbError::Overflow)?;
         require!(ctx.accounts.buyer.lamports() >= xnt_total, LbError::InsufficientXnt);
         anchor_lang::system_program::transfer(CpiContext::new(ctx.accounts.system_program.to_account_info(), anchor_lang::system_program::Transfer { from: ctx.accounts.buyer.to_account_info(), to: ctx.accounts.treasury.to_account_info() }), xnt_total)?;
 
