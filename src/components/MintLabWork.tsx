@@ -304,20 +304,27 @@ const MintLabWork: FC = () => {
       ]);
 
       // Real BRAINS burned = initial supply (8,880,000) - current circulating supply
-      // Use getMint for precise BigInt supply reading — avoids JS float precision loss
+      // Try getMint first (most precise), fall back to getParsedAccountInfo
       try {
         const mintInfo = await getMint(connection, BRAINS_MINT_PK, 'confirmed', TOKEN_2022_PROGRAM_ID);
-        const decimals = mintInfo.decimals; // 9
+        const decimals = mintInfo.decimals;
         const divisor  = BigInt(10 ** decimals);
-        const currentSupplyRaw = mintInfo.supply; // BigInt
+        const currentSupplyRaw = mintInfo.supply;
         const initialSupplyRaw = BigInt(BRAINS_INITIAL_SUPPLY) * divisor;
-        const burnedRaw = initialSupplyRaw > currentSupplyRaw
-          ? initialSupplyRaw - currentSupplyRaw
-          : BigInt(0);
-        // Convert back to human-readable (with decimals)
-        const burnedHuman = Number(burnedRaw) / Number(divisor);
-        setBrainsBurned(burnedHuman);
-      } catch { /* fallback to tier math already set by fetchGlobalState */ }
+        const burnedRaw = initialSupplyRaw > currentSupplyRaw ? initialSupplyRaw - currentSupplyRaw : BigInt(0);
+        setBrainsBurned(Number(burnedRaw) / Number(divisor));
+      } catch {
+        // Fallback: getParsedAccountInfo
+        try {
+          const info = await connection.getParsedAccountInfo(BRAINS_MINT_PK);
+          const parsed = (info?.value?.data as any)?.parsed?.info;
+          if (parsed?.supply !== undefined && parsed?.decimals !== undefined) {
+            const currentSupply = Number(BigInt(parsed.supply)) / Math.pow(10, parsed.decimals);
+            const burned = Math.max(0, BRAINS_INITIAL_SUPPLY - currentSupply);
+            if (burned > 0) setBrainsBurned(burned);
+          }
+        } catch { /* keep tier-math fallback from fetchGlobalState */ }
+      }
 
       // Fetch BRAINS price from XDEX
       try {
