@@ -337,23 +337,36 @@ const MintLabWork: FC = () => {
     fetchBurnStats();
   }, [fetchBurnStats]);
 
-  // Standalone BRAINS burned — use getParsedAccountInfo (proven to work on X1 RPC)
+  // Standalone BRAINS burned — read raw account bytes at Token-2022 mint offsets
+  // Token-2022 mint layout: [0]=account_type, [1-4]=authority_option, [5-36]=authority(32b),
+  // [37-44]=supply(u64 LE), [45]=decimals
+  // Standard SPL mint layout: [0-3]=authority_option, [4-35]=authority(32b),
+  // [36-43]=supply(u64 LE), [44]=decimals
+  // BRAINS is Token-2022 so try offset 37 first, fall back to 36
   useEffect(() => {
     if (!connection) return;
-    connection.getParsedAccountInfo(BRAINS_MINT_PK)
-      .then(res => {
-        const info = (res?.value?.data as any)?.parsed?.info;
-        if (!info?.supply || info?.decimals === undefined) return;
-        // Use BigInt to avoid float precision loss on large supply numbers
-        const supplyBig = BigInt(info.supply);
-        const decimals  = info.decimals as number;
-        const divisor   = BigInt(10 ** decimals);
-        const initialBig = BigInt(BRAINS_INITIAL_SUPPLY) * divisor;
-        const burnedBig  = initialBig > supplyBig ? initialBig - supplyBig : 0n;
-        const burned     = Number(burnedBig) / Number(divisor);
-        if (burned > 0) setBrainsBurned(burned);
-      })
-      .catch(() => {});
+    (async () => {
+      try {
+        const acct = await connection.getAccountInfo(BRAINS_MINT_PK, 'confirmed');
+        if (!acct?.data) return;
+        const d = acct.data as Uint8Array;
+        // Try both offsets — Token-2022 uses 37, standard SPL uses 36
+        for (const supplyOffset of [36, 37]) {
+          let supply = 0n;
+          for (let i = 0; i < 8; i++) supply |= BigInt(d[supplyOffset + i]) << BigInt(i * 8);
+          const decimals = d[supplyOffset + 8];
+          if (decimals !== 9) continue; // BRAINS has 9 decimals — skip wrong offset
+          const divisor = BigInt(10 ** decimals);
+          const initial = BigInt(BRAINS_INITIAL_SUPPLY) * divisor;
+          if (supply > initial) continue; // sanity check
+          const burned = Number(initial - supply) / Number(divisor);
+          if (burned > 0 && burned < BRAINS_INITIAL_SUPPLY) {
+            setBrainsBurned(burned);
+            break;
+          }
+        }
+      } catch {}
+    })();
   }, [connection]);
 
   // ── Fetch balances ───────────────────────────────────────────────
