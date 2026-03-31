@@ -1022,11 +1022,11 @@ const LabWork: FC = () => {
           </div>
 
           {/* Stats — always visible, no wallet required */}
-          <div style={{ display:'inline-flex', justifyContent:'center', alignItems:'center',
+          <div style={{ display:'flex', justifyContent:'center', alignItems:'center', width:'100%', maxWidth:800, margin:'0 auto',
               animation:'fadeUp 0.5s ease 0.22s both',
               background:'rgba(255,255,255,.025)', border:'1px solid rgba(255,255,255,.07)',
-              borderRadius:50, padding: isMobile ? '8px 16px' : '10px 24px',
-              backdropFilter:'blur(8px)', flexWrap:'wrap', gap:0 }}>
+              borderRadius:16, padding: isMobile ? '8px 4px' : '10px 24px',
+              backdropFilter:'blur(8px)', gap:0 }}>
               {[
                 { label:'LISTED',      value: listings.length,      orange: false },
                 { label:'MY NFTs',     value: nfts.length,          orange: false },
@@ -1036,16 +1036,16 @@ const LabWork: FC = () => {
                 { label:'CHAIN',       value: 'X1',                 orange: true  },
               ].map(({ label, value, orange }, i, arr) => (
                 <React.Fragment key={label}>
-                  <div style={{ textAlign:'center', padding: isMobile ? '2px 6px' : '2px 18px', minWidth: isMobile ? 38 : 'auto' }}>
-                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 11 : 22,
+                  <div style={{ flex:1, textAlign:'center', padding: isMobile ? '2px 2px' : '2px 8px' }}>
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 10 : 20,
                       fontWeight:900, color: orange ? '#ff8c00' : '#8aa0b8', lineHeight:1, marginBottom:2,
-                      whiteSpace:'nowrap' }}>{value}</div>
-                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 4 : 7,
-                      color:'#4a6070', letterSpacing:1.5, whiteSpace:'nowrap' }}>{label}</div>
+                      whiteSpace:'nowrap', overflow:'visible' }}>{value}</div>
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 4 : 6,
+                      color:'#4a6070', letterSpacing:1, whiteSpace:'nowrap' }}>{label}</div>
                   </div>
                   {i < arr.length - 1 && (
-                    <div style={{ width:1, height: isMobile ? 26 : 34,
-                      background:'rgba(255,255,255,.08)', flexShrink:0 }} />
+                    <div style={{ width:1, height: isMobile ? 24 : 32, flexShrink:0,
+                      background:'rgba(255,255,255,.08)' }} />
                   )}
                 </React.Fragment>
               ))}
