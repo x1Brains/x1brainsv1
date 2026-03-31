@@ -7,6 +7,7 @@
 
 import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { usePrice } from './TokenComponents';
 import {
   PublicKey, LAMPORTS_PER_SOL,
   TransactionInstruction, SystemProgram,
@@ -191,6 +192,11 @@ const MintLabWork: FC = () => {
   const [xuniBurned,   setXuniBurned]   = useState<number | null>(null);
   const [xblkBurned,   setXblkBurned]   = useState<number | null>(null);
   const [brainsPrice,  setBrainsPrice]  = useState<number | null>(null);
+  const liveBrainsPrice = usePrice(BRAINS_MINT_STR);
+  // Sync live price into brainsPrice state
+  useEffect(() => {
+    if (liveBrainsPrice != null && liveBrainsPrice > 0) setBrainsPrice(liveBrainsPrice);
+  }, [liveBrainsPrice]);
   const BRAINS_INITIAL_SUPPLY = 8_880_000;
 
   // Tier rates hardcoded — match program constants exactly
@@ -305,16 +311,7 @@ const MintLabWork: FC = () => {
 
       // Real BRAINS burned handled by dedicated useEffect below
 
-      // Fetch BRAINS price — same endpoint as BurnLeaderboard which works
-      try {
-        const priceRes = await fetch(`/api/xdex-price/api/token-price/price?network=mainnet&address=${BRAINS_MINT_STR}`,
-          { signal: AbortSignal.timeout(6000) });
-        if (priceRes.ok) {
-          const d = await priceRes.json();
-          const p = d?.price ?? d?.data?.price ?? (typeof d === 'number' ? d : null);
-          if (p && Number(p) > 0) setBrainsPrice(Number(p));
-        }
-      } catch { /* price optional */ }
+      // Price handled by usePrice hook above
 
       // 50/50 split: treasury holds exactly what was burned.
       // So burned amount = treasury ATA balance for each asset.
