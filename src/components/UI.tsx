@@ -184,18 +184,18 @@ export const TopBar: FC = () => {
         {!isLabWork && (
         <button className="tb-hide-mobile" onClick={() => navigate('/labwork')}
           style={{
-            background: 'rgba(255,183,0,0.06)',
-            border: '1px solid rgba(255,183,0,0.25)',
+            background: 'rgba(191,90,242,0.06)',
+            border: '1px solid rgba(191,90,242,0.25)',
             borderRadius: 8, padding: '7px 12px', cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: 6,
             backdropFilter: 'blur(12px)', transition: 'all 0.2s',
           }}
-          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,183,0,0.18)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,183,0,0.6)'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,183,0,0.06)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,183,0,0.25)'; }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(191,90,242,0.18)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(191,90,242,0.6)'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(191,90,242,0.06)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(191,90,242,0.25)'; }}
         >
           <span style={{ fontSize: 12 }}>🧪</span>
-          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#ffb700', letterSpacing: 2, fontWeight: 700 }}>LAB WORK</span>
-          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#0a0e14', background: '#ffb700', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NEW</span>
+          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#bf5af2', letterSpacing: 2, fontWeight: 700 }}>LAB WORK</span>
+          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#fff', background: '#bf5af2', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NEW</span>
         </button>
         )}
 
@@ -250,13 +250,14 @@ export const TopBar: FC = () => {
               {/* LAB WORK */}
               <button
                 onClick={() => { navigate('/labwork'); setNavOpen(false); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isLabWork ? 'rgba(255,183,0,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,183,0,0.1)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isLabWork ? 'rgba(255,183,0,0.1)' : 'transparent'; }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isLabWork ? 'rgba(191,90,242,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(191,90,242,0.1)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isLabWork ? 'rgba(191,90,242,0.1)' : 'transparent'; }}
               >
                 <span style={{ fontSize: 14 }}>🧪</span>
-                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ffb700', letterSpacing: 1.5, fontWeight: 700 }}>LAB WORK</span>
-                {isLabWork && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#ffb700' }} />}
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#bf5af2', letterSpacing: 1.5, fontWeight: 700 }}>LAB WORK</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#fff', background: '#bf5af2', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NEW</span>
+                {isLabWork && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#bf5af2' }} />}
               </button>
 
               {/* CYBERDYNE */}
