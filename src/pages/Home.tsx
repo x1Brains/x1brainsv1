@@ -288,6 +288,57 @@ const Home: FC = () => {
             )}
           </div>
 
+          {/* ── LAB WORK 🧪 — Standalone card routing to /labwork ── */}
+          <div
+            style={{
+              position: 'relative',
+              background: 'linear-gradient(135deg, #0d1520, #0a1018)',
+              border: '1px solid #ffb70030',
+              borderRadius: 16,
+              padding: '28px 24px',
+              cursor: 'pointer',
+              animation: 'fadeUp 0.5s ease 0.3s both',
+              overflow: 'hidden',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            }}
+            onClick={() => navigate('/labwork')}
+            onMouseEnter={e => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = '#ffb700'; el.style.transform = 'translateY(-6px)'; el.style.boxShadow = '0 16px 50px rgba(0,0,0,0.5), 0 0 30px #ffb70020'; }}
+            onMouseLeave={e => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = '#ffb70030'; el.style.transform = 'translateY(0)'; el.style.boxShadow = 'none'; }}
+          >
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, transparent, #ffb700, transparent)', opacity: 0.6 }} />
+            <div style={{ position: 'absolute', top: -40, right: -40, width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle, #ffb70012 0%, transparent 70%)', pointerEvents: 'none' }} />
+
+            <div style={{ fontSize: 40, marginBottom: 18, display: 'block', filter: 'drop-shadow(0 0 12px #ffb70060)' }}>🧪</div>
+
+            <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 16, fontWeight: 900, letterSpacing: 3, color: '#ffb700', marginBottom: 6, textTransform: 'uppercase' }}>
+              LAB WORK 🧪
+            </div>
+
+            <p style={{ fontSize: 13, color: '#7a9ab8', lineHeight: 1.7, marginBottom: 16 }}>
+              The X1 Brains NFT scanner and marketplace — scan wallets, inspect collections, list and buy NFTs, and mint LB tokens on X1 blockchain.
+            </p>
+
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+              {[
+                { text: '🧠 NFTs', color: '#ffb700' },
+                { text: '🔬 SCAN', color: '#ff8c00' },
+                { text: '🪙 MINT LB', color: '#00c98d' },
+                { text: '🛒 MARKETPLACE', color: '#00d4ff' },
+              ].map(tag => (
+                <span key={tag.text} style={{
+                  fontFamily: 'Orbitron, monospace', fontSize: 7, fontWeight: 700, letterSpacing: 1,
+                  color: tag.color, background: `${tag.color}10`, border: `1px solid ${tag.color}20`,
+                  borderRadius: 5, padding: '3px 8px',
+                }}>{tag.text}</span>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ffb700', letterSpacing: 2, fontWeight: 700 }}>ENTER</span>
+              <span style={{ color: '#ffb700', fontSize: 12 }}>→</span>
+            </div>
+          </div>
+
           {/* ── CYBERDYNE UNLIMITED ── */}
           <div
             style={{
@@ -340,7 +391,7 @@ const Home: FC = () => {
             </div>
           </div>
 
-          {/* ── LAB WORK 🧪 — Custom multi-link card ── */}
+          {/* ── INCINERATOR — Burn engine card ── */}
           <div
             style={{
               position: 'relative',
@@ -348,65 +399,46 @@ const Home: FC = () => {
               border: '1px solid #ff8c0030',
               borderRadius: 16,
               padding: '28px 24px',
-              animation: 'fadeUp 0.5s ease 0.3s both',
+              cursor: 'pointer',
+              animation: 'fadeUp 0.5s ease 0.4s both',
               overflow: 'hidden',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             }}
+            onClick={() => navigate('/incinerator-engine')}
+            onMouseEnter={e => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = '#ff8c00'; el.style.transform = 'translateY(-6px)'; el.style.boxShadow = '0 16px 50px rgba(0,0,0,0.5), 0 0 30px #ff8c0020'; }}
+            onMouseLeave={e => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = '#ff8c0030'; el.style.transform = 'translateY(0)'; el.style.boxShadow = 'none'; }}
           >
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, transparent, #ff8c00, transparent)', opacity: 0.6 }} />
             <div style={{ position: 'absolute', top: -40, right: -40, width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle, #ff8c0012 0%, transparent 70%)', pointerEvents: 'none' }} />
 
-            <div style={{ fontSize: 40, marginBottom: 18, display: 'block', filter: 'drop-shadow(0 0 12px #ff8c0060)' }}>🧪</div>
+            <div style={{ fontSize: 40, marginBottom: 18, display: 'block', filter: 'drop-shadow(0 0 12px #ff8c0060)' }}>🔥</div>
 
-            <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 16, fontWeight: 900, letterSpacing: 3, color: '#ffb700', marginBottom: 6, textTransform: 'uppercase' }}>
-              LAB WORK 🧪
+            <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 16, fontWeight: 900, letterSpacing: 3, color: '#ff8c00', marginBottom: 6, textTransform: 'uppercase' }}>
+              INCINERATOR
             </div>
 
-            <p style={{ fontSize: 13, color: '#7a9ab8', lineHeight: 1.7, marginBottom: 18 }}>
-              The X1 Brains Incinerator Protocol — burn BRAINS tokens, earn LB Points, stack AMP bonuses, and compete for prizes.
+            <p style={{ fontSize: 13, color: '#7a9ab8', lineHeight: 1.7, marginBottom: 16 }}>
+              Burn BRAINS tokens, earn LB Points, stack AMP bonuses, and compete for prizes on the X1 blockchain.
             </p>
 
-            {/* Navigation Links */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
               {[
-                { label: 'INCINERATOR PROTOCOL', sub: 'LB Points · AMP Bonuses · Tier Ranks', route: '/burn-history', icon: '🔥', color: '#ff8c00' },
-                { label: 'BURN, EARN, ASCEND', sub: 'Main Burn Engine · Incinerator Protocol', route: '/incinerator-engine', icon: '⚡', color: '#ffb700' },
-              ].map(item => (
-                <button
-                  key={item.route}
-                  onClick={() => navigate(item.route)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-                    background: `${item.color}08`, border: `1px solid ${item.color}20`,
-                    borderRadius: 10, padding: '10px 12px', cursor: 'pointer',
-                    transition: 'all 0.2s', textAlign: 'left' as const,
-                  }}
-                  onMouseEnter={e => { const el = e.currentTarget; el.style.background = `${item.color}18`; el.style.borderColor = `${item.color}50`; el.style.transform = 'translateX(3px)'; }}
-                  onMouseLeave={e => { const el = e.currentTarget; el.style.background = `${item.color}08`; el.style.borderColor = `${item.color}20`; el.style.transform = 'translateX(0)'; }}
-                >
-                  <span style={{ fontSize: 16, flexShrink: 0 }}>{item.icon}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: item.color }}>{item.label}</div>
-                    <div style={{ fontFamily: 'Sora, sans-serif', fontSize: 9, color: '#5c7a90', marginTop: 2 }}>{item.sub}</div>
-                  </div>
-                  <span style={{ color: item.color, fontSize: 11, opacity: 0.6, flexShrink: 0 }}>→</span>
-                </button>
+                { text: '🔥 BURN', color: '#ff4422' },
+                { text: '⚡ AMP', color: '#ffb700' },
+                { text: '🏆 RANKS', color: '#ff8c00' },
+                { text: '🎯 PRIZES', color: '#bf5af2' },
+              ].map(tag => (
+                <span key={tag.text} style={{
+                  fontFamily: 'Orbitron, monospace', fontSize: 7, fontWeight: 700, letterSpacing: 1,
+                  color: tag.color, background: `${tag.color}10`, border: `1px solid ${tag.color}20`,
+                  borderRadius: 5, padding: '3px 8px',
+                }}>{tag.text}</span>
               ))}
             </div>
 
-            <div style={{ height: 1, background: 'linear-gradient(90deg, transparent, #5c7a9025, transparent)', marginBottom: 14 }} />
-
-            {/* NFT LABWORK (SOON) */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: 0.45 }}>
-              <span style={{ fontSize: 16 }}>🧠</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#4a6070' }}>NFT LABWORK</div>
-                <div style={{ fontFamily: 'Sora, sans-serif', fontSize: 9, color: '#3a5060', marginTop: 2 }}>NFT Marketplace · 88 unique neural nodes</div>
-              </div>
-              <span style={{
-                fontFamily: 'Orbitron, monospace', fontSize: 7, fontWeight: 900, letterSpacing: 2,
-                color: '#5c7a90', background: 'rgba(92,122,144,0.12)', border: '1px solid rgba(92,122,144,0.2)',
-                padding: '3px 8px', borderRadius: 5,
-              }}>SOON</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ff8c00', letterSpacing: 2, fontWeight: 700 }}>ENTER</span>
+              <span style={{ color: '#ff8c00', fontSize: 12 }}>→</span>
             </div>
           </div>
 
