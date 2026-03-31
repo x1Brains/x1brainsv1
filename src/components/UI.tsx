@@ -180,21 +180,22 @@ export const TopBar: FC = () => {
           </button>
         )}
 
-        {/* BURN BRAINS — orange (hidden when on incinerator engine) */}
-        {!isIncinerator && (
-        <button className="tb-hide-mobile" onClick={() => navigate('/incinerator-engine')}
+        {/* LAB WORK — top nav button (hidden when on labwork page) */}
+        {!isLabWork && (
+        <button className="tb-hide-mobile" onClick={() => navigate('/labwork')}
           style={{
-            background: 'rgba(255,140,0,0.06)',
-            border: '1px solid rgba(255,140,0,0.25)',
+            background: 'rgba(255,183,0,0.06)',
+            border: '1px solid rgba(255,183,0,0.25)',
             borderRadius: 8, padding: '7px 12px', cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: 6,
             backdropFilter: 'blur(12px)', transition: 'all 0.2s',
           }}
-          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,140,0,0.18)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,140,0,0.6)'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,140,0,0.06)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,140,0,0.25)'; }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,183,0,0.18)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,183,0,0.6)'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,183,0,0.06)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,183,0,0.25)'; }}
         >
-          <span style={{ fontSize: 12 }}>🧠</span>
-          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#ff8c00', letterSpacing: 2, fontWeight: 700 }}>BURN BRAINS</span>
+          <span style={{ fontSize: 12 }}>🧪</span>
+          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#ffb700', letterSpacing: 2, fontWeight: 700 }}>LAB WORK</span>
+          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#0a0e14', background: '#ffb700', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NEW</span>
         </button>
         )}
 
