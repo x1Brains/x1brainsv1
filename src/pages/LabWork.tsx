@@ -400,20 +400,16 @@ const LabWork: FC = () => {
   const [boosts,       setBoosts]       = useState<BoostRecord[]>([]);
   const [boostTarget,  setBoostTarget]  = useState<Listing | null>(null);
 
-  // Wallet stats for MY NFTs panel
-  const [brainsBalance,  setBrainsBalance]  = useState<number | null>(null);
-  const [brainsBurned,   setBrainsBurned]   = useState<number>(0);
-  const [labworkPtsTotal, setLabworkPtsTotal] = useState<number>(0);
 
-  // Global BRAINS burned — use getTokenSupply which works reliably on X1 RPC
+  // Global BRAINS burned — getTokenSupply works reliably on X1 RPC
   const [globalBrainsBurned, setGlobalBrainsBurned] = useState<number | null>(null);
-  const globalBrainsPrice = usePrice(BRAINS_MINT_STR) ?? null;
+  const globalBrainsPrice = (usePrice(BRAINS_MINT_STR) as number | null | undefined) ?? null;
   useEffect(() => {
     if (!connection) return;
     connection.getTokenSupply(BRAINS_MINT_PK)
       .then(res => {
         const current = res?.value?.uiAmount;
-        if (current != null && current > 0) {
+        if (current != null) {
           const burned = Math.max(0, 8_880_000 - current);
           if (burned > 0) setGlobalBrainsBurned(burned);
         }
@@ -421,36 +417,12 @@ const LabWork: FC = () => {
       .catch(() => {});
   }, [connection]);
 
-  // ── Load wallet NFTs ──────────────────────────────────────────
-  useEffect(() => {
-    if (!publicKey) { setNfts([]); return; }
-    let cancelled = false;
-    (async () => {
-      setLoading(true); setError(''); setLoadLabel('Scanning wallet…');
-      try {
-        const raw = await fetchWalletNFTs(connection, publicKey);
-        if (cancelled) return;
-        setNfts(raw); setLoading(false);
-        if (raw.length === 0) return;
-        setEnriching(true); setLoadLabel('Loading metadata…');
-        const enriched = await Promise.all(raw.map(async n => {
-          const base = await enrichNFT(n);
-          // MoltLab NFTs: their /api/nft/<mint> returns 404 — use AgentID verify by wallet instead
-          if (base.metaUri?.includes('moltlab.vercel.app') && publicKey) {
-            const agent = await fetchAgentIDByWallet(publicKey.toBase58());
-            if (agent) return {
-              ...base,
-              image:       agent.photoUrl    ?? base.image,
-              description: agent.description ?? base.description,
-              collection:  'MOLT',
-              externalUrl: agent.moltbook
-                ? `https://moltbook.com/u/${agent.moltbook}`
-                : base.externalUrl,
-            };
-          }
-          return base;
-        }));
-        if (!cancelled) { setNfts(enriched); setEnriching(false); setLoadLabel(''); }
+  // Wallet stats for MY NFTs panel
+  const [brainsBalance,  setBrainsBalance]  = useState<number | null>(null);
+  const [brainsBurned,   setBrainsBurned]   = useState<number>(0);
+  const [labworkPtsTotal, setLabworkPtsTotal] = useState<number>(0);
+
+          if (!cancelled) { setNfts(enriched); setEnriching(false); setLoadLabel(''); }
       } catch (e: any) {
         if (!cancelled) { setError(e?.message ?? 'Failed to load NFTs'); setLoading(false); }
       }
