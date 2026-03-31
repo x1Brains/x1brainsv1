@@ -21,6 +21,7 @@ import {
   createWithdrawWithheldTokensFromAccountsInstruction,
   getTransferFeeAmount,
   unpackAccount,
+  getMint,
 } from '@solana/spl-token';
 import { BRAINS_MINT as BRAINS_MINT_STR, PLATFORM_WALLET_STRING } from '../constants';
 
@@ -302,23 +303,7 @@ const MintLabWork: FC = () => {
         connection.getParsedAccountInfo(XBLK_MINT_PK),
       ]);
 
-      // Real BRAINS burned — read raw mint account data and parse supply at fixed offset
-      // SPL mint layout: [36 bytes header] [8 bytes supply u64 LE] [1 byte decimals] ...
-      // This avoids getMint() which can fail on Token-2022 accounts on X1 RPC
-      try {
-        const mintAcct = await connection.getAccountInfo(BRAINS_MINT_PK);
-        if (mintAcct?.data) {
-          const bytes = Array.from(mintAcct.data as Uint8Array);
-          // Supply is at offset 36 in SPL mint layout (u64 LE, 8 bytes)
-          let supplyRaw = 0n;
-          for (let i = 0; i < 8; i++) supplyRaw |= BigInt(bytes[36 + i]) << BigInt(i * 8);
-          // Decimals at offset 44 (1 byte)
-          const decimals = bytes[44];
-          const currentSupply = Number(supplyRaw) / Math.pow(10, decimals);
-          const burned = Math.max(0, BRAINS_INITIAL_SUPPLY - currentSupply);
-          if (burned > 0) setBrainsBurned(burned);
-        }
-      } catch { /* keep tier-math fallback from fetchGlobalState */ }
+      // Real BRAINS burned handled by dedicated useEffect below
 
       // Fetch BRAINS price — same endpoint as BurnLeaderboard which works
       try {
@@ -361,6 +346,17 @@ const MintLabWork: FC = () => {
   useEffect(() => {
     fetchBurnStats();
   }, [fetchBurnStats]);
+
+  // Standalone BRAINS burned fetch — exact pattern from BurnHistory.tsx
+  useEffect(() => {
+    if (!connection) return;
+    getMint(connection, BRAINS_MINT_PK, 'confirmed', TOKEN_2022_PROGRAM_ID)
+      .then(m => {
+        const burned = Math.max(0, BRAINS_INITIAL_SUPPLY - Number(m.supply) / Math.pow(10, m.decimals));
+        if (burned > 0) setBrainsBurned(burned);
+      })
+      .catch(() => {});
+  }, [connection]);
 
   // ── Fetch balances ───────────────────────────────────────────────
   const fetchBalances = useCallback(async () => {
