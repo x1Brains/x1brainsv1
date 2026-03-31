@@ -7,7 +7,6 @@
 
 import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { usePrice } from './TokenComponents';
 import {
   PublicKey, LAMPORTS_PER_SOL,
   TransactionInstruction, SystemProgram,
@@ -176,7 +175,7 @@ interface MintReceipt {
   xnmAmt: number; xuniAmt: number; xblkAmt: number; isCombo: boolean;
 }
 
-const MintLabWork: FC = () => {
+const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: number | null }> = ({ globalBrainsBurned, globalBrainsPrice }) => {
   const { publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
   const isMobile = useIsMobile();
@@ -185,17 +184,13 @@ const MintLabWork: FC = () => {
   const [mintedTotal,  setMintedTotal]  = useState(0);
   const [paused,       setPaused]       = useState(false);
 
-  // Burn stats — fetched from on-chain token supply
-  const [brainsBurned, setBrainsBurned] = useState<number | null>(null);
+  // Burn stats — globalBrainsBurned and globalBrainsPrice come from LabWork parent via props
+  // Xenblocks burned still fetched internally from treasury ATAs
+  const brainsBurned = globalBrainsBurned ?? null;
+  const brainsPrice  = globalBrainsPrice  ?? null;
   const [xnmBurned,    setXnmBurned]    = useState<number | null>(null);
   const [xuniBurned,   setXuniBurned]   = useState<number | null>(null);
   const [xblkBurned,   setXblkBurned]   = useState<number | null>(null);
-  const [brainsPrice,  setBrainsPrice]  = useState<number | null>(null);
-  const liveBrainsPrice = usePrice(BRAINS_MINT_STR);
-  // Sync live price into brainsPrice state
-  useEffect(() => {
-    if (liveBrainsPrice != null && liveBrainsPrice > 0) setBrainsPrice(liveBrainsPrice);
-  }, [liveBrainsPrice]);
   const BRAINS_INITIAL_SUPPLY = 8_880_000;
 
   // Tier rates hardcoded — match program constants exactly
@@ -304,7 +299,7 @@ const MintLabWork: FC = () => {
 
       // Real BRAINS burned handled by dedicated useEffect below
 
-      // Price handled by usePrice hook above
+      // Price handled by parent LabWork via globalBrainsPrice prop
 
       // 50/50 split: treasury holds exactly what was burned.
       // So burned amount = treasury ATA balance for each asset.
@@ -336,38 +331,6 @@ const MintLabWork: FC = () => {
   useEffect(() => {
     fetchBurnStats();
   }, [fetchBurnStats]);
-
-  // Standalone BRAINS burned — read raw account bytes at Token-2022 mint offsets
-  // Token-2022 mint layout: [0]=account_type, [1-4]=authority_option, [5-36]=authority(32b),
-  // [37-44]=supply(u64 LE), [45]=decimals
-  // Standard SPL mint layout: [0-3]=authority_option, [4-35]=authority(32b),
-  // [36-43]=supply(u64 LE), [44]=decimals
-  // BRAINS is Token-2022 so try offset 37 first, fall back to 36
-  useEffect(() => {
-    if (!connection) return;
-    (async () => {
-      try {
-        const acct = await connection.getAccountInfo(BRAINS_MINT_PK, 'confirmed');
-        if (!acct?.data) return;
-        const d = acct.data as Uint8Array;
-        // Try both offsets — Token-2022 uses 37, standard SPL uses 36
-        for (const supplyOffset of [36, 37]) {
-          let supply = 0n;
-          for (let i = 0; i < 8; i++) supply |= BigInt(d[supplyOffset + i]) << BigInt(i * 8);
-          const decimals = d[supplyOffset + 8];
-          if (decimals !== 9) continue; // BRAINS has 9 decimals — skip wrong offset
-          const divisor = BigInt(10 ** decimals);
-          const initial = BigInt(BRAINS_INITIAL_SUPPLY) * divisor;
-          if (supply > initial) continue; // sanity check
-          const burned = Number(initial - supply) / Number(divisor);
-          if (burned > 0 && burned < BRAINS_INITIAL_SUPPLY) {
-            setBrainsBurned(burned);
-            break;
-          }
-        }
-      } catch {}
-    })();
-  }, [connection]);
 
   // ── Fetch balances ───────────────────────────────────────────────
   const fetchBalances = useCallback(async () => {
