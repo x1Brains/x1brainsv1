@@ -21,7 +21,6 @@ import {
   createWithdrawWithheldTokensFromAccountsInstruction,
   getTransferFeeAmount,
   unpackAccount,
-  getMint,
 } from '@solana/spl-token';
 import { BRAINS_MINT as BRAINS_MINT_STR, PLATFORM_WALLET_STRING } from '../constants';
 
@@ -304,27 +303,22 @@ const MintLabWork: FC = () => {
       ]);
 
       // Real BRAINS burned = initial supply (8,880,000) - current circulating supply
-      // Try getMint first (most precise), fall back to getParsedAccountInfo
+      // Use getParsedAccountInfo — proven reliable on X1 RPC
       try {
-        const mintInfo = await getMint(connection, BRAINS_MINT_PK, 'confirmed', TOKEN_2022_PROGRAM_ID);
-        const decimals = mintInfo.decimals;
-        const divisor  = BigInt(10 ** decimals);
-        const currentSupplyRaw = mintInfo.supply;
-        const initialSupplyRaw = BigInt(BRAINS_INITIAL_SUPPLY) * divisor;
-        const burnedRaw = initialSupplyRaw > currentSupplyRaw ? initialSupplyRaw - currentSupplyRaw : BigInt(0);
-        setBrainsBurned(Number(burnedRaw) / Number(divisor));
-      } catch {
-        // Fallback: getParsedAccountInfo
-        try {
-          const info = await connection.getParsedAccountInfo(BRAINS_MINT_PK);
-          const parsed = (info?.value?.data as any)?.parsed?.info;
-          if (parsed?.supply !== undefined && parsed?.decimals !== undefined) {
-            const currentSupply = Number(BigInt(parsed.supply)) / Math.pow(10, parsed.decimals);
-            const burned = Math.max(0, BRAINS_INITIAL_SUPPLY - currentSupply);
-            if (burned > 0) setBrainsBurned(burned);
-          }
-        } catch { /* keep tier-math fallback from fetchGlobalState */ }
-      }
+        const mintAcct = await connection.getParsedAccountInfo(BRAINS_MINT_PK);
+        const parsed   = (mintAcct?.value?.data as any)?.parsed?.info;
+        if (parsed?.supply !== undefined && parsed?.decimals !== undefined) {
+          // supply is a string — use BigInt to avoid float precision loss
+          const currentSupplyRaw = BigInt(parsed.supply);
+          const divisor          = BigInt(10 ** parsed.decimals);
+          const initialSupplyRaw = BigInt(BRAINS_INITIAL_SUPPLY) * divisor;
+          const burnedRaw        = initialSupplyRaw > currentSupplyRaw
+            ? initialSupplyRaw - currentSupplyRaw
+            : BigInt(0);
+          const burned = Number(burnedRaw) / Number(divisor);
+          if (burned > 0) setBrainsBurned(burned);
+        }
+      } catch { /* keep tier-math fallback from fetchGlobalState */ }
 
       // Fetch BRAINS price from XDEX
       try {
