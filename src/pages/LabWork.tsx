@@ -405,15 +405,18 @@ const LabWork: FC = () => {
   const [brainsBurned,   setBrainsBurned]   = useState<number>(0);
   const [labworkPtsTotal, setLabworkPtsTotal] = useState<number>(0);
 
-  // Global BRAINS burned — fetched here and passed to MintLabWork as prop
+  // Global BRAINS burned — use getTokenSupply which works reliably on X1 RPC
   const [globalBrainsBurned, setGlobalBrainsBurned] = useState<number | null>(null);
   const globalBrainsPrice = usePrice(BRAINS_MINT_STR) ?? null;
   useEffect(() => {
     if (!connection) return;
-    getMint(connection, BRAINS_MINT_PK, 'confirmed', TOKEN_2022_PROGRAM_ID)
-      .then(m => {
-        const burned = Math.max(0, 8_880_000 - Number(m.supply) / Math.pow(10, m.decimals));
-        if (burned > 0) setGlobalBrainsBurned(burned);
+    connection.getTokenSupply(BRAINS_MINT_PK)
+      .then(res => {
+        const current = res?.value?.uiAmount;
+        if (current != null && current > 0) {
+          const burned = Math.max(0, 8_880_000 - current);
+          if (burned > 0) setGlobalBrainsBurned(burned);
+        }
       })
       .catch(() => {});
   }, [connection]);
