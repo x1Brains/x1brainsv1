@@ -274,14 +274,26 @@ export const TopBar: FC = () => {
 
               {/* INCINERATOR */}
               <button
-                onClick={() => { navigate('/incinerator-engine'); setNavOpen(false); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isIncinerator ? 'rgba(255,140,0,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onClick={() => { navigate('/burn-history'); setNavOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isBurnHistory ? 'rgba(255,140,0,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
                 onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,140,0,0.1)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isIncinerator ? 'rgba(255,140,0,0.1)' : 'transparent'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isBurnHistory ? 'rgba(255,140,0,0.1)' : 'transparent'; }}
               >
                 <span style={{ fontSize: 14 }}>🔥</span>
                 <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ff8c00', letterSpacing: 1.5, fontWeight: 700 }}>INCINERATOR</span>
-                {isIncinerator && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#ff8c00' }} />}
+                {isBurnHistory && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#ff8c00' }} />}
+              </button>
+
+              {/* BURN RANK ASCEND — sub item */}
+              <button
+                onClick={() => { navigate('/incinerator-engine'); setNavOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px 6px 32px', borderRadius: 7, background: isIncinerator ? 'rgba(255,183,0,0.08)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,183,0,0.1)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isIncinerator ? 'rgba(255,183,0,0.08)' : 'transparent'; }}
+              >
+                <span style={{ fontSize: 11 }}>⚡</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#ffb700', letterSpacing: 1, fontWeight: 700 }}>BURN, RANK & ASCEND</span>
+                {isIncinerator && <span style={{ marginLeft: 'auto', width: 4, height: 4, borderRadius: '50%', background: '#ffb700' }} />}
               </button>
 
               {/* REWARDS */}
