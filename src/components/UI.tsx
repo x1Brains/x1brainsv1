@@ -84,8 +84,9 @@ export const TopBar: FC = () => {
   const isRewards      = location.pathname === '/rewards';
   const isAdminRewards = location.pathname === '/x9b7r41ns/ctrl';
   const isIncinerator  = location.pathname === '/incinerator-engine';
+  const isCyberdyne    = location.pathname === '/cyberdyne';
 
-  const isSubPage = isPortfolio || isLabWork || isBurnHistory || isRewards || isAdminRewards || isIncinerator;
+  const isSubPage = isPortfolio || isLabWork || isBurnHistory || isRewards || isAdminRewards || isIncinerator || isCyberdyne;
 
   return (
     <>
@@ -233,7 +234,7 @@ export const TopBar: FC = () => {
                 <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#8aa0b8', letterSpacing: 1.5, fontWeight: 700 }}>HOME</span>
               </button>
 
-              {/* PORTFOLIO — green */}
+              {/* PORTFOLIO */}
               <button
                 onClick={() => { navigate('/portfolio'); setNavOpen(false); }}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isPortfolio ? 'rgba(0,201,141,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
@@ -245,19 +246,43 @@ export const TopBar: FC = () => {
                 {isPortfolio && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#00c98d' }} />}
               </button>
 
-              {/* INCINERATOR — red */}
+              {/* LAB WORK */}
               <button
-                onClick={() => { navigate('/burn-history'); setNavOpen(false); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isBurnHistory ? 'rgba(255,34,34,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,34,34,0.1)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isBurnHistory ? 'rgba(255,34,34,0.1)' : 'transparent'; }}
+                onClick={() => { navigate('/labwork'); setNavOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isLabWork ? 'rgba(255,183,0,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,183,0,0.1)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isLabWork ? 'rgba(255,183,0,0.1)' : 'transparent'; }}
               >
-                <span style={{ fontSize: 14 }}>🔥</span>
-                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ff4444', letterSpacing: 1.5, fontWeight: 700 }}>INCINERATOR</span>
-                {isBurnHistory && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#ff4444' }} />}
+                <span style={{ fontSize: 14 }}>🧪</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ffb700', letterSpacing: 1.5, fontWeight: 700 }}>LAB WORK</span>
+                {isLabWork && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#ffb700' }} />}
               </button>
 
-              {/* REWARDS — yellow */}
+              {/* CYBERDYNE */}
+              <button
+                onClick={() => { navigate('/cyberdyne'); setNavOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isCyberdyne ? 'rgba(57,255,136,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(57,255,136,0.1)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isCyberdyne ? 'rgba(57,255,136,0.1)' : 'transparent'; }}
+              >
+                <span style={{ fontSize: 14 }}>⚔️</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#39ff88', letterSpacing: 1.5, fontWeight: 700 }}>CYBERDYNE</span>
+                {isCyberdyne && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#39ff88' }} />}
+              </button>
+
+              {/* INCINERATOR */}
+              <button
+                onClick={() => { navigate('/incinerator-engine'); setNavOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isIncinerator ? 'rgba(255,140,0,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,140,0,0.1)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isIncinerator ? 'rgba(255,140,0,0.1)' : 'transparent'; }}
+              >
+                <span style={{ fontSize: 14 }}>🔥</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ff8c00', letterSpacing: 1.5, fontWeight: 700 }}>INCINERATOR</span>
+                {isIncinerator && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#ff8c00' }} />}
+              </button>
+
+              {/* REWARDS */}
               <button
                 onClick={() => { navigate('/rewards'); setNavOpen(false); }}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isRewards ? 'rgba(255,204,0,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
@@ -267,31 +292,6 @@ export const TopBar: FC = () => {
                 <span style={{ fontSize: 14 }}>🏆</span>
                 <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ffcc00', letterSpacing: 1.5, fontWeight: 700 }}>REWARDS</span>
                 {isRewards && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#ffcc00' }} />}
-              </button>
-
-              {/* BURN BRAINS — orange */}
-              <button
-                onClick={() => { navigate('/incinerator-engine'); setNavOpen(false); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isIncinerator ? 'rgba(255,140,0,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,140,0,0.1)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isIncinerator ? 'rgba(255,140,0,0.1)' : 'transparent'; }}
-              >
-                <span style={{ fontSize: 14 }}>🧠</span>
-                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ff8c00', letterSpacing: 1.5, fontWeight: 700 }}>BURN BRAINS</span>
-                {isIncinerator && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#ff8c00' }} />}
-              </button>
-
-              {/* LAB WORK — purple */}
-              <button
-                onClick={() => { navigate('/labwork'); setNavOpen(false); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isLabWork ? 'rgba(191,90,242,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(191,90,242,0.1)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isLabWork ? 'rgba(191,90,242,0.1)' : 'transparent'; }}
-              >
-                <span style={{ fontSize: 14 }}>🔬</span>
-                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#bf5af2', letterSpacing: 1.5, fontWeight: 700 }}>LAB WORK</span>
-                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#0a0e14', background: '#bf5af2', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NEW</span>
-                {isLabWork && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#bf5af2' }} />}
               </button>
             </div>
           )}
