@@ -436,6 +436,26 @@ const Home: FC = () => {
               ))}
             </div>
 
+            {/* BURN EARN ASCEND sub-link */}
+            <button
+              onClick={e => { e.stopPropagation(); navigate('/burn-history'); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                background: 'rgba(255,183,0,0.06)', border: '1px solid rgba(255,183,0,0.15)',
+                borderRadius: 8, padding: '8px 10px', cursor: 'pointer',
+                transition: 'all 0.2s', textAlign: 'left', marginBottom: 12,
+              }}
+              onMouseEnter={e => { const el = e.currentTarget; el.style.background = 'rgba(255,183,0,0.14)'; el.style.borderColor = 'rgba(255,183,0,0.4)'; }}
+              onMouseLeave={e => { const el = e.currentTarget; el.style.background = 'rgba(255,183,0,0.06)'; el.style.borderColor = 'rgba(255,183,0,0.15)'; }}
+            >
+              <span style={{ fontSize: 14, flexShrink: 0 }}>⚡</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, fontWeight: 700, letterSpacing: 1.5, color: '#ffb700' }}>BURN, EARN & ASCEND</div>
+                <div style={{ fontFamily: 'Sora, sans-serif', fontSize: 9, color: '#5c7a90', marginTop: 2 }}>Main Burn Engine · Incinerator Protocol</div>
+              </div>
+              <span style={{ color: '#ffb700', fontSize: 11, opacity: 0.6 }}>→</span>
+            </button>
+
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ff8c00', letterSpacing: 2, fontWeight: 700 }}>ENTER</span>
               <span style={{ color: '#ff8c00', fontSize: 12 }}>→</span>
