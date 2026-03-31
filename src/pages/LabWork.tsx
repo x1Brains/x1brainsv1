@@ -556,10 +556,9 @@ const LabWork: FC = () => {
         const info = await connection.getAccountInfo(statePda);
         if (!info?.data) return;
         const data = info.data as Uint8Array;
-        // Read u64 LE at offset 104 — force clean buffer with zero byteOffset
-        const slice = Buffer.from(data.slice(104, 112));
-        const view  = new DataView(slice.buffer, 0, 8);
-        const raw   = view.getBigUint64(0, true);
+        // Read u64 LE at offset 104 using pure BigInt — same as MintLabWork parseGlobalState
+        let raw = 0n;
+        for (let i = 0; i < 8; i++) raw |= BigInt(data[104 + i]) << BigInt(i * 8);
         setLbMinted(Number(raw) / 100); // LB has 2 decimals
       } catch {}
     })();
