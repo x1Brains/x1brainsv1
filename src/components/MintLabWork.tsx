@@ -22,7 +22,6 @@ import {
   createWithdrawWithheldTokensFromAccountsInstruction,
   getTransferFeeAmount,
   unpackAccount,
-  getMint,
 } from '@solana/spl-token';
 import { BRAINS_MINT as BRAINS_MINT_STR, PLATFORM_WALLET_STRING } from '../constants';
 
@@ -283,14 +282,8 @@ const MintLabWork: FC = () => {
 
       // BRAINS burned = total LB minted * brains_per_lb (Tier 1 = 8, but we use total_minted * avg)
       // Simpler: read from BRAINS mint supply change isn't easy, so just show total LB * 8 as min
-      // Actually we can compute: brains burned = sum across tiers
-      // For now show based on total_minted and current tier
-      const lb = parsed.totalMinted;
-      const t1 = Math.min(lb, 25000);
-      const t2 = Math.min(Math.max(lb - 25000, 0), 25000);
-      const t3 = Math.min(Math.max(lb - 50000, 0), 25000);
-      const t4 = Math.max(lb - 75000, 0);
-      setBrainsBurned(t1*8 + t2*18 + t3*26 + t4*33);
+      // BRAINS burned is handled by standalone useEffect below
+      // using getParsedAccountInfo for the real on-chain total
     } catch {}
   }, [connection]);
 
@@ -344,12 +337,20 @@ const MintLabWork: FC = () => {
     fetchBurnStats();
   }, [fetchBurnStats]);
 
-  // Standalone BRAINS burned fetch — exact pattern from BurnHistory.tsx
+  // Standalone BRAINS burned — use getParsedAccountInfo (proven to work on X1 RPC)
   useEffect(() => {
     if (!connection) return;
-    getMint(connection, BRAINS_MINT_PK, 'confirmed', TOKEN_2022_PROGRAM_ID)
-      .then(m => {
-        const burned = Math.max(0, BRAINS_INITIAL_SUPPLY - Number(m.supply) / Math.pow(10, m.decimals));
+    connection.getParsedAccountInfo(BRAINS_MINT_PK)
+      .then(res => {
+        const info = (res?.value?.data as any)?.parsed?.info;
+        if (!info?.supply || info?.decimals === undefined) return;
+        // Use BigInt to avoid float precision loss on large supply numbers
+        const supplyBig = BigInt(info.supply);
+        const decimals  = info.decimals as number;
+        const divisor   = BigInt(10 ** decimals);
+        const initialBig = BigInt(BRAINS_INITIAL_SUPPLY) * divisor;
+        const burnedBig  = initialBig > supplyBig ? initialBig - supplyBig : 0n;
+        const burned     = Number(burnedBig) / Number(divisor);
         if (burned > 0) setBrainsBurned(burned);
       })
       .catch(() => {});
@@ -686,7 +687,7 @@ const MintLabWork: FC = () => {
               {[
                 {
                   label: 'BRAINS BURNED',
-                  value: brainsBurned !== null ? fmt(Math.round(brainsBurned)) : (mintedTotal > 0 ? '~' + fmt(Math.round(mintedTotal * 8)) + '+' : '—'),
+                  value: brainsBurned !== null ? fmt(Math.round(brainsBurned)) : '—',
                   sub:   brainsBurned !== null && brainsPrice !== null ? `$${(brainsBurned * brainsPrice).toLocaleString(undefined, { maximumFractionDigits: 0 })} USD` : null,
                   col:   '#ff6a6a',
                 },
