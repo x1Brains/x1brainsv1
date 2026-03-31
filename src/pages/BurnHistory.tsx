@@ -222,20 +222,21 @@ async function scanBurnHistory(
           return false;
         };
 
-        const pre    = (tx.meta?.preTokenBalances  ?? []).find(isOurs as any);
-        const post   = (tx.meta?.postTokenBalances ?? []).find(isOurs as any);
-        const preUi  = (pre  as any)?.uiTokenAmount?.uiAmount ?? null;
-        const postUi = (post as any)?.uiTokenAmount?.uiAmount ?? null;
+        const pre  = (tx.meta?.preTokenBalances  ?? []).find(isOurs as any);
+        const post = (tx.meta?.postTokenBalances ?? []).find(isOurs as any);
 
         let amount = 0;
-        if (preUi !== null && postUi !== null) {
-          const diff = preUi - postUi;
+        // Always use raw amounts / 10^decimals — X1 RPC returns uiAmount with wrong
+        // precision for Token-2022 (5 decimals shown instead of 9), causing 10000x inflation
+        if (pre && post) {
+          const preRaw  = Number((pre  as any)?.uiTokenAmount?.amount ?? 0);
+          const postRaw = Number((post as any)?.uiTokenAmount?.amount ?? 0);
+          const diff = (preRaw - postRaw) / divisor;
           if (diff > 0) amount = diff;
         } else {
           const ta  = info.tokenAmount as Record<string, unknown> | undefined;
-          const ui  = ta ? Number((ta as any).uiAmount ?? 0) : 0;
-          const raw = ta ? Number((ta as any).amount  ?? 0) : Number(info.amount ?? 0);
-          amount = ui > 0 ? ui : raw / divisor;
+          const raw = ta ? Number((ta as any).amount ?? 0) : Number(info.amount ?? 0);
+          if (raw > 0) amount = raw / divisor;
         }
 
         if (amount > 0) {

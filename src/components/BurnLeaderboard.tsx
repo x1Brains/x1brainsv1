@@ -585,9 +585,10 @@ export async function fetchLeaderboard(
         if (!authority) continue;
 
         const ta     = info.tokenAmount as Record<string,unknown> | undefined;
-        const uiAmt  = ta ? Number((ta as any).uiAmount ?? 0) : 0;
-        const rawAmt = ta ? Number((ta as any).amount   ?? 0) : Number(info.amount ?? 0);
-        const amount = uiAmt > 0 ? uiAmt : rawAmt / 1_000_000;
+        const rawAmt = ta ? Number((ta as any).amount ?? 0) : Number(info.amount ?? 0);
+        // BRAINS has 9 decimals — always divide raw by 10^9, never use uiAmount
+        // (X1 RPC returns uiAmount with wrong precision for Token-2022)
+        const amount = rawAmt > 0 ? rawAmt / 1_000_000_000 : 0;
         if (amount <= 0) continue;
 
         const sig       = tx.transaction.signatures?.[0] ?? sigInfo.signature;
@@ -1533,9 +1534,8 @@ export const BurnLeaderboard: FC<Props> = ({
           const info = parsed.info as Record<string,unknown>|undefined;
           if (!info || (info.mint as string) !== mintStr) continue;
           const ta = info.tokenAmount as Record<string,unknown>|undefined;
-          const uiAmt = ta ? Number((ta as any).uiAmount ?? 0) : 0;
           const rawAmt = ta ? Number((ta as any).amount ?? 0) : Number(info.amount ?? 0);
-          const amount = uiAmt > 0 ? uiAmt : rawAmt / 1_000_000;
+          const amount = rawAmt > 0 ? rawAmt / 1_000_000_000 : 0;
           if (amount <= 0) continue;
           if (mountedRef.current) setLastEvtLive({ amount, blockTime: tx.blockTime ?? 0, sig: tx.transaction.signatures?.[0] ?? '' });
           return;
