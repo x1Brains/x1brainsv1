@@ -553,14 +553,24 @@ const LabWork: FC = () => {
     (async () => {
       try {
         const [statePda] = PublicKey.findProgramAddressSync([Buffer.from('lb_state')], LB_PROGRAM_ID);
-        const info = await connection.getAccountInfo(statePda);
+        // Request base64 encoding explicitly to avoid any Buffer/Uint8Array byteOffset issues
+        const resp = await connection.getAccountInfoAndContext(statePda, 'confirmed');
+        const info = resp?.value;
         if (!info?.data) return;
-        // Force plain number array to avoid Buffer/Uint8Array byteOffset issues
-        const bytes = Array.from(info.data as Uint8Array);
+        // Decode base64 to Uint8Array
+        let bytes: number[];
+        if (typeof info.data === 'string') {
+          bytes = Array.from(Buffer.from(info.data, 'base64'));
+        } else if (Array.isArray(info.data) && typeof info.data[0] === 'string') {
+          // [base64string, 'base64'] format
+          bytes = Array.from(Buffer.from(info.data[0], 'base64'));
+        } else {
+          bytes = Array.from(info.data as Uint8Array);
+        }
         // Read u64 LE at offset 104 — same as MintLabWork readU64LE
         let raw = 0n;
         for (let i = 0; i < 8; i++) raw |= BigInt(bytes[104 + i]) << BigInt(i * 8);
-        const minted = Number(raw) / 100; // LB has 2 decimals
+        const minted = Number(raw) / 100;
         if (minted > 0) setLbMinted(minted);
       } catch {}
     })();
