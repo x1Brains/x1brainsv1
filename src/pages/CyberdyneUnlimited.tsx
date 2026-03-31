@@ -5,6 +5,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 
 // ─── RESPONSIVE ──────────────────────────────────────────────────────────────
 function useIsMobile() {
@@ -451,6 +452,8 @@ function StatsBar({ citizens, health }: { citizens: Citizen[]; health: ApiHealth
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function CyberdyneUnlimited() {
   const isMobile = useIsMobile();
+  const navigate  = useNavigate();
+  const [navOpen, setNavOpen] = useState(false);
   const [citizens,    setCitizens]    = useState<Citizen[]>([]);
   const [leaderboard, setLeaderboard] = useState<Citizen[]>([]);
   const [filtered,    setFiltered]    = useState<Citizen[]>([]);
@@ -573,6 +576,59 @@ export default function CyberdyneUnlimited() {
       <div style={{ position:"fixed", top:0, left:0, right:0, height:2, background:"rgba(0,255,229,.08)", animation:"scan 8s linear infinite", pointerEvents:"none", zIndex:1 }} />
 
       <div style={{ position:"relative", zIndex:2, maxWidth:1200, margin:"0 auto", padding:isMobile?"20px 12px 60px":"36px 24px 80px" }}>
+
+        {/* ── TOP NAV BAR ── */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:isMobile?16:24 }}>
+          {/* Back button */}
+          <button
+            onClick={() => navigate(-1 as any)}
+            style={{ display:"flex", alignItems:"center", gap:6, background:"rgba(0,255,229,0.05)", border:"1px solid rgba(0,255,229,0.2)", borderRadius:7, padding:"7px 12px", cursor:"pointer", fontFamily:MONO, fontSize:9, color:"#00ffe5", letterSpacing:".15em", transition:"all 0.2s" }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,255,229,0.12)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,255,229,0.05)"; }}
+          >
+            ← BACK
+          </button>
+
+          {/* Menu dropdown */}
+          <div style={{ position:"relative" }}>
+            <button
+              onClick={() => setNavOpen(o => !o)}
+              style={{ display:"flex", alignItems:"center", gap:6, background:navOpen?"rgba(0,255,229,0.12)":"rgba(0,255,229,0.05)", border:"1px solid rgba(0,255,229,0.2)", borderRadius:7, padding:"7px 12px", cursor:"pointer", fontFamily:MONO, fontSize:9, color:"#00ffe5", letterSpacing:".15em", transition:"all 0.2s" }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,255,229,0.12)"; }}
+              onMouseLeave={e => { if (!navOpen) (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,255,229,0.05)"; }}
+            >
+              {navOpen ? "✕" : "☰"} MENU
+            </button>
+
+            {navOpen && (
+              <div style={{ position:"absolute", top:"calc(100% + 6px)", right:0, zIndex:100, background:"#070f15", border:"1px solid rgba(0,255,229,0.2)", borderRadius:8, minWidth:180, boxShadow:"0 8px 32px rgba(0,0,0,0.6)", overflow:"hidden" }}>
+                <div style={{ padding:"6px 10px 8px", borderBottom:"1px solid rgba(0,255,229,0.1)", marginBottom:4 }}>
+                  <span style={{ fontFamily:MONO, fontSize:7, color:"#5aabbf", letterSpacing:".3em" }}>NAVIGATE</span>
+                </div>
+                {[
+                  { icon:"🏠", label:"HOME",        route:"/",                  color:"#8aa0b8" },
+                  { icon:"💼", label:"PORTFOLIO",    route:"/portfolio",         color:"#00c98d" },
+                  { icon:"🧪", label:"LAB WORK",     route:"/labwork",           color:"#ffb700" },
+                  { icon:"⚔️", label:"CYBERDYNE",    route:"/cyberdyne",         color:"#00ffe5" },
+                  { icon:"🔥", label:"INCINERATOR",  route:"/incinerator-engine",color:"#ff8c00" },
+                  { icon:"🏆", label:"REWARDS",      route:"/rewards",           color:"#ffcc00" },
+                ].map(item => (
+                  <button
+                    key={item.route}
+                    onClick={() => { navigate(item.route); setNavOpen(false); }}
+                    style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", background:"transparent", border:"none", cursor:"pointer", width:"100%", transition:"all 0.15s", textAlign:"left" }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = `${item.color}18`; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+                  >
+                    <span style={{ fontSize:13 }}>{item.icon}</span>
+                    <span style={{ fontFamily:MONO, fontSize:9, color:item.color, letterSpacing:".15em", fontWeight:700 }}>{item.label}</span>
+                    {item.route === "/cyberdyne" && <span style={{ marginLeft:"auto", width:5, height:5, borderRadius:"50%", background:"#00ffe5", boxShadow:"0 0 6px #00ffe5" }} />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* ── HEADER ── */}
         <header style={{ textAlign:"center", marginBottom:40, animation:"fadeUp .5s ease" }}>
