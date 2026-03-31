@@ -555,11 +555,13 @@ const LabWork: FC = () => {
         const [statePda] = PublicKey.findProgramAddressSync([Buffer.from('lb_state')], LB_PROGRAM_ID);
         const info = await connection.getAccountInfo(statePda);
         if (!info?.data) return;
-        const data = info.data as Uint8Array;
-        // Read u64 LE at offset 104 using pure BigInt — same as MintLabWork parseGlobalState
+        // Force plain number array to avoid Buffer/Uint8Array byteOffset issues
+        const bytes = Array.from(info.data as Uint8Array);
+        // Read u64 LE at offset 104 — same as MintLabWork readU64LE
         let raw = 0n;
-        for (let i = 0; i < 8; i++) raw |= BigInt(data[104 + i]) << BigInt(i * 8);
-        setLbMinted(Number(raw) / 100); // LB has 2 decimals
+        for (let i = 0; i < 8; i++) raw |= BigInt(bytes[104 + i]) << BigInt(i * 8);
+        const minted = Number(raw) / 100; // LB has 2 decimals
+        if (minted > 0) setLbMinted(minted);
       } catch {}
     })();
   }, [connection]);

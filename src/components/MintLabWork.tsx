@@ -21,6 +21,7 @@ import {
   createWithdrawWithheldTokensFromAccountsInstruction,
   getTransferFeeAmount,
   unpackAccount,
+  getMint,
 } from '@solana/spl-token';
 import { BRAINS_MINT as BRAINS_MINT_STR, PLATFORM_WALLET_STRING } from '../constants';
 
@@ -302,31 +303,21 @@ const MintLabWork: FC = () => {
         connection.getParsedAccountInfo(XBLK_MINT_PK),
       ]);
 
-      // Real BRAINS burned = initial supply (8,880,000) - current circulating supply
-      // Use getParsedAccountInfo — proven reliable on X1 RPC
-      try {
-        const mintAcct = await connection.getParsedAccountInfo(BRAINS_MINT_PK);
-        const parsed   = (mintAcct?.value?.data as any)?.parsed?.info;
-        if (parsed?.supply !== undefined && parsed?.decimals !== undefined) {
-          // supply is a string — use BigInt to avoid float precision loss
-          const currentSupplyRaw = BigInt(parsed.supply);
-          const divisor          = BigInt(10 ** parsed.decimals);
-          const initialSupplyRaw = BigInt(BRAINS_INITIAL_SUPPLY) * divisor;
-          const burnedRaw        = initialSupplyRaw > currentSupplyRaw
-            ? initialSupplyRaw - currentSupplyRaw
-            : BigInt(0);
-          const burned = Number(burnedRaw) / Number(divisor);
+      // Real BRAINS burned — exact same logic as BurnHistory.tsx which works on X1
+      getMint(connection, BRAINS_MINT_PK, 'confirmed', TOKEN_2022_PROGRAM_ID)
+        .then(m => {
+          const burned = Math.max(0, BRAINS_INITIAL_SUPPLY - Number(m.supply) / Math.pow(10, m.decimals));
           if (burned > 0) setBrainsBurned(burned);
-        }
-      } catch { /* keep tier-math fallback from fetchGlobalState */ }
+        })
+        .catch(() => {});
 
-      // Fetch BRAINS price from XDEX
+      // Fetch BRAINS price — same endpoint as BurnLeaderboard which works
       try {
-        const priceRes = await fetch(`/api/xdex-price/api/xendex/token/price?network=mainnet&token=${BRAINS_MINT_STR}`,
-          { signal: AbortSignal.timeout(4000) });
+        const priceRes = await fetch(`/api/xdex-price/api/token-price/price?network=mainnet&address=${BRAINS_MINT_STR}`,
+          { signal: AbortSignal.timeout(6000) });
         if (priceRes.ok) {
-          const priceData = await priceRes.json();
-          const p = priceData?.price ?? priceData?.priceUsd ?? priceData?.data?.price ?? null;
+          const d = await priceRes.json();
+          const p = d?.price ?? d?.data?.price ?? (typeof d === 'number' ? d : null);
           if (p && Number(p) > 0) setBrainsPrice(Number(p));
         }
       } catch { /* price optional */ }
