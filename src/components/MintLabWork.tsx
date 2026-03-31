@@ -18,6 +18,10 @@ import {
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountInstruction,
   getAccount,
+  createWithdrawWithheldTokensFromAccountsInstruction,
+  getTransferFeeAmount,
+  unpackAccount,
+  getMint,
 } from '@solana/spl-token';
 import { BRAINS_MINT as BRAINS_MINT_STR, PLATFORM_WALLET_STRING } from '../constants';
 
@@ -293,22 +297,27 @@ const MintLabWork: FC = () => {
   // Xenblocks burned = tracked via treasury ATA balances (50% burn, 50% treasury)
   const fetchBurnStats = useCallback(async () => {
     try {
-      const [brainsMint, xnmMint, xuniMint, xblkMint] = await Promise.allSettled([
-        connection.getParsedAccountInfo(BRAINS_MINT_PK),
+      const [xnmMint, xuniMint, xblkMint] = await Promise.allSettled([
         connection.getParsedAccountInfo(XNM_MINT_PK),
         connection.getParsedAccountInfo(XUNI_MINT_PK),
         connection.getParsedAccountInfo(XBLK_MINT_PK),
       ]);
 
       // Real BRAINS burned = initial supply (8,880,000) - current circulating supply
-      if (brainsMint.status === 'fulfilled') {
-        const info = (brainsMint.value?.value?.data as any)?.parsed?.info;
-        if (info?.supply !== undefined && info?.decimals !== undefined) {
-          const currentSupply = Number(info.supply) / Math.pow(10, info.decimals);
-          const burned = Math.max(0, BRAINS_INITIAL_SUPPLY - currentSupply);
-          setBrainsBurned(burned);
-        }
-      }
+      // Use getMint for precise BigInt supply reading — avoids JS float precision loss
+      try {
+        const mintInfo = await getMint(connection, BRAINS_MINT_PK, 'confirmed', TOKEN_2022_PROGRAM_ID);
+        const decimals = mintInfo.decimals; // 9
+        const divisor  = BigInt(10 ** decimals);
+        const currentSupplyRaw = mintInfo.supply; // BigInt
+        const initialSupplyRaw = BigInt(BRAINS_INITIAL_SUPPLY) * divisor;
+        const burnedRaw = initialSupplyRaw > currentSupplyRaw
+          ? initialSupplyRaw - currentSupplyRaw
+          : BigInt(0);
+        // Convert back to human-readable (with decimals)
+        const burnedHuman = Number(burnedRaw) / Number(divisor);
+        setBrainsBurned(burnedHuman);
+      } catch { /* fallback to tier math already set by fetchGlobalState */ }
 
       // Fetch BRAINS price from XDEX
       try {
@@ -425,6 +434,46 @@ const MintLabWork: FC = () => {
 
       // Collect all instructions
       const ixs: TransactionInstruction[] = [];
+
+      // ── Opportunistic fee sweep (Option C) ────────────────────────────────
+      // On every mint, check for BRAINS ATAs with withheld transfer fees
+      // and sweep up to 5 of them to treasury in the same transaction.
+      // Non-blocking — if this fails we skip it and mint continues normally.
+      try {
+        const treasuryBrainsAta = getAssociatedTokenAddressSync(
+          BRAINS_MINT_PK, treasuryPk, false, TOKEN_2022
+        );
+        // Fetch up to 30 BRAINS ATAs, filter to those with withheld fees > 0
+        const ataAccounts = await connection.getProgramAccounts(TOKEN_2022, {
+          filters: [{ memcmp: { offset: 0, bytes: BRAINS_MINT_PK.toBase58() } }],
+        });
+        const withFees: PublicKey[] = [];
+        for (const { pubkey, account } of ataAccounts) {
+          if (withFees.length >= 5) break; // max 5 per tx to keep tx size small
+          try {
+            const unpacked = unpackAccount(pubkey, account, TOKEN_2022);
+            const feeAmt   = getTransferFeeAmount(unpacked);
+            if (feeAmt && feeAmt.withheldAmount > BigInt(0)) withFees.push(pubkey);
+          } catch { continue; }
+        }
+        if (withFees.length > 0) {
+          // withdrawWithheldAuthority = mint authority wallet (2nVaSvCq...)
+          // This requires the mint authority to sign — but in browser the USER signs.
+          // So we only add this if the connected wallet IS the mint authority.
+          // Otherwise skip silently — cron handles it.
+          const MINT_AUTH = '2nVaSvCqrsdskcbtn47uquNDL7Q69To1k45FpYBvWnuC';
+          if (publicKey.toBase58() === MINT_AUTH) {
+            ixs.push(createWithdrawWithheldTokensFromAccountsInstruction(
+              BRAINS_MINT_PK,
+              treasuryBrainsAta,
+              publicKey,   // withdrawWithheldAuthority = mint auth wallet
+              [],
+              withFees,
+              TOKEN_2022,
+            ));
+          }
+        }
+      } catch { /* sweep is optional — never block the mint */ }
 
       // Compute budget — ensures enough CU for Token-2022 transfer fee CPIs
       ixs.push(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));

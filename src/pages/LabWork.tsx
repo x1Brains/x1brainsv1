@@ -556,10 +556,11 @@ const LabWork: FC = () => {
         const info = await connection.getAccountInfo(statePda);
         if (!info?.data) return;
         const data = info.data as Uint8Array;
-        // Read u64 LE at offset 104 using DataView for precision
-        const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-        const raw = view.getBigUint64(104, true);
-        setLbMinted(Number(raw) / 100); // 2 decimals
+        // Read u64 LE at offset 104 — use data directly as a fresh buffer to avoid byteOffset issues
+        const slice = data.slice(104, 112); // extract exactly 8 bytes
+        const view  = new DataView(slice.buffer, slice.byteOffset, 8);
+        const raw   = view.getBigUint64(0, true);
+        setLbMinted(Number(raw) / 100); // LB has 2 decimals
       } catch {}
     })();
   }, [connection]);
