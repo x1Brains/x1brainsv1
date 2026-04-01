@@ -572,7 +572,6 @@ const MintLabWork: FC = () => {
             {/* Burn stats strip */}
             <div style={{ display:'flex', gap:0, background:'rgba(255,50,50,.04)', border:'1px solid rgba(255,100,100,.1)', borderRadius:10, overflow:'hidden' }}>
               {[
-                { label:'BRAINS BURNED', value: mintedTotal > 0 ? '~' + fmt(Math.round(mintedTotal * 8)) + '+' : '—', col:'#ff6a6a' },
                 { label:'XNM BURNED',    value: xnmBurned  !== null ? fmt(xnmBurned)  : '—', col:'#7a9ab8' },
                 { label:'XUNI BURNED',   value: xuniBurned !== null ? fmt(xuniBurned) : '—', col:'#7a9ab8' },
                 { label:'XBLK BURNED',   value: xblkBurned !== null ? xblkBurned.toFixed(1) : '—', col:'#7a9ab8' },
