@@ -611,28 +611,16 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
 
             {/* Burn stats strip */}
             {(() => {
-              const burnedVal = globalBrainsBurned ?? null;
-              const burnedUsd = burnedVal != null && globalBrainsPrice ? burnedVal * globalBrainsPrice : null;
-              const fmtUsd = (v: number) => v >= 1_000_000 ? `$${(v/1_000_000).toFixed(2)}M` : v >= 1_000 ? `$${(v/1_000).toFixed(1)}K` : `$${v.toFixed(2)}`;
               return (
                 <div style={{ display:'flex', gap:0, background:'rgba(255,50,50,.04)', border:'1px solid rgba(255,100,100,.1)', borderRadius:10, overflow:'hidden' }}>
                   {[
-                    {
-                      label: 'BRAINS BURNED',
-                      value: burnedVal != null ? fmt(Math.round(burnedVal)) : '—',
-                      sub:   burnedUsd != null ? fmtUsd(burnedUsd) : null,
-                      col:   '#ff6a6a',
-                    },
-                    { label:'XNM BURNED',  value: xnmBurned  !== null ? fmt(xnmBurned)          : '—', sub:null, col:'#7a9ab8' },
-                    { label:'XUNI BURNED', value: xuniBurned !== null ? fmt(xuniBurned)          : '—', sub:null, col:'#7a9ab8' },
-                    { label:'XBLK BURNED', value: xblkBurned !== null ? xblkBurned.toFixed(1)   : '—', sub:null, col:'#7a9ab8' },
-                  ].map(({ label, value, sub, col }, i, arr) => (
+                    { label:'XNM BURNED',  value: xnmBurned  !== null ? fmt(xnmBurned)        : '—', col:'#7a9ab8' },
+                    { label:'XUNI BURNED', value: xuniBurned !== null ? fmt(xuniBurned)        : '—', col:'#7a9ab8' },
+                    { label:'XBLK BURNED', value: xblkBurned !== null ? xblkBurned.toFixed(1) : '—', col:'#7a9ab8' },
+                  ].map(({ label, value, col }, i, arr) => (
                     <React.Fragment key={label}>
                       <div style={{ flex:1, textAlign:'center', padding: isMobile ? '6px 4px' : '8px 6px' }}>
                         <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 10 : 12, fontWeight:900, color:col, lineHeight:1, marginBottom:2 }}>{value}</div>
-                        {sub && (
-                          <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 7 : 9, fontWeight:700, color:'#39ff88', marginBottom:2, textShadow:'0 0 6px rgba(57,255,136,.3)' }}>{sub}</div>
-                        )}
                         <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 6, color:'#6a8aaa', letterSpacing:1 }}>🔥 {label}</div>
                       </div>
                       {i < arr.length - 1 && <div style={{ width:1, alignSelf:'stretch', background:'rgba(255,255,255,.06)' }} />}
