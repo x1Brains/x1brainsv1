@@ -8,19 +8,14 @@
 import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import {
-  PublicKey, LAMPORTS_PER_SOL,
+  PublicKey, LAMPORTS_PER_SOL, Transaction,
   TransactionInstruction, SystemProgram,
-  TransactionMessage, VersionedTransaction,
-  ComputeBudgetProgram,
 } from '@solana/web3.js';
 import {
   TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountInstruction,
   getAccount,
-  createWithdrawWithheldTokensFromAccountsInstruction,
-  getTransferFeeAmount,
-  unpackAccount,
 } from '@solana/spl-token';
 import { BRAINS_MINT as BRAINS_MINT_STR, PLATFORM_WALLET_STRING } from '../constants';
 
@@ -170,13 +165,11 @@ const TierBar: FC<{
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 
-interface MintReceipt {
-  sig: string; lbOut: number; brainsCost: number; xntCost: number;
-  xnmAmt: number; xuniAmt: number; xblkAmt: number; isCombo: boolean;
-}
-
-const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: number | null }> = ({ globalBrainsBurned, globalBrainsPrice }) => {
-  const { publicKey, sendTransaction } = useWallet();
+const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: number | null }> = ({
+  globalBrainsBurned,
+  globalBrainsPrice,
+}) => {
+  const { publicKey, signTransaction } = useWallet();
   const { connection } = useConnection();
   const isMobile = useIsMobile();
 
@@ -184,14 +177,11 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
   const [mintedTotal,  setMintedTotal]  = useState(0);
   const [paused,       setPaused]       = useState(false);
 
-  // Burn stats — globalBrainsBurned and globalBrainsPrice come from LabWork parent via props
-  // Xenblocks burned still fetched internally from treasury ATAs
-  const brainsBurned = globalBrainsBurned ?? null;
-  const brainsPrice  = globalBrainsPrice  ?? null;
+  // Burn stats — fetched from on-chain token supply
+  const [brainsBurned, setBrainsBurned] = useState<number | null>(null);
   const [xnmBurned,    setXnmBurned]    = useState<number | null>(null);
   const [xuniBurned,   setXuniBurned]   = useState<number | null>(null);
   const [xblkBurned,   setXblkBurned]   = useState<number | null>(null);
-  const BRAINS_INITIAL_SUPPLY = 8_880_000;
 
   // Tier rates hardcoded — match program constants exactly
   const tierRates = [
@@ -216,7 +206,6 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
   const [xblkAmount,   setXblkAmount]   = useState(0);
   const [activeTab,    setActiveTab]    = useState<'mint' | 'tiers' | 'info' | 'amplifier'>('mint');
   const [status,       setStatus]       = useState('');
-  const [mintReceipt,  setMintReceipt]  = useState<MintReceipt | null>(null);
   const [pending,      setPending]      = useState(false);
 
   // ── Derived ──────────────────────────────────────────────────────
@@ -277,8 +266,14 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
 
       // BRAINS burned = total LB minted * brains_per_lb (Tier 1 = 8, but we use total_minted * avg)
       // Simpler: read from BRAINS mint supply change isn't easy, so just show total LB * 8 as min
-      // BRAINS burned is handled by standalone useEffect below
-      // using getParsedAccountInfo for the real on-chain total
+      // Actually we can compute: brains burned = sum across tiers
+      // For now show based on total_minted and current tier
+      const lb = parsed.totalMinted;
+      const t1 = Math.min(lb, 25000);
+      const t2 = Math.min(Math.max(lb - 25000, 0), 25000);
+      const t3 = Math.min(Math.max(lb - 50000, 0), 25000);
+      const t4 = Math.max(lb - 75000, 0);
+      setBrainsBurned(t1*8 + t2*18 + t3*26 + t4*33);
     } catch {}
   }, [connection]);
 
@@ -291,15 +286,29 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
   // Xenblocks burned = tracked via treasury ATA balances (50% burn, 50% treasury)
   const fetchBurnStats = useCallback(async () => {
     try {
-      const [xnmMint, xuniMint, xblkMint] = await Promise.allSettled([
+      const [brainsMint, xnmMint, xuniMint, xblkMint] = await Promise.allSettled([
+        connection.getParsedAccountInfo(BRAINS_MINT_PK),
         connection.getParsedAccountInfo(XNM_MINT_PK),
         connection.getParsedAccountInfo(XUNI_MINT_PK),
         connection.getParsedAccountInfo(XBLK_MINT_PK),
       ]);
 
-      // Real BRAINS burned handled by dedicated useEffect below
-
-      // Price handled by parent LabWork via globalBrainsPrice prop
+      // BRAINS burned = mintedTotal * avg_brains_per_lb
+      // Simpler: read it from total_minted * current tier brains — but that changes per tier
+      // Best: derive from LB minted × weighted avg — instead just show total BRAINS burned
+      // We compute it as: minted LB × brains cost (from tiers)
+      // For now read treasury XNT balance as proxy + show LB minted as primary stat
+      // Actual BRAINS burned: since each LB costs 8-33 BRAINS, derive from supply diff
+      // BRAINS: read current supply from mint — burned = original_supply - current_supply
+      // Since we don't store original supply, use parsed supply change approach
+      if (brainsMint.status === 'fulfilled') {
+        const info = (brainsMint.value?.value?.data as any)?.parsed?.info;
+        if (info?.supply && info?.decimals !== undefined) {
+          // We can't know original supply without a snapshot
+          // Best proxy: sum from GlobalState total_minted * weighted avg brains/LB
+          // Leave brainsBurned as null — it's set from mintedTotal in the main component
+        }
+      }
 
       // 50/50 split: treasury holds exactly what was burned.
       // So burned amount = treasury ATA balance for each asset.
@@ -381,11 +390,10 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
 
   // ── Mint handler ─────────────────────────────────────────────────
   const handleMint = useCallback(async () => {
-    if (!publicKey || !sendTransaction) return;
+    if (!publicKey || !signTransaction) return;
     if (!canAfford) { setStatus('❌ Insufficient balance.'); return; }
     if (paused) { setStatus('❌ Minting is currently paused.'); return; }
 
-    setMintReceipt(null);
     setPending(true);
     setStatus('Preparing mint…');
 
@@ -401,69 +409,28 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
       const buyerLbAta     = getAssociatedTokenAddressSync(lbMintPda,      publicKey,  false, TOKEN_2022);
       const treasuryLbAta  = getAssociatedTokenAddressSync(lbMintPda,      treasuryPk, false, TOKEN_2022);
 
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-
-      // Collect all instructions
-      const ixs: TransactionInstruction[] = [];
-
-      // ── Opportunistic fee sweep (Option C) ────────────────────────────────
-      // On every mint, check for BRAINS ATAs with withheld transfer fees
-      // and sweep up to 5 of them to treasury in the same transaction.
-      // Non-blocking — if this fails we skip it and mint continues normally.
-      try {
-        const treasuryBrainsAta = getAssociatedTokenAddressSync(
-          BRAINS_MINT_PK, treasuryPk, false, TOKEN_2022
-        );
-        // Fetch up to 30 BRAINS ATAs, filter to those with withheld fees > 0
-        const ataAccounts = await connection.getProgramAccounts(TOKEN_2022, {
-          filters: [{ memcmp: { offset: 0, bytes: BRAINS_MINT_PK.toBase58() } }],
-        });
-        const withFees: PublicKey[] = [];
-        for (const { pubkey, account } of ataAccounts) {
-          if (withFees.length >= 5) break; // max 5 per tx to keep tx size small
-          try {
-            const unpacked = unpackAccount(pubkey, account, TOKEN_2022);
-            const feeAmt   = getTransferFeeAmount(unpacked);
-            if (feeAmt && feeAmt.withheldAmount > BigInt(0)) withFees.push(pubkey);
-          } catch { continue; }
-        }
-        if (withFees.length > 0) {
-          // withdrawWithheldAuthority = mint authority wallet (2nVaSvCq...)
-          // This requires the mint authority to sign — but in browser the USER signs.
-          // So we only add this if the connected wallet IS the mint authority.
-          // Otherwise skip silently — cron handles it.
-          const MINT_AUTH = '2nVaSvCqrsdskcbtn47uquNDL7Q69To1k45FpYBvWnuC';
-          if (publicKey.toBase58() === MINT_AUTH) {
-            ixs.push(createWithdrawWithheldTokensFromAccountsInstruction(
-              BRAINS_MINT_PK,
-              treasuryBrainsAta,
-              publicKey,   // withdrawWithheldAuthority = mint auth wallet
-              [],
-              withFees,
-              TOKEN_2022,
-            ));
-          }
-        }
-      } catch { /* sweep is optional — never block the mint */ }
-
-      // Compute budget — ensures enough CU for Token-2022 transfer fee CPIs
-      ixs.push(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
+      const { blockhash } = await connection.getLatestBlockhash('confirmed');
+      const tx = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash });
 
       // Create buyer LB ATA if needed
       try { await getAccount(connection, buyerLbAta, 'confirmed', TOKEN_2022); }
-      catch { ixs.push(createAssociatedTokenAccountInstruction(publicKey, buyerLbAta, publicKey, lbMintPda, TOKEN_2022)); }
+      catch { tx.add(createAssociatedTokenAccountInstruction(publicKey, buyerLbAta, publicKey, lbMintPda, TOKEN_2022)); }
 
       // Create treasury LB ATA if needed
       try { await getAccount(connection, treasuryLbAta, 'confirmed', TOKEN_2022); }
-      catch { ixs.push(createAssociatedTokenAccountInstruction(publicKey, treasuryLbAta, treasuryPk, lbMintPda, TOKEN_2022)); }
+      catch { tx.add(createAssociatedTokenAccountInstruction(publicKey, treasuryLbAta, treasuryPk, lbMintPda, TOKEN_2022)); }
 
       if (!useAmplifier) {
         // ── mint_lb ──────────────────────────────────────────────────
+        // NOTE: Do NOT add SystemProgram.transfer for XNT.
+        // The program handles the XNT fee internally.
         const data = Buffer.concat([
           Buffer.from(DISC_MINT_LB),
-          encodeU64LE(brainsCost),
+          encodeU64LE(brainsCost), // whole BRAINS — program multiplies by decimals internally
         ]);
-        ixs.push(new TransactionInstruction({
+
+        // Account order must match MintLb<'info> struct exactly
+        tx.add(new TransactionInstruction({
           programId,
           keys: [
             { pubkey: publicKey,               isSigner: true,  isWritable: true  }, // 0  buyer
@@ -483,6 +450,7 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
 
       } else {
         // ── combo_mint_lb ─────────────────────────────────────────────
+        // All Xenblocks tokens are Token-2022
         const buyerXnmAta     = getAssociatedTokenAddressSync(XNM_MINT_PK,  publicKey,  false, TOKEN_2022);
         const buyerXuniAta    = getAssociatedTokenAddressSync(XUNI_MINT_PK, publicKey,  false, TOKEN_2022);
         const buyerXblkAta    = getAssociatedTokenAddressSync(XBLK_MINT_PK, publicKey,  false, TOKEN_2022);
@@ -490,16 +458,17 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
         const treasuryXuniAta = getAssociatedTokenAddressSync(XUNI_MINT_PK, treasuryPk, false, TOKEN_2022);
         const treasuryXblkAta = getAssociatedTokenAddressSync(XBLK_MINT_PK, treasuryPk, false, TOKEN_2022);
 
-        // Create treasury Xenblocks ATAs if needed
+        // Create treasury Xenblocks ATAs if needed (Token-2022)
         for (const [mint, ata, owner] of [
           [XNM_MINT_PK,  treasuryXnmAta,  treasuryPk],
           [XUNI_MINT_PK, treasuryXuniAta, treasuryPk],
           [XBLK_MINT_PK, treasuryXblkAta, treasuryPk],
         ] as [PublicKey, PublicKey, PublicKey][]) {
           try { await getAccount(connection, ata, 'confirmed', TOKEN_2022); }
-          catch { ixs.push(createAssociatedTokenAccountInstruction(publicKey, ata, owner, mint, TOKEN_2022)); }
+          catch { tx.add(createAssociatedTokenAccountInstruction(publicKey, ata, owner, mint, TOKEN_2022)); }
         }
 
+        // combo_mint_lb args: brains, xnm, xuni, xblk (all u64 LE, whole units)
         const data = Buffer.concat([
           Buffer.from(DISC_COMBO_MINT_LB),
           encodeU64LE(brainsCost),
@@ -508,7 +477,8 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
           encodeU64LE(xblkAmount),
         ]);
 
-        ixs.push(new TransactionInstruction({
+        // Account order must match ComboMintLb<'info> struct exactly
+        tx.add(new TransactionInstruction({
           programId,
           keys: [
             { pubkey: publicKey,               isSigner: true,  isWritable: true  }, // 0  buyer
@@ -536,22 +506,10 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
         }));
       }
 
-      // Build versioned transaction (v0) — better compatibility with Backpack mobile
-      const message = new TransactionMessage({
-        payerKey:    publicKey,
-        recentBlockhash: blockhash,
-        instructions: ixs,
-      }).compileToV0Message();
-
-      const vtx = new VersionedTransaction(message);
-
       setStatus('Awaiting wallet approval…');
-      // sendTransaction with skipPreflight bypasses Backpack mobile's internal
-      // Token-2022 simulation which incorrectly rejects transfer fee CPIs (0xbc4).
-      const sig = await sendTransaction(vtx, connection, {
-        skipPreflight: true,
-        maxRetries: 3,
-        preflightCommitment: 'confirmed',
+      const signed = await signTransaction(tx);
+      const sig    = await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: false, maxRetries: 3, preflightCommitment: 'confirmed',
       });
 
       setStatus('Confirming…');
@@ -563,14 +521,7 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
         if (conf === 'confirmed' || conf === 'finalized') break;
       }
 
-      setStatus('✅');
-      setMintReceipt({
-        sig, lbOut, brainsCost, xntCost,
-        xnmAmt: useAmplifier ? xnmAmount : 0,
-        xuniAmt: useAmplifier ? xuniAmount : 0,
-        xblkAmt: useAmplifier ? xblkAmount : 0,
-        isCombo: useAmplifier,
-      });
+      setStatus(`✅ Minted ${fmt(lbOut)} LB! <a href="https://explorer.mainnet.x1.xyz/tx/${sig}" target="_blank" rel="noopener" style="color:#00d4ff;text-decoration:underline">View Tx ↗</a>`);
 
       // Refresh everything after 2s for chain to settle
       setTimeout(() => {
@@ -582,7 +533,7 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
     } catch (e: any) {
       setStatus(`❌ ${e?.message?.slice(0, 120) ?? 'Transaction failed'}`);
     } finally { setPending(false); }
-  }, [publicKey, sendTransaction, canAfford, paused, amount, brainsCost, xntCost,
+  }, [publicKey, signTransaction, canAfford, paused, amount, brainsCost, xntCost,
       useAmplifier, xnmAmount, xuniAmount, xblkAmount, lbOut, fetchGlobalState, fetchBalances, fetchBurnStats, connection]);
 
   // ─────────────────────────────────────────────────────────────────
@@ -659,28 +610,37 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
             </div>
 
             {/* Burn stats strip */}
-            <div style={{ display:'flex', gap:0, background:'rgba(255,50,50,.04)', border:'1px solid rgba(255,100,100,.1)', borderRadius:10, overflow:'hidden' }}>
-              {[
-                {
-                  label: 'BRAINS BURNED',
-                  value: brainsBurned !== null ? fmt(Math.round(brainsBurned)) : '—',
-                  sub:   brainsBurned !== null && brainsPrice !== null ? `$${(brainsBurned * brainsPrice).toLocaleString(undefined, { maximumFractionDigits: 0 })} USD` : null,
-                  col:   '#ff6a6a',
-                },
-                { label:'XNM BURNED',    value: xnmBurned  !== null ? fmt(xnmBurned)              : '—', sub: null, col:'#7a9ab8' },
-                { label:'XUNI BURNED',   value: xuniBurned !== null ? fmt(xuniBurned)             : '—', sub: null, col:'#7a9ab8' },
-                { label:'XBLK BURNED',   value: xblkBurned !== null ? xblkBurned.toFixed(1)       : '—', sub: null, col:'#7a9ab8' },
-              ].map(({ label, value, sub, col }, i, arr) => (
-                <React.Fragment key={label}>
-                  <div style={{ flex:1, textAlign:'center', padding: isMobile ? '6px 4px' : '8px 6px' }}>
-                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 10 : 12, fontWeight:900, color:col, lineHeight:1, marginBottom: sub ? 1 : 2 }}>{value}</div>
-                    {sub && <div style={{ fontFamily:'Sora,sans-serif', fontSize: isMobile ? 7 : 8, color:'#00c98d', marginBottom:1 }}>{sub}</div>}
-                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 6, color:'#6a8aaa', letterSpacing:1 }}>🔥 {label}</div>
-                  </div>
-                  {i < arr.length - 1 && <div style={{ width:1, alignSelf:'stretch', background:'rgba(255,255,255,.06)' }} />}
-                </React.Fragment>
-              ))}
-            </div>
+            {(() => {
+              const burnedVal = globalBrainsBurned ?? null;
+              const burnedUsd = burnedVal != null && globalBrainsPrice ? burnedVal * globalBrainsPrice : null;
+              const fmtUsd = (v: number) => v >= 1_000_000 ? `$${(v/1_000_000).toFixed(2)}M` : v >= 1_000 ? `$${(v/1_000).toFixed(1)}K` : `$${v.toFixed(2)}`;
+              return (
+                <div style={{ display:'flex', gap:0, background:'rgba(255,50,50,.04)', border:'1px solid rgba(255,100,100,.1)', borderRadius:10, overflow:'hidden' }}>
+                  {[
+                    {
+                      label: 'BRAINS BURNED',
+                      value: burnedVal != null ? fmt(Math.round(burnedVal)) : '—',
+                      sub:   burnedUsd != null ? fmtUsd(burnedUsd) : null,
+                      col:   '#ff6a6a',
+                    },
+                    { label:'XNM BURNED',  value: xnmBurned  !== null ? fmt(xnmBurned)          : '—', sub:null, col:'#7a9ab8' },
+                    { label:'XUNI BURNED', value: xuniBurned !== null ? fmt(xuniBurned)          : '—', sub:null, col:'#7a9ab8' },
+                    { label:'XBLK BURNED', value: xblkBurned !== null ? xblkBurned.toFixed(1)   : '—', sub:null, col:'#7a9ab8' },
+                  ].map(({ label, value, sub, col }, i, arr) => (
+                    <React.Fragment key={label}>
+                      <div style={{ flex:1, textAlign:'center', padding: isMobile ? '6px 4px' : '8px 6px' }}>
+                        <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 10 : 12, fontWeight:900, color:col, lineHeight:1, marginBottom:2 }}>{value}</div>
+                        {sub && (
+                          <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 7 : 9, fontWeight:700, color:'#39ff88', marginBottom:2, textShadow:'0 0 6px rgba(57,255,136,.3)' }}>{sub}</div>
+                        )}
+                        <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 6, color:'#6a8aaa', letterSpacing:1 }}>🔥 {label}</div>
+                      </div>
+                      {i < arr.length - 1 && <div style={{ width:1, alignSelf:'stretch', background:'rgba(255,255,255,.06)' }} />}
+                    </React.Fragment>
+                  ))}
+                </div>
+              );
+            })()}
 
             {/* Active tier card */}
             <div style={{ background:`linear-gradient(135deg,rgba(${rgb},.08),rgba(255,255,255,.02))`, border:`1px solid ${c}44`, borderRadius:16, padding: isMobile ? '16px' : '20px 22px', position:'relative', overflow:'hidden' }}>
@@ -842,73 +802,14 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
               </div>
             )}
 
-            {/* Status / Receipt bar */}
-            {(status || mintReceipt) && (
-              <div style={{
-                borderRadius: 10, overflow: 'hidden',
-                background: mintReceipt ? 'rgba(0,201,141,.08)' : status.startsWith('❌') ? 'rgba(255,50,50,.08)' : 'rgba(191,90,242,.08)',
-                border: `1px solid ${mintReceipt ? 'rgba(0,201,141,.3)' : status.startsWith('❌') ? 'rgba(255,50,50,.25)' : 'rgba(191,90,242,.3)'}`,
-              }}>
-                {mintReceipt ? (
-                  <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {/* Top row — LB received + TX link */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 16 }}>✅</span>
-                        <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 900, color: '#00c98d', letterSpacing: 1 }}>
-                          +{fmt(mintReceipt.lbOut)} LB MINTED
-                        </span>
-                      </div>
-                      <a href={`https://explorer.mainnet.x1.xyz/tx/${mintReceipt.sig}`}
-                        target="_blank" rel="noopener noreferrer"
-                        style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#00d4ff',
-                          letterSpacing: 1.5, textDecoration: 'none', padding: '3px 9px', borderRadius: 5,
-                          border: '1px solid rgba(0,212,255,.3)', background: 'rgba(0,212,255,.08)' }}>
-                        VIEW TX ↗
-                      </a>
-                    </div>
-                    {/* Burn breakdown */}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#ff6644',
-                        padding: '2px 8px', borderRadius: 5, background: 'rgba(255,100,68,.08)', border: '1px solid rgba(255,100,68,.2)' }}>
-                        🔥 -{fmt(mintReceipt.brainsCost)} BRAINS
-                      </span>
-                      <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#00d4ff',
-                        padding: '2px 8px', borderRadius: 5, background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.2)' }}>
-                        💎 -{mintReceipt.xntCost.toFixed(4)} XNT
-                      </span>
-                      {mintReceipt.xnmAmt > 0 && (
-                        <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#ffaa33',
-                          padding: '2px 8px', borderRadius: 5, background: 'rgba(255,170,51,.08)', border: '1px solid rgba(255,170,51,.2)' }}>
-                          ⚡ -{fmt(mintReceipt.xnmAmt)} XNM → +{fmt(Math.floor(mintReceipt.xnmAmt / 1000))} LB
-                        </span>
-                      )}
-                      {mintReceipt.xuniAmt > 0 && (
-                        <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#bf5af2',
-                          padding: '2px 8px', borderRadius: 5, background: 'rgba(191,90,242,.08)', border: '1px solid rgba(191,90,242,.2)' }}>
-                          🔮 -{fmt(mintReceipt.xuniAmt)} XUNI → +{fmt(Math.floor(mintReceipt.xuniAmt / 500) * 4)} LB
-                        </span>
-                      )}
-                      {mintReceipt.xblkAmt > 0 && (
-                        <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#00c98d',
-                          padding: '2px 8px', borderRadius: 5, background: 'rgba(0,201,141,.08)', border: '1px solid rgba(0,201,141,.2)' }}>
-                          🧱 -{fmt(mintReceipt.xblkAmt)} XBLK → +{fmt(mintReceipt.xblkAmt * 8)} LB
-                        </span>
-                      )}
-                    </div>
-                    {/* TX sig */}
-                    <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#3a6050',
-                      wordBreak: 'break-all', lineHeight: 1.4 }}>
-                      {mintReceipt.sig}
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ padding: '10px 14px', fontFamily: 'Sora,sans-serif', fontSize: 11,
-                    color: status.startsWith('❌') ? '#ff6666' : '#bf5af2' }}>
-                    {status}
-                  </div>
-                )}
-              </div>
+            {/* Status */}
+            {status && (
+              <div style={{ padding:'10px 14px', borderRadius:10,
+                background: status.startsWith('✅') ? 'rgba(0,201,141,.08)' : status.startsWith('⏳') ? 'rgba(191,90,242,.08)' : 'rgba(255,50,50,.08)',
+                border:`1px solid ${status.startsWith('✅') ? 'rgba(0,201,141,.3)' : status.startsWith('⏳') ? 'rgba(191,90,242,.3)' : 'rgba(255,50,50,.25)'}`,
+                fontFamily:'Sora,sans-serif', fontSize:11,
+                color: status.startsWith('✅') ? '#00c98d' : status.startsWith('⏳') ? '#bf5af2' : '#ff6666' }}
+                dangerouslySetInnerHTML={{ __html: status }} />
             )}
 
             {/* Mint button */}
