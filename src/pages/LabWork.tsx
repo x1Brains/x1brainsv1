@@ -399,19 +399,32 @@ const LabWork: FC = () => {
   const [boosts,       setBoosts]       = useState<BoostRecord[]>([]);
   const [boostTarget,  setBoostTarget]  = useState<Listing | null>(null);
 
-
-  // Wallet stats for MY NFTs panel
-  const [brainsBalance,  setBrainsBalance]  = useState<number | null>(null);
-  const [brainsBurned,   setBrainsBurned]   = useState<number>(0);
-  const [labworkPtsTotal, setLabworkPtsTotal] = useState<number>(0);
-
-          if (!cancelled) { setNfts(enriched); setEnriching(false); setLoadLabel(''); }
+  // ── NFT wallet loader ────────────────────────────────────────────
+  useEffect(() => {
+    if (!publicKey || !connection) { setNfts([]); setLoading(false); return; }
+    let cancelled = false;
+    setLoading(true); setError(''); setNfts([]);
+    (async () => {
+      try {
+        setLoadLabel('Loading NFTs…');
+        const raw = await fetchWalletNFTs(connection, publicKey);
+        if (cancelled) return;
+        setNfts(raw); setLoading(false);
+        if (raw.length === 0) { setLoadLabel(''); return; }
+        setEnriching(true); setLoadLabel('Loading metadata…');
+        const enriched = await Promise.all(raw.map(n => enrichNFT(n).catch(() => n)));
+        if (!cancelled) { setNfts(enriched); setEnriching(false); setLoadLabel(''); }
       } catch (e: any) {
         if (!cancelled) { setError(e?.message ?? 'Failed to load NFTs'); setLoading(false); }
       }
     })();
     return () => { cancelled = true; };
   }, [publicKey?.toBase58()]);
+
+  // Wallet stats for MY NFTs panel
+  const [brainsBalance,  setBrainsBalance]  = useState<number | null>(null);
+  const [brainsBurned,   setBrainsBurned]   = useState<number>(0);
+  const [labworkPtsTotal, setLabworkPtsTotal] = useState<number>(0);
 
   // ── Wallet stats (BRAINS balance, burned, total lb pts) ─────────
   // Source of truth: walletBurnStats is populated by BurnedBrainsBar (runs on every page).
