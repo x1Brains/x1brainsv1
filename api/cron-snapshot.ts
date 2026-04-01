@@ -72,7 +72,7 @@ async function fetchWalletTokens(
       const accts = await connection.getParsedTokenAccountsByOwner(
         pubkey,
         { programId: new PublicKey(programId) },
-        { commitment: 'confirmed' },
+        { commitment: 'confirmed' as const },
       );
       for (const { account } of accts.value) {
         const info = account.data.parsed?.info;
@@ -190,7 +190,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ message: 'No wallets found', snapshots: 0 });
   }
 
-  const connection = new Connection(RPC_URL, { commitment: 'confirmed' });
+  const connection = new Connection(RPC_URL, { commitment: 'confirmed' as const });
   const results: { wallet: string; total_usd: number; tokens: number }[] = [];
   const failed: string[] = [];
 
