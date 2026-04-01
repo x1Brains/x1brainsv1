@@ -1,7 +1,6 @@
 import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { usePrice } from '../components/TokenComponents';
 import {
   PublicKey,
   SystemProgram,
@@ -401,48 +400,18 @@ const LabWork: FC = () => {
   const [boostTarget,  setBoostTarget]  = useState<Listing | null>(null);
 
 
-  // Global BRAINS burned — getTokenSupply works reliably on X1 RPC
-  const [globalBrainsBurned, setGlobalBrainsBurned] = useState<number | null>(null);
-  const globalBrainsPrice = (usePrice(BRAINS_MINT_STR) as number | null | undefined) ?? null;
-  useEffect(() => {
-    if (!connection) return;
-    connection.getTokenSupply(BRAINS_MINT_PK)
-      .then(res => {
-        const current = res?.value?.uiAmount;
-        if (current != null) {
-          const burned = Math.max(0, 8_880_000 - current);
-          if (burned > 0) setGlobalBrainsBurned(burned);
-        }
-      })
-      .catch(() => {});
-  }, [connection]);
+  // Wallet stats for MY NFTs panel
+  const [brainsBalance,  setBrainsBalance]  = useState<number | null>(null);
+  const [brainsBurned,   setBrainsBurned]   = useState<number>(0);
+  const [labworkPtsTotal, setLabworkPtsTotal] = useState<number>(0);
 
-  // ── NFT wallet loader ────────────────────────────────────────────
-  useEffect(() => {
-    if (!publicKey || !connection) { setNfts([]); setLoading(false); return; }
-    let cancelled = false;
-    setLoading(true); setError(''); setNfts([]);
-    (async () => {
-      try {
-        setLoadLabel('Loading NFTs…');
-        const raw = await fetchWalletNFTs(connection, publicKey);
-        if (cancelled) return;
-        setNfts(raw); setLoading(false);
-        if (raw.length === 0) { setLoadLabel(''); return; }
-        setEnriching(true); setLoadLabel('Loading metadata…');
-        const enriched = await Promise.all(raw.map(n => enrichNFT(n).catch(() => n)));
-        if (!cancelled) { setNfts(enriched); setEnriching(false); setLoadLabel(''); }
+          if (!cancelled) { setNfts(enriched); setEnriching(false); setLoadLabel(''); }
       } catch (e: any) {
         if (!cancelled) { setError(e?.message ?? 'Failed to load NFTs'); setLoading(false); }
       }
     })();
     return () => { cancelled = true; };
   }, [publicKey?.toBase58()]);
-
-  // Wallet stats for MY NFTs panel
-  const [brainsBalance,  setBrainsBalance]  = useState<number | null>(null);
-  const [brainsBurned,   setBrainsBurned]   = useState<number>(0);
-  const [labworkPtsTotal, setLabworkPtsTotal] = useState<number>(0);
 
   // ── Wallet stats (BRAINS balance, burned, total lb pts) ─────────
   // Source of truth: walletBurnStats is populated by BurnedBrainsBar (runs on every page).
@@ -1098,7 +1067,7 @@ const LabWork: FC = () => {
         {/* ════════════════════════════════════════════════════════
             MINT MODE
         ════════════════════════════════════════════════════════ */}
-        {pageMode === 'mint' && <MintLabWork globalBrainsBurned={globalBrainsBurned} globalBrainsPrice={globalBrainsPrice} />}
+        {pageMode === 'mint' && <MintLabWork />}
 
         {/* ════════════════════════════════════════════════════════
             GALLERY MODE
