@@ -653,10 +653,10 @@ const MintLabWork: FC = () => {
                 { label:'XENOBLOCKS USD BURNED', value: hasXenoUsd   ? fmtUsd(xenoTotalUsd)                  : '—', usd: null,                                          col:'#39ff88' },
               ];
               return (
-                <div style={{ display:'flex', gap:0, background:'rgba(255,50,50,.04)', border:'1px solid rgba(255,100,100,.1)', borderRadius:10, overflow:'hidden' }}>
+                <div style={{ display:'flex', gap:0, background:'rgba(255,50,50,.04)', border:'1px solid rgba(255,100,100,.1)', borderRadius:10, overflow:'hidden', alignItems:'stretch' }}>
                   {tiles.map(({ label, value, usd, col }, i, arr) => (
                     <React.Fragment key={label}>
-                      <div style={{ flex:1, textAlign:'center', padding: isMobile ? '6px 4px' : '8px 6px' }}>
+                      <div style={{ flex:1, textAlign:'center', padding: isMobile ? '6px 4px' : '8px 6px', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
                         <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 10 : 12, fontWeight:900, color:col, lineHeight:1, marginBottom:2 }}>{value}</div>
                         {usd && <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 7 : 8, fontWeight:700, color:'#39ff88', marginBottom:2, textShadow:'0 0 6px rgba(57,255,136,.3)' }}>{usd}</div>}
                         <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 6, color:'#6a8aaa', letterSpacing:1 }}>🔥 {label}</div>
