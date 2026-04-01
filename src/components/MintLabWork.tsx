@@ -264,17 +264,6 @@ const MintLabWork: FC = () => {
       fetchTreasuryBal(XNM_MINT_PK,  setXnmBurned);
       fetchTreasuryBal(XUNI_MINT_PK, setXuniBurned);
       fetchTreasuryBal(XBLK_MINT_PK, setXblkBurned);
-
-      // BRAINS burned = total LB minted * brains_per_lb (Tier 1 = 8, but we use total_minted * avg)
-      // Simpler: read from BRAINS mint supply change isn't easy, so just show total LB * 8 as min
-      // Actually we can compute: brains burned = sum across tiers
-      // For now show based on total_minted and current tier
-      const lb = parsed.totalMinted;
-      const t1 = Math.min(lb, 25000);
-      const t2 = Math.min(Math.max(lb - 25000, 0), 25000);
-      const t3 = Math.min(Math.max(lb - 50000, 0), 25000);
-      const t4 = Math.max(lb - 75000, 0);
-      setBrainsBurned(t1*8 + t2*18 + t3*26 + t4*33);
     } catch {}
   }, [connection]);
 
@@ -658,10 +647,10 @@ const MintLabWork: FC = () => {
               const hasXenoUsd   = xnmUsd != null || xuniUsd != null || xblkUsd != null;
               const tiles = [
                 { label:'BRAINS BURNED',   value: brainsBurned != null ? fmt(Math.round(brainsBurned)) : '—', usd: brainsUsd  != null ? fmtUsd(brainsUsd)  : null, col:'#ff6a6a' },
-                { label:'XNM BURNED',      value: xnmBurned    != null ? fmt(xnmBurned)                : '—', usd: xnmUsd    != null ? fmtUsd(xnmUsd)    : null, col:'#7a9ab8' },
-                { label:'XUNI BURNED',     value: xuniBurned   != null ? fmt(xuniBurned)               : '—', usd: xuniUsd   != null ? fmtUsd(xuniUsd)   : null, col:'#7a9ab8' },
-                { label:'XBLK BURNED',     value: xblkBurned   != null ? xblkBurned.toFixed(1)         : '—', usd: xblkUsd   != null ? fmtUsd(xblkUsd)   : null, col:'#7a9ab8' },
-                { label:'XENO USD BURNED', value: hasXenoUsd   ? fmtUsd(xenoTotalUsd)                  : '—', usd: null,                                          col:'#39ff88' },
+                { label:'XNM BURNED',      value: xnmBurned    != null ? fmt(xnmBurned)                : '—', usd: null,                                          col:'#7a9ab8' },
+                { label:'XUNI BURNED',     value: xuniBurned   != null ? fmt(xuniBurned)               : '—', usd: null,                                          col:'#7a9ab8' },
+                { label:'XBLK BURNED',     value: xblkBurned   != null ? xblkBurned.toFixed(1)         : '—', usd: null,                                          col:'#7a9ab8' },
+                { label:'XENOBLOCKS USD BURNED', value: hasXenoUsd   ? fmtUsd(xenoTotalUsd)                  : '—', usd: null,                                          col:'#39ff88' },
               ];
               return (
                 <div style={{ display:'flex', gap:0, background:'rgba(255,50,50,.04)', border:'1px solid rgba(255,100,100,.1)', borderRadius:10, overflow:'hidden' }}>
