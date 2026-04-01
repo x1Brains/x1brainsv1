@@ -165,10 +165,7 @@ const TierBar: FC<{
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 
-const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: number | null }> = ({
-  globalBrainsBurned,
-  globalBrainsPrice,
-}) => {
+const MintLabWork: FC = () => {
   const { publicKey, signTransaction } = useWallet();
   const { connection } = useConnection();
   const isMobile = useIsMobile();
@@ -178,7 +175,6 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
   const [paused,       setPaused]       = useState(false);
 
   // Burn stats — fetched from on-chain token supply
-  const [brainsBurned, setBrainsBurned] = useState<number | null>(null);
   const [xnmBurned,    setXnmBurned]    = useState<number | null>(null);
   const [xuniBurned,   setXuniBurned]   = useState<number | null>(null);
   const [xblkBurned,   setXblkBurned]   = useState<number | null>(null);
@@ -265,15 +261,6 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
       fetchTreasuryBal(XBLK_MINT_PK, setXblkBurned);
 
       // BRAINS burned = total LB minted * brains_per_lb (Tier 1 = 8, but we use total_minted * avg)
-      // Simpler: read from BRAINS mint supply change isn't easy, so just show total LB * 8 as min
-      // Actually we can compute: brains burned = sum across tiers
-      // For now show based on total_minted and current tier
-      const lb = parsed.totalMinted;
-      const t1 = Math.min(lb, 25000);
-      const t2 = Math.min(Math.max(lb - 25000, 0), 25000);
-      const t3 = Math.min(Math.max(lb - 50000, 0), 25000);
-      const t4 = Math.max(lb - 75000, 0);
-      setBrainsBurned(t1*8 + t2*18 + t3*26 + t4*33);
     } catch {}
   }, [connection]);
 
@@ -286,32 +273,6 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
   // Xenblocks burned = tracked via treasury ATA balances (50% burn, 50% treasury)
   const fetchBurnStats = useCallback(async () => {
     try {
-      const [brainsMint, xnmMint, xuniMint, xblkMint] = await Promise.allSettled([
-        connection.getParsedAccountInfo(BRAINS_MINT_PK),
-        connection.getParsedAccountInfo(XNM_MINT_PK),
-        connection.getParsedAccountInfo(XUNI_MINT_PK),
-        connection.getParsedAccountInfo(XBLK_MINT_PK),
-      ]);
-
-      // BRAINS burned = mintedTotal * avg_brains_per_lb
-      // Simpler: read it from total_minted * current tier brains — but that changes per tier
-      // Best: derive from LB minted × weighted avg — instead just show total BRAINS burned
-      // We compute it as: minted LB × brains cost (from tiers)
-      // For now read treasury XNT balance as proxy + show LB minted as primary stat
-      // Actual BRAINS burned: since each LB costs 8-33 BRAINS, derive from supply diff
-      // BRAINS: read current supply from mint — burned = original_supply - current_supply
-      // Since we don't store original supply, use parsed supply change approach
-      if (brainsMint.status === 'fulfilled') {
-        const info = (brainsMint.value?.value?.data as any)?.parsed?.info;
-        if (info?.supply && info?.decimals !== undefined) {
-          // We can't know original supply without a snapshot
-          // Best proxy: sum from GlobalState total_minted * weighted avg brains/LB
-          // Leave brainsBurned as null — it's set from mintedTotal in the main component
-        }
-      }
-
-      // 50/50 split: treasury holds exactly what was burned.
-      // So burned amount = treasury ATA balance for each asset.
       const treasuryPk = new PublicKey(TREASURY_WALLET);
       const TOKEN_2022_PK = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
       const getAta = (mint: PublicKey) => getAssociatedTokenAddressSync(mint, treasuryPk, false, TOKEN_2022_PK);
@@ -527,14 +488,13 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
       setTimeout(() => {
         fetchBalances();
         fetchGlobalState();
-        fetchBurnStats();
       }, 2000);
 
     } catch (e: any) {
       setStatus(`❌ ${e?.message?.slice(0, 120) ?? 'Transaction failed'}`);
     } finally { setPending(false); }
   }, [publicKey, signTransaction, canAfford, paused, amount, brainsCost, xntCost,
-      useAmplifier, xnmAmount, xuniAmount, xblkAmount, lbOut, fetchGlobalState, fetchBalances, fetchBurnStats, connection]);
+      useAmplifier, xnmAmount, xuniAmount, xblkAmount, lbOut, fetchGlobalState, fetchBalances, connection]);
 
   // ─────────────────────────────────────────────────────────────────
   // RENDER
@@ -610,25 +570,22 @@ const MintLabWork: FC<{ globalBrainsBurned?: number | null; globalBrainsPrice?: 
             </div>
 
             {/* Burn stats strip */}
-            {(() => {
-              return (
-                <div style={{ display:'flex', gap:0, background:'rgba(255,50,50,.04)', border:'1px solid rgba(255,100,100,.1)', borderRadius:10, overflow:'hidden' }}>
-                  {[
-                    { label:'XNM BURNED',  value: xnmBurned  !== null ? fmt(xnmBurned)        : '—', col:'#7a9ab8' },
-                    { label:'XUNI BURNED', value: xuniBurned !== null ? fmt(xuniBurned)        : '—', col:'#7a9ab8' },
-                    { label:'XBLK BURNED', value: xblkBurned !== null ? xblkBurned.toFixed(1) : '—', col:'#7a9ab8' },
-                  ].map(({ label, value, col }, i, arr) => (
-                    <React.Fragment key={label}>
-                      <div style={{ flex:1, textAlign:'center', padding: isMobile ? '6px 4px' : '8px 6px' }}>
-                        <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 10 : 12, fontWeight:900, color:col, lineHeight:1, marginBottom:2 }}>{value}</div>
-                        <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 6, color:'#6a8aaa', letterSpacing:1 }}>🔥 {label}</div>
-                      </div>
-                      {i < arr.length - 1 && <div style={{ width:1, alignSelf:'stretch', background:'rgba(255,255,255,.06)' }} />}
-                    </React.Fragment>
-                  ))}
-                </div>
-              );
-            })()}
+            <div style={{ display:'flex', gap:0, background:'rgba(255,50,50,.04)', border:'1px solid rgba(255,100,100,.1)', borderRadius:10, overflow:'hidden' }}>
+              {[
+                { label:'BRAINS BURNED', value: mintedTotal > 0 ? '~' + fmt(Math.round(mintedTotal * 8)) + '+' : '—', col:'#ff6a6a' },
+                { label:'XNM BURNED',    value: xnmBurned  !== null ? fmt(xnmBurned)  : '—', col:'#7a9ab8' },
+                { label:'XUNI BURNED',   value: xuniBurned !== null ? fmt(xuniBurned) : '—', col:'#7a9ab8' },
+                { label:'XBLK BURNED',   value: xblkBurned !== null ? xblkBurned.toFixed(1) : '—', col:'#7a9ab8' },
+              ].map(({ label, value, col }, i, arr) => (
+                <React.Fragment key={label}>
+                  <div style={{ flex:1, textAlign:'center', padding: isMobile ? '6px 4px' : '8px 6px' }}>
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 10 : 12, fontWeight:900, color:col, lineHeight:1, marginBottom:2 }}>{value}</div>
+                    <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 6, color:'#6a8aaa', letterSpacing:1 }}>🔥 {label}</div>
+                  </div>
+                  {i < arr.length - 1 && <div style={{ width:1, alignSelf:'stretch', background:'rgba(255,255,255,.06)' }} />}
+                </React.Fragment>
+              ))}
+            </div>
 
             {/* Active tier card */}
             <div style={{ background:`linear-gradient(135deg,rgba(${rgb},.08),rgba(255,255,255,.02))`, border:`1px solid ${c}44`, borderRadius:16, padding: isMobile ? '16px' : '20px 22px', position:'relative', overflow:'hidden' }}>
