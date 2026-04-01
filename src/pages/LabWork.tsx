@@ -22,7 +22,7 @@ import { BurnedBrainsBar, walletBurnStats } from '../components/BurnedBrainsBar'
 import { PLATFORM_WALLET_STRING, BRAINS_MINT as BRAINS_MINT_STR } from '../constants';
 import { supabase, getLabWorkPtsForWallet, triggerLabWorkRefresh, labWorkSignal } from '../lib/supabase';
 import { rarityColor } from '../utils/nft';
-import MintLabWork from './MintLabWork';
+import MintLabWork from '../components/MintLabWork';
 import type { NFTData, Listing, TradeLog, PageMode, MarketTab } from '../components/LBComponents';
 import {
   useIsMobile, getMarketplaceProgramId,
