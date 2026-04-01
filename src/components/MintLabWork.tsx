@@ -647,9 +647,9 @@ const MintLabWork: FC = () => {
               const hasXenoUsd   = xnmUsd != null || xuniUsd != null || xblkUsd != null;
               const tiles = [
                 { label:'BRAINS BURNED',   value: brainsBurned != null ? fmt(Math.round(brainsBurned)) : '—', usd: brainsUsd  != null ? fmtUsd(brainsUsd)  : null, col:'#ff6a6a' },
-                { label:'XNM BURNED',      value: xnmBurned    != null ? fmt(xnmBurned)                : '—', usd: null,                                          col:'#7a9ab8' },
-                { label:'XUNI BURNED',     value: xuniBurned   != null ? fmt(xuniBurned)               : '—', usd: null,                                          col:'#7a9ab8' },
-                { label:'XBLK BURNED',     value: xblkBurned   != null ? xblkBurned.toFixed(1)         : '—', usd: null,                                          col:'#7a9ab8' },
+                { label:'XNM BURNED',      value: xnmBurned    != null ? fmt(xnmBurned)                : '—', usd: xnmUsd    != null ? fmtUsd(xnmUsd)    : null,                                          col:'#7a9ab8' },
+                { label:'XUNI BURNED',     value: xuniBurned   != null ? fmt(xuniBurned)               : '—', usd: xuniUsd   != null ? fmtUsd(xuniUsd)   : null,                                          col:'#7a9ab8' },
+                { label:'XBLK BURNED',     value: xblkBurned   != null ? xblkBurned.toFixed(1)         : '—', usd: xblkUsd   != null ? fmtUsd(xblkUsd)   : null,                                          col:'#7a9ab8' },
                 { label:'XENOBLOCKS USD BURNED', value: hasXenoUsd   ? fmtUsd(xenoTotalUsd)                  : '—', usd: null,                                          col:'#39ff88' },
               ];
               return (
