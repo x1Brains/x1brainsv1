@@ -152,26 +152,20 @@ const NFTModal: FC<{
   }, [metaUri]);
 
   useEffect(() => {
-    // Save scroll position and lock — restore on unmount
-    const scrollY = window.scrollY;
+    // Lock body scroll without position:fixed (breaks Android webview)
     const body = document.body;
-    body.style.position = 'fixed';
-    body.style.top = `-${scrollY}px`;
-    body.style.left = '0';
-    body.style.right = '0';
+    const html = document.documentElement;
+    const prevBodyOverflow = body.style.overflow;
+    const prevHtmlOverflow = html.style.overflow;
     body.style.overflow = 'hidden';
+    html.style.overflow = 'hidden';
 
     const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', fn);
 
     return () => {
-      // Always restore — even if closed unexpectedly
-      body.style.position = '';
-      body.style.top = '';
-      body.style.left = '';
-      body.style.right = '';
-      body.style.overflow = '';
-      window.scrollTo(0, scrollY);
+      body.style.overflow = prevBodyOverflow;
+      html.style.overflow = prevHtmlOverflow;
       window.removeEventListener('keydown', fn);
     };
   }, []); // empty deps — only run on mount/unmount, not on every onClose change
@@ -212,7 +206,9 @@ const NFTModal: FC<{
         style={{
           width: '100%',
           maxWidth: isMobile ? '94%' : 560,
-          overflow: 'hidden',
+          maxHeight: isMobile ? '88vh' : 'none',
+          overflowY: isMobile ? 'auto' : 'hidden',
+          overflowX: 'hidden',
           background: 'linear-gradient(155deg,#0e1828,#080c0f)',
           border: '1px solid rgba(191,90,242,.35)',
           borderRadius: 18,
