@@ -485,6 +485,16 @@ const MintLabWork: FC = () => {
         const treasuryXuniAta = getAssociatedTokenAddressSync(XUNI_MINT_PK, treasuryPk, false, TOKEN_2022);
         const treasuryXblkAta = getAssociatedTokenAddressSync(XBLK_MINT_PK, treasuryPk, false, TOKEN_2022);
 
+        // Create buyer Xenblocks ATAs if needed (Token-2022)
+        for (const [mint, ata] of [
+          [XNM_MINT_PK,  buyerXnmAta],
+          [XUNI_MINT_PK, buyerXuniAta],
+          [XBLK_MINT_PK, buyerXblkAta],
+        ] as [PublicKey, PublicKey][]) {
+          try { await getAccount(connection, ata, 'confirmed', TOKEN_2022); }
+          catch { tx.add(createAssociatedTokenAccountInstruction(publicKey, ata, publicKey, mint, TOKEN_2022)); }
+        }
+
         // Create treasury Xenblocks ATAs if needed (Token-2022)
         for (const [mint, ata, owner] of [
           [XNM_MINT_PK,  treasuryXnmAta,  treasuryPk],
@@ -536,7 +546,7 @@ const MintLabWork: FC = () => {
       setStatus('Awaiting wallet approval…');
       const signed = await signTransaction(tx);
       const sig    = await connection.sendRawTransaction(signed.serialize(), {
-        skipPreflight: false, maxRetries: 3, preflightCommitment: 'confirmed',
+        skipPreflight: true, maxRetries: 3, preflightCommitment: 'confirmed',
       });
 
       setStatus('Confirming…');
