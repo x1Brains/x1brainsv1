@@ -1351,7 +1351,7 @@ const LabWork: FC = () => {
                                 <div style={{ width: isMobile ? 44 : 52, height: isMobile ? 44 : 52, borderRadius:10, overflow:'hidden', flexShrink:0,
                                   background:'rgba(0,0,0,.3)', position:'relative', border:`1px solid ${col}22` }}>
                                   {img
-                                    ? <img src={img} alt={colName} style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }} onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
+                                    ? <NFTImage metaUri={img} name={colName} />
                                     : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>🖼️</div>
                                   }
                                 </div>
@@ -1391,7 +1391,7 @@ const LabWork: FC = () => {
                                       <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:6 }}>
                                         <div style={{ width:28, height:28, borderRadius:6, overflow:'hidden', flexShrink:0, background:'rgba(0,0,0,.3)', position:'relative', border:`1px solid ${col}22` }}>
                                           {img
-                                            ? <img src={img} alt={colName} style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }} onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
+                                            ? <NFTImage metaUri={img} name={colName} />
                                             : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12 }}>🖼️</div>
                                           }
                                         </div>
