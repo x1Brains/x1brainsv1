@@ -940,22 +940,16 @@ const NFTDetailModal: FC<{
               </div>
               {nft.description && <div style={{ fontFamily:'Sora,sans-serif', fontSize:11, color:'#9abace', lineHeight:1.65 }}>{nft.description.length > 200 ? nft.description.slice(0,200)+'…' : nft.description}</div>}
               {nft.attributes && nft.attributes.length > 0 && (
-                <div>
-                  <div style={{ fontFamily:'Orbitron,monospace', fontSize:8, color:'#9abacf', letterSpacing:1.5, marginBottom:7 }}>TRAITS — {nft.attributes.length}</div>
-                  <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
-                    {nft.attributes.map((a, i) => {
-                      const isR = a.trait_type?.toLowerCase() === 'rarity';
-                      const col = isR ? rarityColor(a.value) : '#bf5af2';
-                      return (
-                        <div key={i} style={{ background:'rgba(191,90,242,.05)',
-                          border:`1px solid ${isR ? col+'44' : 'rgba(191,90,242,.15)'}`,
-                          borderRadius:5, padding:'3px 8px', boxShadow: isR ? `0 0 10px ${col}18` : 'none' }}>
-                          <span style={{ fontFamily:'Orbitron,monospace', fontSize:6, color:'#9abacf', marginRight:4 }}>{a.trait_type}:</span>
-                          <span style={{ fontFamily:'Sora,sans-serif', fontSize:10, fontWeight:600, color: isR ? col : '#b8cce0' }}>{a.value}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  {rarity && (
+                    <span style={{ fontFamily:'Orbitron,monospace', fontSize:9, fontWeight:700,
+                      color: rarityColor(rarity), background:`${rarityColor(rarity)}18`,
+                      border:`1px solid ${rarityColor(rarity)}55`,
+                      borderRadius:20, padding:'3px 12px' }}>✦ {rarity.toUpperCase()}</span>
+                  )}
+                  <span style={{ fontFamily:'Sora,sans-serif', fontSize:10, color:'#9abacf' }}>
+                    {nft.attributes.length} trait{nft.attributes.length !== 1 ? 's' : ''}
+                  </span>
                 </div>
               )}
               <div style={{ display:'flex', alignItems:'center', gap:8, background:'rgba(0,0,0,.3)', borderRadius:8,
