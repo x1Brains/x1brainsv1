@@ -772,30 +772,22 @@ const NFTDetailModal: FC<{
   onListThis?: (nft: NFTData) => void;
 }> = ({ nft, isMobile, onClose, onListThis }) => {
   const [copied, setCopied] = useState(false);
+  const [traitsOpen, setTraitsOpen] = useState(false);
   const imgUri = nft.image || nft.metaUri || nft.logoUri;
   const rarity = nft.attributes?.find(a => a.trait_type?.toLowerCase() === 'rarity')?.value ?? '';
 
   useEffect(() => {
-    let scrollY = 0;
-    try {
-      scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.left = '0';
-      document.body.style.right = '0';
-      document.body.style.overflow = 'hidden';
-    } catch {}
+    const body = document.body;
+    const html = document.documentElement;
+    const prevBody = body.style.overflow;
+    const prevHtml = html.style.overflow;
+    body.style.overflow = 'hidden';
+    html.style.overflow = 'hidden';
     const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', fn);
     return () => {
-      try {
-        document.body.style.position = '';
-        document.body.style.top = '';
-        document.body.style.left = '';
-        document.body.style.right = '';
-        document.body.style.overflow = '';
-        window.scrollTo(0, scrollY);
-      } catch {}
+      body.style.overflow = prevBody;
+      html.style.overflow = prevHtml;
       window.removeEventListener('keydown', fn);
     };
   }, []);
@@ -804,13 +796,11 @@ const NFTDetailModal: FC<{
   return createPortal(
     <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,.88)',
       backdropFilter:'blur(14px)', display:'flex',
-      alignItems: isMobile ? 'center' : 'center',
-      justifyContent:'center',
-      padding: isMobile ? '70px 12px' : 20, animation:'labFadeIn 0.18s ease both' }}>
+      alignItems:'center', justifyContent:'center',
+      padding: isMobile ? '0 12px' : 20, animation:'labFadeIn 0.18s ease both' }}>
       <style>{`
         @keyframes labFadeIn  { from{opacity:0} to{opacity:1} }
         @keyframes labSlideUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes labSheetUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
         @keyframes labScan    { 0%{transform:translateY(-100%)} 100%{transform:translateY(400%)} }
         @keyframes labGlow    { 0%,100%{opacity:.4} 50%{opacity:1} }
       `}</style>
@@ -823,110 +813,121 @@ const NFTDetailModal: FC<{
         animation: 'labSlideUp 0.22s cubic-bezier(.22,1,.36,1) both',
         position:'relative',
         overflow:'hidden',
-        ...(isMobile ? { height: 240 } : { display:'flex', flexDirection:'row', maxHeight:'88vh' }),
+        ...(isMobile
+          ? { maxHeight:'calc(100dvh - 160px)', display:'flex', flexDirection:'row' }
+          : { display:'flex', flexDirection:'row', maxHeight:'88vh' }),
       }}>
         {/* Top accent line */}
         <div style={{ position:'absolute', top:0, left:'10%', right:'10%', height:1, zIndex:3, pointerEvents:'none',
           background:'linear-gradient(90deg,transparent,rgba(0,212,255,.8),rgba(191,90,242,.8),transparent)' }} />
 
         {/* Close button */}
-        <button onClick={onClose} style={{ position:'absolute', top:12, right:12, zIndex:20, width:32, height:32,
+        <button onClick={onClose} style={{ position:'absolute', top:10, right:10, zIndex:20, width:28, height:28,
           borderRadius:'50%', border:'1px solid rgba(191,90,242,.35)', background:'rgba(8,12,15,.9)',
-          cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, color:'#bf5af2' }}>×</button>
+          cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, color:'#bf5af2' }}>×</button>
 
         {isMobile ? (
-          // ── MOBILE: side-by-side, hard 300px, zero scroll ──
-          <div style={{ display:'flex', flexDirection:'row', height:240, overflow:'hidden' }}>
-
-            {/* Left — image 110px fixed */}
-            <div style={{ position:'relative', width:110, flexShrink:0,
+          // ── MOBILE: side-by-side, dvh-aware, traits toggle ──
+          <>
+            {/* Left — image */}
+            <div style={{ position:'relative', width:100, flexShrink:0,
               background:'linear-gradient(135deg,#050a0f,#0a0f18)',
-              borderRadius:'19px 0 0 0', overflow:'hidden' }}>
+              borderRadius:'19px 0 0 19px', overflow:'hidden' }}>
               <NFTImage metaUri={imgUri} name={nft.name} contain />
               <div style={{ position:'absolute', top:5, left:5, background:'rgba(0,0,0,.8)',
                 border:'1px solid rgba(0,212,255,.4)', borderRadius:3, padding:'1px 4px',
                 fontFamily:'Orbitron,monospace', fontSize:6, color:'#00d4ff', fontWeight:700 }}>NFT</div>
               {rarity && <div style={{ position:'absolute', bottom:0, left:0, right:0,
                 textAlign:'center', background:'rgba(0,0,0,.88)',
-                borderTop:`1px solid ${rarityColor(rarity)}44`, padding:'3px 2px',
-                fontFamily:'Orbitron,monospace', fontSize:6,
+                borderTop:`1px solid ${rarityColor(rarity)}44`, padding:'2px',
+                fontFamily:'Orbitron,monospace', fontSize:5,
                 color:rarityColor(rarity), fontWeight:700 }}>✦ {rarity.toUpperCase()}</div>}
             </div>
 
-            {/* Right — strict flex column, fixed rows, no scroll */}
+            {/* Right — flex column */}
             <div style={{ flex:1, minWidth:0, overflow:'hidden', display:'flex',
-              flexDirection:'column', padding:'8px 10px 8px 8px', gap:5 }}>
+              flexDirection:'column', padding:'8px 10px 8px 8px', gap:4 }}>
 
               {/* Name + badges */}
               <div style={{ flexShrink:0 }}>
                 <div style={{ fontFamily:'Orbitron,monospace', fontSize:11, fontWeight:900,
                   color:'#fff', lineHeight:1.2,
                   overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{nft.name}</div>
-                <div style={{ display:'flex', gap:3, alignItems:'center', marginTop:2, overflow:'hidden' }}>
+                <div style={{ display:'flex', gap:3, alignItems:'center', marginTop:2, flexWrap:'nowrap', overflow:'hidden' }}>
                   {nft.collection && <span style={{ fontFamily:'Sora,sans-serif', fontSize:8, color:'#9abace',
-                    overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:80 }}>{nft.collection}</span>}
+                    overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:70 }}>{nft.collection}</span>}
                   {nft.symbol && <span style={{ fontFamily:'Orbitron,monospace', fontSize:6, color:'#00d4ff',
                     background:'rgba(0,212,255,.1)', border:'1px solid rgba(0,212,255,.25)',
-                    padding:'1px 4px', borderRadius:3, flexShrink:0 }}>{nft.symbol}</span>}
+                    padding:'1px 4px', borderRadius:10, flexShrink:0 }}>{nft.symbol}</span>}
                   <span style={{ fontFamily:'Orbitron,monospace', fontSize:6, color:'#bf5af2',
                     background:'rgba(191,90,242,.1)', border:'1px solid rgba(191,90,242,.25)',
-                    padding:'1px 4px', borderRadius:3, flexShrink:0 }}>{nft.isToken2022 ? 'T-2022' : 'SPL'}</span>
+                    padding:'1px 4px', borderRadius:10, flexShrink:0 }}>{nft.isToken2022 ? 'T-2022' : 'SPL'}</span>
                 </div>
               </div>
 
-              {/* Traits — single scrollable row, abbreviated */}
+              {/* Traits toggle */}
               {nft.attributes && nft.attributes.length > 0 && (
-                <div style={{ flexShrink:0, overflow:'hidden' }}>
-                  <div style={{ fontFamily:'Orbitron,monospace', fontSize:5,
-                    color:'#9abacf', letterSpacing:1, marginBottom:2 }}>TRAITS — {nft.attributes.length}</div>
-                  <div style={{ display:'flex', gap:3, overflowX:'auto', overflowY:'hidden',
-                    scrollbarWidth:'none', paddingBottom:1 }}>
-                    {nft.attributes.map((a, i) => {
-                      const isR = a.trait_type?.toLowerCase() === 'rarity';
-                      const col = isR ? rarityColor(a.value) : '#7a9ab8';
-                      return (
-                        <div key={i} style={{ flexShrink:0,
-                          background: isR ? 'rgba(0,201,141,.06)' : 'rgba(255,255,255,.03)',
-                          border:`1px solid ${isR ? col+'55' : 'rgba(255,255,255,.07)'}`,
-                          borderRadius:3, padding:'2px 5px',
-                          display:'flex', alignItems:'center', gap:2 }}>
-                          <span style={{ fontFamily:'Orbitron,monospace', fontSize:5,
-                            color:'#9abacf', whiteSpace:'nowrap' }}>{a.trait_type.slice(0,4).toUpperCase()}:</span>
-                          <span style={{ fontFamily:'Sora,sans-serif', fontSize:7,
-                            fontWeight:600, color: isR ? col : '#b8cce0',
-                            whiteSpace:'nowrap' }}>{a.value}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
+                <div style={{ flexShrink:0 }}>
+                  <button type="button" onClick={() => setTraitsOpen(o => !o)}
+                    style={{ background:'none', border:'none', cursor:'pointer', padding:0,
+                      display:'flex', alignItems:'center', gap:4 }}>
+                    <span style={{ fontFamily:'Orbitron,monospace', fontSize:6,
+                      color:'#9abacf', letterSpacing:1 }}>TRAITS — {nft.attributes.length}</span>
+                    <span style={{ fontFamily:'Orbitron,monospace', fontSize:7, color:'#bf5af2',
+                      background:'rgba(191,90,242,.1)', border:'1px solid rgba(191,90,242,.25)',
+                      borderRadius:10, padding:'0px 5px', lineHeight:'14px' }}>
+                      {traitsOpen ? '▲' : '▼'}
+                    </span>
+                  </button>
+                  {traitsOpen && (
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginTop:4,
+                      maxHeight:60, overflowY:'auto', scrollbarWidth:'none' }}>
+                      {nft.attributes.map((a, i) => {
+                        const isR = a.trait_type?.toLowerCase() === 'rarity';
+                        const col = isR ? rarityColor(a.value) : '#7a9ab8';
+                        return (
+                          <div key={i} style={{
+                            background: isR ? 'rgba(0,201,141,.08)' : 'rgba(255,255,255,.04)',
+                            border:`1px solid ${isR ? col+'55' : 'rgba(255,255,255,.1)'}`,
+                            borderRadius:20, padding:'2px 7px',
+                            display:'flex', alignItems:'center', gap:3 }}>
+                            <span style={{ fontFamily:'Orbitron,monospace', fontSize:5,
+                              color:'#9abacf' }}>{a.trait_type}:</span>
+                            <span style={{ fontFamily:'Sora,sans-serif', fontSize:7,
+                              fontWeight:600, color: isR ? col : '#c8dce8' }}>{a.value}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Mint address */}
+              {/* Mint */}
               <div style={{ flexShrink:0, display:'flex', alignItems:'center', gap:4,
                 background:'rgba(0,0,0,.3)', borderRadius:5,
                 border:'1px solid rgba(255,255,255,.06)', padding:'3px 6px' }}>
                 <code style={{ flex:1, fontFamily:'monospace', fontSize:7, color:'#8aaac4',
                   overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{nft.mint.slice(0,7)}…{nft.mint.slice(-5)}</code>
-                <button onClick={copyMint} style={{ flexShrink:0, padding:'2px 6px', borderRadius:3, cursor:'pointer', border:'none',
+                <button onClick={copyMint} style={{ flexShrink:0, padding:'2px 6px', borderRadius:10, cursor:'pointer', border:'none',
                   background: copied ? 'rgba(0,201,141,.2)' : 'rgba(191,90,242,.15)', color: copied ? '#00c98d' : '#bf5af2',
                   fontFamily:'Orbitron,monospace', fontSize:6, fontWeight:700 }}>{copied ? '✓' : 'COPY'}</button>
               </div>
 
-              {/* Buttons — always at bottom */}
+              {/* Buttons */}
               <div style={{ marginTop:'auto', flexShrink:0, display:'flex', gap:5 }}>
                 <a href={`https://explorer.mainnet.x1.xyz/address/${nft.mint}`} target="_blank" rel="noopener noreferrer"
-                  style={{ flex:1, padding:'7px 0', textAlign:'center', background:'rgba(0,212,255,.08)',
-                    border:'1px solid rgba(0,212,255,.3)', borderRadius:7, fontFamily:'Orbitron,monospace',
+                  style={{ flex:1, padding:'6px 0', textAlign:'center', background:'rgba(0,212,255,.08)',
+                    border:'1px solid rgba(0,212,255,.3)', borderRadius:10, fontFamily:'Orbitron,monospace',
                     fontSize:7, fontWeight:700, color:'#00d4ff', textDecoration:'none',
                     display:'flex', alignItems:'center', justifyContent:'center', gap:3 }}>🔍 EXPLORER</a>
                 {onListThis && <button onClick={() => { onClose(); onListThis(nft); }}
-                  style={{ flex:1, padding:'7px 0', background:'rgba(0,201,141,.08)', border:'1px solid rgba(0,201,141,.35)',
-                    borderRadius:7, fontFamily:'Orbitron,monospace', fontSize:7, fontWeight:700, color:'#00c98d',
+                  style={{ flex:1, padding:'6px 0', background:'rgba(0,201,141,.08)', border:'1px solid rgba(0,201,141,.35)',
+                    borderRadius:10, fontFamily:'Orbitron,monospace', fontSize:7, fontWeight:700, color:'#00c98d',
                     cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:3 }}>🏷️ LIST</button>}
               </div>
             </div>
-          </div>
+          </>
         ) : (
           // ── DESKTOP: side-by-side image + scrollable info ──
           <>
