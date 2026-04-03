@@ -253,13 +253,14 @@ function buildSVGCard(opts: {
 // ─── DOWNLOAD FILE — works in regular browsers AND restricted WebViews ────────
 // Android WebViews (Backpack etc.) block createObjectURL blob downloads.
 // Strategy:
-//   1. navigator.share (Web Share API) — native mobile save/share sheet, best UX
-//   2. base64 data URI <a download> — works in WebViews that block blob URLs
-//   3. blob URL <a download> — standard browser fallback
+//   1. navigator.share (Web Share API) — mobile only, native save/share sheet
+//   2. blob URL <a download> — standard browser download (desktop + most mobile)
+//   3. base64 data URI <a download> — fallback for WebViews that block blob URLs
 async function downloadFile(blob: Blob, filename: string, mimeType: string): Promise<void> {
-  // Strategy 1: Web Share API — triggers native iOS/Android share sheet
-  // This is the only method that reliably saves files in in-app browsers
-  if (navigator.share && navigator.canShare) {
+  // Strategy 1: Web Share API — only on touch/mobile devices
+  // Desktop Chrome also supports navigator.share but triggers OS share sheet instead of download
+  const isTouchDevice = navigator.maxTouchPoints > 0 || ('ontouchstart' in window);
+  if (isTouchDevice && navigator.share && navigator.canShare) {
     try {
       const file = new File([blob], filename, { type: mimeType });
       if (navigator.canShare({ files: [file] })) {
@@ -267,13 +268,25 @@ async function downloadFile(blob: Blob, filename: string, mimeType: string): Pro
         return;
       }
     } catch (e: any) {
-      // User cancelled share sheet — not an error, just return
       if (e?.name === 'AbortError') return;
-      // Otherwise fall through to next strategy
+      // Fall through to next strategy
     }
   }
 
-  // Strategy 2: base64 data URI — works in WebViews that block blob URLs
+  // Strategy 2: blob URL — works in standard desktop/mobile browsers
+  try {
+    const url = URL.createObjectURL(blob);
+    const a   = document.createElement('a');
+    a.href    = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return;
+  } catch {}
+
+  // Strategy 3: base64 data URI — fallback for WebViews that block blob URLs
   try {
     const reader = new FileReader();
     const dataUri = await new Promise<string>((res, rej) => {
@@ -287,18 +300,7 @@ async function downloadFile(blob: Blob, filename: string, mimeType: string): Pro
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    return;
   } catch {}
-
-  // Strategy 3: blob URL — works in standard browsers
-  const url = URL.createObjectURL(blob);
-  const a   = document.createElement('a');
-  a.href    = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 // ─── RASTERIZE SVG → PNG or JPEG ─────────────────────────────────────────────
 // Converts the SVG card string to a raster image via <img>+<canvas>.
