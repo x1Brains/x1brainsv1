@@ -772,7 +772,6 @@ const NFTDetailModal: FC<{
   onListThis?: (nft: NFTData) => void;
 }> = ({ nft, isMobile, onClose, onListThis }) => {
   const [copied, setCopied] = useState(false);
-  const [traitsOpen, setTraitsOpen] = useState(false);
   const imgUri = nft.image || nft.metaUri || nft.logoUri;
   const rarity = nft.attributes?.find(a => a.trait_type?.toLowerCase() === 'rarity')?.value ?? '';
 
