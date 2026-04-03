@@ -869,7 +869,7 @@ const LabWork: FC = () => {
       }
     });
     const topCollections = Array.from(colMap.entries())
-      .sort((a,b) => b[1].count - a[1].count).slice(0, 6)
+      .sort((a,b) => b[1].volume - a[1].volume).slice(0, 6)
       .map(([, data]) => [data.displayName, data] as [string, typeof data]);
 
     return { sales, totalVolXnt, biggestSale, floorListing, colMap, topCollections };
