@@ -145,7 +145,6 @@ const NFTModal: FC<{
   const metaUri = (nft as any).metaUri || nft.logoUri;
   const imgSrc  = metaUri ? (nftImageCache.get(metaUri) ?? null) : null;
   const [meta, setMeta] = useState<any>(metaUri ? nftMetaCache.get(metaUri) ?? null : null);
-  const [traitsOpen, setTraitsOpen] = useState(false);
 
   useEffect(() => {
     if (!metaUri || meta) return;
@@ -238,7 +237,7 @@ const NFTModal: FC<{
              MOBILE LAYOUT — side by side, hard 300px, zero scroll
              ═══════════════════════════════════════ */
           ? (
-            <div style={{ display:'flex', flexDirection:'row', height:240, overflow:'hidden' }}>
+            <div style={{ display:'flex', flexDirection:'row', height:'100%', overflow:'hidden' }}>
 
               {/* Left — image 80px fixed */}
               <div style={{ position:'relative', width:80, flexShrink:0,
@@ -417,31 +416,18 @@ const NFTModal: FC<{
                     color:'#6a8aaa', lineHeight:1.5 }}>{shortDesc}</div>
                 )}
 
-                {/* Traits — wrapping pills */}
+                {/* Traits — rarity pill + count */}
                 {attrs.length > 0 && (
-                  <div>
-                    <div style={{ fontFamily:'Orbitron,monospace', fontSize:6,
-                      color:'#3a5a7a', letterSpacing:1.5, marginBottom:5 }}>
-                      TRAITS — {attrs.length}
-                    </div>
-                    <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
-                      {attrs.map((a, i) => {
-                        const isRarity = a.trait_type?.toLowerCase() === 'rarity';
-                        const col = isRarity ? rarityColor(a.value) : '#bf5af2';
-                        return (
-                          <div key={i} style={{
-                            background:'rgba(191,90,242,.05)',
-                            border:`1px solid ${isRarity ? col+'44' : 'rgba(191,90,242,.15)'}`,
-                            borderRadius:5, padding:'3px 7px',
-                          }}>
-                            <span style={{ fontFamily:'Orbitron,monospace', fontSize:6,
-                              color:'#3a5a7a', marginRight:4 }}>{a.trait_type}:</span>
-                            <span style={{ fontFamily:'Sora,sans-serif', fontSize:9,
-                              fontWeight:600, color: isRarity ? col : '#b8cce0' }}>{a.value}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
+                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                    {rarity && (
+                      <span style={{ fontFamily:'Orbitron,monospace', fontSize:8, fontWeight:700,
+                        color: rarityColor(rarity), background:`${rarityColor(rarity)}18`,
+                        border:`1px solid ${rarityColor(rarity)}55`,
+                        borderRadius:20, padding:'3px 10px' }}>✦ {rarity.toUpperCase()}</span>
+                    )}
+                    <span style={{ fontFamily:'Sora,sans-serif', fontSize:9, color:'#6a8aaa' }}>
+                      {attrs.length} trait{attrs.length !== 1 ? 's' : ''}
+                    </span>
                   </div>
                 )}
 
