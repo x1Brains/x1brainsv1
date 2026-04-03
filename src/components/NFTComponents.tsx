@@ -152,26 +152,20 @@ const NFTModal: FC<{
   }, [metaUri]);
 
   useEffect(() => {
-    // Save scroll position and lock — restore on unmount
-    const scrollY = window.scrollY;
+    // Lock body scroll without position:fixed (breaks Android webview)
     const body = document.body;
-    body.style.position = 'fixed';
-    body.style.top = `-${scrollY}px`;
-    body.style.left = '0';
-    body.style.right = '0';
+    const html = document.documentElement;
+    const prevBodyOverflow = body.style.overflow;
+    const prevHtmlOverflow = html.style.overflow;
     body.style.overflow = 'hidden';
+    html.style.overflow = 'hidden';
 
     const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', fn);
 
     return () => {
-      // Always restore — even if closed unexpectedly
-      body.style.position = '';
-      body.style.top = '';
-      body.style.left = '';
-      body.style.right = '';
-      body.style.overflow = '';
-      window.scrollTo(0, scrollY);
+      body.style.overflow = prevBodyOverflow;
+      html.style.overflow = prevHtmlOverflow;
       window.removeEventListener('keydown', fn);
     };
   }, []); // empty deps — only run on mount/unmount, not on every onClose change
@@ -194,7 +188,7 @@ const NFTModal: FC<{
         display:'flex',
         alignItems: 'center',
         justifyContent:'center',
-        padding: isMobile ? '40px 16px' : '16px',
+        padding: isMobile ? '40px 12px' : '16px',
         pointerEvents:'all',
         WebkitTapHighlightColor:'transparent',
         touchAction:'auto',
@@ -239,12 +233,12 @@ const NFTModal: FC<{
 
         {isMobile
           /* ═══════════════════════════════════════
-             MOBILE LAYOUT — fixed 300px height, side by side, zero scroll
+             MOBILE LAYOUT — side by side, hard 300px, zero scroll
              ═══════════════════════════════════════ */
           ? (
             <div style={{ display:'flex', flexDirection:'row', height:300, overflow:'hidden' }}>
 
-              {/* Left — image, fixed 110px wide */}
+              {/* Left — image 110px fixed */}
               <div style={{ position:'relative', width:110, flexShrink:0,
                 background:'#050a0f', borderRadius:'17px 0 0 17px', overflow:'hidden' }}>
                 <NFTImage metaUri={metaUri} name={nft.name} contain />
@@ -266,11 +260,11 @@ const NFTModal: FC<{
                 )}
               </div>
 
-              {/* Right — strict flex column, all rows fixed height */}
+              {/* Right — strict flex column, fixed rows */}
               <div style={{ flex:1, minWidth:0, overflow:'hidden', display:'flex',
                 flexDirection:'column', padding:'8px 10px 8px 8px', gap:5 }}>
 
-                {/* Row 1 — Name ~28px */}
+                {/* Name + badges */}
                 <div style={{ flexShrink:0 }}>
                   <div style={{ fontFamily:'Orbitron,monospace', fontSize:11, fontWeight:900,
                     color:'#fff', lineHeight:1.2,
@@ -289,25 +283,28 @@ const NFTModal: FC<{
                   </div>
                 </div>
 
-                {/* Row 2 — Traits — 2-line max, overflow hidden, single scrollable row */}
+                {/* Traits — single scrollable row, abbreviated labels */}
                 {attrs.length > 0 && (
-                  <div style={{ flexShrink:0, overflow:'hidden', maxHeight:52 }}>
+                  <div style={{ flexShrink:0, overflow:'hidden' }}>
                     <div style={{ fontFamily:'Orbitron,monospace', fontSize:5,
-                      color:'#3a5a7a', letterSpacing:1, marginBottom:3 }}>
+                      color:'#3a5a7a', letterSpacing:1, marginBottom:2 }}>
                       TRAITS — {attrs.length}
                     </div>
-                    <div style={{ display:'flex', flexWrap:'wrap', gap:2, overflow:'hidden', maxHeight:34 }}>
+                    <div style={{ display:'flex', gap:3, overflowX:'auto', overflowY:'hidden',
+                      scrollbarWidth:'none', paddingBottom:1 }}>
                       {attrs.map((a, i) => {
                         const isRarity = a.trait_type?.toLowerCase() === 'rarity';
                         const col = isRarity ? rarityColor(a.value) : '#7a9ab8';
                         return (
                           <div key={i} style={{ flexShrink:0,
-                            background: isRarity ? `rgba(0,201,141,.06)` : 'rgba(255,255,255,.03)',
+                            background: isRarity ? 'rgba(0,201,141,.06)' : 'rgba(255,255,255,.03)',
                             border:`1px solid ${isRarity ? col+'55' : 'rgba(255,255,255,.07)'}`,
-                            borderRadius:3, padding:'1px 4px',
+                            borderRadius:3, padding:'2px 5px',
                             display:'flex', alignItems:'center', gap:2 }}>
                             <span style={{ fontFamily:'Orbitron,monospace', fontSize:5,
-                              color:'#3a5a7a' }}>{a.trait_type}:</span>
+                              color:'#3a5a7a', whiteSpace:'nowrap' }}>
+                              {a.trait_type.slice(0,4).toUpperCase()}:
+                            </span>
                             <span style={{ fontFamily:'Sora,sans-serif', fontSize:7,
                               fontWeight:600, color: isRarity ? col : '#9ab0c8',
                               whiteSpace:'nowrap' }}>{a.value}</span>
@@ -318,7 +315,7 @@ const NFTModal: FC<{
                   </div>
                 )}
 
-                {/* Row 3 — Mint address ~22px */}
+                {/* Mint address */}
                 <div style={{ flexShrink:0, display:'flex', alignItems:'center',
                   background:'rgba(255,255,255,.02)', borderRadius:5,
                   border:'1px solid rgba(255,255,255,.05)', padding:'3px 6px', gap:4 }}>
@@ -335,7 +332,7 @@ const NFTModal: FC<{
                   }}>{copiedAddress===nft.mint ? '✓' : 'COPY'}</button>
                 </div>
 
-                {/* Row 4 — Chain info chips ~18px */}
+                {/* Chain chips */}
                 <div style={{ flexShrink:0, display:'flex', gap:3 }}>
                   {[
                     { label:'CHAIN', value:'X1' },
@@ -352,7 +349,7 @@ const NFTModal: FC<{
                   ))}
                 </div>
 
-                {/* Row 5 — Buttons, pushed to bottom, fixed ~30px */}
+                {/* Buttons — always at bottom */}
                 <div style={{ marginTop:'auto', flexShrink:0, display:'flex', gap:5 }}>
                   <a href={`https://explorer.mainnet.x1.xyz/address/${nft.mint}`}
                     target="_blank" rel="noopener noreferrer" style={{
