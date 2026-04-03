@@ -655,6 +655,10 @@ const LabWork: FC = () => {
 
       if (merged.length === 0) { setLoadingActivity(false); return; }
 
+      // ── Set tradeLogs immediately so overviewData populates without waiting for enrichment ──
+      setTradeLogs(merged);
+      setLoadingActivity(false);
+
       // ── Step 4: Enrich metadata — only top 10, concurrency-capped ──
       // Use cached data first, only fetch what's missing
       const toEnrich = merged.slice(0, 10).filter(l => !l.nftData && l.nftMint);
@@ -682,7 +686,6 @@ const LabWork: FC = () => {
   useEffect(() => { loadActivity(); }, []);
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' as any }); }, []);
   useEffect(() => { if (pageMode === 'gallery' && nfts.length === 0 && publicKey) { /* NFTs load via wallet useEffect */ } }, [pageMode]);
-  useEffect(() => { if (marketTab === 'activity') loadActivity(); }, [marketTab]);
 
   // ── Gallery select ────────────────────────────────────────────
   const handleSelect = useCallback(async (nft: NFTData) => {
