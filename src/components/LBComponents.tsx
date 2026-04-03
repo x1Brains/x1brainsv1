@@ -1905,11 +1905,6 @@ const ListModal: FC<{
             <div style={{ fontFamily:'Orbitron,monospace', fontSize:11, fontWeight:700, color:'#e0f0ff', marginBottom:4, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{nft.name}</div>
             <div style={{ fontSize:10, color:'#8aaac8', marginBottom:6 }}>{nft.symbol}</div>
             <div style={{ fontSize:9, color:'#9abacf', fontFamily:'monospace', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{nft.mint.slice(0,16)}…</div>
-            {nft.attributes?.slice(0,3).map((a,i) => (
-              <span key={i} style={{ display:'inline-block', fontSize:8, background:'rgba(0,212,255,.08)', border:'1px solid rgba(0,212,255,.15)', borderRadius:4, padding:'1px 5px', marginRight:4, marginTop:4, color:'#7abcd0' }}>
-                {a.trait_type}: {a.value}
-              </span>
-            ))}
           </div>
         </div>
 
