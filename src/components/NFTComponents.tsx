@@ -188,7 +188,7 @@ const NFTModal: FC<{
         display:'flex',
         alignItems: 'center',
         justifyContent:'center',
-        padding: isMobile ? '40px 12px' : '16px',
+        padding: isMobile ? '70px 12px' : '16px',
         pointerEvents:'all',
         WebkitTapHighlightColor:'transparent',
         touchAction:'auto',
@@ -236,7 +236,7 @@ const NFTModal: FC<{
              MOBILE LAYOUT — side by side, hard 300px, zero scroll
              ═══════════════════════════════════════ */
           ? (
-            <div style={{ display:'flex', flexDirection:'row', height:300, overflow:'hidden' }}>
+            <div style={{ display:'flex', flexDirection:'row', height:240, overflow:'hidden' }}>
 
               {/* Left — image 110px fixed */}
               <div style={{ position:'relative', width:110, flexShrink:0,
