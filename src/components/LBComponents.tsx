@@ -806,7 +806,7 @@ const NFTDetailModal: FC<{
       backdropFilter:'blur(14px)', display:'flex',
       alignItems: isMobile ? 'center' : 'center',
       justifyContent:'center',
-      padding: isMobile ? '40px 12px' : 20, animation:'labFadeIn 0.18s ease both' }}>
+      padding: isMobile ? '70px 12px' : 20, animation:'labFadeIn 0.18s ease both' }}>
       <style>{`
         @keyframes labFadeIn  { from{opacity:0} to{opacity:1} }
         @keyframes labSlideUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
@@ -823,7 +823,7 @@ const NFTDetailModal: FC<{
         animation: 'labSlideUp 0.22s cubic-bezier(.22,1,.36,1) both',
         position:'relative',
         overflow:'hidden',
-        ...(isMobile ? { height: 300 } : { display:'flex', flexDirection:'row', maxHeight:'88vh' }),
+        ...(isMobile ? { height: 240 } : { display:'flex', flexDirection:'row', maxHeight:'88vh' }),
       }}>
         {/* Top accent line */}
         <div style={{ position:'absolute', top:0, left:'10%', right:'10%', height:1, zIndex:3, pointerEvents:'none',
@@ -836,7 +836,7 @@ const NFTDetailModal: FC<{
 
         {isMobile ? (
           // ── MOBILE: side-by-side, hard 300px, zero scroll ──
-          <div style={{ display:'flex', flexDirection:'row', height:300, overflow:'hidden' }}>
+          <div style={{ display:'flex', flexDirection:'row', height:240, overflow:'hidden' }}>
 
             {/* Left — image 110px fixed */}
             <div style={{ position:'relative', width:110, flexShrink:0,
