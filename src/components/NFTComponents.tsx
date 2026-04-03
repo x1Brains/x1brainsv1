@@ -240,8 +240,8 @@ const NFTModal: FC<{
           ? (
             <div style={{ display:'flex', flexDirection:'row', height:240, overflow:'hidden' }}>
 
-              {/* Left — image 110px fixed */}
-              <div style={{ position:'relative', width:110, flexShrink:0,
+              {/* Left — image 80px fixed */}
+              <div style={{ position:'relative', width:80, flexShrink:0,
                 background:'#050a0f', borderRadius:'17px 0 0 17px', overflow:'hidden' }}>
                 <NFTImage metaUri={metaUri} name={nft.name} contain />
                 <div style={{ position:'absolute', top:5, left:5,
@@ -264,7 +264,7 @@ const NFTModal: FC<{
 
               {/* Right — strict flex column, fixed rows */}
               <div style={{ flex:1, minWidth:0, overflow:'hidden', display:'flex',
-                flexDirection:'column', padding:'8px 10px 8px 8px', gap:5 }}>
+                flexDirection:'column', padding:'6px 8px 6px 7px', gap:4 }}>
 
                 {/* Name + badges */}
                 <div style={{ flexShrink:0 }}>
@@ -285,41 +285,18 @@ const NFTModal: FC<{
                   </div>
                 </div>
 
-                {/* Traits toggle — pill style */}
+                {/* Traits — rarity pill + count only */}
                 {attrs.length > 0 && (
-                  <div style={{ flexShrink:0 }}>
-                    <button type="button" onClick={() => setTraitsOpen(o => !o)}
-                      style={{ background:'none', border:'none', cursor:'pointer', padding:0,
-                        display:'flex', alignItems:'center', gap:4 }}>
-                      <span style={{ fontFamily:'Orbitron,monospace', fontSize:6,
-                        color:'#3a5a7a', letterSpacing:1 }}>TRAITS — {attrs.length}</span>
-                      <span style={{ fontFamily:'Orbitron,monospace', fontSize:7, color:'#bf5af2',
-                        background:'rgba(191,90,242,.1)', border:'1px solid rgba(191,90,242,.25)',
-                        borderRadius:10, padding:'0px 5px', lineHeight:'14px' }}>
-                        {traitsOpen ? '▲' : '▼'}
-                      </span>
-                    </button>
-                    {traitsOpen && (
-                      <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginTop:4,
-                        maxHeight:60, overflowY:'auto', scrollbarWidth:'none' }}>
-                        {attrs.map((a, i) => {
-                          const isRarity = a.trait_type?.toLowerCase() === 'rarity';
-                          const col = isRarity ? rarityColor(a.value) : '#7a9ab8';
-                          return (
-                            <div key={i} style={{
-                              background: isRarity ? 'rgba(0,201,141,.08)' : 'rgba(255,255,255,.04)',
-                              border:`1px solid ${isRarity ? col+'55' : 'rgba(255,255,255,.1)'}`,
-                              borderRadius:20, padding:'2px 7px',
-                              display:'flex', alignItems:'center', gap:3 }}>
-                              <span style={{ fontFamily:'Orbitron,monospace', fontSize:5,
-                                color:'#3a5a7a' }}>{a.trait_type}:</span>
-                              <span style={{ fontFamily:'Sora,sans-serif', fontSize:7,
-                                fontWeight:600, color: isRarity ? col : '#c8dce8' }}>{a.value}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
+                  <div style={{ flexShrink:0, display:'flex', alignItems:'center', gap:4 }}>
+                    {rarity && (
+                      <span style={{ fontFamily:'Orbitron,monospace', fontSize:7, fontWeight:700,
+                        color: rarityColor(rarity), background:`${rarityColor(rarity)}18`,
+                        border:`1px solid ${rarityColor(rarity)}55`,
+                        borderRadius:20, padding:'2px 8px' }}>✦ {rarity.toUpperCase()}</span>
                     )}
+                    <span style={{ fontFamily:'Sora,sans-serif', fontSize:7, color:'#3a5a7a' }}>
+                      {attrs.length} trait{attrs.length !== 1 ? 's' : ''}
+                    </span>
                   </div>
                 )}
 

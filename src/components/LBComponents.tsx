@@ -830,7 +830,7 @@ const NFTDetailModal: FC<{
           // ── MOBILE: side-by-side, dvh-aware, traits toggle ──
           <>
             {/* Left — image */}
-            <div style={{ position:'relative', width:100, flexShrink:0,
+            <div style={{ position:'relative', width:80, flexShrink:0,
               background:'linear-gradient(135deg,#050a0f,#0a0f18)',
               borderRadius:'19px 0 0 19px', overflow:'hidden' }}>
               <NFTImage metaUri={imgUri} name={nft.name} contain />
@@ -846,7 +846,7 @@ const NFTDetailModal: FC<{
 
             {/* Right — flex column */}
             <div style={{ flex:1, minWidth:0, overflow:'hidden', display:'flex',
-              flexDirection:'column', padding:'8px 10px 8px 8px', gap:4 }}>
+              flexDirection:'column', padding:'6px 8px 6px 7px', gap:4 }}>
 
               {/* Name + badges */}
               <div style={{ flexShrink:0 }}>
@@ -865,41 +865,18 @@ const NFTDetailModal: FC<{
                 </div>
               </div>
 
-              {/* Traits toggle */}
+              {/* Traits — rarity pill + count only */}
               {nft.attributes && nft.attributes.length > 0 && (
-                <div style={{ flexShrink:0 }}>
-                  <button type="button" onClick={() => setTraitsOpen(o => !o)}
-                    style={{ background:'none', border:'none', cursor:'pointer', padding:0,
-                      display:'flex', alignItems:'center', gap:4 }}>
-                    <span style={{ fontFamily:'Orbitron,monospace', fontSize:6,
-                      color:'#9abacf', letterSpacing:1 }}>TRAITS — {nft.attributes.length}</span>
-                    <span style={{ fontFamily:'Orbitron,monospace', fontSize:7, color:'#bf5af2',
-                      background:'rgba(191,90,242,.1)', border:'1px solid rgba(191,90,242,.25)',
-                      borderRadius:10, padding:'0px 5px', lineHeight:'14px' }}>
-                      {traitsOpen ? '▲' : '▼'}
-                    </span>
-                  </button>
-                  {traitsOpen && (
-                    <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginTop:4,
-                      maxHeight:60, overflowY:'auto', scrollbarWidth:'none' }}>
-                      {nft.attributes.map((a, i) => {
-                        const isR = a.trait_type?.toLowerCase() === 'rarity';
-                        const col = isR ? rarityColor(a.value) : '#7a9ab8';
-                        return (
-                          <div key={i} style={{
-                            background: isR ? 'rgba(0,201,141,.08)' : 'rgba(255,255,255,.04)',
-                            border:`1px solid ${isR ? col+'55' : 'rgba(255,255,255,.1)'}`,
-                            borderRadius:20, padding:'2px 7px',
-                            display:'flex', alignItems:'center', gap:3 }}>
-                            <span style={{ fontFamily:'Orbitron,monospace', fontSize:5,
-                              color:'#9abacf' }}>{a.trait_type}:</span>
-                            <span style={{ fontFamily:'Sora,sans-serif', fontSize:7,
-                              fontWeight:600, color: isR ? col : '#c8dce8' }}>{a.value}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
+                <div style={{ flexShrink:0, display:'flex', alignItems:'center', gap:4 }}>
+                  {rarity && (
+                    <span style={{ fontFamily:'Orbitron,monospace', fontSize:7, fontWeight:700,
+                      color: rarityColor(rarity), background:`${rarityColor(rarity)}18`,
+                      border:`1px solid ${rarityColor(rarity)}55`,
+                      borderRadius:20, padding:'2px 8px' }}>✦ {rarity.toUpperCase()}</span>
                   )}
+                  <span style={{ fontFamily:'Sora,sans-serif', fontSize:7, color:'#9abacf' }}>
+                    {nft.attributes.length} trait{nft.attributes.length !== 1 ? 's' : ''}
+                  </span>
                 </div>
               )}
 
