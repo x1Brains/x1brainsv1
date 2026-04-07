@@ -80,14 +80,14 @@ export const TopBar: FC = () => {
 
   const isPortfolio    = location.pathname === '/portfolio';
   const isLabWork      = location.pathname === '/labwork';
-  const isLabWorkLPs   = location.pathname === '/labworklps';
+  const isLabWorkDefi = location.pathname === '/labworkdefi';
   const isBurnHistory  = location.pathname === '/burn-history';
   const isRewards      = location.pathname === '/rewards';
   const isAdminRewards = location.pathname === '/x9b7r41ns/ctrl';
   const isIncinerator  = location.pathname === '/incinerator-engine';
   const isCyberdyne    = location.pathname === '/cyberdyne';
 
-  const isSubPage = isPortfolio || isLabWork || isLabWorkLPs || isBurnHistory || isRewards || isAdminRewards || isIncinerator || isCyberdyne;
+  const isSubPage = isPortfolio || isLabWork || isLabWorkDefi || isBurnHistory || isRewards || isAdminRewards || isIncinerator || isCyberdyne;
 
   return (
     <>
@@ -201,8 +201,8 @@ export const TopBar: FC = () => {
         )}
 
         {/* LAB WORK LPs — DeFi pairing marketplace */}
-        {!isLabWorkLPs && (
-        <button className="tb-hide-mobile" onClick={() => navigate('/labworklps')}
+        {!isLabWorkDefi && (
+        <button className="tb-hide-mobile" onClick={() => navigate('/labworkdefi')}
           style={{
             background: 'rgba(0,212,255,0.06)',
             border: '1px solid rgba(0,212,255,0.22)',
@@ -282,15 +282,15 @@ export const TopBar: FC = () => {
 
               {/* LAB WORK LPs */}
               <button
-                onClick={() => { navigate('/labworklps'); setNavOpen(false); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isLabWorkLPs ? 'rgba(0,212,255,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onClick={() => { navigate('/labworkdefi'); setNavOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isLabWorkDefi ? 'rgba(0,212,255,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
                 onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,212,255,0.1)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isLabWorkLPs ? 'rgba(0,212,255,0.1)' : 'transparent'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isLabWorkDefi ? 'rgba(0,212,255,0.1)' : 'transparent'; }}
               >
                 <span style={{ fontSize: 14 }}>⚡</span>
                 <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#00d4ff', letterSpacing: 1.5, fontWeight: 700 }}>LAB WORK LPs</span>
                 <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#001a22', background: 'linear-gradient(135deg,#00d4ff,#00c98d)', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>DeFi</span>
-                {isLabWorkLPs && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#00d4ff' }} />}
+                {isLabWorkDefi && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#00d4ff' }} />}
               </button>
 
               {/* CYBERDYNE */}
