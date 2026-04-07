@@ -14,7 +14,7 @@ import RewardsSeason       from './pages/RewardsSeason';
 import AdminRewards        from './pages/AdminRewards';
 import IncineratorEngine   from './pages/IncineratorEngine';
 import AnalyticsDashboard  from './pages/AnalyticsDashboard';
-import LabWorkDefi from './pages/LabWorkDefi';
+import LabWorkDefi         from './pages/LabWorkDefi';
 import { usePageView }     from './hooks/usePageView';
 
 // Inner component so usePageView() can access the router context
@@ -25,7 +25,7 @@ const AppInner: FC = () => {
       <Route path="/"                       element={<Home />} />
       <Route path="/portfolio"              element={<Portfolio />} />
       <Route path="/labwork"                element={<LabWork />} />
-      <Route path="/labworkdefi" element={<LabWorkDefi />} />
+      <Route path="/labworkdefi"            element={<LabWorkDefi />} />
       <Route path="/cyberdyne"              element={<CyberdyneUnlimited />} />
       <Route path="/burn-history"           element={<BurnHistory />} />
       <Route path="/incinerator-engine"     element={<IncineratorEngine />} />
