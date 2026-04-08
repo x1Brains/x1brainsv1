@@ -1912,25 +1912,39 @@ const PairingMarketplace: FC = () => {
   const { connection } = useConnection();
   const isMobile = useIsMobile();
 
-  // ── ADMIN ONLY — page hidden from public until delist is fixed ──────────────
+  // ── ADMIN ONLY — restricted until delist is fixed ───────────────────────────
   const ADMIN = '2nVaSvCqrsdskcbtn47uquNDL7Q69To1k45FpYBvWnuC';
-  // Only block if wallet is connected AND is not admin
-  // If not connected — show connect prompt (not blocked)
-  if (publicKey && publicKey.toBase58() !== ADMIN) {
+  const isAdmin = publicKey?.toBase58() === ADMIN;
+
+  if (!isAdmin) {
     return (
-      <div style={{ minHeight: '100vh', background: '#080c0f',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        flexDirection: 'column', gap: 16, padding: 24 }}>
+      <div style={{ minHeight: '100vh', background: '#080c0f', display: 'flex',
+        flexDirection: 'column' }}>
         <TopBar />
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 64, marginBottom: 16 }}>🔒</div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 18, fontWeight: 900,
-            color: '#e0f0ff', letterSpacing: 2, marginBottom: 8 }}>
-            COMING SOON
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center',
+          justifyContent: 'center', flexDirection: 'column', gap: 20, padding: 24 }}>
+          <div style={{ fontSize: 64 }}>🧠</div>
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 16 : 22,
+            fontWeight: 900, color: '#e0f0ff', letterSpacing: 2, textAlign: 'center' }}>
+            LAB WORK DeFi
           </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 13, color: '#6a8aaa', maxWidth: 340 }}>
-            Lab Work DeFi is under final testing. Check back soon.
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 10 : 12,
+            color: '#ff8c00', letterSpacing: 3, textAlign: 'center' }}>
+            UNDER DEVELOPMENT
           </div>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 13, color: '#6a8aaa',
+            maxWidth: 380, textAlign: 'center', lineHeight: 1.7 }}>
+            {publicKey
+              ? 'This wallet does not have access. Site is still under development — check back soon.'
+              : 'This site is still under development. Connect your wallet to check access.'}
+          </div>
+          {!publicKey && (
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#4a6a8a',
+              border: '1px solid rgba(255,255,255,.08)', borderRadius: 8,
+              padding: '10px 20px', marginTop: 8 }}>
+              USE THE CONNECT BUTTON ABOVE ↑
+            </div>
+          )}
         </div>
       </div>
     );
