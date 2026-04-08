@@ -185,19 +185,112 @@ async function fetchXdexPrice(mint: string): Promise<TokenPrice | null> {
   } catch { return null; }
 }
 
-async function fetchTokenMeta(mint: string): Promise<{ symbol: string; name: string; logo?: string; decimals: number }> {
+// ── Token metadata — 3-layer system matching TokenComponents.tsx ──────────────
+// Layer 1: Token-2022 on-chain extensions (most authoritative)
+// Layer 2: Metaplex metadata program
+// Layer 3: XDEX API (fallback)
+
+interface TokenMeta { symbol: string; name: string; logo?: string; decimals: number; source: 'token2022ext' | 'metaplex' | 'xdex' | 'fallback' }
+
+const _metaCache = new Map<string, TokenMeta>();
+
+async function fetchToken2022Meta(mint: string): Promise<TokenMeta | null> {
+  try {
+    const conn = new Connection(RPC, 'confirmed');
+    const mintPk = new PublicKey(mint);
+    const info = await conn.getParsedAccountInfo(mintPk);
+    const parsed = (info?.value?.data as any)?.parsed?.info;
+    if (!parsed) return null;
+    const decimals = parsed.decimals ?? 9;
+    const extensions = parsed.extensions as any[] | undefined;
+    if (!extensions) return null;
+    const metaExt = extensions.find((e: any) => e.extension === 'tokenMetadata');
+    if (!metaExt?.state) return null;
+    const { name, symbol, uri } = metaExt.state;
+    if (!symbol && !name) return null;
+    // Try to fetch logo from URI
+    let logo: string | undefined;
+    if (uri) {
+      try {
+        const r = await fetch(uri, { signal: AbortSignal.timeout(5000) });
+        const j = await r.json();
+        logo = j?.image || j?.logo || j?.icon;
+      } catch {}
+    }
+    return { symbol: symbol || mint.slice(0,6), name: name || mint.slice(0,6), logo, decimals, source: 'token2022ext' };
+  } catch { return null; }
+}
+
+async function fetchMetaplexMeta(mint: string): Promise<TokenMeta | null> {
+  try {
+    const METADATA_PROGRAM = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
+    const [metadataPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from('metadata'), METADATA_PROGRAM.toBuffer(), new PublicKey(mint).toBuffer()],
+      METADATA_PROGRAM
+    );
+    const conn = new Connection(RPC, 'confirmed');
+    const info = await conn.getParsedAccountInfo(metadataPda);
+    if (!info?.value) return null;
+    const data = info.value.data as Buffer;
+    if (!Buffer.isBuffer(data) || data.length < 1) return null;
+    // Parse Metaplex metadata — name at offset 69, symbol at offset 105
+    let offset = 1 + 32 + 32; // discriminator + update_authority + mint
+    const nameLen = data.readUInt32LE(offset); offset += 4;
+    const name = data.slice(offset, offset + nameLen).toString('utf8').replace(/\0/g, '').trim(); offset += nameLen;
+    const symLen = data.readUInt32LE(offset); offset += 4;
+    const symbol = data.slice(offset, offset + symLen).toString('utf8').replace(/\0/g, '').trim(); offset += symLen;
+    const uriLen = data.readUInt32LE(offset); offset += 4;
+    const uri = data.slice(offset, offset + uriLen).toString('utf8').replace(/\0/g, '').trim();
+    if (!symbol && !name) return null;
+    let logo: string | undefined;
+    if (uri) {
+      try {
+        const r = await fetch(uri, { signal: AbortSignal.timeout(5000) });
+        const j = await r.json();
+        logo = j?.image || j?.logo || j?.icon;
+      } catch {}
+    }
+    const conn2 = new Connection(RPC, 'confirmed');
+    const mintInfo = await conn2.getParsedAccountInfo(new PublicKey(mint));
+    const decimals = (mintInfo?.value?.data as any)?.parsed?.info?.decimals ?? 9;
+    return { symbol: symbol || mint.slice(0,6), name: name || mint.slice(0,6), logo, decimals, source: 'metaplex' };
+  } catch { return null; }
+}
+
+async function fetchXdexMeta(mint: string): Promise<TokenMeta | null> {
   try {
     const r = await fetch(`${XDEX_BASE}/token-price/price?network=X1+Mainnet&token_address=${mint}`,
       { signal: AbortSignal.timeout(6000) });
     const j = await r.json();
-    if (j.success && j.data) return {
-      symbol:   j.data.symbol   || mint.slice(0, 6),
-      name:     j.data.name     || mint.slice(0, 6),
-      logo:     j.data.logo,
-      decimals: j.data.decimals ?? 9,
-    };
+    if (j.success && j.data) {
+      const logo = j.data.logo || j.data.logoUri || j.data.image || j.data.icon;
+      return {
+        symbol:   j.data.symbol   || mint.slice(0, 6),
+        name:     j.data.name     || mint.slice(0, 6),
+        logo,
+        decimals: j.data.decimals ?? 9,
+        source:   'xdex',
+      };
+    }
   } catch {}
-  return { symbol: mint.slice(0, 6), name: mint.slice(0, 6), decimals: 9 };
+  return null;
+}
+
+async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
+  if (_metaCache.has(mint)) return _metaCache.get(mint)!;
+  // Layer 1 — Token-2022 on-chain extensions
+  const t22 = await fetchToken2022Meta(mint);
+  if (t22) { _metaCache.set(mint, t22); return t22; }
+  // Layer 2 — Metaplex
+  const mpx = await fetchMetaplexMeta(mint);
+  if (mpx) { _metaCache.set(mint, mpx); return mpx; }
+  // Layer 3 — XDEX API
+  const xdex = await fetchXdexMeta(mint);
+  if (xdex) { _metaCache.set(mint, xdex); return xdex; }
+  // Fallback
+  const fallback: TokenMeta = { symbol: mint.slice(0,4).toUpperCase(), name: mint.slice(0,8), decimals: 9, source: 'fallback' };
+  _metaCache.set(mint, fallback);
+  return fallback;
 }
 
 async function checkPoolExists(mintA: string, mintB: string): Promise<boolean> {
@@ -251,7 +344,7 @@ async function fetchOnChainListings(): Promise<ListingOnChain[]> {
         const mintStr = tokenAMint.toBase58();
         const meta = await fetchTokenMeta(mintStr);
 
-        // Determine decimals for display
+        // Determine decimals — on-chain meta is most accurate
         const decimals = mintStr === BRAINS_MINT ? 9
                        : mintStr === LB_MINT     ? 2
                        : meta.decimals;
@@ -298,24 +391,49 @@ const StatusBox: FC<{ msg: string }> = ({ msg }) => {
   );
 };
 
-// ─── Token Logo ───────────────────────────────────────────────────────────────
+// ─── Token Logo — matches TokenComponents.tsx with CORS retry + gradient fallback
 const TokenLogo: FC<{ mint: string; logo?: string; symbol: string; size?: number }> = ({
   mint, logo, symbol, size = 44,
 }) => {
-  const [err, setErr] = useState(false);
-  const letter = symbol?.[0]?.toUpperCase() || '?';
-  const bg = mint === BRAINS_MINT ? 'linear-gradient(135deg,#00d4ff,#0066aa)'
-           : mint === LB_MINT     ? 'linear-gradient(135deg,#00c98d,#005a3a)'
-           : 'linear-gradient(135deg,#bf5af2,#6622aa)';
-  if (logo && !err) return <img src={logo} alt={symbol} onError={() => setErr(true)}
-    style={{ width: size, height: size, borderRadius: size * 0.25, objectFit: 'cover', flexShrink: 0 }} />;
+  const [failed,  setFailed]  = useState(false);
+  const [retried, setRetried] = useState(false);
+  const [src, setSrc]         = useState(logo || '');
+
+  useEffect(() => { setSrc(logo || ''); setFailed(false); setRetried(false); }, [logo, mint]);
+
+  const handleError = () => {
+    if (!retried && src) {
+      setRetried(true);
+      const isLocal = typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+      if (isLocal) { setSrc(`https://corsproxy.io/?${encodeURIComponent(src)}`); return; }
+    }
+    setFailed(true);
+  };
+
+  const radius = size * 0.22;
+
+  if (src && !failed) return (
+    <img src={src} alt={symbol} crossOrigin="anonymous" onError={handleError}
+      style={{ width: size, height: size, borderRadius: radius,
+        objectFit: 'cover', flexShrink: 0, background: '#111820',
+        border: '1px solid rgba(255,255,255,.08)' }} />
+  );
+
+  // Gradient fallback — same palette as TokenComponents
+  const COLORS = ['#ff8c00','#ffb700','#00d4ff','#00c98d','#bf5af2'];
+  const ci  = (symbol?.charCodeAt(0) ?? 65) % COLORS.length;
+  const ci2 = (ci + 2) % COLORS.length;
   return (
     <div style={{
-      width: size, height: size, borderRadius: size * 0.25, background: bg,
+      width: size, height: size, borderRadius: radius, flexShrink: 0,
+      background: `linear-gradient(135deg,${COLORS[ci]},${COLORS[ci2]})`,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontFamily: 'Orbitron,monospace', fontSize: size * 0.38, fontWeight: 900,
-      color: '#fff', flexShrink: 0,
-    }}>{letter}</div>
+      color: '#0a0e14', border: '1px solid rgba(255,255,255,.08)',
+    }}>
+      {(symbol ?? '?').charAt(0).toUpperCase()}
+    </div>
   );
 };
 
@@ -473,7 +591,9 @@ const CreateListingModal: FC<{
   onClose: () => void;
   onCreated: () => void;
 }> = ({ isMobile, publicKey, connection, signTransaction, onClose, onCreated }) => {
-  const [tokenA, setTokenA]     = useState<'brains' | 'lb'>('brains');
+  const [tokenA, setTokenA]     = useState<'brains' | 'lb' | 'other'>('brains');
+  const [otherMint, setOtherMint]   = useState('');
+  const [otherMeta, setOtherMeta]   = useState<{symbol:string;logo?:string;decimals:number;balance:number;price:number;hasPool:boolean;checking:boolean} | null>(null);
   const [amount, setAmount]     = useState('');
   const [burnBps, setBurnBps]   = useState<0 | 2500 | 5000 | 10000>(0);
   const [status, setStatus]     = useState('');
@@ -511,22 +631,66 @@ const CreateListingModal: FC<{
     })();
   }, [publicKey, connection]);
 
-  const selPrice   = tokenA === 'brains' ? prices.brains : prices.lb;
-  const selBal     = tokenA === 'brains' ? balances.brains : balances.lb;
-  const selMint    = tokenA === 'brains' ? BRAINS_MINT : LB_MINT;
-  const selDec     = tokenA === 'brains' ? 9 : 2;
+  // Derived values — handles brains, lb, and other token
+  const selPrice   = tokenA === 'brains' ? prices.brains
+                   : tokenA === 'lb'     ? prices.lb
+                   : otherMeta?.price ?? 0;
+  const selBal     = tokenA === 'brains' ? balances.brains
+                   : tokenA === 'lb'     ? balances.lb
+                   : otherMeta?.balance ?? 0;
+  const selMint    = tokenA === 'brains' ? BRAINS_MINT
+                   : tokenA === 'lb'     ? LB_MINT
+                   : otherMint;
+  const selDec     = tokenA === 'brains' ? 9
+                   : tokenA === 'lb'     ? 2
+                   : otherMeta?.decimals ?? 9;
+  const selSymbol  = tokenA === 'brains' ? 'BRAINS'
+                   : tokenA === 'lb'     ? 'LB'
+                   : otherMeta?.symbol ?? '???';
   const amt        = parseFloat(amount) || 0;
   const usdValUi   = amt * selPrice;
   const usdVal6    = Math.floor(usdValUi * 1_000_000);
   const xntValLamp = Math.floor((usdValUi / prices.xnt) * LAMPORTS_PER_SOL) || 0;
-  const isEcosystem = true; // always true in Phase 1 (BRAINS or LB)
+  const isEcosystem = tokenA === 'brains' || tokenA === 'lb';
   const feeLamps   = usdVal6 > 0 ? calculateFeeXnt(isEcosystem, balances.lbRaw, usdVal6, prices.xnt6) : 0;
   const feeXntUi   = feeLamps / LAMPORTS_PER_SOL;
   const feeUsdUi   = feeXntUi * prices.xnt;
   const burnOpt    = BURN_OPTIONS.find(b => b.bps === burnBps)!;
   const eachPct    = burnBps < 10000 ? (10000 - burnBps) / 2 / 100 : 0;
   const hasLbDiscount = isEcosystem || balances.lbRaw >= LB_DISCOUNT_THRESHOLD;
-  const canSubmit  = amt > 0 && amt <= selBal && xntBal >= feeXntUi && !pending && usdVal6 >= 1_000_000;
+  const otherReady = tokenA !== 'other' || (otherMeta?.hasPool === true && !otherMeta?.checking);
+  const canSubmit  = amt > 0 && amt <= selBal && xntBal >= feeXntUi && !pending && usdVal6 >= 1_000_000 && otherReady;
+
+  // Fetch other token data when mint address changes
+  const checkOtherToken = useCallback(async (mint: string) => {
+    if (!mint || mint.length < 32) { setOtherMeta(null); return; }
+    try { new PublicKey(mint); } catch { setOtherMeta(null); return; }
+    setOtherMeta(m => ({ ...(m ?? {symbol:'???',decimals:9,balance:0,price:0,hasPool:false,checking:false}), checking: true, hasPool: false }));
+    try {
+      // Use the full 3-layer metadata system (Token-2022 → Metaplex → XDEX)
+      const [meta, priceData, poolExists] = await Promise.all([
+        fetchTokenMeta(mint),
+        fetchXdexPrice(mint),
+        checkPoolExists(mint, WXNT_MINT),
+      ]);
+      let balance = 0;
+      if (publicKey && connection) {
+        try {
+          const ata = getAssociatedTokenAddressSync(new PublicKey(mint), publicKey, false, TOKEN_PROGRAM_ID);
+          const ata2022 = getAssociatedTokenAddressSync(new PublicKey(mint), publicKey, false, TOKEN_2022_PROGRAM_ID);
+          const [a1, a2] = await Promise.all([
+            connection.getParsedAccountInfo(ata).catch(() => null),
+            connection.getParsedAccountInfo(ata2022).catch(() => null),
+          ]);
+          balance = Number(a1?.value?.data?.parsed?.info?.tokenAmount?.uiAmount ?? a2?.value?.data?.parsed?.info?.tokenAmount?.uiAmount ?? 0);
+        } catch {}
+      }
+      setOtherMeta({ symbol: meta.symbol, logo: meta.logo ?? undefined, decimals: meta.decimals,
+        balance, price: priceData?.priceUSD ?? 0, hasPool: poolExists, checking: false });
+    } catch {
+      setOtherMeta(m => ({ ...(m ?? {symbol:'???',decimals:9,balance:0,price:0,hasPool:false,checking:false}), checking: false }));
+    }
+  }, [publicKey, connection]);
 
   const handleCreate = async () => {
     if (!publicKey || !signTransaction || !canSubmit) return;
@@ -599,7 +763,7 @@ const CreateListingModal: FC<{
           border: `1px solid ${hasLbDiscount ? 'rgba(0,201,141,.25)' : 'rgba(255,140,0,.25)'}`,
           borderRadius: 8, padding: '6px 12px', display: 'inline-block' }}>
           {hasLbDiscount
-            ? `✓ 0.888% FEE RATE (ecosystem token)`
+            ? (isEcosystem ? '✓ 0.888% FEE RATE (ecosystem token)' : '✓ 0.888% FEE RATE (33+ LB held)')
             : `1.888% FEE RATE · Hold 33 LB for 0.888% discount (you have ${(balances.lbRaw / 100).toFixed(2)} LB)`}
         </div>
 
@@ -607,26 +771,76 @@ const CreateListingModal: FC<{
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 10 }}>
           SELECT TOKEN TO LIST
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
           {[
             { key: 'brains', label: 'BRAINS', bal: balances.brains, price: prices.brains, color: '#00d4ff' },
             { key: 'lb',     label: 'LB',     bal: balances.lb,     price: prices.lb,     color: '#00c98d' },
+            { key: 'other',  label: 'OTHER',  bal: otherMeta?.balance ?? 0, price: otherMeta?.price ?? 0, color: '#bf5af2' },
           ].map(t => (
-            <button key={t.key} onClick={() => setTokenA(t.key as any)}
-              style={{ padding: '10px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
-                background: tokenA === t.key ? `rgba(${t.color === '#00d4ff' ? '0,212,255' : '0,201,141'},.1)` : 'rgba(255,255,255,.03)',
+            <button key={t.key} onClick={() => { setTokenA(t.key as any); setAmount(''); }}
+              style={{ padding: '10px 8px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
+                background: tokenA === t.key ? `${t.color}18` : 'rgba(255,255,255,.03)',
                 border: `1px solid ${tokenA === t.key ? t.color + '55' : 'rgba(255,255,255,.08)'}` }}>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900,
-                color: tokenA === t.key ? t.color : '#8aa0b8', marginBottom: 6 }}>{t.label}</div>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a' }}>
-                BAL: <span style={{ color: '#8aa0b8' }}>{fmtNum(t.bal)}</span>
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
+                color: tokenA === t.key ? t.color : '#8aa0b8', marginBottom: 4 }}>{t.label}</div>
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#4a6a8a' }}>
+                {t.key === 'other' ? (otherMeta ? otherMeta.symbol : 'any token') : `BAL: ${fmtNum(t.bal)}`}
               </div>
-              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a', marginTop: 3 }}>
-                {fmtUSD(t.price)} / token
+              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#4a6a8a', marginTop: 2 }}>
+                {t.key === 'other' ? 'needs XNT pool' : fmtUSD(t.price)}
               </div>
             </button>
           ))}
         </div>
+
+        {/* Other token mint input */}
+        {tokenA === 'other' && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 8 }}>
+              PASTE TOKEN MINT ADDRESS
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input value={otherMint} onChange={e => setOtherMint(e.target.value)}
+                placeholder="Token mint address…"
+                style={{ flex: 1, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(191,90,242,.3)',
+                  borderRadius: 10, padding: '10px 14px', outline: 'none', color: '#e0f0ff',
+                  fontFamily: 'Sora,sans-serif', fontSize: 12 }} />
+              <button onClick={() => checkOtherToken(otherMint)}
+                style={{ padding: '10px 14px', borderRadius: 10, cursor: 'pointer',
+                  background: 'rgba(191,90,242,.12)', border: '1px solid rgba(191,90,242,.35)',
+                  fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#bf5af2' }}>
+                CHECK
+              </button>
+            </div>
+            {otherMeta && (
+              <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 10,
+                background: otherMeta.hasPool ? 'rgba(0,201,141,.06)' : 'rgba(255,68,68,.06)',
+                border: `1px solid ${otherMeta.hasPool ? 'rgba(0,201,141,.25)' : 'rgba(255,68,68,.25)'}` }}>
+                {otherMeta.checking ? (
+                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a' }}>Checking pool…</div>
+                ) : otherMeta.hasPool ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 900, color: '#00c98d' }}>
+                        ✓ {otherMeta.symbol}
+                      </div>
+                      <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#6a8aaa', marginTop: 3 }}>
+                        XNT pool verified · {fmtUSD(otherMeta.price)} · BAL: {fmtNum(otherMeta.balance)}
+                      </div>
+                    </div>
+                    <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#00c98d',
+                      background: 'rgba(0,201,141,.1)', border: '1px solid rgba(0,201,141,.3)',
+                      borderRadius: 6, padding: '4px 10px' }}>ELIGIBLE</div>
+                  </div>
+                ) : (
+                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#ff6666' }}>
+                    ✗ No XNT pool found on XDEX — create one first
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Amount input */}
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 10 }}>
@@ -635,7 +849,7 @@ const CreateListingModal: FC<{
         <div style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(0,212,255,.18)',
           borderRadius: 12, padding: '14px 16px', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <TokenLogo mint={selMint} symbol={tokenA.toUpperCase()} size={32} />
+            <TokenLogo mint={selMint} symbol={selSymbol} size={32} />
             <input value={amount} onChange={e => setAmount(e.target.value)} type="number" min="0" placeholder="0"
               style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none',
                 fontFamily: 'Orbitron,monospace', fontSize: 24, fontWeight: 900, color: '#fff' }} />
@@ -736,7 +950,7 @@ const CreateListingModal: FC<{
             ? <><div style={{ width: 14, height: 14, borderRadius: '50%',
                 border: '2px solid rgba(0,212,255,.2)', borderTop: '2px solid #00d4ff',
                 animation: 'spin .8s linear infinite' }} />CREATING…</>
-            : `⚡ LIST ${fmtNum(amt)} ${tokenA.toUpperCase()} · PAY ${feeXntUi.toFixed(4)} XNT`}
+            : `⚡ LIST ${fmtNum(amt)} ${selSymbol} · PAY ${feeXntUi.toFixed(4)} XNT`}
         </button>
       </div>
     </div>,
