@@ -236,11 +236,11 @@ async function fetchMetaplexMeta(mint: string): Promise<TokenMeta | null> {
     // Parse Metaplex metadata — name at offset 69, symbol at offset 105
     let offset = 1 + 32 + 32; // discriminator + update_authority + mint
     const nameLen = data.readUInt32LE(offset); offset += 4;
-    const name = data.slice(offset, offset + nameLen).toString('utf8').replace(//g, '').trim(); offset += nameLen;
+    const name = data.slice(offset, offset + nameLen).toString('utf8').replace(/ /g, '').trim(); offset += nameLen;
     const symLen = data.readUInt32LE(offset); offset += 4;
-    const symbol = data.slice(offset, offset + symLen).toString('utf8').replace(//g, '').trim(); offset += symLen;
+    const symbol = data.slice(offset, offset + symLen).toString('utf8').replace(/ /g, '').trim(); offset += symLen;
     const uriLen = data.readUInt32LE(offset); offset += 4;
-    const uri = data.slice(offset, offset + uriLen).toString('utf8').replace(//g, '').trim();
+    const uri = data.slice(offset, offset + uriLen).toString('utf8').replace(/ /g, '').trim();
     if (!symbol && !name) return null;
     let logo: string | undefined;
     if (uri) {
