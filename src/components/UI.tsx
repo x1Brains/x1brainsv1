@@ -200,24 +200,6 @@ export const TopBar: FC = () => {
         </button>
         )}
 
-        {/* LAB WORK DeFi — LP pairing marketplace */}
-        {!isLabWorkDefi && (
-        <button className="tb-hide-mobile" onClick={() => navigate('/labworkdefi')}
-          style={{
-            background: 'rgba(0,212,255,0.06)',
-            border: '1px solid rgba(0,212,255,0.22)',
-            borderRadius: 8, padding: '7px 12px', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: 6,
-            backdropFilter: 'blur(12px)', transition: 'all 0.2s',
-          }}
-          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,212,255,0.16)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(0,212,255,0.55)'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,212,255,0.06)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(0,212,255,0.22)'; }}
-        >
-          <span style={{ fontSize: 12 }}>⚡</span>
-          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#00d4ff', letterSpacing: 2, fontWeight: 700 }}>LPs</span>
-          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#001a22', background: 'linear-gradient(135deg,#00d4ff,#00c98d)', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>DeFi</span>
-        </button>
-        )}
 
         {/* Mobile nav menu dropdown */}
         <div style={{ position: 'relative' }}>
@@ -280,18 +262,7 @@ export const TopBar: FC = () => {
                 {isLabWork && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#bf5af2' }} />}
               </button>
 
-              {/* LAB WORK DeFi */}
-              <button
-                onClick={() => { navigate('/labworkdefi'); setNavOpen(false); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isLabWorkDefi ? 'rgba(0,212,255,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,212,255,0.1)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isLabWorkDefi ? 'rgba(0,212,255,0.1)' : 'transparent'; }}
-              >
-                <span style={{ fontSize: 14 }}>⚡</span>
-                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#00d4ff', letterSpacing: 1.5, fontWeight: 700 }}>LAB WORK DeFi</span>
-                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#001a22', background: 'linear-gradient(135deg,#00d4ff,#00c98d)', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>LPs</span>
-                {isLabWorkDefi && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#00d4ff' }} />}
-              </button>
+              {/* LAB WORK DeFi — hidden until delist fixed */}
 
               {/* CYBERDYNE */}
               <button
