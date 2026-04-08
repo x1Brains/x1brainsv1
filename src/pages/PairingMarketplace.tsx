@@ -488,6 +488,13 @@ const ListingCard: FC<{
   const eachPct  = listing.burnBps < 10000 ? (10000 - listing.burnBps) / 2 / 100 : 0;
   const xntValUi = listing.xntVal / LAMPORTS_PER_SOL;
 
+  // Fetch logo if not already loaded — uses 3-layer metadata system
+  const [logo, setLogo] = useState<string | undefined>(listing.tokenALogo);
+  useEffect(() => {
+    if (logo) return; // already have it
+    fetchTokenMeta(listing.tokenAMint).then(m => { if (m.logo) setLogo(m.logo); });
+  }, [listing.tokenAMint]);
+
   // Calculate what the fee would be for this listing
   const xntPriceUSD6 = Math.floor((xntPrice || 0.4187) * 1_000_000);
   const matchFeeLamps = calculateFeeXnt(
@@ -513,7 +520,7 @@ const ListingCard: FC<{
 
       <div style={{ display: 'flex', gap: isMobile ? 12 : 16, alignItems: 'flex-start' }}>
 
-        <TokenLogo mint={listing.tokenAMint} logo={listing.tokenALogo}
+        <TokenLogo mint={listing.tokenAMint} logo={logo}
           symbol={listing.tokenASymbol} size={isMobile ? 40 : 48} />
 
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -521,7 +528,7 @@ const ListingCard: FC<{
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5, flexWrap: 'wrap' }}>
             <span style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 13 : 16,
               fontWeight: 900, color: '#e0f0ff', letterSpacing: .5 }}>
-              {listing.tokenASymbol} / ???
+              {listing.tokenASymbol} / ANY TOKEN
             </span>
             <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, letterSpacing: 1,
               color: listing.isEcosystem ? '#00d4ff' : '#bf5af2',
@@ -783,10 +790,10 @@ const CreateListingModal: FC<{
 
       // ── Build Anchor instruction data ─────────────────────────────────────────
       // Discriminator for create_listing = first 8 bytes of sha256("global:create_listing")
-      // Use Web Crypto API (browser-compatible) to compute Anchor discriminator
-      const msgBytes  = new TextEncoder().encode('global:create_listing');
-      const hashBuf   = await window.crypto.subtle.digest('SHA-256', msgBytes);
-      const disc      = Buffer.from(new Uint8Array(hashBuf).slice(0, 8));
+      const crypto = await import('crypto');
+      const disc   = Buffer.from(
+        crypto.createHash('sha256').update('global:create_listing').digest()
+      ).slice(0, 8);
 
       // Encode CreateListingParams — must match program struct layout exactly
       // token_a_amount:   u64  (8 bytes LE)
@@ -813,7 +820,6 @@ const CreateListingModal: FC<{
       // ── Account metas — must match CreateListing accounts in program ──────────
       const { TransactionInstruction, Transaction, SystemProgram: SP } = await import('@solana/web3.js');
       const { ASSOCIATED_TOKEN_PROGRAM_ID } = await import('@solana/spl-token');
-      // (static imports used at top of file for PublicKey etc)
 
       const keys = [
         { pubkey: publicKey,                          isSigner: true,  isWritable: true  }, // creator
@@ -1101,6 +1107,433 @@ const CreateListingModal: FC<{
   );
 };
 
+// ─── Match Modal ──────────────────────────────────────────────────────────────
+const MatchModal: FC<{
+  listing: ListingOnChain;
+  isMobile: boolean;
+  publicKey: PublicKey;
+  connection: any;
+  signTransaction: any;
+  onClose: () => void;
+  onMatched: () => void;
+}> = ({ listing, isMobile, publicKey, connection, signTransaction, onClose, onMatched }) => {
+  const [tokenBMint, setTokenBMint] = useState('');
+  const [tokenBMeta, setTokenBMeta] = useState<{symbol:string;logo?:string;decimals:number;balance:number;price:number;hasPool:boolean;checking:boolean} | null>(null);
+  const [amount, setAmount]         = useState('');
+  const [status, setStatus]         = useState('');
+  const [pending, setPending]       = useState(false);
+  const [xntPrice, setXntPrice]     = useState(0.4187);
+  const [lbRaw, setLbRaw]           = useState(0);
+
+  useEffect(() => {
+    fetchXdexPrice(WXNT_MINT).then(p => { if (p) setXntPrice(p.priceUSD); });
+    if (!publicKey || !connection) return;
+    getAssociatedTokenAddressSync(new PublicKey(LB_MINT), publicKey, false, TOKEN_2022_PROGRAM_ID);
+    connection.getParsedAccountInfo(
+      getAssociatedTokenAddressSync(new PublicKey(LB_MINT), publicKey, false, TOKEN_2022_PROGRAM_ID)
+    ).then((a: any) => setLbRaw(Number(a?.value?.data?.parsed?.info?.tokenAmount?.amount ?? 0))).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let sy = 0;
+    try { sy = window.scrollY; document.body.style.position = 'fixed'; document.body.style.top = `-${sy}px`; } catch {}
+    return () => { try { document.body.style.position = ''; document.body.style.top = ''; window.scrollTo(0, sy); } catch {} };
+  }, []);
+
+  const checkTokenB = async (mint: string) => {
+    if (!mint || mint.length < 32) { setTokenBMeta(null); return; }
+    try { new PublicKey(mint); } catch { setTokenBMeta(null); return; }
+    setTokenBMeta(m => ({ ...(m ?? {symbol:'???',decimals:9,balance:0,price:0,hasPool:false,checking:false}), checking: true }));
+    try {
+      const [meta, priceData, poolExists] = await Promise.all([
+        fetchTokenMeta(mint),
+        fetchXdexPrice(mint),
+        checkPoolExists(mint, WXNT_MINT),
+      ]);
+      let balance = 0;
+      if (publicKey && connection) {
+        try {
+          const [a1, a2] = await Promise.all([
+            connection.getParsedAccountInfo(getAssociatedTokenAddressSync(new PublicKey(mint), publicKey, false, TOKEN_PROGRAM_ID)).catch(() => null),
+            connection.getParsedAccountInfo(getAssociatedTokenAddressSync(new PublicKey(mint), publicKey, false, TOKEN_2022_PROGRAM_ID)).catch(() => null),
+          ]);
+          balance = Number(a1?.value?.data?.parsed?.info?.tokenAmount?.uiAmount ?? a2?.value?.data?.parsed?.info?.tokenAmount?.uiAmount ?? 0);
+        } catch {}
+      }
+      setTokenBMeta({ symbol: meta.symbol, logo: meta.logo, decimals: meta.decimals, balance, price: priceData?.priceUSD ?? 0, hasPool: poolExists, checking: false });
+    } catch { setTokenBMeta(m => ({ ...(m ?? {symbol:'???',decimals:9,balance:0,price:0,hasPool:false,checking:false}), checking: false })); }
+  };
+
+  const amt        = parseFloat(amount) || 0;
+  const xntPrice6  = Math.floor(xntPrice * 1_000_000);
+  const usdValB    = amt * (tokenBMeta?.price ?? 0);
+  const usdValA    = listing.usdValUi;
+  const diff       = Math.abs(usdValA - usdValB);
+  const tolerance  = usdValA * 0.005;
+  const priceMatch = usdValB > 0 && diff <= tolerance;
+  const isEcoB     = tokenBMint === BRAINS_MINT || tokenBMint === LB_MINT;
+  const matchFee   = xntPrice6 > 0 && usdValB > 0
+    ? calculateFeeXnt(isEcoB, lbRaw, Math.floor(usdValB * 1_000_000), xntPrice6)
+    : 0;
+  const matchFeeXnt = matchFee / LAMPORTS_PER_SOL;
+  const canMatch   = !!tokenBMeta?.hasPool && !tokenBMeta?.checking && amt > 0 && amt <= (tokenBMeta?.balance ?? 0) && priceMatch && !pending;
+
+  const handleMatch = async () => {
+    if (!canMatch || !publicKey || !signTransaction) return;
+    setPending(true);
+    setStatus('Fetching prices…');
+    try {
+      const [tokenBPrice, xntP] = await Promise.all([
+        fetchXdexPrice(tokenBMint),
+        fetchXdexPrice(WXNT_MINT),
+      ]);
+      if (!tokenBPrice) throw new Error('Could not fetch Token B price');
+      const now         = Math.floor(Date.now() / 1000);
+      const usdValB6    = Math.floor(tokenBPrice.priceUSD * amt * 1_000_000);
+      const xntValB9    = Math.floor((tokenBPrice.priceUSD / (xntP?.priceUSD ?? xntPrice)) * amt * 1_000_000_000);
+      const xntP6       = xntP?.priceUSD6 ?? xntPrice6;
+      const rawAmtB     = Math.floor(amt * Math.pow(10, tokenBMeta!.decimals));
+      const programPk   = new PublicKey(PROGRAM_ID);
+      const listingPk   = new PublicKey(listing.id);
+      const mintAPk     = new PublicKey(listing.tokenAMint);
+      const mintBPk     = new PublicKey(tokenBMint);
+      const [globalState]  = PublicKey.findProgramAddressSync([Buffer.from('global_state')], programPk);
+      const [matcherWS]    = PublicKey.findProgramAddressSync([Buffer.from('wallet_state'), publicKey.toBuffer()], programPk);
+      const [escrowPda]    = PublicKey.findProgramAddressSync([Buffer.from('escrow'), listingPk.toBuffer()], programPk);
+      const [escrowAuth]   = PublicKey.findProgramAddressSync([Buffer.from('escrow_auth'), listingPk.toBuffer()], programPk);
+      const isT2022A = listing.tokenAMint === BRAINS_MINT || listing.tokenAMint === LB_MINT;
+      const isT2022B = tokenBMint === BRAINS_MINT || tokenBMint === LB_MINT;
+      const tokenProgA = isT2022A ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const tokenProgB = isT2022B ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const matcherAtaB = getAssociatedTokenAddressSync(mintBPk, publicKey, false, tokenProgB);
+      const lbAta       = getAssociatedTokenAddressSync(new PublicKey(LB_MINT), publicKey, false, TOKEN_2022_PROGRAM_ID);
+      const msgBytes  = new TextEncoder().encode('global:match_listing');
+      const hashBuf   = await window.crypto.subtle.digest('SHA-256', msgBytes);
+      const disc      = Buffer.from(new Uint8Array(hashBuf).slice(0, 8));
+      // MatchListingParams layout:
+      // token_b_amount:   u64
+      // token_b_usd_val:  u64
+      // token_b_xnt_val:  u64
+      // xnt_price_usd:    u64
+      // price_timestamp:  i64
+      // price_impact_bps: u64
+      // open_time:        u64
+      // amm_config:       Pubkey (32 bytes)
+      // commit_nonce:     Option<[u8;32]> — None = 0x00
+      const params = Buffer.alloc(8+8+8+8+8+8+8+32+1);
+      let off = 0;
+      params.writeBigUInt64LE(BigInt(rawAmtB),   off); off += 8;
+      params.writeBigUInt64LE(BigInt(usdValB6),  off); off += 8;
+      params.writeBigUInt64LE(BigInt(xntValB9),  off); off += 8;
+      params.writeBigUInt64LE(BigInt(xntP6),     off); off += 8;
+      params.writeBigInt64LE(BigInt(now),         off); off += 8;
+      params.writeBigUInt64LE(BigInt(0),          off); off += 8; // price_impact_bps
+      params.writeBigUInt64LE(BigInt(0),          off); off += 8; // open_time = immediate
+      new PublicKey(XDEX_AMM_CONFIG_A).toBuffer().copy(params, off); off += 32;
+      params[off] = 0; // commit_nonce = None
+      const ixData = Buffer.concat([disc, params]);
+      // NOTE: match_listing requires many XDEX accounts that we don't know yet
+      // until the XDEX pool creation CPI accounts are verified on-chain.
+      // For now we submit what we can and let the program error guide us.
+      setStatus('⚠️ Match listing requires XDEX CPI accounts that need verification.\nPlease check back — full match tx coming soon.');
+      setPending(false);
+    } catch (e: any) {
+      setStatus('❌ ' + (e?.message ?? String(e)).slice(0, 200));
+      setPending(false);
+    }
+  };
+
+  return createPortal(
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999,
+      background: 'rgba(0,0,0,.85)', backdropFilter: 'blur(16px)',
+      display: 'flex', alignItems: isMobile ? 'flex-end' : 'center',
+      justifyContent: 'center', padding: isMobile ? 0 : 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: '100%', maxWidth: isMobile ? '100%' : 520,
+        background: 'linear-gradient(155deg,#0d1622,#080c0f)',
+        border: '1px solid rgba(0,255,128,.2)', borderRadius: isMobile ? '20px 20px 0 0' : 16,
+        padding: isMobile ? '20px 16px 28px' : '24px 26px',
+        maxHeight: isMobile ? '88vh' : 'calc(100vh - 32px)', overflowY: 'auto', position: 'relative',
+      }}>
+        <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16,
+          width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(0,255,128,.2)',
+          background: 'rgba(8,12,15,.9)', cursor: 'pointer', color: '#00ff80', fontSize: 16,
+          display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+
+        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 15 : 18,
+          fontWeight: 900, color: '#fff', letterSpacing: 1, marginBottom: 4 }}>⚡ MATCH LISTING</div>
+
+        {/* Listing summary */}
+        <div style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)',
+          borderRadius: 10, padding: '12px 16px', marginBottom: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <TokenLogo mint={listing.tokenAMint} logo={listing.tokenALogo} symbol={listing.tokenASymbol} size={36} />
+            <div>
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900, color: '#00d4ff' }}>
+                {fmtNum(listing.amountUi)} {listing.tokenASymbol}
+              </div>
+              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa' }}>
+                {fmtUSD(listing.usdValUi)} · {listing.burnBps / 100}% burn · by {truncAddr(listing.creator)}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Token B input */}
+        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 8 }}>
+          YOUR TOKEN MINT ADDRESS
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <input value={tokenBMint} onChange={e => setTokenBMint(e.target.value)}
+            placeholder="Paste any token mint with XNT pool…"
+            style={{ flex: 1, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(0,255,128,.2)',
+              borderRadius: 10, padding: '10px 14px', outline: 'none', color: '#e0f0ff',
+              fontFamily: 'Sora,sans-serif', fontSize: 12 }} />
+          <button onClick={() => checkTokenB(tokenBMint)}
+            style={{ padding: '10px 14px', borderRadius: 10, cursor: 'pointer',
+              background: 'rgba(0,255,128,.1)', border: '1px solid rgba(0,255,128,.3)',
+              fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#00ff80' }}>
+            CHECK
+          </button>
+        </div>
+
+        {tokenBMeta && (
+          <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 10,
+            background: tokenBMeta.hasPool ? 'rgba(0,201,141,.06)' : 'rgba(255,68,68,.06)',
+            border: `1px solid ${tokenBMeta.hasPool ? 'rgba(0,201,141,.25)' : 'rgba(255,68,68,.25)'}` }}>
+            {tokenBMeta.checking
+              ? <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a' }}>Checking…</div>
+              : tokenBMeta.hasPool
+              ? <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 900, color: '#00c98d' }}>
+                      ✓ {tokenBMeta.symbol}
+                    </div>
+                    <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#6a8aaa', marginTop: 2 }}>
+                      {fmtUSD(tokenBMeta.price)} · BAL: {fmtNum(tokenBMeta.balance)}
+                    </div>
+                  </div>
+                </div>
+              : <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#ff6666' }}>
+                  ✗ No XNT pool — create one on XDEX first
+                </div>}
+          </div>
+        )}
+
+        {/* Amount input */}
+        {tokenBMeta?.hasPool && (
+          <>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 8 }}>
+              AMOUNT TO DEPOSIT (must equal ≈{fmtUSD(listing.usdValUi)})
+            </div>
+            <div style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(0,255,128,.15)',
+              borderRadius: 12, padding: '14px 16px', marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <TokenLogo mint={tokenBMint} logo={tokenBMeta.logo} symbol={tokenBMeta.symbol} size={32} />
+                <input value={amount} onChange={e => setAmount(e.target.value)} type="number" min="0"
+                  placeholder="0" style={{ flex: 1, background: 'transparent', border: 'none',
+                    outline: 'none', fontFamily: 'Orbitron,monospace', fontSize: 22, fontWeight: 900, color: '#fff' }} />
+                <button onClick={() => setAmount(String(tokenBMeta.balance.toFixed(tokenBMeta.decimals)))}
+                  style={{ background: 'rgba(0,255,128,.1)', border: '1px solid rgba(0,255,128,.25)',
+                    borderRadius: 7, padding: '5px 12px', cursor: 'pointer',
+                    fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#00ff80' }}>MAX</button>
+              </div>
+              {amt > 0 && (
+                <div style={{ display: 'flex', gap: 14, marginTop: 8, alignItems: 'center' }}>
+                  <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11,
+                    color: priceMatch ? '#00c98d' : '#ff6666' }}>{fmtUSD(usdValB)}</span>
+                  {priceMatch
+                    ? <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#00c98d' }}>✓ PRICE MATCH</span>
+                    : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#ff6666' }}>
+                        ✗ needs to be ≈{fmtUSD(listing.usdValUi)} (±0.5%)
+                      </span>}
+                </div>
+              )}
+            </div>
+
+            {/* Fee display */}
+            <div style={{ background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
+              borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a' }}>MATCH FEE ({isEcoB || lbRaw >= LB_DISCOUNT_THRESHOLD ? '0.888%' : '1.888%'})</span>
+                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700, color: '#ff8c00' }}>{matchFeeXnt.toFixed(4)} XNT</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a' }}>LP SPLIT</span>
+                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#8aa0b8' }}>
+                  {listing.burnBps < 10000 ? `${(10000 - listing.burnBps) / 2 / 100}% each` : 'All burned'}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+
+        <StatusBox msg={status} />
+
+        <button onClick={handleMatch} disabled={!canMatch}
+          style={{ width: '100%', padding: '15px 0', borderRadius: 12,
+            cursor: canMatch ? 'pointer' : 'not-allowed',
+            background: canMatch ? 'linear-gradient(135deg,rgba(0,255,128,.2),rgba(0,255,128,.06))' : 'rgba(255,255,255,.04)',
+            border: `1px solid ${canMatch ? 'rgba(0,255,128,.5)' : 'rgba(255,255,255,.08)'}`,
+            fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
+            color: canMatch ? '#00ff80' : '#4a6a8a' }}>
+          {pending
+            ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <div style={{ width: 14, height: 14, borderRadius: '50%',
+                  border: '2px solid rgba(0,255,128,.2)', borderTop: '2px solid #00ff80',
+                  animation: 'spin .8s linear infinite' }} />MATCHING…
+              </div>
+            : `⚡ MATCH — DEPOSIT ${fmtNum(amt)} ${tokenBMeta?.symbol ?? '???'} · CREATE POOL`}
+        </button>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+// ─── Edit Modal ────────────────────────────────────────────────────────────────
+const EditModal: FC<{
+  listing: ListingOnChain;
+  isMobile: boolean;
+  publicKey: PublicKey;
+  connection: any;
+  signTransaction: any;
+  onClose: () => void;
+  onEdited: () => void;
+}> = ({ listing, isMobile, publicKey, connection, signTransaction, onClose, onEdited }) => {
+  const [newBurnBps, setNewBurnBps] = useState<0|2500|5000|10000>(listing.burnBps as any);
+  const [status, setStatus]         = useState('');
+  const [pending, setPending]       = useState(false);
+  const [xntPrice, setXntPrice]     = useState(0.4187);
+
+  useEffect(() => {
+    fetchXdexPrice(WXNT_MINT).then(p => { if (p) setXntPrice(p.priceUSD); });
+    let sy = 0;
+    try { sy = window.scrollY; document.body.style.position = 'fixed'; document.body.style.top = `-${sy}px`; } catch {}
+    return () => { try { document.body.style.position = ''; document.body.style.top = ''; window.scrollTo(0, sy); } catch {} };
+  }, []);
+
+  const handleEdit = async () => {
+    if (!publicKey || !signTransaction) return;
+    setPending(true);
+    setStatus('Building transaction…');
+    try {
+      const xntP   = await fetchXdexPrice(WXNT_MINT);
+      const xntP6  = xntP?.priceUSD6 ?? Math.floor(xntPrice * 1_000_000);
+      const now    = Math.floor(Date.now() / 1000);
+      const programPk = new PublicKey(PROGRAM_ID);
+      const listingPk = new PublicKey(listing.id);
+      const mintPk    = new PublicKey(listing.tokenAMint);
+      const [globalState] = PublicKey.findProgramAddressSync([Buffer.from('global_state')], programPk);
+      const [escrowPda]   = PublicKey.findProgramAddressSync([Buffer.from('escrow'), listingPk.toBuffer()], programPk);
+      const [escrowAuth]  = PublicKey.findProgramAddressSync([Buffer.from('escrow_auth'), listingPk.toBuffer()], programPk);
+      const isT2022   = listing.tokenAMint === BRAINS_MINT || listing.tokenAMint === LB_MINT;
+      const tokenProg = isT2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const creatorAta = getAssociatedTokenAddressSync(mintPk, publicKey, false, tokenProg);
+      const msgBytes  = new TextEncoder().encode('global:edit_listing');
+      const hashBuf   = await window.crypto.subtle.digest('SHA-256', msgBytes);
+      const disc      = Buffer.from(new Uint8Array(hashBuf).slice(0, 8));
+      // EditListingParams:
+      // new_amount:      Option<u64>  — None = 0x00
+      // new_usd_val:     Option<u64>  — None = 0x00
+      // new_xnt_val:     Option<u64>  — None = 0x00
+      // new_burn_bps:    Option<u16>  — Some(bps) = 0x01 + u16LE
+      // price_timestamp: i64
+      // xnt_price_usd:   u64
+      const params = Buffer.alloc(1+1+1+1+2+8+8); // simplified — only changing burn_bps
+      let off = 0;
+      params[off++] = 0; // new_amount = None
+      params[off++] = 0; // new_usd_val = None
+      params[off++] = 0; // new_xnt_val = None
+      params[off++] = 1; // new_burn_bps = Some
+      params.writeUInt16LE(newBurnBps, off); off += 2;
+      params.writeBigInt64LE(BigInt(now), off); off += 8;
+      params.writeBigUInt64LE(BigInt(xntP6), off);
+      const ixData = Buffer.concat([disc, params]);
+      const keys = [
+        { pubkey: publicKey,               isSigner: true,  isWritable: true  },
+        { pubkey: globalState,             isSigner: false, isWritable: true  },
+        { pubkey: listingPk,               isSigner: false, isWritable: true  },
+        { pubkey: escrowPda,               isSigner: false, isWritable: true  },
+        { pubkey: escrowAuth,              isSigner: false, isWritable: false },
+        { pubkey: mintPk,                  isSigner: false, isWritable: false },
+        { pubkey: creatorAta,              isSigner: false, isWritable: true  },
+        { pubkey: new PublicKey(TREASURY), isSigner: false, isWritable: true  },
+        { pubkey: tokenProg,               isSigner: false, isWritable: false },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ];
+      const { TransactionInstruction, Transaction } = await import('@solana/web3.js');
+      const ix  = new TransactionInstruction({ programId: programPk, keys, data: ixData });
+      const { blockhash } = await connection.getLatestBlockhash('confirmed');
+      const tx  = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash });
+      tx.add(ix);
+      setStatus('Waiting for wallet approval…');
+      const signed = await signTransaction(tx);
+      const sig    = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false });
+      setStatus(`✅ Edit submitted! Tx: ${sig.slice(0,20)}…`);
+      setTimeout(() => { onEdited(); onClose(); }, 2000);
+    } catch (e: any) {
+      setStatus('❌ ' + (e?.message ?? String(e)).slice(0, 200));
+    } finally { setPending(false); }
+  };
+
+  return createPortal(
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999,
+      background: 'rgba(0,0,0,.85)', backdropFilter: 'blur(16px)',
+      display: 'flex', alignItems: isMobile ? 'flex-end' : 'center',
+      justifyContent: 'center', padding: isMobile ? 0 : 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: '100%', maxWidth: isMobile ? '100%' : 460,
+        background: 'linear-gradient(155deg,#0d1622,#080c0f)',
+        border: '1px solid rgba(0,212,255,.2)', borderRadius: isMobile ? '20px 20px 0 0' : 16,
+        padding: isMobile ? '20px 16px 28px' : '24px 26px',
+        maxHeight: isMobile ? '88vh' : 'calc(100vh - 32px)', overflowY: 'auto', position: 'relative',
+      }}>
+        <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16,
+          width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(0,212,255,.2)',
+          background: 'rgba(8,12,15,.9)', cursor: 'pointer', color: '#00d4ff', fontSize: 16,
+          display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+
+        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 15 : 18,
+          fontWeight: 900, color: '#fff', letterSpacing: 1, marginBottom: 16 }}>✏️ EDIT LISTING</div>
+
+        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#6a8aaa', marginBottom: 18 }}>
+          Edit fee: 0.001 XNT flat. You can only change burn % (amount changes coming soon).
+        </div>
+
+        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 10 }}>
+          NEW BURN %
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 20 }}>
+          {BURN_OPTIONS.map(b => (
+            <button key={b.bps} onClick={() => setNewBurnBps(b.bps as any)}
+              style={{ padding: '12px 0', borderRadius: 10, cursor: 'pointer', textAlign: 'center',
+                background: newBurnBps === b.bps ? `${b.color}18` : 'rgba(255,255,255,.03)',
+                border: `1px solid ${newBurnBps === b.bps ? b.color + '66' : 'rgba(255,255,255,.08)'}` }}>
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900,
+                color: newBurnBps === b.bps ? b.color : '#8aa0b8' }}>{b.label}</div>
+            </button>
+          ))}
+        </div>
+
+        <StatusBox msg={status} />
+
+        <button onClick={handleEdit} disabled={pending || newBurnBps === listing.burnBps}
+          style={{ width: '100%', padding: '15px 0', borderRadius: 12,
+            cursor: (!pending && newBurnBps !== listing.burnBps) ? 'pointer' : 'not-allowed',
+            background: (!pending && newBurnBps !== listing.burnBps)
+              ? 'linear-gradient(135deg,rgba(0,212,255,.2),rgba(0,212,255,.06))' : 'rgba(255,255,255,.04)',
+            border: `1px solid ${(!pending && newBurnBps !== listing.burnBps) ? 'rgba(0,212,255,.5)' : 'rgba(255,255,255,.08)'}`,
+            fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
+            color: (!pending && newBurnBps !== listing.burnBps) ? '#00d4ff' : '#4a6a8a' }}>
+          {pending ? 'UPDATING…' : `UPDATE BURN TO ${newBurnBps / 100}% · PAY 0.001 XNT`}
+        </button>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 const PairingMarketplace: FC = () => {
   const { publicKey, sendTransaction, signTransaction } = useWallet();
@@ -1113,6 +1546,7 @@ const PairingMarketplace: FC = () => {
   const [loading, setLoading]       = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [matchTarget, setMatchTarget] = useState<ListingOnChain | null>(null);
+  const [editTarget, setEditTarget]   = useState<ListingOnChain | null>(null);
   const [xntPrice, setXntPrice]     = useState(0.4187);
   const [lbBalance, setLbBalance]   = useState(0); // raw LB balance
 
@@ -1378,8 +1812,54 @@ const PairingMarketplace: FC = () => {
               isOwn={publicKey?.toBase58() === listing.creator}
               xntPrice={xntPrice} lbBalance={lbBalance}
               onMatch={setMatchTarget}
-              onEdit={() => alert('Edit listing — coming with full IDL integration')}
-              onDelist={() => alert('Delist — coming with full IDL integration')} />
+              onEdit={(l) => setEditTarget(l)}
+              onDelist={async (l) => {
+                if (!publicKey || !signTransaction) return;
+                if (!window.confirm(`Delist ${l.tokenASymbol} listing? You will pay a 0.444% fee and receive your tokens back.`)) return;
+                try {
+                  const xntP = await fetchXdexPrice(WXNT_MINT);
+                  const xntPrice6 = xntP?.priceUSD6 ?? 418700;
+                  const msgBytes = new TextEncoder().encode('global:delist');
+                  const hashBuf  = await window.crypto.subtle.digest('SHA-256', msgBytes);
+                  const disc     = Buffer.from(new Uint8Array(hashBuf).slice(0, 8));
+                  // encode DelistParams — xnt_price_usd: u64
+                  const params = Buffer.alloc(8);
+                  params.writeBigUInt64LE(BigInt(xntPrice6), 0);
+                  const ixData = Buffer.concat([disc, params]);
+                  const programPk = new PublicKey(PROGRAM_ID);
+                  const mintPk    = new PublicKey(l.tokenAMint);
+                  const listingPk = new PublicKey(l.id);
+                  const [escrowPda]  = PublicKey.findProgramAddressSync([Buffer.from('escrow'), listingPk.toBuffer()], programPk);
+                  const [escrowAuth] = PublicKey.findProgramAddressSync([Buffer.from('escrow_auth'), listingPk.toBuffer()], programPk);
+                  const [globalState] = PublicKey.findProgramAddressSync([Buffer.from('global_state')], programPk);
+                  const isT2022 = l.tokenAMint === BRAINS_MINT || l.tokenAMint === LB_MINT;
+                  const tokenProg = isT2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+                  const creatorAta = getAssociatedTokenAddressSync(mintPk, publicKey, false, tokenProg);
+                  const { TransactionInstruction, Transaction } = await import('@solana/web3.js');
+                  const keys = [
+                    { pubkey: publicKey,                 isSigner: true,  isWritable: true  },
+                    { pubkey: globalState,               isSigner: false, isWritable: true  },
+                    { pubkey: listingPk,                 isSigner: false, isWritable: true  },
+                    { pubkey: escrowPda,                 isSigner: false, isWritable: true  },
+                    { pubkey: escrowAuth,                isSigner: false, isWritable: false },
+                    { pubkey: mintPk,                    isSigner: false, isWritable: false },
+                    { pubkey: creatorAta,                isSigner: false, isWritable: true  },
+                    { pubkey: new PublicKey(TREASURY),   isSigner: false, isWritable: true  },
+                    { pubkey: tokenProg,                 isSigner: false, isWritable: false },
+                    { pubkey: SystemProgram.programId,   isSigner: false, isWritable: false },
+                  ];
+                  const ix  = new TransactionInstruction({ programId: programPk, keys, data: ixData });
+                  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+                  const tx  = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash });
+                  tx.add(ix);
+                  const signed = await signTransaction(tx);
+                  const sig    = await connection.sendRawTransaction(signed.serialize());
+                  alert(`✅ Delisting submitted!\nTx: ${sig.slice(0,20)}…\nTokens will return to your wallet shortly.`);
+                  loadListings();
+                } catch (e: any) {
+                  alert('❌ Delist failed: ' + (e?.message ?? String(e)).slice(0, 120));
+                }
+              }} />
           ))
         )}
 
@@ -1435,6 +1915,41 @@ const PairingMarketplace: FC = () => {
             CONNECT WALLET TO CREATE A LISTING
           </div>
         </div>
+      )}
+      {/* Match Modal */}
+      {matchTarget && publicKey && (
+        <MatchModal
+          listing={matchTarget}
+          isMobile={isMobile}
+          publicKey={publicKey}
+          connection={connection}
+          signTransaction={signTransaction}
+          onClose={() => setMatchTarget(null)}
+          onMatched={() => { setMatchTarget(null); loadListings(); }}
+        />
+      )}
+      {matchTarget && !publicKey && (
+        <div onClick={() => setMatchTarget(null)}
+          style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.85)',
+            backdropFilter: 'blur(16px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, color: '#9abacf', textAlign: 'center' }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>🔌</div>
+            CONNECT WALLET TO MATCH
+          </div>
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {editTarget && publicKey && (
+        <EditModal
+          listing={editTarget}
+          isMobile={isMobile}
+          publicKey={publicKey}
+          connection={connection}
+          signTransaction={signTransaction}
+          onClose={() => setEditTarget(null)}
+          onEdited={() => { setEditTarget(null); loadListings(); }}
+        />
       )}
     </div>
   );
