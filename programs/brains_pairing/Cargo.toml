@@ -1,0 +1,30 @@
+[package]
+name = "brains_pairing"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "brains_pairing"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
+anchor-spl  = { version = "0.31.1", features = ["token", "token_2022", "associated_token"] }
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+
+[profile.release.build-override]
+opt-level = 3
+incremental = false
+codegen-units = 1
