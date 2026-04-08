@@ -1912,6 +1912,28 @@ const PairingMarketplace: FC = () => {
   const { connection } = useConnection();
   const isMobile = useIsMobile();
 
+  // ── ADMIN ONLY — page hidden from public until delist is fixed ──────────────
+  const ADMIN = '2nVaSvCqrsdskcbtn47uquNDL7Q69To1k45FpYBvWnuC';
+  if (!publicKey || publicKey.toBase58() !== ADMIN) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#080c0f',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        flexDirection: 'column', gap: 16, padding: 24 }}>
+        <TopBar />
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 64, marginBottom: 16 }}>🔒</div>
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 18, fontWeight: 900,
+            color: '#e0f0ff', letterSpacing: 2, marginBottom: 8 }}>
+            COMING SOON
+          </div>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 13, color: '#6a8aaa', maxWidth: 340 }}>
+            Lab Work DeFi is under final testing. Check back soon.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const [tab, setTab]               = useState<'listings' | 'mine'>('listings');
   const [filter, setFilter]         = useState<'all' | 'brains' | 'lb'>('all');
   const [listings, setListings]     = useState<ListingOnChain[]>([]);
