@@ -570,15 +570,15 @@ const CreateListingModal: FC<{
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999,
       background: 'rgba(0,0,0,.85)', backdropFilter: 'blur(16px)',
       display: 'flex', alignItems: isMobile ? 'flex-end' : 'center',
-      justifyContent: 'center', padding: isMobile ? 0 : 20 }}>
+      justifyContent: 'center', padding: isMobile ? 0 : '16px' }}>
       <div onClick={e => e.stopPropagation()} style={{
         width: '100%', maxWidth: isMobile ? '100%' : 520,
         background: 'linear-gradient(155deg,#0d1622,#080c0f)',
         border: '1px solid rgba(0,212,255,.2)',
         borderRadius: isMobile ? '20px 20px 0 0' : 16,
-        padding: isMobile ? '24px 18px 36px' : '30px 32px',
+        padding: isMobile ? '18px 14px 24px' : '22px 24px',
         animation: 'modal-in .22s cubic-bezier(.22,1,.36,1) both',
-        maxHeight: isMobile ? '92vh' : 'auto', overflowY: 'auto', position: 'relative',
+        maxHeight: isMobile ? '88vh' : 'calc(100vh - 32px)', overflowY: 'auto', position: 'relative',
       }}>
         <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16,
           width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(0,212,255,.2)',
@@ -593,7 +593,7 @@ const CreateListingModal: FC<{
         </div>
 
         {/* LB discount badge */}
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, marginBottom: 18,
+        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, marginBottom: 12,
           color: hasLbDiscount ? '#00c98d' : '#ff8c00',
           background: hasLbDiscount ? 'rgba(0,201,141,.08)' : 'rgba(255,140,0,.08)',
           border: `1px solid ${hasLbDiscount ? 'rgba(0,201,141,.25)' : 'rgba(255,140,0,.25)'}`,
@@ -607,13 +607,13 @@ const CreateListingModal: FC<{
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 10 }}>
           SELECT TOKEN TO LIST
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 22 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
           {[
             { key: 'brains', label: 'BRAINS', bal: balances.brains, price: prices.brains, color: '#00d4ff' },
             { key: 'lb',     label: 'LB',     bal: balances.lb,     price: prices.lb,     color: '#00c98d' },
           ].map(t => (
             <button key={t.key} onClick={() => setTokenA(t.key as any)}
-              style={{ padding: '14px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
+              style={{ padding: '10px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
                 background: tokenA === t.key ? `rgba(${t.color === '#00d4ff' ? '0,212,255' : '0,201,141'},.1)` : 'rgba(255,255,255,.03)',
                 border: `1px solid ${tokenA === t.key ? t.color + '55' : 'rgba(255,255,255,.08)'}` }}>
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900,
@@ -685,7 +685,7 @@ const CreateListingModal: FC<{
         <div style={{ background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.06)',
           borderRadius: 10, padding: '14px 16px', marginBottom: 18 }}>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a',
-            letterSpacing: 1, marginBottom: 12 }}>FEE BREAKDOWN (program calculation)</div>
+            letterSpacing: 1, marginBottom: 12 }}>FEE SUMMARY</div>
           {[
             { label: 'LISTING VALUE',
               val: `${fmtUSD(usdValUi)}`,
@@ -695,7 +695,7 @@ const CreateListingModal: FC<{
               sub: feeUsdUi > 0 ? fmtUSD(feeUsdUi) : '', color: '#ff8c00' },
             { label: 'MINIMUM FLOOR',
               val: `${(FEE_MINIMUM_XNT / LAMPORTS_PER_SOL).toFixed(3)} XNT`,
-              sub: 'always applied if calc < floor', color: '#4a6a8a' },
+              sub: 'min floor', color: '#4a6a8a' },
             { label: 'YOU PAY',
               val: feeLamps > 0 ? `${(feeLamps / LAMPORTS_PER_SOL).toFixed(6)} XNT` : '—',
               sub: feeLamps > 0 ? `${feeLamps.toLocaleString()} lamports` : '',
