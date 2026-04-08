@@ -348,7 +348,7 @@ async function fetchOnChainListings(): Promise<ListingOnChain[]> {
     // Get all accounts owned by the program
     const accounts = await conn.getProgramAccounts(programPk, {
       filters: [
-        { dataSize: 8 + 119 }, // ListingState size
+        { dataSize: 127 }, // ListingState: 8 discriminator + 120 data
       ],
     });
 
