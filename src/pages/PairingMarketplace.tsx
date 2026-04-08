@@ -783,10 +783,10 @@ const CreateListingModal: FC<{
 
       // ── Build Anchor instruction data ─────────────────────────────────────────
       // Discriminator for create_listing = first 8 bytes of sha256("global:create_listing")
-      const crypto = await import('crypto');
-      const disc   = Buffer.from(
-        crypto.createHash('sha256').update('global:create_listing').digest()
-      ).slice(0, 8);
+      // Use Web Crypto API (browser-compatible) to compute Anchor discriminator
+      const msgBytes  = new TextEncoder().encode('global:create_listing');
+      const hashBuf   = await window.crypto.subtle.digest('SHA-256', msgBytes);
+      const disc      = Buffer.from(new Uint8Array(hashBuf).slice(0, 8));
 
       // Encode CreateListingParams — must match program struct layout exactly
       // token_a_amount:   u64  (8 bytes LE)
@@ -813,6 +813,7 @@ const CreateListingModal: FC<{
       // ── Account metas — must match CreateListing accounts in program ──────────
       const { TransactionInstruction, Transaction, SystemProgram: SP } = await import('@solana/web3.js');
       const { ASSOCIATED_TOKEN_PROGRAM_ID } = await import('@solana/spl-token');
+      // (static imports used at top of file for PublicKey etc)
 
       const keys = [
         { pubkey: publicKey,                          isSigner: true,  isWritable: true  }, // creator
