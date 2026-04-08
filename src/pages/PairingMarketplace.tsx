@@ -1914,7 +1914,9 @@ const PairingMarketplace: FC = () => {
 
   // ── ADMIN ONLY — page hidden from public until delist is fixed ──────────────
   const ADMIN = '2nVaSvCqrsdskcbtn47uquNDL7Q69To1k45FpYBvWnuC';
-  if (!publicKey || publicKey.toBase58() !== ADMIN) {
+  // Only block if wallet is connected AND is not admin
+  // If not connected — show connect prompt (not blocked)
+  if (publicKey && publicKey.toBase58() !== ADMIN) {
     return (
       <div style={{ minHeight: '100vh', background: '#080c0f',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
