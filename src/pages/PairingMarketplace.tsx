@@ -850,7 +850,7 @@ const CreateListingModal: FC<{
       const signed = await signTransaction(tx);
       setStatus('Submitting transaction…');
 
-      const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false });
+      const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
       setStatus('Confirming…');
 
       // Wait for confirmation
@@ -1596,7 +1596,7 @@ const EditModal: FC<{
       tx.add(ix);
       setStatus('Waiting for wallet approval…');
       const signed = await signTransaction(tx);
-      const sig    = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false });
+      const sig    = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
       setStatus(`✅ Edit submitted! Tx: ${sig.slice(0,20)}…`);
       setTimeout(() => { onEdited(); onClose(); }, 2000);
     } catch (e: any) {
@@ -1773,7 +1773,7 @@ const DelistModal: FC<{
       tx.add(ix);
       setStatus('Waiting for wallet approval…');
       const signed = await signTransaction(tx);
-      const sig    = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false });
+      const sig    = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
       setStatus('Confirming…');
       for (let i = 0; i < 30; i++) {
         await new Promise(r => setTimeout(r, 1500));
