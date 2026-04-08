@@ -594,13 +594,13 @@ const ListingCard: FC<{
           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
             {isOwn ? (
               <>
-                <button onClick={() => onEdit(listing)}
+                <button onClick={(e) => { e.stopPropagation(); onEdit(listing); }}
                   style={{ padding: isMobile ? '6px 10px' : '7px 14px', borderRadius: 8, cursor: 'pointer',
                     background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.25)',
                     fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 8 : 9, fontWeight: 700, color: '#00d4ff' }}>
                   EDIT
                 </button>
-                <button onClick={() => onDelist(listing)}
+                <button onClick={(e) => { e.stopPropagation(); onDelist(listing); }}
                   style={{ padding: isMobile ? '6px 10px' : '7px 14px', borderRadius: 8, cursor: 'pointer',
                     background: 'rgba(255,68,68,.06)', border: '1px solid rgba(255,68,68,.2)',
                     fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 8 : 9, fontWeight: 700, color: '#ff6666' }}>
@@ -1147,29 +1147,47 @@ const MatchModal: FC<{
         ]);
         const all = [...(spl?.value ?? []), ...(t22?.value ?? [])];
         const tokens: typeof walletTokens = [];
+        // First pass — collect all tokens with balance quickly
+        const rawTokens: typeof walletTokens = [];
         for (const acc of all) {
-          const info    = acc?.account?.data?.parsed?.info;
-          const mint    = info?.mint;
-          const bal     = Number(info?.tokenAmount?.uiAmount ?? 0);
-          const dec     = info?.tokenAmount?.decimals ?? 9;
+          const info = acc?.account?.data?.parsed?.info;
+          const mint = info?.mint;
+          const bal  = Number(info?.tokenAmount?.uiAmount ?? 0);
+          const dec  = info?.tokenAmount?.decimals ?? 9;
           if (!mint || bal <= 0) continue;
-          // Skip the listing token itself — can't pair with same token
           if (mint === listing.tokenAMint) continue;
-          // Skip WXNT
           if (mint === WXNT_MINT) continue;
-          try {
-            const [meta, price] = await Promise.all([
-              fetchTokenMeta(mint),
-              fetchXdexPrice(mint),
-            ]);
-            tokens.push({ mint, symbol: meta.symbol, logo: meta.logo, balance: bal, price: price?.priceUSD ?? 0, decimals: dec });
-          } catch { tokens.push({ mint, symbol: mint.slice(0,4), balance: bal, price: 0, decimals: dec }); }
+          rawTokens.push({ mint, symbol: mint.slice(0,4).toUpperCase(), balance: bal, price: 0, decimals: dec });
         }
+        // Show immediately with no prices
+        setWalletTokens([...rawTokens]);
+        setLoadingWallet(false);
+        // Second pass — fetch prices in parallel (fast, no metadata)
+        const priceResults = await Promise.allSettled(
+          rawTokens.map(t => fetchXdexPrice(t.mint))
+        );
+        const withPrices = rawTokens.map((t, i) => ({
+          ...t,
+          price: priceResults[i].status === 'fulfilled' ? (priceResults[i] as any).value?.priceUSD ?? 0 : 0,
+        }));
+        // Fetch metadata for known ecosystem tokens only (fast)
+        const withMeta = await Promise.all(withPrices.map(async t => {
+          if (t.mint === BRAINS_MINT || t.mint === LB_MINT) {
+            const m = await fetchTokenMeta(t.mint).catch(() => null);
+            return { ...t, symbol: m?.symbol ?? t.symbol, logo: m?.logo };
+          }
+          // For other tokens just try XDEX meta (fast, single API call)
+          try {
+            const m = await fetchXdexMeta(t.mint);
+            if (m) return { ...t, symbol: m.symbol, logo: m.logo };
+          } catch {}
+          return t;
+        }));
+        withMeta.sort((a, b) => (b.balance * b.price) - (a.balance * a.price));
+        setWalletTokens(withMeta);
         // Sort by USD value descending
         tokens.sort((a, b) => (b.balance * b.price) - (a.balance * a.price));
-        setWalletTokens(tokens);
-      } catch (e) { console.error('wallet tokens fetch error', e); }
-      finally { setLoadingWallet(false); }
+      } catch (e) { console.error('wallet tokens fetch error', e); setLoadingWallet(false); }
     })();
   }, [publicKey?.toBase58()]);
 
@@ -2274,4 +2292,3 @@ const PairingMarketplace: FC = () => {
 };
 
 export default PairingMarketplace;
-// cache bust Wed Apr  8 01:45:38 EDT 2026
