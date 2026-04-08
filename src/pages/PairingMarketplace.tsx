@@ -608,7 +608,7 @@ const ListingCard: FC<{
                 </button>
               </>
             ) : (
-              <button onClick={() => onMatch(listing)}
+              <button onClick={(e) => { e.stopPropagation(); onMatch(listing); }}
                 style={{ padding: isMobile ? '8px 16px' : '10px 22px', borderRadius: 10, cursor: 'pointer',
                   background: 'linear-gradient(135deg,rgba(0,255,128,.18),rgba(0,200,100,.08))',
                   border: '1px solid rgba(0,255,128,.5)',
@@ -1146,9 +1146,8 @@ const MatchModal: FC<{
           connection.getParsedTokenAccountsByOwner(publicKey, { programId: TOKEN_2022_PROGRAM_ID }),
         ]);
         const all = [...(spl?.value ?? []), ...(t22?.value ?? [])];
-        const tokens: typeof walletTokens = [];
-        // First pass — collect all tokens with balance quickly
-        const rawTokens: typeof walletTokens = [];
+        // Step 1 — collect all tokens instantly, render immediately
+        const raw: {mint:string;symbol:string;logo?:string;balance:number;price:number;decimals:number}[] = [];
         for (const acc of all) {
           const info = acc?.account?.data?.parsed?.info;
           const mint = info?.mint;
@@ -1157,37 +1156,43 @@ const MatchModal: FC<{
           if (!mint || bal <= 0) continue;
           if (mint === listing.tokenAMint) continue;
           if (mint === WXNT_MINT) continue;
-          rawTokens.push({ mint, symbol: mint.slice(0,4).toUpperCase(), balance: bal, price: 0, decimals: dec });
+          raw.push({ mint, symbol: mint.slice(0,6).toUpperCase(), balance: bal, price: 0, decimals: dec });
         }
-        // Show immediately with no prices
-        setWalletTokens([...rawTokens]);
+        setWalletTokens([...raw]);
         setLoadingWallet(false);
-        // Second pass — fetch prices in parallel (fast, no metadata)
-        const priceResults = await Promise.allSettled(
-          rawTokens.map(t => fetchXdexPrice(t.mint))
-        );
-        const withPrices = rawTokens.map((t, i) => ({
-          ...t,
-          price: priceResults[i].status === 'fulfilled' ? (priceResults[i] as any).value?.priceUSD ?? 0 : 0,
-        }));
-        // Fetch metadata for known ecosystem tokens only (fast)
-        const withMeta = await Promise.all(withPrices.map(async t => {
-          if (t.mint === BRAINS_MINT || t.mint === LB_MINT) {
-            const m = await fetchTokenMeta(t.mint).catch(() => null);
-            return { ...t, symbol: m?.symbol ?? t.symbol, logo: m?.logo };
+
+        // Step 2 — enrich with XDEX price + metadata in parallel batches of 5
+        const enriched = [...raw];
+        for (let i = 0; i < enriched.length; i += 5) {
+          const chunk = enriched.slice(i, i + 5);
+          const results = await Promise.allSettled(chunk.map(async t => ({
+            mint: t.mint,
+            price: await fetchXdexPrice(t.mint).catch(() => null),
+            meta:  await fetchXdexMeta(t.mint).catch(() => null),
+          })));
+          results.forEach((r, j) => {
+            if (r.status === 'fulfilled') {
+              const idx = i + j;
+              if (r.value.price) enriched[idx] = { ...enriched[idx], price: r.value.price.priceUSD };
+              if (r.value.meta?.symbol) enriched[idx] = { ...enriched[idx], symbol: r.value.meta.symbol };
+              if (r.value.meta?.logo)   enriched[idx] = { ...enriched[idx], logo: r.value.meta.logo };
+            }
+          });
+          setWalletTokens([...enriched].sort((a, b) => (b.balance * b.price) - (a.balance * a.price)));
+        }
+
+        // Step 3 — deeper metadata for tokens still missing logo/symbol
+        for (let i = 0; i < enriched.length; i++) {
+          if (!enriched[i].logo || enriched[i].symbol.length <= 4) {
+            const m = await fetchTokenMeta(enriched[i].mint).catch(() => null);
+            if (m && (m.logo || m.symbol.length > 4)) {
+              enriched[i] = { ...enriched[i], symbol: m.symbol, logo: m.logo };
+              setWalletTokens([...enriched].sort((a, b) => (b.balance * b.price) - (a.balance * a.price)));
+            }
           }
-          // For other tokens just try XDEX meta (fast, single API call)
-          try {
-            const m = await fetchXdexMeta(t.mint);
-            if (m) return { ...t, symbol: m.symbol, logo: m.logo };
-          } catch {}
-          return t;
-        }));
-        withMeta.sort((a, b) => (b.balance * b.price) - (a.balance * a.price));
-        setWalletTokens(withMeta);
-        // Sort by USD value descending
-        tokens.sort((a, b) => (b.balance * b.price) - (a.balance * a.price));
+        }
       } catch (e) { console.error('wallet tokens fetch error', e); setLoadingWallet(false); }
+      // finally block removed — setLoadingWallet called in step 1 now
     })();
   }, [publicKey?.toBase58()]);
 
