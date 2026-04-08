@@ -13,6 +13,7 @@ lb_mint             = "3B6oAfmL7aGVAbBdu7zW3jqEVWK6o1nwFiufuSuFV6tN"
 lb_mint             = "3B6oAfmL7aGVAbBdu7zW3jqEVWK6o1nwFiufuSuFV6tN"
 
 [programs.mainnet]
+brains_pairing = "DNSefSAJ41Fm3ijmEug8tkDYJrHDwYGVtFtn8wwvbgJM"
 labwork_marketplace = "CKZHwoUZTJEnGNK4piPxyysrhwLKnnrNoBmEHM9rLaD4"
 lb_mint             = "3B6oAfmL7aGVAbBdu7zW3jqEVWK6o1nwFiufuSuFV6tN"
 
