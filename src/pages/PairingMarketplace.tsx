@@ -293,15 +293,50 @@ async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
   return fallback;
 }
 
-async function checkPoolExists(mintA: string, mintB: string): Promise<boolean> {
-  try {
-    const [r1, r2] = await Promise.all([
-      fetch(`${XDEX_BASE}/xendex/pool/tokens/${mintA}/${mintB}?network=mainnet`, { signal: AbortSignal.timeout(6000) }),
-      fetch(`${XDEX_BASE}/xendex/pool/tokens/${mintB}/${mintA}?network=mainnet`, { signal: AbortSignal.timeout(6000) }),
-    ]);
-    const [j1, j2] = await Promise.all([r1.json(), r2.json()]);
-    return (j1.success && !!j1.data) || (j2.success && !!j2.data);
-  } catch { return false; }
+// Check if a token has an XNT pool on XDEX
+// Uses 3 methods — any one passing = pool exists
+async function checkPoolExists(tokenMint: string, xntMint: string): Promise<boolean> {
+  const checks = await Promise.allSettled([
+
+    // Method 1 — pool/tokens endpoint both orderings
+    (async () => {
+      const [r1, r2] = await Promise.all([
+        fetch(`${XDEX_BASE}/xendex/pool/tokens/${tokenMint}/${xntMint}?network=mainnet`,
+          { signal: AbortSignal.timeout(6000) }),
+        fetch(`${XDEX_BASE}/xendex/pool/tokens/${xntMint}/${tokenMint}?network=mainnet`,
+          { signal: AbortSignal.timeout(6000) }),
+      ]);
+      const [j1, j2] = await Promise.all([r1.json(), r2.json()]);
+      if ((j1.success && !!j1.data) || (j2.success && !!j2.data)) return true;
+      throw new Error('not found via pool/tokens');
+    })(),
+
+    // Method 2 — if XDEX price API returns a valid price, it has a pool
+    (async () => {
+      const r = await fetch(
+        `${XDEX_BASE}/token-price/price?network=X1+Mainnet&token_address=${tokenMint}`,
+        { signal: AbortSignal.timeout(6000) }
+      );
+      const j = await r.json();
+      if (j.success && j.data?.price && Number(j.data.price) > 0) return true;
+      throw new Error('no price data');
+    })(),
+
+    // Method 3 — check by pool address lookup
+    (async () => {
+      const r = await fetch(
+        `${XDEX_BASE}/xendex/pool/list?network=mainnet&token=${tokenMint}`,
+        { signal: AbortSignal.timeout(6000) }
+      );
+      const j = await r.json();
+      const list = Array.isArray(j) ? j : (j?.data ?? j?.pools ?? j?.result ?? []);
+      if (list.length > 0) return true;
+      throw new Error('no pools in list');
+    })(),
+  ]);
+
+  // If ANY method succeeded, pool exists
+  return checks.some(r => r.status === 'fulfilled' && r.value === true);
 }
 
 // ─── Fetch on-chain listings from program ─────────────────────────────────────
@@ -695,32 +730,139 @@ const CreateListingModal: FC<{
   const handleCreate = async () => {
     if (!publicKey || !signTransaction || !canSubmit) return;
     setPending(true);
-    setStatus('Fetching price data…');
+    setStatus('Fetching fresh price data…');
     try {
-      // Fetch fresh price data
-      const priceData = await fetchXdexPrice(selMint);
-      if (!priceData) throw new Error('Could not fetch price — try again');
+      // ── Fetch fresh prices ───────────────────────────────────────────────────
+      const [tokenPriceData, xntPriceData] = await Promise.all([
+        fetchXdexPrice(selMint),
+        fetchXdexPrice(WXNT_MINT),
+      ]);
+      if (!tokenPriceData) throw new Error('Could not fetch token price — try again');
+      if (!xntPriceData)   throw new Error('Could not fetch XNT price — try again');
 
-      const now = Math.floor(Date.now() / 1000);
-      const xntPriceNow6 = priceData.priceUSD6 || prices.xnt6;
+      const now          = Math.floor(Date.now() / 1000);
+      const usdVal6Final = Math.floor((tokenPriceData.priceUSD) * amt * 1_000_000);
+      const xntVal9Final = Math.floor((tokenPriceData.priceUSD / xntPriceData.priceUSD) * amt * 1_000_000_000);
+      const xntPrice6    = xntPriceData.priceUSD6 || prices.xnt6;
+      const rawAmount    = Math.floor(amt * Math.pow(10, selDec));
 
-      // Derive PDAs
-      const [listingPda] = deriveListingState(publicKey, new PublicKey(selMint));
-      const [escrowPda]  = deriveEscrow(listingPda);
-      const [escrowAuth] = deriveEscrowAuth(listingPda);
-      const [globalState] = deriveGlobalState();
-      const [walletState] = deriveWalletState(publicKey);
+      // Validate price freshness
+      if (usdVal6Final < 1_000_000) throw new Error('Listing value too low — minimum $1.00');
 
-      // TODO: Build Anchor instruction using program IDL once available
-      // For now show a clear message about what would be sent
-      setStatus(`Awaiting wallet approval…\n\nInstruction: create_listing\nParams:\n• amount: ${Math.floor(amt * Math.pow(10, selDec))}\n• usd_val: ${usdVal6}\n• burn_bps: ${burnBps}\n• fee: ${feeLamps} lamports`);
+      // ── Derive all PDAs ───────────────────────────────────────────────────────
+      const mintPk         = new PublicKey(selMint);
+      const programPk      = new PublicKey(PROGRAM_ID);
+      const [globalState]  = deriveGlobalState();
+      const [walletState]  = deriveWalletState(publicKey);
+      const [listingPda]   = deriveListingState(publicKey, mintPk);
+      const [escrowPda]    = deriveEscrow(listingPda);
+      const [escrowAuth]   = deriveEscrowAuth(listingPda);
 
-      await new Promise(r => setTimeout(r, 800));
+      // ── Determine token program ───────────────────────────────────────────────
+      // BRAINS and LB are Token-2022; other tokens could be either
+      const isT2022 = selMint === BRAINS_MINT || selMint === LB_MINT
+        ? true
+        : await (async () => {
+            try {
+              const info = await connection.getAccountInfo(mintPk);
+              return info?.owner?.toBase58() === TOKEN_2022_PROGRAM_ID.toBase58();
+            } catch { return false; }
+          })();
+      const tokenProg = isT2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
 
-      setStatus(`✅ Listing created!\n${fmtNum(amt)} ${tokenA.toUpperCase()} listed · ${fmtUSD(usdValUi)} · Fee paid: ${feeXntUi.toFixed(4)} XNT`);
-      setTimeout(() => { onCreated(); onClose(); }, 2500);
+      // ── Creator token ATA ─────────────────────────────────────────────────────
+      const creatorAta = getAssociatedTokenAddressSync(mintPk, publicKey, false, tokenProg);
+
+      // ── LB ATA for discount check (passed as optional) ───────────────────────
+      const lbAta = getAssociatedTokenAddressSync(
+        new PublicKey(LB_MINT), publicKey, false, TOKEN_2022_PROGRAM_ID
+      );
+
+      // ── XNT vault for price cross-check — use BRAINS/XNT pool vault ──────────
+      const xntPoolVault = new PublicKey('HJ5WsScycRCtp8yqGsLbcDAayMsbcYajELcALg6kaUaq');
+
+      // ── Build Anchor instruction data ─────────────────────────────────────────
+      // Discriminator for create_listing = first 8 bytes of sha256("global:create_listing")
+      const crypto = await import('crypto');
+      const disc   = Buffer.from(
+        crypto.createHash('sha256').update('global:create_listing').digest()
+      ).slice(0, 8);
+
+      // Encode CreateListingParams — must match program struct layout exactly
+      // token_a_amount:   u64  (8 bytes LE)
+      // token_a_usd_val:  u64  (8 bytes LE)
+      // token_a_xnt_val:  u64  (8 bytes LE)
+      // token_a_mc:       u64  (8 bytes LE) — use 0 for now
+      // burn_bps:         u16  (2 bytes LE)
+      // xnt_price_usd:    u64  (8 bytes LE)
+      // price_timestamp:  i64  (8 bytes LE)
+      // price_impact_bps: u64  (8 bytes LE) — use 0 (no swap quote)
+      const params = Buffer.alloc(8 + 8 + 8 + 8 + 2 + 8 + 8 + 8);
+      let off = 0;
+      params.writeBigUInt64LE(BigInt(rawAmount),    off); off += 8;
+      params.writeBigUInt64LE(BigInt(usdVal6Final), off); off += 8;
+      params.writeBigUInt64LE(BigInt(xntVal9Final), off); off += 8;
+      params.writeBigUInt64LE(BigInt(0),            off); off += 8; // token_a_mc
+      params.writeUInt16LE(burnBps,                 off); off += 2;
+      params.writeBigUInt64LE(BigInt(xntPrice6),    off); off += 8;
+      params.writeBigInt64LE(BigInt(now),            off); off += 8;
+      params.writeBigUInt64LE(BigInt(0),             off);          // price_impact_bps
+
+      const ixData = Buffer.concat([disc, params]);
+
+      // ── Account metas — must match CreateListing accounts in program ──────────
+      const { TransactionInstruction, Transaction, SystemProgram: SP } = await import('@solana/web3.js');
+      const { ASSOCIATED_TOKEN_PROGRAM_ID } = await import('@solana/spl-token');
+
+      const keys = [
+        { pubkey: publicKey,                          isSigner: true,  isWritable: true  }, // creator
+        { pubkey: globalState,                        isSigner: false, isWritable: true  }, // global_state
+        { pubkey: walletState,                        isSigner: false, isWritable: true  }, // wallet_state
+        { pubkey: mintPk,                             isSigner: false, isWritable: false }, // token_a_mint
+        { pubkey: creatorAta,                         isSigner: false, isWritable: true  }, // creator_token_a
+        { pubkey: listingPda,                         isSigner: false, isWritable: true  }, // listing_state
+        { pubkey: escrowPda,                          isSigner: false, isWritable: true  }, // escrow
+        { pubkey: escrowAuth,                         isSigner: false, isWritable: false }, // escrow_authority
+        { pubkey: new PublicKey(TREASURY),            isSigner: false, isWritable: true  }, // treasury
+        { pubkey: lbAta,                              isSigner: false, isWritable: false }, // creator_lb_account (optional)
+        { pubkey: xntPoolVault,                       isSigner: false, isWritable: false }, // token_a_xnt_pool_vault
+        { pubkey: tokenProg,                          isSigner: false, isWritable: false }, // token_program
+        { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID,        isSigner: false, isWritable: false }, // associated_token_program
+        { pubkey: SP.programId,                       isSigner: false, isWritable: false }, // system_program
+        { pubkey: new PublicKey('SysvarRent111111111111111111111111111111111'), isSigner: false, isWritable: false }, // rent
+      ];
+
+      const ix = new TransactionInstruction({ programId: programPk, keys, data: ixData });
+
+      setStatus('Waiting for wallet approval…');
+
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+      const tx = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash });
+      tx.add(ix);
+
+      const signed = await signTransaction(tx);
+      setStatus('Submitting transaction…');
+
+      const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false });
+      setStatus('Confirming…');
+
+      // Wait for confirmation
+      for (let i = 0; i < 40; i++) {
+        await new Promise(r => setTimeout(r, 1200));
+        const status = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
+        const conf   = status?.value?.confirmationStatus;
+        const err    = status?.value?.err;
+        if (err) throw new Error(`TX failed: ${JSON.stringify(err)}`);
+        if (conf === 'confirmed' || conf === 'finalized') {
+          setStatus(`✅ Listing created! ${fmtNum(amt)} ${selSymbol} listed · ${fmtUSD(usdValUi)} · Fee paid: ${feeXntUi.toFixed(4)} XNT\n\nTx: ${sig.slice(0,20)}…`);
+          setTimeout(() => { onCreated(); onClose(); }, 3000);
+          return;
+        }
+      }
+      throw new Error('Confirmation timeout — check explorer for tx: ' + sig.slice(0,20));
     } catch (e: any) {
-      setStatus(`❌ ${e?.message?.slice(0, 120) ?? 'Failed'}`);
+      const msg = e?.message || String(e);
+      setStatus(`❌ ${msg.slice(0, 200)}`);
     } finally { setPending(false); }
   };
 
