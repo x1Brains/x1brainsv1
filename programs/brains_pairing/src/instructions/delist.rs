@@ -7,7 +7,6 @@ use anchor_spl::token_interface::{
     CloseAccount, close_account,
 };
 use crate::{constants::*, errors::PairingError, state::*};
-use crate::instructions::create_listing::calculate_fee;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct DelistParams {
@@ -76,9 +75,6 @@ pub struct Delist<'info> {
     )]
     pub treasury: UncheckedAccount<'info>,
 
-    /// CHECK: optional LB account for fee discount check
-    pub creator_lb_account: Option<UncheckedAccount<'info>>,
-
     pub token_program:  Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
@@ -89,6 +85,7 @@ pub fn handler(ctx: Context<Delist>, p: DelistParams) -> Result<()> {
     require!(p.xnt_price_usd > 0, PairingError::InvalidPrice);
 
     // ── CALCULATE DELIST FEE — 0.444% of remaining USD value ─────────────────
+    // Flat 0.444% for all wallets — no LB discount on delist (treasury collection)
     let usd_val   = ctx.accounts.listing_state.token_a_usd_val;
     let fee_usd   = usd_val
         .checked_mul(FEE_BPS_DELIST).ok_or(PairingError::Overflow)?
