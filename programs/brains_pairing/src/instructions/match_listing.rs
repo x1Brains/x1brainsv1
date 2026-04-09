@@ -16,7 +16,8 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
-use anchor_lang::solana_program::keccak;
+// keccak moved to solana-keccak-hasher
+use solana_keccak_hasher as keccak;
 use anchor_spl::{
     associated_token::{AssociatedToken, Create, create as create_ata},
     token::Token,
@@ -73,7 +74,7 @@ pub struct CommitMatch<'info> {
         constraint = listing_state.status == ListingStatus::Open @ PairingError::ListingNotOpen,
         constraint = listing_state.creator != matcher.key()      @ PairingError::SelfMatch,
     )]
-    pub listing_state: Account<'info, ListingState>,
+    pub listing_state: Box<Account<'info, ListingState>>,
 
     #[account(
         init,
@@ -122,7 +123,7 @@ pub struct PrepareMatch<'info> {
     pub matcher: Signer<'info>,
 
     #[account(mut, seeds = [b"global_state"], bump = global_state.bump)]
-    pub global_state: Account<'info, GlobalState>,
+    pub global_state: Box<Account<'info, GlobalState>>,
 
     #[account(
         seeds  = [b"listing",
@@ -130,7 +131,7 @@ pub struct PrepareMatch<'info> {
                   listing_state.token_a_mint.as_ref()],
         bump   = listing_state.bump,
     )]
-    pub listing_state: Account<'info, ListingState>,
+    pub listing_state: Box<Account<'info, ListingState>>,
 
     pub token_a_mint: InterfaceAccount<'info, Mint>,
     pub token_b_mint: InterfaceAccount<'info, Mint>,
@@ -142,7 +143,7 @@ pub struct PrepareMatch<'info> {
         payer = matcher,
         space = 8 + 178,
     )]
-    pub match_intent: Account<'info, MatchIntent>,
+    pub match_intent: Box<Account<'info, MatchIntent>>,
 
     #[account(
         mut,
@@ -400,7 +401,7 @@ pub struct ExecuteMatch<'info> {
     pub matcher: Signer<'info>,
 
     #[account(mut, seeds = [b"global_state"], bump = global_state.bump)]
-    pub global_state: Account<'info, GlobalState>,
+    pub global_state: Box<Account<'info, GlobalState>>,
 
     #[account(
         init_if_needed,
@@ -409,7 +410,7 @@ pub struct ExecuteMatch<'info> {
         payer  = matcher,
         space  = 8 + 46,
     )]
-    pub matcher_wallet_state: Account<'info, WalletState>,
+    pub matcher_wallet_state: Box<Account<'info, WalletState>>,
 
     #[account(
         mut,
@@ -419,7 +420,7 @@ pub struct ExecuteMatch<'info> {
         bump   = listing_state.bump,
         close  = listing_creator,
     )]
-    pub listing_state: Account<'info, ListingState>,
+    pub listing_state: Box<Account<'info, ListingState>>,
 
     /// CHECK: verified in handler against listing_state.creator
     #[account(mut)]
@@ -433,7 +434,7 @@ pub struct ExecuteMatch<'info> {
         token::authority     = escrow_authority,
         token::token_program = token_a_program,
     )]
-    pub escrow: InterfaceAccount<'info, TokenAccount>,
+    pub escrow: Box<InterfaceAccount<'info, TokenAccount>>,
 
     /// CHECK: PDA authority for escrow — verified by stored bump
     #[account(
@@ -454,7 +455,7 @@ pub struct ExecuteMatch<'info> {
         associated_token::authority = matcher,
         associated_token::token_program = token_a_program,
     )]
-    pub matcher_token_a: InterfaceAccount<'info, TokenAccount>,
+    pub matcher_token_a: Box<InterfaceAccount<'info, TokenAccount>>,
 
     /// CHECK: token B mint — in remaining_accounts[16], verified in handler.
     pub token_b_mint: UncheckedAccount<'info>,
@@ -465,7 +466,7 @@ pub struct ExecuteMatch<'info> {
         associated_token::authority     = matcher,
         associated_token::token_program = token_b_program,
     )]
-    pub matcher_token_b: InterfaceAccount<'info, TokenAccount>,
+    pub matcher_token_b: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -473,7 +474,7 @@ pub struct ExecuteMatch<'info> {
         bump  = match_intent.bump,
         close = matcher,
     )]
-    pub match_intent: Account<'info, MatchIntent>,
+    pub match_intent: Box<Account<'info, MatchIntent>>,
 
     #[account(
         init,
@@ -482,7 +483,7 @@ pub struct ExecuteMatch<'info> {
         payer = matcher,
         space = 8 + 274,
     )]
-    pub pool_record: Account<'info, PoolRecord>,
+    pub pool_record: Box<Account<'info, PoolRecord>>,
 
     /// CHECK: passthrough for pool_record seed derivation.
     /// Must equal remaining_accounts[0] (new_pool_state), verified in handler.
