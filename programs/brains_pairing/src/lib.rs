@@ -98,13 +98,25 @@ pub mod brains_pairing {
         match_listing::commit_handler(ctx, params)
     }
 
-    /// Match a listing — deposit token_b, create XDEX pool via CPI
-    /// Distribute LP tokens, collect matching fee
-    pub fn match_listing(
-        ctx: Context<MatchListing>,
-        params: MatchListingParams,
+    /// Step 2a of match flow — validates prices, pools, commit-reveal.
+    /// Creates a MatchIntent PDA that execute_match consumes in the SAME slot.
+    /// No token movements happen here. If execute_match doesn't follow in the
+    /// same transaction, only the MatchIntent rent (~0.002 XNT) is lost.
+    pub fn prepare_match<'info>(
+        ctx: Context<'_, '_, '_, 'info, PrepareMatch<'info>>,
+        params: PrepareMatchParams,
     ) -> Result<()> {
-        match_listing::handler(ctx, params)
+        match_listing::prepare_handler(ctx, params)
+    }
+
+    /// Step 2b of match flow — consumes MatchIntent, transfers tokens,
+    /// CPIs into XDEX to create the pool, distributes LP, collects match fee.
+    /// MUST be in the same transaction as prepare_match (same-slot enforced).
+    pub fn execute_match<'info>(
+        ctx: Context<'_, '_, '_, 'info, ExecuteMatch<'info>>,
+        params: ExecuteMatchParams,
+    ) -> Result<()> {
+        match_listing::execute_handler(ctx, params)
     }
 
     // ── Emergency ─────────────────────────────────────────────────────────────

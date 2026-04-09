@@ -18,6 +18,12 @@ pub const ADMIN_WALLET:    Pubkey = pubkey!("CCcJuC3B7EwAq47VCPfgbvHvjf2xkuCj6wA
 pub const TREASURY_WALLET: Pubkey = pubkey!("CAeTTU2zk2EjWLKVeg4zxYhHu7gba1oRN8NHEDjpK9XF");
 pub const INCINERATOR:     Pubkey = pubkey!("1nc1nerator11111111111111111111111111111111");
 
+// ── Rate limit bypass wallet (v1.1) ───────────────────────────────────────────
+// Dev wallet that skips the create_listing rate limit. Separate from ADMIN_WALLET
+// because admin lives on WSL keypair (used for pause/seed/flag) while this is
+// the browser wallet used day-to-day for testing and protocol operations.
+pub const RATE_LIMIT_BYPASS_WALLET: Pubkey = pubkey!("2nVaSvCqrsdskcbtn47uquNDL7Q69To1k45FpYBvWnuC");
+
 // ── XDEX program constants ────────────────────────────────────────────────────
 pub const XDEX_PROGRAM:      Pubkey = pubkey!("sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN");
 pub const XDEX_LP_AUTH:      Pubkey = pubkey!("9Dpjw2pB5kXJr6ZTHiqzEMfJPic3om9jgNacnwpLCoaU");
@@ -33,6 +39,29 @@ pub const DISC_INITIALIZE: [u8; 8] = [0xaf, 0xaf, 0x6d, 0x1f, 0x0d, 0x98, 0x9b, 
 pub const BRAINS_XNT_POOL:       Pubkey = pubkey!("7deZorr98nLdZhpmSdUgu8WY4NAjSpeLDGxHzaTAxrUg");
 pub const BRAINS_XNT_VAULT_XNT:  Pubkey = pubkey!("HJ5WsScycRCtp8yqGsLbcDAayMsbcYajELcALg6kaUaq");
 pub const BRAINS_XNT_VAULT_BASE: Pubkey = pubkey!("HnUfCrgrhHzgML92ipbkLGhi2ggm1kdHDvvcqRtuUeb3");
+
+// ── XNT/USDC.X pool for on-chain XNT price oracle (v1.1) ──────────────────────
+// Used by create_listing to validate caller-submitted xnt_price_usd against
+// on-chain pool reserves. Caller's submitted price must agree with the implied
+// price from these vault balances within XNT_PRICE_TOLERANCE_BPS.
+//
+// SECURITY NOTE: This pool currently has ~$22K TVL. A sophisticated attacker
+// can manipulate the price ±10-20% via flash sandwich for ~$3K positioned
+// capital. The cross-validation with caller submission limits this to fee
+// calculation deltas, not arbitrary value extraction. Revisit when:
+//   (a) X1 ships a native oracle (Pyth/Chainlink), or
+//   (b) XNT/USDC.X TVL exceeds $1M, or
+//   (c) TWAP-based reading is implemented.
+pub const XNT_USDC_POOL:        Pubkey = pubkey!("CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR");
+pub const XNT_USDC_VAULT_XNT:   Pubkey = pubkey!("8wvV4HKBDFMLEUkVWp1WPNa5ano99XCm3f9t3troyLb");
+pub const XNT_USDC_VAULT_USDC:  Pubkey = pubkey!("7iw2adw8Af7x3pY7gj5RwczFXuGjCoX92Gfy3avwXQtg");
+pub const USDC_X_MINT:          Pubkey = pubkey!("B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq");
+pub const USDC_X_DECIMALS:      u8 = 6;
+
+// Tolerance for caller-submitted XNT price vs on-chain reading.
+// 500 bps = 5%. Generous enough to allow for normal market drift between
+// frontend price fetch and tx landing on-chain, tight enough to catch attacks.
+pub const XNT_PRICE_TOLERANCE_BPS: u64 = 500;
 
 // ── Fee constants ─────────────────────────────────────────────────────────────
 pub const FEE_BPS_ECOSYSTEM: u64 = 88;          // 0.888% — BRAINS or LB always

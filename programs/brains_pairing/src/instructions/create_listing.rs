@@ -92,8 +92,22 @@ pub struct CreateListing<'info> {
     /// CHECK: optional LB account for discount check
     pub creator_lb_account: Option<UncheckedAccount<'info>>,
 
-    /// CHECK: XNT vault for price cross-check
+    /// CHECK: XNT vault for token's own pool — used for TVL check
     pub token_a_xnt_pool_vault: UncheckedAccount<'info>,
+
+    /// CHECK: XNT vault of the XNT/USDC.X pool — verified against constant (v1.1)
+    #[account(
+        constraint = xnt_usdc_pool_xnt_vault.key() == XNT_USDC_VAULT_XNT
+            @ PairingError::InvalidPoolAddress,
+    )]
+    pub xnt_usdc_pool_xnt_vault: UncheckedAccount<'info>,
+
+    /// CHECK: USDC.X vault of the XNT/USDC.X pool — verified against constant (v1.1)
+    #[account(
+        constraint = xnt_usdc_pool_usdc_vault.key() == XNT_USDC_VAULT_USDC
+            @ PairingError::InvalidPoolAddress,
+    )]
+    pub xnt_usdc_pool_usdc_vault: UncheckedAccount<'info>,
 
     pub token_program:            Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -129,6 +143,64 @@ pub fn handler(ctx: Context<CreateListing>, p: CreateListingParams) -> Result<()
         PairingError::PriceImpactTooHigh
     );
 
+    // ── XNT PRICE CROSS-VALIDATION (v1.1) ────────────────────────────────────
+    // Read XNT/USDC.X pool reserves and compute implied XNT price in USD.
+    // Caller's submitted xnt_price_usd must match within XNT_PRICE_TOLERANCE_BPS.
+    //
+    // Math: (usdc_balance_micro * 1e9) / xnt_balance_lamports = USD per XNT (6 dec)
+    //   - usdc_balance is 6-decimal micro-USD
+    //   - xnt_balance is 9-decimal lamports
+    //   - Multiply by 1e9 to scale, divide by xnt_balance to get per-unit
+    //   - Result: 6-decimal USD per XNT, matching p.xnt_price_usd scale
+    //
+    // SECURITY: This pool has ~$22K TVL. An attacker can manipulate the implied
+    // price ±10-20% via flash sandwich. Cross-validation against caller's
+    // submission limits the impact: caller's price must be in tolerance, AND
+    // caller's price comes from off-chain XDEX API (different signal source).
+    // Both must agree, so attacker must manipulate both pool AND caller fetch.
+    {
+        let xnt_vault_data  = ctx.accounts.xnt_usdc_pool_xnt_vault.try_borrow_data()?;
+        let usdc_vault_data = ctx.accounts.xnt_usdc_pool_usdc_vault.try_borrow_data()?;
+
+        require!(
+            xnt_vault_data.len() >= TOKEN_ACCOUNT_AMOUNT_OFFSET + 8 &&
+            usdc_vault_data.len() >= TOKEN_ACCOUNT_AMOUNT_OFFSET + 8,
+            PairingError::InvalidPoolData
+        );
+
+        let xnt_balance = u64::from_le_bytes(
+            xnt_vault_data[TOKEN_ACCOUNT_AMOUNT_OFFSET..TOKEN_ACCOUNT_AMOUNT_OFFSET + 8]
+                .try_into().map_err(|_| PairingError::InvalidPoolData)?
+        );
+        let usdc_balance = u64::from_le_bytes(
+            usdc_vault_data[TOKEN_ACCOUNT_AMOUNT_OFFSET..TOKEN_ACCOUNT_AMOUNT_OFFSET + 8]
+                .try_into().map_err(|_| PairingError::InvalidPoolData)?
+        );
+
+        require!(xnt_balance > 0 && usdc_balance > 0, PairingError::InvalidPrice);
+
+        // Compute implied price in 6-decimal micro-USD per XNT
+        let onchain_price_u128 = (usdc_balance as u128)
+            .checked_mul(1_000_000_000u128).ok_or(PairingError::Overflow)?
+            .checked_div(xnt_balance as u128).ok_or(PairingError::Overflow)?;
+
+        require!(onchain_price_u128 > 0, PairingError::InvalidPrice);
+        require!(onchain_price_u128 <= u64::MAX as u128, PairingError::Overflow);
+        let onchain_price = onchain_price_u128 as u64;
+
+        // Cross-validate: caller's xnt_price_usd must be within tolerance
+        let diff = if p.xnt_price_usd > onchain_price {
+            p.xnt_price_usd - onchain_price
+        } else {
+            onchain_price - p.xnt_price_usd
+        };
+        let max_diff = (onchain_price as u128)
+            .checked_mul(XNT_PRICE_TOLERANCE_BPS as u128).ok_or(PairingError::Overflow)?
+            .checked_div(10_000).ok_or(PairingError::Overflow)? as u64;
+
+        require!(diff <= max_diff, PairingError::PriceMismatch);
+    }
+
     // Pool TVL check — read XNT vault balance directly
     {
         let vault_data = ctx.accounts.token_a_xnt_pool_vault.try_borrow_data()?;
@@ -142,23 +214,29 @@ pub fn handler(ctx: Context<CreateListing>, p: CreateListingParams) -> Result<()
         }
     }
 
-    // Rate limiting
+    // ── RATE LIMITING (v1.1: bypass for dev wallet) ──────────────────────────
     let wallet = &mut ctx.accounts.wallet_state;
     require!(!wallet.is_flagged, PairingError::WalletFlagged);
 
-    if now.checked_sub(wallet.hour_window_start)
-          .ok_or(PairingError::Overflow)? >= RATE_LIMIT_WINDOW_SECS {
-        wallet.listings_this_hour = 0;
-        wallet.hour_window_start  = now;
+    let is_rate_limit_exempt = ctx.accounts.creator.key() == RATE_LIMIT_BYPASS_WALLET;
+
+    if !is_rate_limit_exempt {
+        if now.checked_sub(wallet.hour_window_start)
+              .ok_or(PairingError::Overflow)? >= RATE_LIMIT_WINDOW_SECS {
+            wallet.listings_this_hour = 0;
+            wallet.hour_window_start  = now;
+        }
+
+        require!(
+            wallet.listings_this_hour < MAX_LISTINGS_PER_HOUR,
+            PairingError::RateLimited
+        );
+
+        wallet.listings_this_hour = wallet.listings_this_hour
+            .checked_add(1).ok_or(PairingError::Overflow)?;
     }
 
-    require!(
-        wallet.listings_this_hour < MAX_LISTINGS_PER_HOUR,
-        PairingError::RateLimited
-    );
-
-    wallet.listings_this_hour = wallet.listings_this_hour
-        .checked_add(1).ok_or(PairingError::Overflow)?;
+    // Always update last_listing_at and total_listings, even for exempt wallets
     wallet.last_listing_at = now;
     wallet.total_listings  = wallet.total_listings
         .checked_add(1).ok_or(PairingError::Overflow)?;

@@ -103,6 +103,27 @@ pub struct MatchCommitment {
 }
 // space: 8 + 32+32+32+8+1+1 = 114
 
+// ── MatchIntent (v1.2) ────────────────────────────────────────────────────────
+// Short-lived state between prepare_match and execute_match.
+// Must be consumed in the same slot it's created (atomicity enforcement).
+// PDA seeds: [b"match_intent", matcher, listing]
+#[account]
+pub struct MatchIntent {
+    pub matcher:           Pubkey, // 32
+    pub listing:           Pubkey, // 32
+    pub token_b_mint:      Pubkey, // 32
+    pub token_b_amount:    u64,    // 8
+    pub token_b_usd_val:   u64,    // 8
+    pub xnt_price_usd:     u64,    // 8  — snapshotted for XNT fee calc in execute
+    pub amm_config:        Pubkey, // 32
+    pub token_a_is_token0: bool,   // 1
+    pub open_time:         u64,    // 8
+    pub created_slot:      u64,    // 8  — must equal current_slot in execute
+    pub matcher_lb_balance:u64,    // 8  — snapshotted for XNT fee discount tier
+    pub bump:              u8,     // 1
+}
+// space: 8 + 32+32+32+8+8+8+32+1+8+8+8+1 = 186
+
 // ── SeedPoolParams ────────────────────────────────────────────────────────────
 // Parameters for admin seeding existing pools
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]

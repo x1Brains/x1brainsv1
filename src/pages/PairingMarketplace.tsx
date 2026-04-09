@@ -19,6 +19,10 @@ const BRAINS_MINT     = BRAINS_MINT_STR; // EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC
 const LB_MINT         = 'Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6';
 const WXNT_MINT       = 'So11111111111111111111111111111111111111112';
 const TREASURY        = 'CAeTTU2zk2EjWLKVeg4zxYhHu7gba1oRN8NHEDjpK9XF';
+// ── XNT/USDC.X pool for on-chain price oracle (v1.1) ─────────────────────────
+const XNT_USDC_POOL       = 'CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR';
+const XNT_USDC_VAULT_XNT  = '8wvV4HKBDFMLEUkVWp1WPNa5ano99XCm3f9t3troyLb';
+const XNT_USDC_VAULT_USDC = '7iw2adw8Af7x3pY7gj5RwczFXuGjCoX92Gfy3avwXQtg';
 const INCINERATOR     = '1nc1nerator11111111111111111111111111111111';
 const XDEX_BASE       = '/api/xdex-price/api';
 const RPC             = 'https://rpc.mainnet.x1.xyz';
@@ -236,11 +240,11 @@ async function fetchMetaplexMeta(mint: string): Promise<TokenMeta | null> {
     // Parse Metaplex metadata — name at offset 69, symbol at offset 105
     let offset = 1 + 32 + 32; // discriminator + update_authority + mint
     const nameLen = data.readUInt32LE(offset); offset += 4;
-    const name = data.slice(offset, offset + nameLen).toString('utf8').replace(/ /g, '').trim(); offset += nameLen;
+    const name = data.slice(offset, offset + nameLen).toString('utf8').replace(/\0/g, '').trim(); offset += nameLen;
     const symLen = data.readUInt32LE(offset); offset += 4;
-    const symbol = data.slice(offset, offset + symLen).toString('utf8').replace(/ /g, '').trim(); offset += symLen;
+    const symbol = data.slice(offset, offset + symLen).toString('utf8').replace(/\0/g, '').trim(); offset += symLen;
     const uriLen = data.readUInt32LE(offset); offset += 4;
-    const uri = data.slice(offset, offset + uriLen).toString('utf8').replace(/ /g, '').trim();
+    const uri = data.slice(offset, offset + uriLen).toString('utf8').replace(/\0/g, '').trim();
     if (!symbol && !name) return null;
     let logo: string | undefined;
     if (uri) {
@@ -423,6 +427,20 @@ const StatusBox: FC<{ msg: string }> = ({ msg }) => {
       fontFamily: 'Sora,sans-serif', fontSize: 12,
       color: isErr ? '#ff6666' : isOk ? '#00c98d' : '#9abacf', lineHeight: 1.6,
     }} dangerouslySetInnerHTML={{ __html: msg }} />
+  );
+};
+
+const TxLink: FC<{ sig: string; color?: string }> = ({ sig, color = "#00d4ff" }) => {
+  if (!sig) return null;
+  const url = `https://explorer.mainnet.x1.xyz/tx/${sig}`;
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" style={{
+      display: "block", textAlign: "center", padding: "10px 14px", marginBottom: 16,
+      borderRadius: 10, background: "rgba(0,212,255,.04)",
+      border: `1px solid ${color}40`, textDecoration: "none",
+      fontFamily: "Orbitron,monospace", fontSize: 11, fontWeight: 700,
+      color, letterSpacing: 1, transition: "all .15s",
+    }}>VIEW ON EXPLORER ↗</a>
   );
 };
 
@@ -640,9 +658,13 @@ const CreateListingModal: FC<{
   const [burnBps, setBurnBps]   = useState<0 | 2500 | 5000 | 10000>(0);
   const [status, setStatus]     = useState('');
   const [pending, setPending]   = useState(false);
+  const [txSig, setTxSig] = useState("");
   const [balances, setBalances] = useState({ brains: 0, lb: 0, lbRaw: 0 });
   const [xntBal, setXntBal]     = useState(0);
   const [prices, setPrices]     = useState({ brains: 0, lb: 0, xnt: 0.4187, xnt6: 418700 });
+  const [walletTokens, setWalletTokens] = useState<{mint:string;symbol:string;logo?:string;balance:number;price:number;decimals:number}[]>([]);
+  const [loadingWallet, setLoadingWallet] = useState(false);
+  const [walletScanned, setWalletScanned] = useState(false);
 
   // Load prices and balances
   useEffect(() => {
@@ -704,6 +726,66 @@ const CreateListingModal: FC<{
   const canSubmit  = amt > 0 && amt <= selBal && xntBal >= feeXntUi && !pending && usdVal6 >= 1_000_000 && otherReady;
 
   // Fetch other token data when mint address changes
+  // Lazy-load wallet tokens when user selects OTHER tab
+  useEffect(() => {
+    if (tokenA !== 'other' || walletScanned || !publicKey || !connection) return;
+    setWalletScanned(true);
+    setLoadingWallet(true);
+    (async () => {
+      try {
+        const [spl, t22] = await Promise.all([
+          connection.getParsedTokenAccountsByOwner(publicKey, { programId: TOKEN_PROGRAM_ID }),
+          connection.getParsedTokenAccountsByOwner(publicKey, { programId: TOKEN_2022_PROGRAM_ID }),
+        ]);
+        const all = [...(spl?.value ?? []), ...(t22?.value ?? [])];
+        const raw: {mint:string;symbol:string;logo?:string;balance:number;price:number;decimals:number}[] = [];
+        for (const acc of all) {
+          const info = acc?.account?.data?.parsed?.info;
+          const mint = info?.mint;
+          const bal  = Number(info?.tokenAmount?.uiAmount ?? 0);
+          const dec  = info?.tokenAmount?.decimals ?? 9;
+          if (!mint || bal <= 0) continue;
+          // Skip BRAINS, LB, WXNT — those have their own buttons
+          if (mint === BRAINS_MINT || mint === LB_MINT || mint === WXNT_MINT) continue;
+          raw.push({ mint, symbol: mint.slice(0,6).toUpperCase(), balance: bal, price: 0, decimals: dec });
+        }
+        setWalletTokens([...raw]);
+        setLoadingWallet(false);
+
+        // Enrich with XDEX prices + metadata in batches of 5
+        const enriched = [...raw];
+        for (let i = 0; i < enriched.length; i += 5) {
+          const chunk = enriched.slice(i, i + 5);
+          const results = await Promise.allSettled(chunk.map(async t => ({
+            mint: t.mint,
+            price: await fetchXdexPrice(t.mint).catch(() => null),
+            meta:  await fetchXdexMeta(t.mint).catch(() => null),
+          })));
+          results.forEach((r, j) => {
+            if (r.status === 'fulfilled') {
+              const idx = i + j;
+              if (r.value.price) enriched[idx] = { ...enriched[idx], price: r.value.price.priceUSD };
+              if (r.value.meta?.symbol) enriched[idx] = { ...enriched[idx], symbol: r.value.meta.symbol };
+              if (r.value.meta?.logo)   enriched[idx] = { ...enriched[idx], logo: r.value.meta.logo };
+            }
+          });
+          setWalletTokens([...enriched].sort((a, b) => (b.balance * b.price) - (a.balance * a.price)));
+        }
+
+        // Deeper metadata for stragglers
+        for (let i = 0; i < enriched.length; i++) {
+          if (!enriched[i].logo || enriched[i].symbol.length <= 4) {
+            const m = await fetchTokenMeta(enriched[i].mint).catch(() => null);
+            if (m && (m.logo || m.symbol.length > 4)) {
+              enriched[i] = { ...enriched[i], symbol: m.symbol, logo: m.logo };
+              setWalletTokens([...enriched].sort((a, b) => (b.balance * b.price) - (a.balance * a.price)));
+            }
+          }
+        }
+      } catch (e) { console.error('wallet tokens scan error', e); setLoadingWallet(false); }
+    })();
+  }, [tokenA, publicKey?.toBase58(), connection]);
+
   const checkOtherToken = useCallback(async (mint: string) => {
     if (!mint || mint.length < 32) { setOtherMeta(null); return; }
     try { new PublicKey(mint); } catch { setOtherMeta(null); return; }
@@ -737,7 +819,7 @@ const CreateListingModal: FC<{
   const handleCreate = async () => {
     if (!publicKey || !signTransaction || !canSubmit) return;
     setPending(true);
-    setStatus('Fetching fresh price data…');
+    setTxSig(''); setStatus('Fetching fresh price data…');
     try {
       // ── Fetch fresh prices ───────────────────────────────────────────────────
       const [tokenPriceData, xntPriceData] = await Promise.all([
@@ -788,12 +870,15 @@ const CreateListingModal: FC<{
       // ── XNT vault for price cross-check — use BRAINS/XNT pool vault ──────────
       const xntPoolVault = new PublicKey('HJ5WsScycRCtp8yqGsLbcDAayMsbcYajELcALg6kaUaq');
 
+      // ── XNT/USDC.X pool vaults for on-chain XNT price oracle (v1.1) ──────────
+      const xntUsdcVaultXnt  = new PublicKey(XNT_USDC_VAULT_XNT);
+      const xntUsdcVaultUsdc = new PublicKey(XNT_USDC_VAULT_USDC);
+
       // ── Build Anchor instruction data ─────────────────────────────────────────
       // Discriminator for create_listing = first 8 bytes of sha256("global:create_listing")
-      const crypto = await import('crypto');
-      const disc   = Buffer.from(
-        crypto.createHash('sha256').update('global:create_listing').digest()
-      ).slice(0, 8);
+      const msgBytes = new TextEncoder().encode('global:create_listing');
+      const hashBuf  = await window.crypto.subtle.digest('SHA-256', msgBytes);
+      const disc     = Buffer.from(new Uint8Array(hashBuf).slice(0, 8));
 
       // Encode CreateListingParams — must match program struct layout exactly
       // token_a_amount:   u64  (8 bytes LE)
@@ -833,6 +918,8 @@ const CreateListingModal: FC<{
         { pubkey: new PublicKey(TREASURY),            isSigner: false, isWritable: true  }, // treasury
         { pubkey: lbAta,                              isSigner: false, isWritable: false }, // creator_lb_account (optional)
         { pubkey: xntPoolVault,                       isSigner: false, isWritable: false }, // token_a_xnt_pool_vault
+        { pubkey: xntUsdcVaultXnt,                    isSigner: false, isWritable: false }, // xnt_usdc_pool_xnt_vault (v1.1)
+        { pubkey: xntUsdcVaultUsdc,                   isSigner: false, isWritable: false }, // xnt_usdc_pool_usdc_vault (v1.1)
         { pubkey: tokenProg,                          isSigner: false, isWritable: false }, // token_program
         { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID,        isSigner: false, isWritable: false }, // associated_token_program
         { pubkey: SP.programId,                       isSigner: false, isWritable: false }, // system_program
@@ -861,7 +948,7 @@ const CreateListingModal: FC<{
         const err    = status?.value?.err;
         if (err) throw new Error(`TX failed: ${JSON.stringify(err)}`);
         if (conf === 'confirmed' || conf === 'finalized') {
-          setStatus(`✅ Listing created! ${fmtNum(amt)} ${selSymbol} listed · ${fmtUSD(usdValUi)} · Fee paid: ${feeXntUi.toFixed(4)} XNT\n\nTx: ${sig.slice(0,20)}…`);
+          setTxSig(sig); setStatus(`✅ Listing created! ${fmtNum(amt)} ${selSymbol} listed · ${fmtUSD(usdValUi)} · Fee paid: ${feeXntUi.toFixed(4)} XNT\n\nTx: ${sig.slice(0,20)}…`);
           setTimeout(() => { onCreated(); onClose(); }, 3000);
           return;
         }
@@ -946,7 +1033,57 @@ const CreateListingModal: FC<{
         {tokenA === 'other' && (
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 8 }}>
-              PASTE TOKEN MINT ADDRESS
+              SELECT FROM YOUR WALLET
+            </div>
+            {loadingWallet ? (
+              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#4a6a8a',
+                marginBottom: 12, padding: '10px 0' }}>
+                Loading your tokens…
+              </div>
+            ) : walletTokens.length === 0 ? (
+              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa',
+                marginBottom: 12, padding: '10px 14px',
+                background: 'rgba(255,255,255,.03)', borderRadius: 8,
+                border: '1px solid rgba(255,255,255,.06)' }}>
+                No other tokens found in your wallet. You can paste a mint address below.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12,
+                maxHeight: 220, overflowY: 'auto' }}>
+                {walletTokens.map(t => {
+                  const usdVal = t.balance * t.price;
+                  const isSelected = otherMint === t.mint;
+                  return (
+                    <button key={t.mint} onClick={() => {
+                      setOtherMint(t.mint);
+                      checkOtherToken(t.mint);
+                    }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+                        borderRadius: 10, cursor: 'pointer', textAlign: 'left',
+                        background: isSelected ? 'rgba(191,90,242,.1)' : 'rgba(255,255,255,.03)',
+                        border: `1px solid ${isSelected ? 'rgba(191,90,242,.4)' : 'rgba(255,255,255,.07)'}`,
+                        transition: 'all 0.15s' }}>
+                      <TokenLogo mint={t.mint} logo={t.logo} symbol={t.symbol} size={32} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
+                          color: isSelected ? '#bf5af2' : '#e0f0ff' }}>{t.symbol}</div>
+                        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#6a8aaa' }}>
+                          {fmtNum(t.balance)} · {t.price > 0 ? `${fmtUSD(t.price)}/token` : 'no price'}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700,
+                          color: usdVal > 0 ? '#00c98d' : '#4a6a8a' }}>
+                          {usdVal > 0 ? fmtUSD(usdVal) : '—'}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 8 }}>
+              OR PASTE TOKEN MINT ADDRESS
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <input value={otherMint} onChange={e => setOtherMint(e.target.value)}
@@ -1084,6 +1221,7 @@ const CreateListingModal: FC<{
         </div>
 
         <StatusBox msg={status} />
+        <TxLink sig={txSig} color="#00d4ff" />
 
         <button onClick={handleCreate} disabled={!canSubmit}
           style={{ width: '100%', padding: '15px 0', borderRadius: 12,
@@ -1122,6 +1260,7 @@ const MatchModal: FC<{
   const [amount, setAmount]         = useState('');
   const [status, setStatus]         = useState('');
   const [pending, setPending]       = useState(false);
+  const [txSig, setTxSig] = useState("");
   const [xntPrice, setXntPrice]     = useState(0.4187);
   const [lbRaw, setLbRaw]           = useState(0);
   // Wallet token list — auto-populated from on-chain
@@ -1243,7 +1382,7 @@ const MatchModal: FC<{
   const handleMatch = async () => {
     if (!canMatch || !publicKey || !signTransaction) return;
     setPending(true);
-    setStatus('Fetching prices…');
+    setTxSig(''); setStatus('Fetching prices…');
     try {
       const [tokenBPrice, xntP] = await Promise.all([
         fetchXdexPrice(tokenBMint),
@@ -1490,6 +1629,7 @@ const MatchModal: FC<{
         )}
 
         <StatusBox msg={status} />
+        <TxLink sig={txSig} color="#00c98d" />
 
         <button onClick={handleMatch} disabled={!canMatch}
           style={{ width: '100%', padding: '15px 0', borderRadius: 12,
@@ -1526,6 +1666,7 @@ const EditModal: FC<{
   const [newAmount, setNewAmount]   = useState('');
   const [status, setStatus]         = useState('');
   const [pending, setPending]       = useState(false);
+  const [txSig, setTxSig] = useState("");
   const [xntPrice, setXntPrice]     = useState(0.4187);
   const [tokenBal, setTokenBal]     = useState(0);
   const [tokenPrice, setTokenPrice] = useState(0);
@@ -1550,7 +1691,7 @@ const EditModal: FC<{
   const handleEdit = async () => {
     if (!publicKey || !signTransaction) return;
     setPending(true);
-    setStatus('Building transaction…');
+    setTxSig(''); setStatus('Building transaction…');
     try {
       const xntP   = await fetchXdexPrice(WXNT_MINT);
       const xntP6  = xntP?.priceUSD6 ?? Math.floor(xntPrice * 1_000_000);
@@ -1620,7 +1761,7 @@ const EditModal: FC<{
       setStatus('Waiting for wallet approval…');
       const signed = await signTransaction(tx);
       const sig    = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
-      setStatus(`✅ Edit submitted! Tx: ${sig.slice(0,20)}…`);
+      setTxSig(sig); setStatus(`✅ Edit submitted! Tx: ${sig.slice(0,20)}…`);
       setTimeout(() => { onEdited(); onClose(); }, 2000);
     } catch (e: any) {
       setStatus('❌ ' + (e?.message ?? String(e)).slice(0, 200));
@@ -1706,6 +1847,7 @@ const EditModal: FC<{
         </div>
 
         <StatusBox msg={status} />
+        <TxLink sig={txSig} color="#ff8c00" />
 
         <button onClick={handleEdit} disabled={pending || (newBurnBps === listing.burnBps && !newAmount)}
           style={{ width: '100%', padding: '15px 0', borderRadius: 12,
@@ -1740,6 +1882,7 @@ const DelistModal: FC<{
 }> = ({ listing, isMobile, publicKey, connection, signTransaction, onClose, onDelisted }) => {
   const [status, setStatus]   = useState('');
   const [pending, setPending] = useState(false);
+  const [txSig, setTxSig] = useState("");
   const [xntPrice, setXntPrice] = useState(0.4187);
   const [logo, setLogo]       = useState<string | undefined>(listing.tokenALogo);
 
@@ -1757,7 +1900,7 @@ const DelistModal: FC<{
   const handleDelist = async () => {
     if (!publicKey || !signTransaction) return;
     setPending(true);
-    setStatus('Building transaction…');
+    setTxSig(''); setStatus('Building transaction…');
     try {
       const xntP      = await fetchXdexPrice(WXNT_MINT);
       const xntPrice6 = xntP?.priceUSD6 ?? 418700;
@@ -1804,7 +1947,7 @@ const DelistModal: FC<{
         if (st?.value?.err) throw new Error('TX failed on-chain');
         const conf = st?.value?.confirmationStatus;
         if (conf === 'confirmed' || conf === 'finalized') {
-          setStatus(`✅ Delisted! ${fmtNum(listing.amountUi)} ${listing.tokenASymbol} returned.\nTx: ${sig.slice(0,20)}…`);
+          setTxSig(sig); setStatus(`✅ Delisted! ${fmtNum(listing.amountUi)} ${listing.tokenASymbol} returned.\nTx: ${sig.slice(0,20)}…`);
           setTimeout(() => { onDelisted(); onClose(); }, 2500);
           return;
         }
@@ -1877,6 +2020,7 @@ const DelistModal: FC<{
         </div>
 
         <StatusBox msg={status} />
+        <TxLink sig={txSig} color="#ff6666" />
 
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={onClose}
@@ -1911,44 +2055,6 @@ const PairingMarketplace: FC = () => {
   const { publicKey, sendTransaction, signTransaction } = useWallet();
   const { connection } = useConnection();
   const isMobile = useIsMobile();
-
-  // ── ADMIN ONLY — restricted until delist is fixed ───────────────────────────
-  const ADMIN = '2nVaSvCqrsdskcbtn47uquNDL7Q69To1k45FpYBvWnuC';
-  const isAdmin = publicKey?.toBase58() === ADMIN;
-
-  if (!isAdmin) {
-    return (
-      <div style={{ minHeight: '100vh', background: '#080c0f', display: 'flex',
-        flexDirection: 'column' }}>
-        <TopBar />
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center',
-          justifyContent: 'center', flexDirection: 'column', gap: 20, padding: 24 }}>
-          <div style={{ fontSize: 64 }}>🧠</div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 16 : 22,
-            fontWeight: 900, color: '#e0f0ff', letterSpacing: 2, textAlign: 'center' }}>
-            LAB WORK DeFi
-          </div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 10 : 12,
-            color: '#ff8c00', letterSpacing: 3, textAlign: 'center' }}>
-            UNDER DEVELOPMENT
-          </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 13, color: '#6a8aaa',
-            maxWidth: 380, textAlign: 'center', lineHeight: 1.7 }}>
-            {publicKey
-              ? 'This wallet does not have access. Site is still under development — check back soon.'
-              : 'This site is still under development. Connect your wallet to check access.'}
-          </div>
-          {!publicKey && (
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#4a6a8a',
-              border: '1px solid rgba(255,255,255,.08)', borderRadius: 8,
-              padding: '10px 20px', marginTop: 8 }}>
-              USE THE CONNECT BUTTON ABOVE ↑
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   const [tab, setTab]               = useState<'listings' | 'mine'>('listings');
   const [filter, setFilter]         = useState<'all' | 'brains' | 'lb'>('all');
