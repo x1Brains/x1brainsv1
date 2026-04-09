@@ -1,3 +1,14 @@
+# ============================================================================
+# DO NOT RUN `anchor deploy` FOR brains_pairing
+# ============================================================================
+# The local target/deploy/brains_pairing-keypair.json does NOT match the
+# on-chain program ID. Running `anchor deploy` will silently deploy to a
+# ghost address and burn rent.
+#
+# To upgrade brains_pairing, use:    ./scripts/deploy-brains-pairing.sh
+# See DEPLOY.md for the full explanation.
+# ============================================================================
+
 [toolchain]
 anchor_version = "0.32.1"
 
