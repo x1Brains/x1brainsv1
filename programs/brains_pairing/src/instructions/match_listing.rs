@@ -779,6 +779,13 @@ pub fn execute_handler<'info>(
     let (lp_burned, lp_treasury, lp_user_a, lp_user_b) =
         distribute_lp(lp_received, ctx.accounts.listing_state.burn_bps)?;
 
+    // ── Read LP mint decimals at runtime (defensive — XDEX LP is always 9 but verify) ──
+    let lp_decimals: u8 = {
+        let mint_data = ra[EX_LP_MINT].try_borrow_data()?;
+        require!(mint_data.len() >= 45, PairingError::InvalidPoolData);
+        mint_data[44]
+    };
+
     msg!("LP minted={} burned={} treasury={} user_a={} user_b={}",
         lp_received, lp_burned, lp_treasury, lp_user_a, lp_user_b);
 
@@ -838,7 +845,7 @@ pub fn execute_handler<'info>(
                 },
             ),
             lp_burned,
-            9,
+            lp_decimals,
         )?;
     }
 
@@ -854,7 +861,7 @@ pub fn execute_handler<'info>(
                 },
             ),
             lp_treasury,
-            9,
+            lp_decimals,
         )?;
     }
 
@@ -870,7 +877,7 @@ pub fn execute_handler<'info>(
                 },
             ),
             lp_user_a,
-            9,
+            lp_decimals,
         )?;
     }
 
