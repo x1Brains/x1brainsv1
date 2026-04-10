@@ -2351,7 +2351,7 @@ const DelistModal: FC<{
         { pubkey: listingPda,              isSigner: false, isWritable: true  },
         { pubkey: escrowPda,               isSigner: false, isWritable: true  },
         { pubkey: escrowAuth,              isSigner: false, isWritable: false },
-        { pubkey: mintPk,                  isSigner: false, isWritable: false },
+        { pubkey: mintPk,                  isSigner: false, isWritable: true  },
         { pubkey: creatorAta,              isSigner: false, isWritable: true  },
         { pubkey: new PublicKey(TREASURY), isSigner: false, isWritable: true  },
         { pubkey: tokenProg,               isSigner: false, isWritable: false },
