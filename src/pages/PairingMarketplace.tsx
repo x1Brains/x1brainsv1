@@ -1,4 +1,5 @@
 import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
+import { awardLabWorkPoints } from '../lib/supabase';
 import { createPortal } from 'react-dom';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import {
@@ -449,6 +450,57 @@ async function checkPoolExists(tokenMint: string, xntMint: string): Promise<bool
   return checks.some(r => r.status === 'fulfilled' && r.value === true);
 }
 
+
+// ─── Fetch platform stats from GlobalState + all historical listings ──────────
+async function fetchPlatformStats(): Promise<{ totalVolume: number; totalPools: number; totalListings: number; totalFeeXnt: number }> {
+  try {
+    const conn = new Connection(RPC, 'confirmed');
+    const programPk = new PublicKey(PROGRAM_ID);
+    const [globalStatePda] = PublicKey.findProgramAddressSync([Buffer.from('global_state')], programPk);
+
+    // Read GlobalState
+    const gsInfo = await conn.getAccountInfo(globalStatePda);
+    let totalPools = 0;
+    let totalListings = 0;
+    let totalFeeXnt = 0;
+    if (gsInfo?.data && gsInfo.data.length >= 8 + 32 + 32 + 8 + 8 + 8 + 8) {
+      let off = 8 + 32 + 32; // skip discriminator + admin + treasury
+      totalFeeXnt    = Number(gsInfo.data.readBigUInt64LE(off)); off += 8;
+      totalListings  = Number(gsInfo.data.readBigUInt64LE(off)); off += 8;
+      totalPools     = Number(gsInfo.data.readBigUInt64LE(off)); off += 8;
+    }
+
+    // Scan all ListingState accounts (all statuses) for total volume
+    // ListingState size = 127 bytes
+    const allListings = await conn.getProgramAccounts(programPk, { filters: [{ dataSize: 127 }] });
+    let totalVolume = 0;
+    for (const { account } of allListings) {
+      try {
+        const off = 8 + 32 + 32 + 8; // skip disc + creator + mint + amount
+        const usdVal = Number(account.data.readBigUInt64LE(off));
+        totalVolume += usdVal / 1_000_000;
+      } catch {}
+    }
+
+    // Also add matched pool volumes (each pool = 2x the listing usd_val)
+    // PoolRecord size = 8 + 274 = 282 bytes
+    const poolRecords = await conn.getProgramAccounts(programPk, { filters: [{ dataSize: 282 }] });
+    for (const { account } of poolRecords) {
+      try {
+        // usd_val is at offset: 8 disc + 32 pool_addr + 32 lp_mint + 32 token_a + 32 token_b + 12 sym_a + 12 sym_b + 2 burn_bps + 8 lp_burned + 8 lp_treasury + 8 lp_user_a + 8 lp_user_b + 32 creator_a + 32 creator_b = 260
+        const usdVal = Number(account.data.readBigUInt64LE(260));
+        // Each pool represents both sides — usd_val is one side, total = 2x
+        totalVolume += (usdVal / 1_000_000);
+      } catch {}
+    }
+
+    return { totalVolume, totalPools, totalListings, totalFeeXnt };
+  } catch (e) {
+    console.error('fetchPlatformStats error:', e);
+    return { totalVolume: 0, totalPools: 0, totalListings: 0, totalFeeXnt: 0 };
+  }
+}
+
 // ─── Fetch on-chain listings from program ─────────────────────────────────────
 async function fetchOnChainListings(): Promise<ListingOnChain[]> {
   try {
@@ -858,35 +910,34 @@ const CreateListingModal: FC<{
         setWalletTokens([...raw]);
         setLoadingWallet(false);
 
-        // Enrich with XDEX prices + metadata in batches of 5
+        // Enrich ALL tokens in parallel (XDEX first, fastest)
         const enriched = [...raw];
-        for (let i = 0; i < enriched.length; i += 5) {
-          const chunk = enriched.slice(i, i + 5);
-          const results = await Promise.allSettled(chunk.map(async t => ({
-            mint: t.mint,
-            price: await fetchXdexPrice(t.mint).catch(() => null),
-            meta:  await fetchXdexMeta(t.mint).catch(() => null),
-          })));
-          results.forEach((r, j) => {
-            if (r.status === 'fulfilled') {
-              const idx = i + j;
-              if (r.value.price) enriched[idx] = { ...enriched[idx], price: r.value.price.priceUSD };
-              if (r.value.meta?.symbol) enriched[idx] = { ...enriched[idx], symbol: r.value.meta.symbol };
-              if (r.value.meta?.logo)   enriched[idx] = { ...enriched[idx], logo: r.value.meta.logo };
-            }
-          });
-          setWalletTokens([...enriched].sort((a, b) => (b.balance * b.price) - (a.balance * a.price)));
-        }
-
-        // Deeper metadata for stragglers
-        for (let i = 0; i < enriched.length; i++) {
-          if (!enriched[i].logo || enriched[i].symbol.length <= 4) {
-            const m = await fetchTokenMeta(enriched[i].mint).catch(() => null);
-            if (m && (m.logo || m.symbol.length > 4)) {
-              enriched[i] = { ...enriched[i], symbol: m.symbol, logo: m.logo };
-              setWalletTokens([...enriched].sort((a, b) => (b.balance * b.price) - (a.balance * a.price)));
-            }
+        const enrichResults = await Promise.allSettled(enriched.map(async t => ({
+          mint:  t.mint,
+          price: await fetchXdexPrice(t.mint).catch(() => null),
+          meta:  await fetchXdexMeta(t.mint).catch(() => null),
+        })));
+        enrichResults.forEach((r, idx) => {
+          if (r.status === 'fulfilled') {
+            if (r.value.price) enriched[idx] = { ...enriched[idx], price: r.value.price.priceUSD };
+            if (r.value.meta?.symbol) enriched[idx] = { ...enriched[idx], symbol: r.value.meta.symbol };
+            if (r.value.meta?.logo)   enriched[idx] = { ...enriched[idx], logo: r.value.meta.logo };
           }
+        });
+        setWalletTokens([...enriched].sort((a, b) => (b.balance * b.price) - (a.balance * a.price)));
+        // Deeper metadata for stragglers (background, non-blocking)
+        const stragglers = enriched.filter(t => !t.logo || t.symbol.length <= 4);
+        if (stragglers.length > 0) {
+          Promise.allSettled(stragglers.map(async t => {
+            const m = await fetchTokenMeta(t.mint).catch(() => null);
+            if (m && (m.logo || m.symbol.length > 4)) {
+              const idx = enriched.findIndex(e => e.mint === t.mint);
+              if (idx >= 0) {
+                enriched[idx] = { ...enriched[idx], symbol: m.symbol, logo: m.logo };
+                setWalletTokens([...enriched].sort((a, b) => (b.balance * b.price) - (a.balance * a.price)));
+              }
+            }
+          }));
         }
       } catch (e) { console.error('wallet tokens scan error', e); setLoadingWallet(false); }
     })();
@@ -1406,35 +1457,35 @@ const MatchModal: FC<{
         setWalletTokens([...raw]);
         setLoadingWallet(false);
 
-        // Step 2 — enrich with XDEX price + metadata in parallel batches of 5
+        // Step 2 — enrich ALL tokens in parallel (XDEX first, fastest)
         const enriched = [...raw];
-        for (let i = 0; i < enriched.length; i += 5) {
-          const chunk = enriched.slice(i, i + 5);
-          const results = await Promise.allSettled(chunk.map(async t => ({
-            mint: t.mint,
-            price: await fetchXdexPrice(t.mint).catch(() => null),
-            meta:  await fetchXdexMeta(t.mint).catch(() => null),
-          })));
-          results.forEach((r, j) => {
-            if (r.status === 'fulfilled') {
-              const idx = i + j;
-              if (r.value.price) enriched[idx] = { ...enriched[idx], price: r.value.price.priceUSD };
-              if (r.value.meta?.symbol) enriched[idx] = { ...enriched[idx], symbol: r.value.meta.symbol };
-              if (r.value.meta?.logo)   enriched[idx] = { ...enriched[idx], logo: r.value.meta.logo };
-            }
-          });
-          setWalletTokens([...enriched].sort((a, b) => (b.balance * b.price) - (a.balance * a.price)));
-        }
-
-        // Step 3 — deeper metadata for tokens still missing logo/symbol
-        for (let i = 0; i < enriched.length; i++) {
-          if (!enriched[i].logo || enriched[i].symbol.length <= 4) {
-            const m = await fetchTokenMeta(enriched[i].mint).catch(() => null);
-            if (m && (m.logo || m.symbol.length > 4)) {
-              enriched[i] = { ...enriched[i], symbol: m.symbol, logo: m.logo };
-              setWalletTokens([...enriched].sort((a, b) => (b.balance * b.price) - (a.balance * a.price)));
-            }
+        const results = await Promise.allSettled(enriched.map(async t => ({
+          mint:  t.mint,
+          price: await fetchXdexPrice(t.mint).catch(() => null),
+          meta:  await fetchXdexMeta(t.mint).catch(() => null),
+        })));
+        results.forEach((r, idx) => {
+          if (r.status === 'fulfilled') {
+            if (r.value.price) enriched[idx] = { ...enriched[idx], price: r.value.price.priceUSD };
+            if (r.value.meta?.symbol) enriched[idx] = { ...enriched[idx], symbol: r.value.meta.symbol };
+            if (r.value.meta?.logo)   enriched[idx] = { ...enriched[idx], logo: r.value.meta.logo };
           }
+        });
+        setWalletTokens([...enriched].sort((a, b) => (b.balance * b.price) - (a.balance * a.price)));
+
+        // Step 3 — deeper metadata only for tokens XDEX didn't resolve (background, non-blocking)
+        const stragglers = enriched.filter(t => !t.logo || t.symbol.length <= 4);
+        if (stragglers.length > 0) {
+          Promise.allSettled(stragglers.map(async t => {
+            const m = await fetchTokenMeta(t.mint).catch(() => null);
+            if (m && (m.logo || m.symbol.length > 4)) {
+              const idx = enriched.findIndex(e => e.mint === t.mint);
+              if (idx >= 0) {
+                enriched[idx] = { ...enriched[idx], symbol: m.symbol, logo: m.logo };
+                setWalletTokens([...enriched].sort((a, b) => (b.balance * b.price) - (a.balance * a.price)));
+              }
+            }
+          }));
         }
       } catch (e) { console.error('wallet tokens fetch error', e); setLoadingWallet(false); }
       // finally block removed — setLoadingWallet called in step 1 now
@@ -1808,6 +1859,16 @@ const MatchModal: FC<{
         }
         if (conf === 'confirmed' || conf === 'finalized') {
           setStatus(`✅ Match complete! XDEX pool created.\n\nDeposited: ${fmtNum(amt)} ${tokenBMeta?.symbol}\nPool: ${poolState.toBase58().slice(0,8)}…\nTx: ${sig.slice(0,20)}…`);
+          // Award LB points for LP burn (fire and forget — non-blocking)
+          if (listing.burnBps > 0) {
+            const burnedFraction = listing.burnBps / 10000;
+            const pointsEach = Math.floor(listing.usdValUi * burnedFraction * 1.888);
+            if (pointsEach > 0) {
+              const weekId = new Date().toISOString().slice(0, 7);
+              awardLabWorkPoints(listing.creator, pointsEach, `LP burn match — ${listing.burnBps/100}% burn · pool ${poolState.toBase58().slice(0,8)}`, 'defi_burn', weekId).catch(() => {});
+              awardLabWorkPoints(publicKey.toBase58(), pointsEach, `LP burn match — ${listing.burnBps/100}% burn · pool ${poolState.toBase58().slice(0,8)}`, 'defi_burn', weekId).catch(() => {});
+            }
+          }
           setTimeout(() => { onMatched(); onClose(); }, 4000);
           return;
         }
@@ -2440,6 +2501,9 @@ const PairingMarketplace: FC = () => {
   const [delistTarget, setDelistTarget] = useState<ListingOnChain | null>(null);
   const [xntPrice, setXntPrice]     = useState(0.4187);
   const [lbBalance, setLbBalance]   = useState(0); // raw LB balance
+  const [platformVolume, setPlatformVolume] = useState(0);
+  const [totalPools, setTotalPools]         = useState(0);
+  const [totalListings, setTotalListings]   = useState(0);
 
   // Fetch XNT price
   useEffect(() => {
@@ -2460,6 +2524,15 @@ const PairingMarketplace: FC = () => {
       } catch {}
     })();
   }, [publicKey, connection]);
+
+  // Fetch platform stats
+  useEffect(() => {
+    fetchPlatformStats().then(s => {
+      setPlatformVolume(s.totalVolume);
+      setTotalPools(s.totalPools);
+      setTotalListings(s.totalListings);
+    });
+  }, []);
 
   // Fetch on-chain listings
   const loadListings = useCallback(async () => {
@@ -2568,10 +2641,10 @@ const PairingMarketplace: FC = () => {
               borderRadius: 16, padding: isMobile ? '8px 4px' : '10px 24px',
               backdropFilter: 'blur(8px)', gap: 0 }}>
               {[
-                { label: 'OPEN LISTINGS', value: listings.filter(l => l.status === 'open').length, color: '#8aa0b8' },
-                { label: 'TOTAL VALUE',   value: fmtUSD(totalUSD),  color: '#00c98d' },
-                { label: 'MY LISTINGS',   value: myCount,            color: '#8aa0b8' },
-                { label: 'XNT PRICE',     value: fmtUSD(xntPrice),  color: '#ff8c00' },
+                { label: 'PLATFORM VOLUME', value: fmtUSD(platformVolume), color: '#00c98d' },
+                { label: 'POOLS CREATED',   value: totalPools,              color: '#bf5af2' },
+                { label: 'OPEN LISTINGS',   value: listings.filter(l => l.status === 'open').length, color: '#8aa0b8' },
+                { label: 'XNT PRICE',       value: fmtUSD(xntPrice),        color: '#ff8c00' },
               ].map(({ label, value, color }, i, arr) => (
                 <React.Fragment key={label}>
                   <div style={{ flex: 1, textAlign: 'center', padding: isMobile ? '2px 2px' : '2px 8px' }}>
