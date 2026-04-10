@@ -1476,7 +1476,7 @@ const MatchModal: FC<{
   const usdValB    = amt * (tokenBMeta?.price ?? 0);
   const usdValA    = listing.usdValUi;
   const diff       = Math.abs(usdValA - usdValB);
-  const tolerance  = usdValA * 0.005;
+  const tolerance  = usdValA * 0.0005;
   const priceMatch = usdValB > 0 && diff <= tolerance;
   const isEcoB     = tokenBMint === BRAINS_MINT || tokenBMint === LB_MINT;
   const matchFee   = xntPrice6 > 0 && usdValB > 0
