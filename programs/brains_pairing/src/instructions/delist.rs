@@ -1,6 +1,7 @@
 // programs/brains_pairing/src/instructions/delist.rs
 
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::program::invoke;
 use anchor_spl::token_interface::{
     Mint, TokenAccount, TokenInterface,
     TransferChecked, transfer_checked,
@@ -133,6 +134,24 @@ pub fn handler(ctx: Context<Delist>, p: DelistParams) -> Result<()> {
         ctx.accounts.token_a_mint.decimals,
     )?;
 
+    // ── HARVEST WITHHELD FEES — required before closing Token-2022 accounts ────
+    // Token-2022 transfer fee extension accumulates withheld fees in token accounts.
+    // Must harvest to mint before closing, otherwise close_account fails.
+    {
+        let source_accounts = &[ctx.accounts.escrow.to_account_info()];
+        let ix = anchor_spl::token_2022::spl_token_2022::extension::transfer_fee::instruction::harvest_withheld_tokens_to_mint(
+            &anchor_spl::token_2022::spl_token_2022::id(),
+            &ctx.accounts.token_a_mint.key(),
+            source_accounts.iter().map(|a| a.key).collect::<Vec<_>>().as_slice(),
+        )?;
+        invoke(
+            &ix,
+            &[
+                ctx.accounts.token_a_mint.to_account_info(),
+                ctx.accounts.escrow.to_account_info(),
+            ],
+        )?;
+    }
     // ── CLOSE ESCROW ACCOUNT — rent refund to creator ─────────────────────────
     close_account(CpiContext::new_with_signer(
         ctx.accounts.token_program.to_account_info(),
