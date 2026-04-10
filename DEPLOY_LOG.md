@@ -14,3 +14,13 @@ Append-only log of every brains_pairing deploy. New entries are added automatica
 - **Git:**         `main @ 9a0fc64`
 - **Authority:**   `CCcJuC3B7EwAq47VCPfgbvHvjf2xkuCj6wAKxNZ7vcY2`
 - **Notes:**       v1.2 deploy. Anchor 0.32.1 + Box wrappers + prepare/execute split. Used raw `solana program deploy` because local `target/deploy/brains_pairing-keypair.json` does not match the on-chain program ID (regenerated during the 0.31→0.32 upgrade, original lost). Verified post-deploy with `verify5.js` and `verify_state_compat.js` — all GlobalState fields intact. v1.1 instructions unchanged in account layout, frontend still functional.
+
+## 2026-04-10T04:40:31Z
+
+- **Program:**   `DNSefSAJ41Fm3ijmEug8tkDYJrHDwYGVtFtn8wwvbgJM`
+- **Signature:** `4B3huZM42EpvmgReqYMubvJxs7qFNJU6q3f5C3iyLMq34AVrnYmKw2VSDWHJaVdop18WH5t4taHcbLk3XvDu3YL7`
+- **Slot:**      42193352 (was 42080045)
+- **Binary MD5:** `92c373a12e3c682c309ce230a59b890c`
+- **Binary size:** 603872 bytes (was 603368)
+- **Git:**       `main @ 4c94286` (dirty: uncommitted changes)
+- **Authority:** `CCcJuC3B7EwAq47VCPfgbvHvjf2xkuCj6wAKxNZ7vcY2`
