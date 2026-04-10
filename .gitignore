@@ -10,3 +10,6 @@ id.json
 node_modules/
 target/
 target/deploy/*-keypair.json
+
+# Build artifacts
+target/
