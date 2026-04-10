@@ -266,6 +266,8 @@ pub fn handler(ctx: Context<CreateListing>, p: CreateListingParams) -> Result<()
         ctx.accounts.token_a_mint.decimals,
     )?;
 
+    // Reload escrow to get actual received amount (after Token-2022 transfer fees)
+    ctx.accounts.escrow.reload()?;
     // Transfer fee to treasury
     anchor_lang::system_program::transfer(
         CpiContext::new(
