@@ -109,7 +109,7 @@ pub fn handler(ctx: Context<Delist>, p: DelistParams) -> Result<()> {
     )?;
 
     // ── RETURN ESCROWED TOKENS TO CREATOR ─────────────────────────────────────
-    let amount           = ctx.accounts.listing_state.token_a_amount;
+    let amount           = ctx.accounts.escrow.amount;
     let escrow_auth_bump = ctx.accounts.listing_state.escrow_auth_bump;
     let listing_key      = ctx.accounts.listing_state.key();
     let seeds = &[
