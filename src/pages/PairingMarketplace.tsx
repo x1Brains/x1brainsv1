@@ -2366,6 +2366,14 @@ const DelistModal: FC<{
       const ix = new TransactionInstruction({ programId: programPk, keys, data: ixData });
       const { blockhash } = await connection.getLatestBlockhash('confirmed');
       const tx = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash });
+      // Create creator ATA if it doesn't exist (needed when creator never held this token)
+      const creatorAtaInfo = await connection.getAccountInfo(creatorAta);
+      if (!creatorAtaInfo) {
+        const { createAssociatedTokenAccountInstruction } = await import('@solana/spl-token');
+        tx.add(createAssociatedTokenAccountInstruction(
+          publicKey, creatorAta, publicKey, mintPk, tokenProg
+        ));
+      }
       tx.add(ix);
       setStatus('Waiting for wallet approval…');
       const signed = await signTransaction(tx);
