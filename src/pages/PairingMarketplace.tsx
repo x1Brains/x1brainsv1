@@ -2367,7 +2367,7 @@ const DelistModal: FC<{
       const creatorAtaInfo = await connection.getAccountInfo(creatorAta);
       if (!creatorAtaInfo) {
         const { createAssociatedTokenAccountInstruction } = await import('@solana/spl-token');
-        tx.add(createAssociatedTokenAccountInstruction(
+        tx.add(createAssociatedTokenAccountIdempotentInstruction(
           publicKey, creatorAta, publicKey, mintPk, tokenProg
         ));
       }
