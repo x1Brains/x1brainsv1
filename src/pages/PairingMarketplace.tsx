@@ -531,10 +531,15 @@ async function fetchOnChainListings(): Promise<ListingOnChain[]> {
         const mintStr = tokenAMint.toBase58();
         const meta = await fetchTokenMeta(mintStr);
 
-        // Determine decimals — on-chain meta is most accurate
-        const decimals = mintStr === BRAINS_MINT ? 9
-                       : mintStr === LB_MINT     ? 2
-                       : meta.decimals;
+        // Read decimals directly from on-chain mint account (offset 44 in both SPL and Token-2022)
+        // This is always correct regardless of token type or metadata availability
+        let decimals = meta.decimals ?? 9;
+        try {
+          const mintInfo = await conn.getAccountInfo(tokenAMint);
+          if (mintInfo?.data && mintInfo.data.length >= 45) {
+            decimals = mintInfo.data[44];
+          }
+        } catch {}
 
         listings.push({
           id:           pubkey.toBase58(),
