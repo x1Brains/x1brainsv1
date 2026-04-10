@@ -477,8 +477,9 @@ async function fetchPlatformStats(): Promise<{ totalVolume: number; totalPools: 
     let totalVolume = 0;
     for (const { account } of poolRecords) {
       try {
-        const usdVal = Number(account.data.readBigUInt64LE(260));
-        // usd_val is 6 decimals, multiply by 2 for both sides of the pool
+        const seeded = account.data[281]; // seeded bool at offset 281
+        if (seeded === 1) continue; // skip admin-seeded pools
+        const usdVal = Number(account.data.readBigUInt64LE(258));
         totalVolume += (usdVal / 1_000_000) * 2;
       } catch {}
     }
