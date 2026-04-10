@@ -470,27 +470,16 @@ async function fetchPlatformStats(): Promise<{ totalVolume: number; totalPools: 
       totalPools     = Number(gsInfo.data.readBigUInt64LE(off)); off += 8;
     }
 
-    // Scan all ListingState accounts (all statuses) for total volume
-    // ListingState size = 127 bytes
-    const allListings = await conn.getProgramAccounts(programPk, { filters: [{ dataSize: 127 }] });
-    let totalVolume = 0;
-    for (const { account } of allListings) {
-      try {
-        const off = 8 + 32 + 32 + 8; // skip disc + creator + mint + amount
-        const usdVal = Number(account.data.readBigUInt64LE(off));
-        totalVolume += usdVal / 1_000_000;
-      } catch {}
-    }
-
-    // Also add matched pool volumes (each pool = 2x the listing usd_val)
+    // Volume = sum of all PoolRecords (each pool usd_val * 2 = both sides contributed)
     // PoolRecord size = 8 + 274 = 282 bytes
+    // usd_val offset: 8 + 32 + 32 + 32 + 32 + 12 + 12 + 2 + 8 + 8 + 8 + 8 + 32 + 32 = 260
     const poolRecords = await conn.getProgramAccounts(programPk, { filters: [{ dataSize: 282 }] });
+    let totalVolume = 0;
     for (const { account } of poolRecords) {
       try {
-        // usd_val is at offset: 8 disc + 32 pool_addr + 32 lp_mint + 32 token_a + 32 token_b + 12 sym_a + 12 sym_b + 2 burn_bps + 8 lp_burned + 8 lp_treasury + 8 lp_user_a + 8 lp_user_b + 32 creator_a + 32 creator_b = 260
         const usdVal = Number(account.data.readBigUInt64LE(260));
-        // Each pool represents both sides — usd_val is one side, total = 2x
-        totalVolume += (usdVal / 1_000_000);
+        // usd_val is 6 decimals, multiply by 2 for both sides of the pool
+        totalVolume += (usdVal / 1_000_000) * 2;
       } catch {}
     }
 
