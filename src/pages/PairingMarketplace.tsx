@@ -23,9 +23,14 @@ const TREASURY        = 'CAeTTU2zk2EjWLKVeg4zxYhHu7gba1oRN8NHEDjpK9XF';
 const XNT_USDC_POOL       = 'CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR';
 const XNT_USDC_VAULT_XNT  = '8wvV4HKBDFMLEUkVWp1WPNa5ano99XCm3f9t3troyLb';
 const XNT_USDC_VAULT_USDC = '7iw2adw8Af7x3pY7gj5RwczFXuGjCoX92Gfy3avwXQtg';
-const INCINERATOR     = '1nc1nerator11111111111111111111111111111111';
-const XDEX_BASE       = '/api/xdex-price/api';
-const RPC             = 'https://rpc.mainnet.x1.xyz';
+const INCINERATOR         = '1nc1nerator11111111111111111111111111111111';
+const XDEX_PROGRAM        = 'sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN';
+const XDEX_AMM_CONFIG_A   = '2eFPWosizV6nSAGeSvi5tRgXLoqhjnSesra23ALA248c';
+const XDEX_LP_AUTH        = '9Dpjw2pB5kXJr6ZTHiqzEMfJPic3om9jgNacnwpLCoaU';
+const SLOT_HASHES_SYSVAR  = 'SysvarS1otHashes111111111111111111111111111';
+const XDEX_FEE_VAULT      = 'SKc6b6zAv2kkB9EtitjppbzPVR48bCMfRtE5B8KDuF1';
+const XDEX_BASE           = '/api/xdex-price/api';
+const RPC                 = 'https://rpc.mainnet.x1.xyz';
 
 // ─── Fee constants — mirror program constants.rs exactly ─────────────────────
 const FEE_BPS_ECOSYSTEM  = 88;    // 0.888% — BRAINS or LB
@@ -43,6 +48,59 @@ const BURN_OPTIONS = [
   { pct: 50,   bps: 5000,  label: '50%',  desc: '50% burned · 50% split 50/50', color: '#bf5af2', eachPct: 25   },
   { pct: 100,  bps: 10000, label: '100%', desc: 'All burned · max LB points',   color: '#ff4444', eachPct: 0    },
 ] as const;
+
+
+// ─── Program error decoder ────────────────────────────────────────────────────
+function decodeProgramError(errStr: string): string {
+  const customMatch = errStr.match(/"Custom"\s*:\s*(\d+)/);
+  if (customMatch) {
+    const code = parseInt(customMatch[1]);
+    const msgs: Record<number, string> = {
+      6000: '⏸️ Protocol is paused. Try again later.',
+      6001: '🔄 Another operation is in progress. Wait a moment and retry.',
+      6002: '⚠️ Math overflow. The amounts may be too large.',
+      6003: '⚠️ LP math check failed. Please retry.',
+      6004: '🚫 Not authorized.',
+      6005: '🚫 You cannot match your own listing.',
+      6006: '🚫 This wallet is flagged and cannot use the protocol.',
+      6007: '⚠️ Invalid burn percentage.',
+      6008: '⚠️ Amount must be greater than zero.',
+      6009: '⚠️ Listing value is below the $1.00 minimum.',
+      6010: '⚠️ Invalid treasury account.',
+      6011: '⚠️ Invalid XDEX program ID.',
+      6012: '⚠️ Invalid AMM config.',
+      6013: '⏱️ Price data is stale — took too long to sign. Retry immediately.',
+      6014: '⚠️ Invalid timestamp. Please retry.',
+      6015: '⚠️ Token price is zero or invalid on XDEX.',
+      6016: '⚖️ Your deposit value does not match the listing (must be within ±0.5%). Adjust your amount and retry.',
+      6017: '💧 Price impact too high — pool liquidity is too thin for this amount.',
+      6018: '📊 Your XNT price disagrees with the on-chain oracle. Market moved — please retry.',
+      6019: '🏊 This token has no XNT pool on XDEX. Create one on XDEX first.',
+      6020: '⚠️ Invalid pool address. Please report this as a bug.',
+      6021: '💧 This token\'s XNT pool has less than $300 TVL. Add more liquidity on XDEX first.',
+      6022: '⏳ This token\'s XNT pool is less than 24 hours old. Please wait before matching.',
+      6023: '🏊 An XDEX pool already exists for this token pair.',
+      6024: '⚠️ Could not read pool data on-chain. Please retry.',
+      6025: '📋 This listing is no longer open — it may already be matched or delisted.',
+      6026: '⏱️ Rate limited — max 2 listings per hour.',
+      6027: '⚠️ Insufficient LP tokens received from XDEX. Please retry.',
+      6028: '⚡ Transaction took too long — same-slot check failed. Retry immediately.',
+      6029: '⚠️ Invalid bump seed. Please report this as a bug.',
+      6030: '⚠️ Invalid sysvar data. Please retry.',
+      6031: '🔐 Large listing requires commit-reveal. Please contact support.',
+      6032: '🔐 Commitment hash mismatch. Please retry.',
+      6033: '⏳ Too early to reveal commitment.',
+      6034: '⏰ Commitment expired. Please recommit.',
+      6035: '🔐 Commitment already revealed.',
+    };
+    return msgs[code] ?? `On-chain error ${code} — please retry or contact support.`;
+  }
+  if (errStr.includes('User rejected') || errStr.includes('rejected')) return 'Transaction cancelled.';
+  if (errStr.includes('insufficient funds') || errStr.includes('0x1')) return '💸 Insufficient XNT to pay fees.';
+  if (errStr.includes('confirmation timeout')) return '⏱️ Confirmation timed out — check the explorer, it may have gone through.';
+  if (errStr.includes('same-slot') || errStr.includes('6028')) return '⚡ Same-slot check failed — retry immediately.';
+  return errStr.slice(0, 200);
+}
 
 // ─── PDA derivation helpers — match program seeds exactly ────────────────────
 function deriveGlobalState(): [PublicKey, number] {
@@ -85,6 +143,54 @@ function derivePoolRecord(poolAddress: PublicKey): [PublicKey, number] {
     [Buffer.from('pool_record'), poolAddress.toBuffer()],
     new PublicKey(PROGRAM_ID)
   );
+}
+
+function deriveMatchIntent(matcher: PublicKey, listingState: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('match_intent'), matcher.toBuffer(), listingState.toBuffer()],
+    new PublicKey(PROGRAM_ID)
+  );
+}
+
+// ─── XDEX (Raydium CP-swap fork) PDA derivation — seeds from raydium-cp-swap repo ──
+function deriveXdexPoolState(ammConfig: PublicKey, token0Mint: PublicKey, token1Mint: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('pool'), ammConfig.toBuffer(), token0Mint.toBuffer(), token1Mint.toBuffer()],
+    new PublicKey(XDEX_PROGRAM)
+  );
+}
+
+function deriveXdexLpMint(poolState: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('pool_lp_mint'), poolState.toBuffer()],
+    new PublicKey(XDEX_PROGRAM)
+  );
+}
+
+function deriveXdexPoolVault(poolState: PublicKey, tokenMint: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('pool_vault'), poolState.toBuffer(), tokenMint.toBuffer()],
+    new PublicKey(XDEX_PROGRAM)
+  );
+}
+
+function deriveXdexObservation(poolState: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('observation'), poolState.toBuffer()],
+    new PublicKey(XDEX_PROGRAM)
+  );
+}
+
+// Token ordering — sort mints as 32-byte arrays lexicographically (Raydium rule)
+// Returns { token0, token1, tokenAIsToken0 }
+function sortTokenMints(mintA: PublicKey, mintB: PublicKey): { token0: PublicKey; token1: PublicKey; tokenAIsToken0: boolean } {
+  const a = mintA.toBuffer();
+  const b = mintB.toBuffer();
+  for (let i = 0; i < 32; i++) {
+    if (a[i] < b[i]) return { token0: mintA, token1: mintB, tokenAIsToken0: true };
+    if (a[i] > b[i]) return { token0: mintB, token1: mintA, tokenAIsToken0: false };
+  }
+  return { token0: mintA, token1: mintB, tokenAIsToken0: true };
 }
 
 // ─── Fee calculation — mirrors program calculate_fee() exactly ────────────────
@@ -954,7 +1060,7 @@ const CreateListingModal: FC<{
         }
       }
       throw new Error('Confirmation timeout — check explorer for tx: ' + sig.slice(0,20));
-    } catch (e: any) {
+    } catch (e: any) { console.error('MATCH ERROR:', e);
       const msg = e?.message || String(e);
       setStatus(`❌ ${msg.slice(0, 200)}`);
     } finally { setPending(false); }
@@ -1380,68 +1486,336 @@ const MatchModal: FC<{
   const canMatch   = !!tokenBMeta?.hasPool && !tokenBMeta?.checking && amt > 0 && amt <= (tokenBMeta?.balance ?? 0) && priceMatch && !pending;
 
   const handleMatch = async () => {
-    if (!canMatch || !publicKey || !signTransaction) return;
     setPending(true);
-    setTxSig(''); setStatus('Fetching prices…');
+    setTxSig('');
     try {
+      // ── Step 1: Fetch fresh prices ────────────────────────────────────────────
+      setStatus('Fetching fresh prices…');
       const [tokenBPrice, xntP] = await Promise.all([
         fetchXdexPrice(tokenBMint),
         fetchXdexPrice(WXNT_MINT),
       ]);
-      if (!tokenBPrice) throw new Error('Could not fetch Token B price');
-      const now         = Math.floor(Date.now() / 1000);
-      const usdValB6    = Math.floor(tokenBPrice.priceUSD * amt * 1_000_000);
-      const xntValB9    = Math.floor((tokenBPrice.priceUSD / (xntP?.priceUSD ?? xntPrice)) * amt * 1_000_000_000);
-      const xntP6       = xntP?.priceUSD6 ?? xntPrice6;
-      const rawAmtB     = Math.floor(amt * Math.pow(10, tokenBMeta!.decimals));
-      const programPk   = new PublicKey(PROGRAM_ID);
-      const listingPk   = new PublicKey(listing.id);
-      const mintAPk     = new PublicKey(listing.tokenAMint);
-      const mintBPk     = new PublicKey(tokenBMint);
-      const [globalState]  = PublicKey.findProgramAddressSync([Buffer.from('global_state')], programPk);
-      const [matcherWS]    = PublicKey.findProgramAddressSync([Buffer.from('wallet_state'), publicKey.toBuffer()], programPk);
-      const [escrowPda]    = PublicKey.findProgramAddressSync([Buffer.from('escrow'), listingPk.toBuffer()], programPk);
-      const [escrowAuth]   = PublicKey.findProgramAddressSync([Buffer.from('escrow_auth'), listingPk.toBuffer()], programPk);
-      const isT2022A = listing.tokenAMint === BRAINS_MINT || listing.tokenAMint === LB_MINT;
-      const isT2022B = tokenBMint === BRAINS_MINT || tokenBMint === LB_MINT;
+      if (!tokenBPrice) throw new Error('Could not fetch Token B price — try again');
+
+      const now      = Math.floor(Date.now() / 1000);
+      const usdValB6 = Math.floor(tokenBPrice.priceUSD * amt * 1_000_000);
+      const xntP6    = xntP?.priceUSD6 ?? xntPrice6;
+      const rawAmtB  = Math.floor(amt * Math.pow(10, tokenBMeta!.decimals));
+
+      // ── Step 2: Derive all PDAs and keys ─────────────────────────────────────
+      setStatus('Deriving accounts…');
+      const { TransactionInstruction, Transaction, ComputeBudgetProgram } = await import('@solana/web3.js');
+      const { ASSOCIATED_TOKEN_PROGRAM_ID } = await import('@solana/spl-token');
+
+      const programPk     = new PublicKey(PROGRAM_ID);
+      const listingPk     = new PublicKey(listing.id);
+      const creatorPk     = new PublicKey(listing.creator);
+      const mintAPk       = new PublicKey(listing.tokenAMint);
+      const mintBPk       = new PublicKey(tokenBMint);
+      const ammCfgPk      = new PublicKey(XDEX_AMM_CONFIG_A);
+      const treasuryPk    = new PublicKey(TREASURY);
+      const incineratorPk = new PublicKey(INCINERATOR);
+      const xntUsdcVaultXntPk  = new PublicKey(XNT_USDC_VAULT_XNT);
+      const xntUsdcVaultUsdcPk = new PublicKey(XNT_USDC_VAULT_USDC);
+      const slotHashesPk       = new PublicKey(SLOT_HASHES_SYSVAR);
+      const feeVaultPk         = new PublicKey(XDEX_FEE_VAULT);
+
+      const [globalState]    = deriveGlobalState();
+      const [matcherWS]      = deriveWalletState(publicKey);
+      const [escrowPda]      = deriveEscrow(listingPk);
+      const [escrowAuth]     = deriveEscrowAuth(listingPk);
+      const [matchIntentPda] = deriveMatchIntent(publicKey, listingPk);
+
+      const isT2022A   = listing.tokenAMint === BRAINS_MINT || listing.tokenAMint === LB_MINT;
+      const isT2022B   = tokenBMint === BRAINS_MINT || tokenBMint === LB_MINT;
       const tokenProgA = isT2022A ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
       const tokenProgB = isT2022B ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
-      const matcherAtaB = getAssociatedTokenAddressSync(mintBPk, publicKey, false, tokenProgB);
-      const lbAta       = getAssociatedTokenAddressSync(new PublicKey(LB_MINT), publicKey, false, TOKEN_2022_PROGRAM_ID);
-      const msgBytes  = new TextEncoder().encode('global:match_listing');
-      const hashBuf   = await window.crypto.subtle.digest('SHA-256', msgBytes);
-      const disc      = Buffer.from(new Uint8Array(hashBuf).slice(0, 8));
-      // MatchListingParams layout:
-      // token_b_amount:   u64
-      // token_b_usd_val:  u64
-      // token_b_xnt_val:  u64
-      // xnt_price_usd:    u64
-      // price_timestamp:  i64
-      // price_impact_bps: u64
-      // open_time:        u64
-      // amm_config:       Pubkey (32 bytes)
-      // commit_nonce:     Option<[u8;32]> — None = 0x00
-      const params = Buffer.alloc(8+8+8+8+8+8+8+32+1);
+
+      // Token sort — Raydium rule: token0 < token1 as 32-byte arrays
+      const { token0, token1, tokenAIsToken0 } = sortTokenMints(mintAPk, mintBPk);
+
+      // XDEX PDAs
+      const [poolState]  = deriveXdexPoolState(ammCfgPk, token0, token1);
+      const [lpMint]     = deriveXdexLpMint(poolState);
+      const [poolVault0] = deriveXdexPoolVault(poolState, token0);
+      const [poolVault1] = deriveXdexPoolVault(poolState, token1);
+      const [observation]= deriveXdexObservation(poolState);
+      const [poolRecord] = derivePoolRecord(poolState);
+
+      // ATAs
+      const matcherAtaA      = getAssociatedTokenAddressSync(mintAPk,                       publicKey,    false, tokenProgA);
+      const matcherAtaB      = getAssociatedTokenAddressSync(mintBPk,                       publicKey,    false, tokenProgB);
+      const matcherLpAta     = getAssociatedTokenAddressSync(lpMint,                        publicKey,    false, TOKEN_PROGRAM_ID);
+      const creatorLpAta     = getAssociatedTokenAddressSync(lpMint,                        creatorPk,    true,  TOKEN_PROGRAM_ID);
+      const treasuryLpAta    = getAssociatedTokenAddressSync(lpMint,                        treasuryPk,   true,  TOKEN_PROGRAM_ID);
+      const incineratorLpAta = getAssociatedTokenAddressSync(lpMint,                        incineratorPk,true,  TOKEN_PROGRAM_ID);
+      const lbAta            = getAssociatedTokenAddressSync(new PublicKey(LB_MINT),        publicKey,    false, TOKEN_2022_PROGRAM_ID);
+
+      // ── Step 3: Fetch token B / XNT pool vault for TVL check (remaining[1]) ──
+      // The program requires: [0] = pool account (existence check), [1] = XNT vault (TVL check).
+      // We query XDEX for the token B / XNT pool to get the actual vault address.
+      setStatus('Fetching token B pool info…');
+      let tokenBPoolPk: PublicKey;
+      let tokenBXntVaultPk: PublicKey;
+      try {
+        const [r1, r2] = await Promise.allSettled([
+          fetch(`${XDEX_BASE}/xendex/pool/tokens/${tokenBMint}/${WXNT_MINT}?network=mainnet`, { signal: AbortSignal.timeout(6000) }).then(r => r.json()),
+          fetch(`${XDEX_BASE}/xendex/pool/tokens/${WXNT_MINT}/${tokenBMint}?network=mainnet`, { signal: AbortSignal.timeout(6000) }).then(r => r.json()),
+        ]);
+        const poolData = (r1.status === 'fulfilled' && r1.value?.data?.pool_address)  ? r1.value.data
+                       : (r2.status === 'fulfilled' && r2.value?.data?.pool_address)  ? r2.value.data
+                       : null;
+        if (!poolData?.pool_address) throw new Error('Could not find token B / XNT pool on XDEX');
+        tokenBPoolPk     = new PublicKey(poolData.pool_address);
+        // vault_b is the XNT side. Try both orderings.
+        const vaultKey = poolData.pool_info?.token0Vault;
+        if (!vaultKey) throw new Error('Could not determine XNT vault for token B pool');
+        tokenBXntVaultPk = new PublicKey(vaultKey);
+      } catch (e: any) { console.error('MATCH ERROR:', e);
+        throw new Error('Failed to fetch token B pool: ' + e.message);
+      }
+
+      // ── Step 4: Discriminators — use exact bytes from IDL (not SHA-256 at runtime) ──
+      // prepare_match discriminator from IDL: [155, 212, 68, 250, 187, 28, 60, 254]
+      // execute_match discriminator from IDL: [76, 47, 91, 223, 20, 10, 147, 232]
+      const discPrep = Buffer.from([155, 212, 68, 250, 187, 28, 60, 254]);
+      const discExec = Buffer.from([76, 47, 91, 223, 20, 10, 147, 232]);
+
+      // ── Step 5: Build prepare_match instruction ───────────────────────────────
+      // PrepareMatchParams (IDL field order — verified against brains_pairing.json):
+      //   token_b_amount:    u64   8 bytes LE
+      //   token_b_usd_val:   u64   8 bytes LE
+      //   xnt_price_usd:     u64   8 bytes LE
+      //   price_timestamp:   i64   8 bytes LE
+      //   price_impact_bps:  u64   8 bytes LE
+      //   open_time:         u64   8 bytes LE
+      //   amm_config:        Pubkey 32 bytes
+      //   commit_nonce:      Option<[u8;32]> — None = 0x00
+      //   token_a_is_token0: bool  1 byte
+      // NOTE: NO token_b_xnt_val field — that was a phantom from the old handoff.
+      const prepParams = Buffer.alloc(8+8+8+8+8+8+32+1+1);
       let off = 0;
-      params.writeBigUInt64LE(BigInt(rawAmtB),   off); off += 8;
-      params.writeBigUInt64LE(BigInt(usdValB6),  off); off += 8;
-      params.writeBigUInt64LE(BigInt(xntValB9),  off); off += 8;
-      params.writeBigUInt64LE(BigInt(xntP6),     off); off += 8;
-      params.writeBigInt64LE(BigInt(now),         off); off += 8;
-      params.writeBigUInt64LE(BigInt(0),          off); off += 8; // price_impact_bps
-      params.writeBigUInt64LE(BigInt(0),          off); off += 8; // open_time = immediate
-      new PublicKey(XDEX_AMM_CONFIG_A).toBuffer().copy(params, off); off += 32;
-      params[off] = 0; // commit_nonce = None
-      const ixData = Buffer.concat([disc, params]);
-      // NOTE: match_listing requires many XDEX accounts that we don't know yet
-      // until the XDEX pool creation CPI accounts are verified on-chain.
-      // For now we submit what we can and let the program error guide us.
-      setStatus('⚠️ Match listing requires XDEX CPI accounts that need verification.\nPlease check back — full match tx coming soon.');
-      setPending(false);
-    } catch (e: any) {
-      setStatus('❌ ' + (e?.message ?? String(e)).slice(0, 200));
-      setPending(false);
-    }
+      prepParams.writeBigUInt64LE(BigInt(rawAmtB),  off); off += 8; // token_b_amount
+      prepParams.writeBigUInt64LE(BigInt(usdValB6), off); off += 8; // token_b_usd_val
+      prepParams.writeBigUInt64LE(BigInt(xntP6),    off); off += 8; // xnt_price_usd
+      prepParams.writeBigInt64LE(BigInt(now),        off); off += 8; // price_timestamp
+      prepParams.writeBigUInt64LE(BigInt(0),         off); off += 8; // price_impact_bps
+      prepParams.writeBigUInt64LE(BigInt(0),         off); off += 8; // open_time = immediate
+      ammCfgPk.toBuffer().copy(prepParams, off);           off += 32; // amm_config
+      prepParams[off] = 0;                                 off += 1;  // commit_nonce = None
+      prepParams[off] = tokenAIsToken0 ? 1 : 0;                      // token_a_is_token0
+      const prepIxData = Buffer.concat([discPrep, prepParams]);
+
+      // prepare_match named accounts (IDL order — verified):
+      //   matcher, global_state, listing_state, token_a_mint, token_b_mint,
+      //   match_intent, match_commitment (optional — omit), system_program
+      //
+      // Remaining accounts (from Rust source PR_* constants):
+      //   [0] token_b_xnt_pool           — must have data (existence check)
+      //   [1] token_b_xnt_pool_vault     — XNT vault for TVL check
+      //   [2] xnt_usdc_pool_xnt_vault    — hardcoded oracle XNT_USDC_VAULT_XNT
+      //   [3] xnt_usdc_pool_usdc_vault   — hardcoded oracle XNT_USDC_VAULT_USDC
+      //   [4] slot_hashes sysvar
+      //   [5] matcher_lb_account         — LB ATA (or program_id sentinel if no LB)
+      const prepKeys = [
+        { pubkey: publicKey,                  isSigner: true,  isWritable: true  }, // matcher
+        { pubkey: globalState,                isSigner: false, isWritable: true  }, // global_state
+        { pubkey: listingPk,                  isSigner: false, isWritable: false }, // listing_state (not mut in prepare)
+        { pubkey: mintAPk,                    isSigner: false, isWritable: false }, // token_a_mint
+        { pubkey: mintBPk,                    isSigner: false, isWritable: false }, // token_b_mint
+        { pubkey: matchIntentPda,             isSigner: false, isWritable: true  }, // match_intent (init)
+        { pubkey: programPk, isSigner: false, isWritable: false }, // match_commitment (optional — pass program_id as sentinel)
+        { pubkey: SystemProgram.programId,    isSigner: false, isWritable: false }, // system_program
+        // Remaining:
+        { pubkey: tokenBPoolPk,               isSigner: false, isWritable: false }, // [0] token_b_xnt_pool
+        { pubkey: tokenBXntVaultPk,           isSigner: false, isWritable: false }, // [1] token_b_xnt_pool_vault
+        { pubkey: xntUsdcVaultXntPk,          isSigner: false, isWritable: false }, // [2] xnt_usdc_pool_xnt_vault
+        { pubkey: xntUsdcVaultUsdcPk,         isSigner: false, isWritable: false }, // [3] xnt_usdc_pool_usdc_vault
+        { pubkey: slotHashesPk,               isSigner: false, isWritable: false }, // [4] slot_hashes
+        { pubkey: lbAta,                      isSigner: false, isWritable: false }, // [5] matcher_lb_account
+      ];
+
+      const prepIx = new TransactionInstruction({ programId: programPk, keys: prepKeys, data: prepIxData });
+
+      // ── Step 6: Build execute_match instruction ───────────────────────────────
+      // ExecuteMatchParams (IDL): just _reserved: u8 = 0x00
+      const execIxData = Buffer.concat([discExec, Buffer.from([0x00])]);
+
+      // execute_match named accounts (IDL order — verified):
+      //   matcher, global_state, matcher_wallet_state, listing_state, listing_creator,
+      //   escrow, escrow_authority, token_a_mint, matcher_token_a, token_b_mint,
+      //   matcher_token_b, match_intent, pool_record, pool_record_pool_key,
+      //   token_a_program, token_b_program, token_program, associated_token_program,
+      //   system_program, rent
+      //
+      // Remaining accounts (from Rust source EX_* constants):
+      //   [0]  new_pool_state    — writable, new
+      //   [1]  lp_mint           — writable, new
+      //   [2]  new_pool_vault_0  — writable, new
+      //   [3]  new_pool_vault_1  — writable, new
+      //   [4]  observation_state — writable, new
+      //   [5]  matcher_lp_token  — writable (XDEX creates this ATA)
+      //   [6]  creator_lp_ata    — writable
+      //   [7]  treasury_lp_ata   — writable
+      //   [8]  incinerator_lp_ata— writable
+      //   [9]  treasury          — writable (receives XNT fee + LP ATA owner)
+      //   [10] incinerator        — writable (LP ATA owner)
+      //   [11] xdex_program
+      //   [12] amm_config
+      //   [13] xdex_lp_auth
+      //   [14] create_pool_fee   — writable (XDEX fee vault)
+      //   [15] token_a_mint      — readonly (for raw decimals read in handler)
+      //   [16] token_b_mint      — readonly
+      const execKeys = [
+        { pubkey: publicKey,                    isSigner: true,  isWritable: true  }, // matcher
+        { pubkey: globalState,                  isSigner: false, isWritable: true  }, // global_state
+        { pubkey: matcherWS,                    isSigner: false, isWritable: true  }, // matcher_wallet_state
+        { pubkey: listingPk,                    isSigner: false, isWritable: true  }, // listing_state
+        { pubkey: creatorPk,                    isSigner: false, isWritable: true  }, // listing_creator
+        { pubkey: escrowPda,                    isSigner: false, isWritable: true  }, // escrow
+        { pubkey: escrowAuth,                   isSigner: false, isWritable: false }, // escrow_authority
+        { pubkey: mintAPk,                      isSigner: false, isWritable: false }, // token_a_mint
+        { pubkey: matcherAtaA,                  isSigner: false, isWritable: true  }, // matcher_token_a
+        { pubkey: mintBPk,                      isSigner: false, isWritable: false }, // token_b_mint
+        { pubkey: matcherAtaB,                  isSigner: false, isWritable: true  }, // matcher_token_b
+        { pubkey: matchIntentPda,               isSigner: false, isWritable: true  }, // match_intent
+        { pubkey: poolRecord,                   isSigner: false, isWritable: true  }, // pool_record
+        { pubkey: poolState,                    isSigner: false, isWritable: false }, // pool_record_pool_key (passthrough for seed)
+        { pubkey: tokenProgA,                   isSigner: false, isWritable: false }, // token_a_program
+        { pubkey: tokenProgB,                   isSigner: false, isWritable: false }, // token_b_program
+        { pubkey: TOKEN_PROGRAM_ID,             isSigner: false, isWritable: false }, // token_program (standard SPL)
+        { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID,  isSigner: false, isWritable: false }, // associated_token_program
+        { pubkey: SystemProgram.programId,      isSigner: false, isWritable: false }, // system_program
+        { pubkey: new PublicKey('SysvarRent111111111111111111111111111111111'), isSigner: false, isWritable: false }, // rent
+        // Remaining:
+        { pubkey: poolState,                    isSigner: false, isWritable: true  }, // [0]  new_pool_state
+        { pubkey: lpMint,                       isSigner: false, isWritable: true  }, // [1]  lp_mint
+        { pubkey: poolVault0,                   isSigner: false, isWritable: true  }, // [2]  pool_vault_0
+        { pubkey: poolVault1,                   isSigner: false, isWritable: true  }, // [3]  pool_vault_1
+        { pubkey: observation,                  isSigner: false, isWritable: true  }, // [4]  observation_state
+        { pubkey: matcherLpAta,                 isSigner: false, isWritable: true  }, // [5]  matcher_lp_token
+        { pubkey: creatorLpAta,                 isSigner: false, isWritable: true  }, // [6]  creator_lp_ata
+        { pubkey: treasuryLpAta,                isSigner: false, isWritable: true  }, // [7]  treasury_lp_ata
+        { pubkey: incineratorLpAta,             isSigner: false, isWritable: true  }, // [8]  incinerator_lp_ata
+        { pubkey: treasuryPk,                   isSigner: false, isWritable: true  }, // [9]  treasury
+        { pubkey: incineratorPk,                isSigner: false, isWritable: true  }, // [10] incinerator
+        { pubkey: new PublicKey(XDEX_PROGRAM),  isSigner: false, isWritable: false }, // [11] xdex_program
+        { pubkey: ammCfgPk,                     isSigner: false, isWritable: false }, // [12] amm_config
+        { pubkey: new PublicKey(XDEX_LP_AUTH),  isSigner: false, isWritable: false }, // [13] xdex_lp_auth
+        { pubkey: feeVaultPk,                   isSigner: false, isWritable: true  }, // [14] create_pool_fee
+        { pubkey: mintAPk,                      isSigner: false, isWritable: false }, // [15] token_a_mint (remaining)
+        { pubkey: mintBPk,                      isSigner: false, isWritable: false }, // [16] token_b_mint (remaining)
+      ];
+
+      const execIx = new TransactionInstruction({ programId: programPk, keys: execKeys, data: execIxData });
+
+      // ── Step 7: Build atomic transaction using ALT + VersionedTransaction ────
+      // The transaction has too many accounts for a legacy tx (1577 > 1232 bytes).
+      // Solution: create an Address Lookup Table on-the-fly, store all accounts in
+      // it, then reference them by index in a v0 VersionedTransaction.
+      // Both instructions MUST be in the same transaction — same-slot enforced.
+      setStatus('Creating address lookup table…');
+      const { AddressLookupTableProgram, VersionedTransaction, TransactionMessage } = await import('@solana/web3.js');
+
+      // Collect all unique non-signer accounts to stuff into the ALT
+      const allAccounts = [
+        ...prepKeys.map(k => k.pubkey),
+        ...execKeys.map(k => k.pubkey),
+        programPk,
+      ];
+      const uniqueAccounts = [...new Map(allAccounts.map(pk => [pk.toBase58(), pk])).values()];
+
+      // Create the ALT
+      const recentSlot = await connection.getSlot('finalized');
+      const [altCreateIx, altAddress] = AddressLookupTableProgram.createLookupTable({
+        authority: publicKey,
+        payer:     publicKey,
+        recentSlot,
+      });
+
+      // Extend the ALT with all unique accounts (max 30 per extend ix)
+      const extendIxs = [];
+      for (let i = 0; i < uniqueAccounts.length; i += 30) {
+        extendIxs.push(AddressLookupTableProgram.extendLookupTable({
+          payer:        publicKey,
+          authority:    publicKey,
+          lookupTable:  altAddress,
+          addresses:    uniqueAccounts.slice(i, i + 30),
+        }));
+      }
+
+      // Send ALT setup — create and each extend as separate signed transactions
+      const sendAndConfirmTx = async (ixs: any[], label: string) => {
+        const { blockhash: bh } = await connection.getLatestBlockhash("confirmed");
+        const stx = new Transaction({ feePayer: publicKey, recentBlockhash: bh });
+        stx.add(...ixs);
+        const ssigned = await signTransaction(stx);
+        const ssig = await connection.sendRawTransaction(ssigned.serialize(), { skipPreflight: true });
+        for (let si = 0; si < 30; si++) {
+          await new Promise(r => setTimeout(r, 800));
+          const ss = await connection.getSignatureStatus(ssig, { searchTransactionHistory: true });
+          if (ss?.value?.err) throw new Error(label + " failed: " + JSON.stringify(ss.value.err));
+          if (ss?.value?.confirmationStatus === "confirmed" || ss?.value?.confirmationStatus === "finalized") return ssig;
+        }
+        throw new Error(label + " confirmation timeout");
+      };
+      setStatus("Waiting for wallet — step 1/3: create lookup table…");
+      await sendAndConfirmTx([altCreateIx], "ALT create");
+      for (let ei = 0; ei < extendIxs.length; ei++) {
+        setStatus("Waiting for wallet — step " + (ei + 2) + "/" + (extendIxs.length + 2) + ": extend lookup table…");
+        await sendAndConfirmTx([extendIxs[ei]], "ALT extend " + (ei + 1));
+      }
+      await new Promise(r => setTimeout(r, 1500));
+
+      // Fetch the ALT account
+      const altAccount = await connection.getAddressLookupTable(altAddress);
+      if (!altAccount.value) throw new Error('Could not fetch ALT account after creation');
+
+      // Build the match transaction using VersionedTransaction
+      setStatus('Building atomic match transaction…');
+      const cuLimitIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 });
+      const { blockhash } = await connection.getLatestBlockhash('confirmed');
+
+      const messageV0 = new TransactionMessage({
+        payerKey:            publicKey,
+        recentBlockhash:     blockhash,
+        instructions:        [cuLimitIx, prepIx, execIx],
+      }).compileToV0Message([altAccount.value]);
+
+      const versionedTx = new VersionedTransaction(messageV0);
+
+      setStatus('Waiting for wallet — step 2/2: sign match transaction…');
+      const signed = await signTransaction(versionedTx);
+
+      setStatus('Submitting match transaction…');
+      const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
+      setTxSig(sig);
+      setStatus('Confirming on-chain…');
+
+      // Poll for confirmation
+      for (let i = 0; i < 40; i++) {
+        await new Promise(r => setTimeout(r, 1200));
+        const result = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
+        const conf   = result?.value?.confirmationStatus;
+        const err    = result?.value?.err;
+        if (err) {
+          const errStr = JSON.stringify(err);
+          // Error 6028 = TransactionTooOld = same-slot check failed
+          if (errStr.includes('6028') || errStr.includes('TransactionTooOld')) {
+            throw new Error('Same-slot check failed — retry immediately. Both instructions must land in the same block.');
+          }
+          throw new Error(decodeProgramError(errStr));
+        }
+        if (conf === 'confirmed' || conf === 'finalized') {
+          setStatus(`✅ Match complete! XDEX pool created.\n\nDeposited: ${fmtNum(amt)} ${tokenBMeta?.symbol}\nPool: ${poolState.toBase58().slice(0,8)}…\nTx: ${sig.slice(0,20)}…`);
+          setTimeout(() => { onMatched(); onClose(); }, 4000);
+          return;
+        }
+      }
+      throw new Error('Confirmation timeout — check explorer: ' + sig.slice(0, 20));
+    } catch (e: any) { console.error('MATCH ERROR:', e);
+      setStatus('❌ ' + decodeProgramError(e?.message ?? String(e)));
+    } finally { setPending(false); }
   };
 
   return createPortal(
@@ -1464,7 +1838,7 @@ const MatchModal: FC<{
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 15 : 18,
           fontWeight: 900, color: '#fff', letterSpacing: 1, marginBottom: 4 }}>⚡ MATCH LISTING</div>
         <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa', marginBottom: 14, lineHeight: 1.5 }}>
-          You deposit tokens from your wallet equal in value to the listing. The program creates an XDEX pool automatically.
+          You deposit tokens equal in value to the listing. The program atomically creates an XDEX pool (prepare + execute in one transaction).
         </div>
 
         {/* Listing summary */}
@@ -1644,7 +2018,7 @@ const MatchModal: FC<{
                   border: '2px solid rgba(0,255,128,.2)', borderTop: '2px solid #00ff80',
                   animation: 'spin .8s linear infinite' }} />MATCHING…
               </div>
-            : `⚡ MATCH — DEPOSIT ${fmtNum(amt)} ${tokenBMeta?.symbol ?? '???'} · CREATE POOL`}
+            : `⚡ MATCH — DEPOSIT ${fmtNum(amt)} ${tokenBMeta?.symbol ?? '???'} · CREATE XDEX POOL`}
         </button>
       </div>
     </div>,
@@ -1763,7 +2137,7 @@ const EditModal: FC<{
       const sig    = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
       setTxSig(sig); setStatus(`✅ Edit submitted! Tx: ${sig.slice(0,20)}…`);
       setTimeout(() => { onEdited(); onClose(); }, 2000);
-    } catch (e: any) {
+    } catch (e: any) { console.error('MATCH ERROR:', e);
       setStatus('❌ ' + (e?.message ?? String(e)).slice(0, 200));
     } finally { setPending(false); }
   };
@@ -1953,7 +2327,7 @@ const DelistModal: FC<{
         }
       }
       throw new Error('Confirmation timeout');
-    } catch (e: any) {
+    } catch (e: any) { console.error('MATCH ERROR:', e);
       setStatus('❌ ' + (e?.message ?? String(e)).slice(0, 200));
     } finally { setPending(false); }
   };
