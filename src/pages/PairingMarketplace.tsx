@@ -2105,11 +2105,12 @@ const EditModal: FC<{
     fetchXdexPrice(listing.tokenAMint).then(p => { if (p) setTokenPrice(p.priceUSD); });
     // Fetch current token balance
     if (publicKey && connection) {
-      const tProg = await getTokenProgram(new PublicKey(listing.tokenAMint), connection);
-      const ata = getAssociatedTokenAddressSync(new PublicKey(listing.tokenAMint), publicKey, false, tProg);
-      connection.getParsedAccountInfo(ata)
-        .then((a: any) => setTokenBal(a?.value?.data?.parsed?.info?.tokenAmount?.uiAmount ?? 0))
-        .catch(() => {});
+      getTokenProgram(new PublicKey(listing.tokenAMint), connection).then(tProg => {
+        const ata = getAssociatedTokenAddressSync(new PublicKey(listing.tokenAMint), publicKey, false, tProg);
+        connection.getParsedAccountInfo(ata)
+          .then((a: any) => setTokenBal(a?.value?.data?.parsed?.info?.tokenAmount?.uiAmount ?? 0))
+          .catch(() => {});
+      });
     }
     let sy = 0;
     try { sy = window.scrollY; document.body.style.position = 'fixed'; document.body.style.top = `-${sy}px`; } catch {}
