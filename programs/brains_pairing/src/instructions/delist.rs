@@ -134,23 +134,25 @@ pub fn handler(ctx: Context<Delist>, p: DelistParams) -> Result<()> {
         ctx.accounts.token_a_mint.decimals,
     )?;
 
-    // ── HARVEST WITHHELD FEES — required before closing Token-2022 accounts ────
-    // Token-2022 transfer fee extension accumulates withheld fees in token accounts.
-    // Must harvest to mint before closing, otherwise close_account fails.
+    // ── HARVEST WITHHELD FEES — only for Token-2022 tokens with transfer fee extension ──
     {
-        let source_accounts = &[ctx.accounts.escrow.to_account_info()];
-        let ix = anchor_spl::token_2022::spl_token_2022::extension::transfer_fee::instruction::harvest_withheld_tokens_to_mint(
-            &anchor_spl::token_2022::spl_token_2022::id(),
-            &ctx.accounts.token_a_mint.key(),
-            source_accounts.iter().map(|a| a.key).collect::<Vec<_>>().as_slice(),
-        )?;
-        invoke(
-            &ix,
-            &[
-                ctx.accounts.token_a_mint.to_account_info(),
-                ctx.accounts.escrow.to_account_info(),
-            ],
-        )?;
+        let is_token_2022 = ctx.accounts.token_program.key() == anchor_spl::token_2022::spl_token_2022::id();
+        if is_token_2022 {
+            let source_accounts = &[ctx.accounts.escrow.to_account_info()];
+            let ix = anchor_spl::token_2022::spl_token_2022::extension::transfer_fee::instruction::harvest_withheld_tokens_to_mint(
+                &anchor_spl::token_2022::spl_token_2022::id(),
+                &ctx.accounts.token_a_mint.key(),
+                source_accounts.iter().map(|a| a.key).collect::<Vec<_>>().as_slice(),
+            )?;
+            // Ignore error — token may not have transfer fee extension
+            let _ = invoke(
+                &ix,
+                &[
+                    ctx.accounts.token_a_mint.to_account_info(),
+                    ctx.accounts.escrow.to_account_info(),
+                ],
+            );
+        }
     }
     // ── CLOSE ESCROW ACCOUNT — rent refund to creator ─────────────────────────
     close_account(CpiContext::new_with_signer(
