@@ -287,7 +287,7 @@ pub fn handler(ctx: Context<CreateListing>, p: CreateListingParams) -> Result<()
     let listing              = &mut ctx.accounts.listing_state;
     listing.creator          = ctx.accounts.creator.key();
     listing.token_a_mint     = ctx.accounts.token_a_mint.key();
-    listing.token_a_amount   = p.token_a_amount;
+    listing.token_a_amount   = ctx.accounts.escrow.amount; // use actual received amount (accounts for Token-2022 transfer fees)
     listing.token_a_usd_val  = p.token_a_usd_val;
     listing.token_a_xnt_val  = p.token_a_xnt_val;
     listing.token_a_mc       = p.token_a_mc;
