@@ -1009,17 +1009,8 @@ const CreateListingModal: FC<{
       const [escrowPda]    = deriveEscrow(listingPda);
       const [escrowAuth]   = deriveEscrowAuth(listingPda);
 
-      // ── Determine token program ───────────────────────────────────────────────
-      // BRAINS and LB are Token-2022; other tokens could be either
-      const isT2022 = (await getTokenProgram(new PublicKey(selMint), connection)).toBase58() === TOKEN_2022_PROGRAM_ID.toBase58();
-      const _unused =        ? true
-        : await (async () => {
-            try {
-              const info = await connection.getAccountInfo(mintPk);
-              return info?.owner?.toBase58() === TOKEN_2022_PROGRAM_ID.toBase58();
-            } catch { return false; }
-          })();
-      const tokenProg = isT2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      // ── Determine token program dynamically ──────────────────────────────────
+      const tokenProg = await getTokenProgram(new PublicKey(selMint), connection);
 
       // ── Creator token ATA ─────────────────────────────────────────────────────
       const creatorAta = getAssociatedTokenAddressSync(mintPk, publicKey, false, tokenProg);
