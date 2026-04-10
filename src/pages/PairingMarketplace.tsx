@@ -51,6 +51,16 @@ const BURN_OPTIONS = [
 ] as const;
 
 
+
+// ─── Detect token program from mint account owner ────────────────────────────
+async function getTokenProgram(mintPubkey: PublicKey, connection: any): Promise<PublicKey> {
+  try {
+    const info = await connection.getAccountInfo(mintPubkey);
+    if (info?.owner?.toBase58() === TOKEN_2022_PROGRAM_ID.toBase58()) return TOKEN_2022_PROGRAM_ID;
+  } catch {}
+  return TOKEN_PROGRAM_ID;
+}
+
 // ─── Program error decoder ────────────────────────────────────────────────────
 function decodeProgramError(errStr: string): string {
   const customMatch = errStr.match(/"Custom"\s*:\s*(\d+)/);
@@ -1001,8 +1011,8 @@ const CreateListingModal: FC<{
 
       // ── Determine token program ───────────────────────────────────────────────
       // BRAINS and LB are Token-2022; other tokens could be either
-      const isT2022 = selMint === BRAINS_MINT || selMint === LB_MINT
-        ? true
+      const isT2022 = (await getTokenProgram(new PublicKey(selMint), connection)).toBase58() === TOKEN_2022_PROGRAM_ID.toBase58();
+      const _unused =        ? true
         : await (async () => {
             try {
               const info = await connection.getAccountInfo(mintPk);
@@ -1572,10 +1582,8 @@ const MatchModal: FC<{
       const [escrowAuth]     = deriveEscrowAuth(listingPk);
       const [matchIntentPda] = deriveMatchIntent(publicKey, listingPk);
 
-      const isT2022A   = listing.tokenAMint === BRAINS_MINT || listing.tokenAMint === LB_MINT;
-      const isT2022B   = tokenBMint === BRAINS_MINT || tokenBMint === LB_MINT;
-      const tokenProgA = isT2022A ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
-      const tokenProgB = isT2022B ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const tokenProgA = await getTokenProgram(new PublicKey(listing.tokenAMint), connection);
+      const tokenProgB = await getTokenProgram(new PublicKey(tokenBMint), connection);
 
       // Token sort — Raydium rule: token0 < token1 as 32-byte arrays
       const { token0, token1, tokenAIsToken0 } = sortTokenMints(mintAPk, mintBPk);
@@ -2106,8 +2114,7 @@ const EditModal: FC<{
     fetchXdexPrice(listing.tokenAMint).then(p => { if (p) setTokenPrice(p.priceUSD); });
     // Fetch current token balance
     if (publicKey && connection) {
-      const isT2022 = listing.tokenAMint === BRAINS_MINT || listing.tokenAMint === LB_MINT;
-      const tProg = isT2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const tProg = await getTokenProgram(new PublicKey(listing.tokenAMint), connection);
       const ata = getAssociatedTokenAddressSync(new PublicKey(listing.tokenAMint), publicKey, false, tProg);
       connection.getParsedAccountInfo(ata)
         .then((a: any) => setTokenBal(a?.value?.data?.parsed?.info?.tokenAmount?.uiAmount ?? 0))
@@ -2133,8 +2140,7 @@ const EditModal: FC<{
       const [globalState] = PublicKey.findProgramAddressSync([Buffer.from('global_state')], programPk);
       const [escrowPda]   = PublicKey.findProgramAddressSync([Buffer.from('escrow'),      listingPda.toBuffer()], programPk);
       const [escrowAuth]  = PublicKey.findProgramAddressSync([Buffer.from('escrow_auth'), listingPda.toBuffer()], programPk);
-      const isT2022   = listing.tokenAMint === BRAINS_MINT || listing.tokenAMint === LB_MINT;
-      const tokenProg = isT2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const tokenProg = await getTokenProgram(mintPk, connection);
       const creatorAta = getAssociatedTokenAddressSync(mintPk, publicKey, false, tokenProg);
       const msgBytes  = new TextEncoder().encode('global:edit_listing');
       const hashBuf   = await window.crypto.subtle.digest('SHA-256', msgBytes);
@@ -2347,8 +2353,7 @@ const DelistModal: FC<{
       const [escrowPda]   = PublicKey.findProgramAddressSync([Buffer.from('escrow'),      listingPda.toBuffer()], programPk);
       const [escrowAuth]  = PublicKey.findProgramAddressSync([Buffer.from('escrow_auth'), listingPda.toBuffer()], programPk);
       const [globalState] = PublicKey.findProgramAddressSync([Buffer.from('global_state')], programPk);
-      const isT2022   = listing.tokenAMint === BRAINS_MINT || listing.tokenAMint === LB_MINT;
-      const tokenProg = isT2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const tokenProg = await getTokenProgram(mintPk, connection);
       const creatorAta = getAssociatedTokenAddressSync(mintPk, publicKey, false, tokenProg);
       const { TransactionInstruction, Transaction } = await import('@solana/web3.js');
       const keys = [
