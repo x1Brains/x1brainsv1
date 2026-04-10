@@ -2366,10 +2366,8 @@ const DelistModal: FC<{
       // Create creator ATA if it doesn't exist (needed when creator never held this token)
       const creatorAtaInfo = await connection.getAccountInfo(creatorAta);
       if (!creatorAtaInfo) {
-        const { createAssociatedTokenAccountInstruction } = await import('@solana/spl-token');
-        tx.add(createAssociatedTokenAccountIdempotentInstruction(
-          publicKey, creatorAta, publicKey, mintPk, tokenProg
-        ));
+        const { createAssociatedTokenAccountInstruction: createATA } = await import("@solana/spl-token");
+        tx.add(createATA(publicKey, creatorAta, publicKey, mintPk, tokenProg));
       }
       tx.add(ix);
       setStatus('Waiting for wallet approval…');
@@ -2379,7 +2377,7 @@ const DelistModal: FC<{
       for (let i = 0; i < 30; i++) {
         await new Promise(r => setTimeout(r, 1500));
         const st = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
-        if (st?.value?.err) throw new Error('TX failed on-chain');
+        if (st?.value?.err) throw new Error(decodeProgramError(JSON.stringify(st.value.err)));
         const conf = st?.value?.confirmationStatus;
         if (conf === 'confirmed' || conf === 'finalized') {
           setTxSig(sig); setStatus(`✅ Delisted! ${fmtNum(listing.amountUi)} ${listing.tokenASymbol} returned.\nTx: ${sig.slice(0,20)}…`);
