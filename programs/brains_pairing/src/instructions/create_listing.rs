@@ -7,6 +7,9 @@ use anchor_spl::{
         Mint, TokenAccount, TokenInterface,
         TransferChecked, transfer_checked,
     },
+    token_2022_extensions::transfer_fee::{
+        transfer_checked_with_fee, TransferCheckedWithFee,
+    },
 };
 use crate::{constants::*, errors::PairingError, state::*};
 
@@ -244,6 +247,12 @@ pub fn handler(ctx: Context<CreateListing>, p: CreateListingParams) -> Result<()
     // Read LB balance for discount
     let lb_balance = read_lb_balance(&ctx.accounts.creator_lb_account)?;
 
+    // ── REJECT NFTs — decimals == 1 means NFT, no AMM pool support yet ────────
+    require!(
+        ctx.accounts.token_a_mint.decimals != 1,
+        PairingError::InvalidBurnBps // reuse closest error — add NftNotSupported if needed
+    );
+
     // Determine if ecosystem token
     let is_ecosystem = ctx.accounts.token_a_mint.key() == BRAINS_MINT
                     || ctx.accounts.token_a_mint.key() == LB_MINT;
@@ -251,20 +260,67 @@ pub fn handler(ctx: Context<CreateListing>, p: CreateListingParams) -> Result<()
     // Calculate fee
     let fee_xnt = calculate_fee(is_ecosystem, lb_balance, p.token_a_usd_val, p.xnt_price_usd)?;
 
-    // Transfer tokens to escrow
-    transfer_checked(
-        CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
-            TransferChecked {
-                from:      ctx.accounts.creator_token_a.to_account_info(),
-                mint:      ctx.accounts.token_a_mint.to_account_info(),
-                to:        ctx.accounts.escrow.to_account_info(),
-                authority: ctx.accounts.creator.to_account_info(),
-            },
-        ),
-        p.token_a_amount,
-        ctx.accounts.token_a_mint.decimals,
-    )?;
+    // ── TRANSFER TOKENS TO ESCROW ─────────────────────────────────────────────
+    // For Token-2022 mints use transfer_checked_with_fee with the actual calculated
+    // fee from the mint's TransferFeeConfig. Token-2022 validates the fee matches
+    // its own calculation. The escrow.reload() after captures the actual received
+    // amount after the fee deduction.
+    // For plain SPL tokens use standard transfer_checked.
+    let is_token_2022 = ctx.accounts.token_program.key()
+        == anchor_spl::token_2022::spl_token_2022::id();
+
+    if is_token_2022 {
+        // Use spl-token-2022's StateWithExtensions to correctly read TransferFeeConfig
+        // regardless of mint layout, metadata, or other extensions present.
+        // This handles all Token-2022 mints correctly — with or without fees.
+        let transfer_fee = {
+            use anchor_spl::token_2022::spl_token_2022::{
+                extension::{BaseStateWithExtensions, StateWithExtensions, transfer_fee::TransferFeeConfig},
+                state::Mint as SplMint,
+            };
+            let mint_account_info = ctx.accounts.token_a_mint.to_account_info();
+            let mint_data = mint_account_info.try_borrow_data()?;
+            let mint_state = StateWithExtensions::<SplMint>::unpack(&mint_data)
+                .map_err(|_| PairingError::InvalidPoolData)?;
+            if let Ok(fee_config) = mint_state.get_extension::<TransferFeeConfig>() {
+                let epoch = Clock::get()?.epoch;
+                let fee_rate = fee_config.get_epoch_fee(epoch);
+                fee_rate.calculate_fee(p.token_a_amount).unwrap_or(0)
+            } else {
+                0u64 // no transfer fee extension — fee is 0
+            }
+        }; // mint_data borrow dropped here
+
+        transfer_checked_with_fee(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                TransferCheckedWithFee {
+                    token_program_id: ctx.accounts.token_program.to_account_info(),
+                    source:           ctx.accounts.creator_token_a.to_account_info(),
+                    mint:             ctx.accounts.token_a_mint.to_account_info(),
+                    destination:      ctx.accounts.escrow.to_account_info(),
+                    authority:        ctx.accounts.creator.to_account_info(),
+                },
+            ),
+            p.token_a_amount,
+            ctx.accounts.token_a_mint.decimals,
+            transfer_fee,
+        )?;
+    } else {
+        transfer_checked(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                TransferChecked {
+                    from:      ctx.accounts.creator_token_a.to_account_info(),
+                    mint:      ctx.accounts.token_a_mint.to_account_info(),
+                    to:        ctx.accounts.escrow.to_account_info(),
+                    authority: ctx.accounts.creator.to_account_info(),
+                },
+            ),
+            p.token_a_amount,
+            ctx.accounts.token_a_mint.decimals,
+        )?;
+    }
 
     // Reload escrow to get actual received amount (after Token-2022 transfer fees)
     ctx.accounts.escrow.reload()?;
