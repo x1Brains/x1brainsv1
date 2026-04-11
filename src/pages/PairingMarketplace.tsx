@@ -13,6 +13,7 @@ import {
 import { TopBar, PageBackground, Footer } from '../components/UI';
 import { BurnedBrainsBar } from '../components/BurnedBrainsBar';
 import { BRAINS_MINT as BRAINS_MINT_STR } from '../constants';
+import PoolsTab from './PoolsTab';
 
 // ─── Program Constants — match deployed program exactly ───────────────────────
 const PROGRAM_ID      = 'DNSefSAJ41Fm3ijmEug8tkDYJrHDwYGVtFtn8wwvbgJM';
@@ -1063,7 +1064,7 @@ const CreateListingModal: FC<{
         { pubkey: publicKey,                          isSigner: true,  isWritable: true  }, // creator
         { pubkey: globalState,                        isSigner: false, isWritable: true  }, // global_state
         { pubkey: walletState,                        isSigner: false, isWritable: true  }, // wallet_state
-        { pubkey: mintPk,                             isSigner: false, isWritable: false }, // token_a_mint
+        { pubkey: mintPk,                             isSigner: false, isWritable: true  }, // token_a_mint — writable for Token-2022 transfer fee withheld tracking
         { pubkey: creatorAta,                         isSigner: false, isWritable: true  }, // creator_token_a
         { pubkey: listingPda,                         isSigner: false, isWritable: true  }, // listing_state
         { pubkey: escrowPda,                          isSigner: false, isWritable: true  }, // escrow
@@ -1090,7 +1091,7 @@ const CreateListingModal: FC<{
       const signed = await signTransaction(tx);
       setStatus('Submitting transaction…');
 
-      const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
+      const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false });
       setStatus('Confirming…');
 
       // Wait for confirmation
@@ -2363,16 +2364,16 @@ const DelistModal: FC<{
       const ix = new TransactionInstruction({ programId: programPk, keys, data: ixData });
       const { blockhash } = await connection.getLatestBlockhash('confirmed');
       const tx = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash });
-      // Create creator ATA if it doesn't exist (needed when creator never held this token)
+      // Create creator ATA if it doesn't exist — use idempotent version for Token-2022 safety
       const creatorAtaInfo = await connection.getAccountInfo(creatorAta);
       if (!creatorAtaInfo) {
-        const { createAssociatedTokenAccountInstruction: createATA } = await import("@solana/spl-token");
-        tx.add(createATA(publicKey, creatorAta, publicKey, mintPk, tokenProg));
+        const { createAssociatedTokenAccountIdempotentInstruction } = await import("@solana/spl-token");
+        tx.add(createAssociatedTokenAccountIdempotentInstruction(publicKey, creatorAta, publicKey, mintPk, tokenProg));
       }
       tx.add(ix);
       setStatus('Waiting for wallet approval…');
       const signed = await signTransaction(tx);
-      const sig    = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
+      const sig    = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false });
       setStatus('Confirming…');
       for (let i = 0; i < 30; i++) {
         await new Promise(r => setTimeout(r, 1500));
@@ -2489,7 +2490,7 @@ const PairingMarketplace: FC = () => {
   const { connection } = useConnection();
   const isMobile = useIsMobile();
 
-  const [tab, setTab]               = useState<'listings' | 'mine'>('listings');
+  const [tab, setTab]               = useState<'listings' | 'mine' | 'pools'>('listings');
   const [filter, setFilter]         = useState<'all' | 'brains' | 'lb'>('all');
   const [listings, setListings]     = useState<ListingOnChain[]>([]);
   const [loading, setLoading]       = useState(true);
@@ -2670,6 +2671,7 @@ const PairingMarketplace: FC = () => {
             { id: 'listings', label: '🟢 MARKETPLACE',    sub: `${listings.filter(l => l.status === 'open').length} open` },
             { id: 'create',   label: '⚡ CREATE LISTING', sub: 'lock tokens · pay fee' },
             { id: 'mine',     label: '📋 MY LISTINGS',    sub: myCount > 0 ? `${myCount} active` : 'your listings' },
+            { id: 'pools',    label: '🏊 LB POOLS',       sub: 'swap · deposit · withdraw' },
           ] as { id: string; label: string; sub: string }[]).map(m => {
             const isMarket = m.id === 'listings';
             const isCreate = m.id === 'create';
@@ -2733,8 +2735,11 @@ const PairingMarketplace: FC = () => {
           </div>
         )}
 
+        {/* ── POOLS TAB ── */}
+        {tab === 'pools' && <PoolsTab key={Date.now()} />}
+
         {/* ── LISTINGS ── */}
-        {loading ? (
+        {tab !== 'pools' && (loading ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {[0, 1, 2].map(i => (
               <div key={i} style={{ height: 110, borderRadius: 14,
@@ -2778,7 +2783,7 @@ const PairingMarketplace: FC = () => {
               onDelist={(l) => setDelistTarget(l)}
             />
           ))
-        )}
+        ))}
 
         {/* ── HOW IT WORKS ── */}
         {tab === 'listings' && !loading && (
