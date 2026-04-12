@@ -315,12 +315,21 @@ async function fetchXdexPrice(mint: string): Promise<TokenPrice | null> {
 interface TokenMeta { symbol: string; name: string; logo?: string; decimals: number; source: 'token2022ext' | 'metaplex' | 'xdex' | 'fallback' }
 
 const _metaCache = new Map<string, TokenMeta>();
+const _metaInflight = new Map<string, Promise<TokenMeta>>();
+
+// Symbol/decimals only — NO logo here so fetchTokenMeta still runs the full fetch
+const HARDCODED_META: Record<string, { symbol: string; name: string; decimals: number }> = {
+  'So11111111111111111111111111111111111111112': { symbol: 'XNT',    name: 'X1 Native Token', decimals: 9  },
+  'EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC1EHUBtPN': { symbol: 'BRAINS', name: 'X1 Brains',       decimals: 9  },
+  'Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6': { symbol: 'LB',     name: 'Lab Work',        decimals: 2  },
+};
+
+// ── Exact original working 3-layer system ─────────────────────────────────────
 
 async function fetchToken2022Meta(mint: string): Promise<TokenMeta | null> {
   try {
     const conn = new Connection(RPC, 'confirmed');
-    const mintPk = new PublicKey(mint);
-    const info = await conn.getParsedAccountInfo(mintPk);
+    const info = await conn.getParsedAccountInfo(new PublicKey(mint));
     const parsed = (info?.value?.data as any)?.parsed?.info;
     if (!parsed) return null;
     const decimals = parsed.decimals ?? 9;
@@ -330,7 +339,6 @@ async function fetchToken2022Meta(mint: string): Promise<TokenMeta | null> {
     if (!metaExt?.state) return null;
     const { name, symbol, uri } = metaExt.state;
     if (!symbol && !name) return null;
-    // Try to fetch logo from URI
     let logo: string | undefined;
     if (uri) {
       try {
@@ -355,8 +363,7 @@ async function fetchMetaplexMeta(mint: string): Promise<TokenMeta | null> {
     if (!info?.value) return null;
     const data = info.value.data as Buffer;
     if (!Buffer.isBuffer(data) || data.length < 1) return null;
-    // Parse Metaplex metadata — name at offset 69, symbol at offset 105
-    let offset = 1 + 32 + 32; // discriminator + update_authority + mint
+    let offset = 1 + 32 + 32;
     const nameLen = data.readUInt32LE(offset); offset += 4;
     const name = data.slice(offset, offset + nameLen).toString('utf8').replace(/\0/g, '').trim(); offset += nameLen;
     const symLen = data.readUInt32LE(offset); offset += 4;
@@ -384,12 +391,11 @@ async function fetchXdexMeta(mint: string): Promise<TokenMeta | null> {
     const r = await fetch(`${XDEX_BASE}/token-price/price?network=X1+Mainnet&token_address=${mint}`,
       { signal: AbortSignal.timeout(6000) });
     const j = await r.json();
-    if (j.success && j.data) {
-      const logo = j.data.logo || j.data.logoUri || j.data.image || j.data.icon;
+    if (j?.success && j?.data) {
       return {
-        symbol:   j.data.symbol   || mint.slice(0, 6),
-        name:     j.data.name     || mint.slice(0, 6),
-        logo,
+        symbol:   j.data.symbol   || mint.slice(0,6),
+        name:     j.data.name     || mint.slice(0,6),
+        logo:     j.data.logo || j.data.logoUri || j.data.image || j.data.icon,
         decimals: j.data.decimals ?? 9,
         source:   'xdex',
       };
@@ -399,20 +405,210 @@ async function fetchXdexMeta(mint: string): Promise<TokenMeta | null> {
 }
 
 async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
-  if (_metaCache.has(mint)) return _metaCache.get(mint)!;
-  // Layer 1 — Token-2022 on-chain extensions
-  const t22 = await fetchToken2022Meta(mint);
-  if (t22) { _metaCache.set(mint, t22); return t22; }
-  // Layer 2 — Metaplex
-  const mpx = await fetchMetaplexMeta(mint);
-  if (mpx) { _metaCache.set(mint, mpx); return mpx; }
-  // Layer 3 — XDEX API
-  const xdex = await fetchXdexMeta(mint);
-  if (xdex) { _metaCache.set(mint, xdex); return xdex; }
-  // Fallback
-  const fallback: TokenMeta = { symbol: mint.slice(0,4).toUpperCase(), name: mint.slice(0,8), decimals: 9, source: 'fallback' };
-  _metaCache.set(mint, fallback);
-  return fallback;
+  // Cache hit with logo — return immediately
+  if (_metaCache.has(mint) && _metaCache.get(mint)!.logo) return _metaCache.get(mint)!;
+  // Cache hit without logo — still re-fetch to get logo
+  // (HARDCODED_META tokens like BRAINS need their logo fetched from Token-2022 URI)
+
+  // Deduplicate in-flight
+  if (_metaInflight.has(mint)) return _metaInflight.get(mint)!;
+
+  const promise = (async (): Promise<TokenMeta> => {
+    const t22 = await fetchToken2022Meta(mint);
+    if (t22) { _metaCache.set(mint, t22); return t22; }
+    const mpx = await fetchMetaplexMeta(mint);
+    if (mpx) { _metaCache.set(mint, mpx); return mpx; }
+    const xdex = await fetchXdexMeta(mint);
+    if (xdex) { _metaCache.set(mint, xdex); return xdex; }
+    // Use hardcoded symbol/decimals if available, just no logo
+    const hc = HARDCODED_META[mint];
+    const fb: TokenMeta = { symbol: hc?.symbol ?? mint.slice(0,4).toUpperCase(), name: hc?.name ?? mint.slice(0,8), decimals: hc?.decimals ?? 9, source: 'fallback' };
+    _metaCache.set(mint, fb);
+    return fb;
+  })().finally(() => _metaInflight.delete(mint));
+
+  _metaInflight.set(mint, promise);
+  return promise;
+}
+
+async function batchFetchLogos(mints: string[]): Promise<Map<string, string>> {
+  const logos = new Map<string, string>();
+  if (mints.length === 0) return logos;
+  await Promise.allSettled(mints.map(async mint => {
+    try {
+      const cached = _metaCache.get(mint);
+      if (cached?.logo) { logos.set(mint, cached.logo); return; }
+      const meta = await fetchTokenMeta(mint);
+      if (meta.logo) logos.set(mint, meta.logo);
+    } catch {}
+  }));
+  return logos;
+}
+
+async function batchFetchMeta(mints: string[]): Promise<Map<string, TokenMeta>> {
+  await Promise.allSettled([...new Set(mints)].map(m => fetchTokenMeta(m)));
+  const result = new Map<string, TokenMeta>();
+  mints.forEach(m => {
+    const cached = _metaCache.get(m);
+    const hc = HARDCODED_META[m];
+    result.set(m, cached || {
+      symbol: hc?.symbol ?? m.slice(0,4).toUpperCase(),
+      name: hc?.name ?? m.slice(0,8),
+      decimals: hc?.decimals ?? 9,
+      source: 'fallback' as const,
+    });
+  });
+  return result;
+}
+
+// Single shared connection
+const _conn = new Connection(RPC, 'confirmed');
+
+// ── Layer 1: Token-2022 on-chain extensions ───────────────────────────────────
+async function fetchToken2022Meta(mint: string): Promise<TokenMeta | null> {
+  try {
+    const info = await _conn.getParsedAccountInfo(new PublicKey(mint));
+    const parsed = (info?.value?.data as any)?.parsed?.info;
+    if (!parsed) return null;
+    const decimals: number = parsed.decimals ?? 9;
+    const extensions: any[] = parsed.extensions ?? [];
+    const metaExt = extensions.find((e: any) => e.extension === 'tokenMetadata');
+    if (!metaExt?.state) return null;
+    const { name, symbol, uri } = metaExt.state;
+    if (!symbol && !name) return null;
+    let logo: string | undefined;
+    if (uri) {
+      try {
+        const j = await fetch(uri, { signal: AbortSignal.timeout(4000) }).then(r => r.json());
+        logo = j?.image || j?.logo || j?.icon || j?.logoUri;
+      } catch {}
+    }
+    return { symbol: symbol || mint.slice(0,6), name: name || mint.slice(0,6), logo, decimals, source: 'token2022ext' };
+  } catch { return null; }
+}
+
+// ── Layer 2: Metaplex metadata (SPL tokens) ───────────────────────────────────
+async function fetchMetaplexMeta(mint: string): Promise<TokenMeta | null> {
+  try {
+    const META = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
+    const [pda] = PublicKey.findProgramAddressSync(
+      [Buffer.from('metadata'), META.toBuffer(), new PublicKey(mint).toBuffer()], META
+    );
+    const info = await _conn.getParsedAccountInfo(pda);
+    if (!info?.value) return null;
+    const data = info.value.data as Buffer;
+    if (!Buffer.isBuffer(data) || data.length < 1) return null;
+    let off = 1 + 32 + 32;
+    const nameLen = data.readUInt32LE(off); off += 4;
+    const name    = data.slice(off, off + nameLen).toString('utf8').replace(/\0/g,'').trim(); off += nameLen;
+    const symLen  = data.readUInt32LE(off); off += 4;
+    const symbol  = data.slice(off, off + symLen).toString('utf8').replace(/\0/g,'').trim(); off += symLen;
+    const uriLen  = data.readUInt32LE(off); off += 4;
+    const uri     = data.slice(off, off + uriLen).toString('utf8').replace(/\0/g,'').trim();
+    if (!symbol && !name) return null;
+    let logo: string | undefined;
+    if (uri) {
+      try {
+        const j = await fetch(uri, { signal: AbortSignal.timeout(4000) }).then(r => r.json());
+        logo = j?.image || j?.logo || j?.icon;
+      } catch {}
+    }
+    // Get decimals from mint account
+    const mintInfo = await _conn.getParsedAccountInfo(new PublicKey(mint));
+    const decimals = (mintInfo?.value?.data as any)?.parsed?.info?.decimals ?? 9;
+    return { symbol: symbol || mint.slice(0,6), name: name || mint.slice(0,6), logo, decimals, source: 'metaplex' };
+  } catch { return null; }
+}
+
+// ── Layer 3: XDEX API ─────────────────────────────────────────────────────────
+async function fetchXdexMeta(mint: string): Promise<TokenMeta | null> {
+  try {
+    const r = await fetch(`${XDEX_BASE}/token-price/price?network=X1+Mainnet&token_address=${mint}`,
+      { signal: AbortSignal.timeout(6000) });
+    const j = await r.json();
+    if (j?.success && j?.data?.symbol) {
+      return {
+        symbol:   j.data.symbol,
+        name:     j.data.name || j.data.symbol,
+        logo:     j.data.logo || j.data.logoUri || j.data.image || j.data.icon,
+        decimals: j.data.decimals ?? 9,
+        source:   'xdex',
+      };
+    }
+  } catch {}
+  return null;
+}
+
+// ── Main fetch — deduped, cached, 3-layer ─────────────────────────────────────
+async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
+  if (_metaCache.has(mint)) {
+    const cached = _metaCache.get(mint)!;
+    // Background logo refresh if missing
+    if (!cached.logo) {
+      fetchXdexMeta(mint).then(x => {
+        if (x?.logo) _metaCache.set(mint, { ...cached, logo: x.logo });
+      }).catch(() => {});
+    }
+    return cached;
+  }
+
+  // Deduplicate in-flight requests
+  if (_metaInflight.has(mint)) return _metaInflight.get(mint)!;
+
+  const promise = (async (): Promise<TokenMeta> => {
+    // Layer 1 — Token-2022
+    const t22 = await fetchToken2022Meta(mint);
+    if (t22) { _metaCache.set(mint, t22); return t22; }
+    // Layer 2 — Metaplex
+    const mpx = await fetchMetaplexMeta(mint);
+    if (mpx) { _metaCache.set(mint, mpx); return mpx; }
+    // Layer 3 — XDEX
+    const xdex = await fetchXdexMeta(mint);
+    if (xdex) { _metaCache.set(mint, xdex); return xdex; }
+    // Fallback
+    const fb: TokenMeta = { symbol: mint.slice(0,4).toUpperCase(), name: mint.slice(0,8), decimals: 9, source: 'fallback' };
+    _metaCache.set(mint, fb);
+    return fb;
+  })().finally(() => _metaInflight.delete(mint));
+
+  _metaInflight.set(mint, promise);
+  return promise;
+}
+
+// ── Batch helpers ─────────────────────────────────────────────────────────────
+async function batchFetchLogos(mints: string[]): Promise<Map<string, string>> {
+  const logos = new Map<string, string>();
+  if (mints.length === 0) return logos;
+  await Promise.allSettled(mints.map(async mint => {
+    try {
+      // Already have logo in cache — skip
+      const cached = _metaCache.get(mint);
+      if (cached?.logo) { logos.set(mint, cached.logo); return; }
+
+      // Try full metadata fetch (covers Token-2022 URI → Metaplex → XDEX)
+      const meta = await fetchTokenMeta(mint);
+      if (meta.logo) {
+        logos.set(mint, meta.logo);
+      }
+    } catch {}
+  }));
+  return logos;
+}
+
+async function batchFetchMeta(mints: string[]): Promise<Map<string, TokenMeta>> {
+  await Promise.allSettled([...new Set(mints)].map(m => fetchTokenMeta(m)));
+  const result = new Map<string, TokenMeta>();
+  mints.forEach(m => {
+    const cached = _metaCache.get(m);
+    const hc = HARDCODED_META[m];
+    result.set(m, cached || {
+      symbol: hc?.symbol ?? m.slice(0,4).toUpperCase(),
+      name: hc?.name ?? m.slice(0,8),
+      decimals: hc?.decimals ?? 9,
+      source: 'fallback' as const,
+    });
+  });
+  return result;
 }
 
 // Check if a token has an XNT pool on XDEX
@@ -462,36 +658,42 @@ async function checkPoolExists(tokenMint: string, xntMint: string): Promise<bool
 }
 
 
-// ─── Fetch platform stats from GlobalState + all historical listings ──────────
+// ─── Fetch platform stats from GlobalState + pools ───────────────────────────
 async function fetchPlatformStats(): Promise<{ totalVolume: number; totalPools: number; totalListings: number; totalFeeXnt: number }> {
   try {
     const conn = new Connection(RPC, 'confirmed');
     const programPk = new PublicKey(PROGRAM_ID);
     const [globalStatePda] = PublicKey.findProgramAddressSync([Buffer.from('global_state')], programPk);
 
-    // Read GlobalState
+    // ── Read GlobalState ──────────────────────────────────────────────────────
     const gsInfo = await conn.getAccountInfo(globalStatePda);
-    let totalPools = 0;
-    let totalListings = 0;
-    let totalFeeXnt = 0;
-    if (gsInfo?.data && gsInfo.data.length >= 8 + 32 + 32 + 8 + 8 + 8 + 8) {
+    let totalPools = 0, totalListings = 0, totalFeeXnt = 0;
+    if (gsInfo?.data && gsInfo.data.length >= 8 + 32 + 32 + 8 + 8 + 8) {
       let off = 8 + 32 + 32; // skip discriminator + admin + treasury
-      totalFeeXnt    = Number(gsInfo.data.readBigUInt64LE(off)); off += 8;
-      totalListings  = Number(gsInfo.data.readBigUInt64LE(off)); off += 8;
-      totalPools     = Number(gsInfo.data.readBigUInt64LE(off)); off += 8;
+      totalFeeXnt   = Number(gsInfo.data.readBigUInt64LE(off)); off += 8;
+      totalListings = Number(gsInfo.data.readBigUInt64LE(off)); off += 8;
+      totalPools    = Number(gsInfo.data.readBigUInt64LE(off)); off += 8;
     }
 
-    // Volume = sum of all PoolRecords (each pool usd_val * 2 = both sides contributed)
-    // PoolRecord size = 8 + 274 = 282 bytes
-    // usd_val offset: 8 + 32 + 32 + 32 + 32 + 12 + 12 + 2 + 8 + 8 + 8 + 8 + 32 + 32 = 260
-    const poolRecords = await conn.getProgramAccounts(programPk, { filters: [{ dataSize: 282 }] });
+    // ── Volume: sum usdVal from MATCHED PoolRecords only ─────────────────────
+    // PoolRecord layout (after 8-byte discriminator):
+    //   pool_address(32) + lp_mint(32) + tokenA(32) + tokenB(32)
+    //   sym_a(12 fixed) + sym_b(12 fixed) + burn_bps(2) + lp_burned(8)
+    //   lp_treasury(8) + lp_user_a(8) + lp_user_b(8) + creator_a(32) + creator_b(32)
+    //   usd_val(8) at offset 8+32+32+32+32+12+12+2+8+8+8+8+32+32 = 258
+    //   created_at(8) at 266, seeded(bool) at 274, bump(u8) at 275
+    // usd_val here = the USD value of ONE side of the match (stored as u64 * 1e6)
+    // Total volume = usd_val * 2 (both sides matched equal USD value)
+    const poolRecords = await conn.getProgramAccounts(programPk, {
+      filters: [{ dataSize: 282 }],
+    });
+
     let totalVolume = 0;
     for (const { account } of poolRecords) {
       try {
-        const seeded = account.data[281]; // seeded bool at offset 281
-        if (seeded === 1) continue; // skip admin-seeded pools
+        if (account.data[274] === 1) continue; // skip seeded/admin pools
         const usdVal = Number(account.data.readBigUInt64LE(258));
-        totalVolume += (usdVal / 1_000_000) * 2;
+        if (usdVal > 0) totalVolume += (usdVal / 1_000_000) * 2;
       } catch {}
     }
 
@@ -508,68 +710,86 @@ async function fetchOnChainListings(): Promise<ListingOnChain[]> {
     const conn = new Connection(RPC, 'confirmed');
     const programPk = new PublicKey(PROGRAM_ID);
 
-    // Get all accounts owned by the program
+    // Fetch all listing accounts in one RPC call
     const accounts = await conn.getProgramAccounts(programPk, {
-      filters: [
-        { dataSize: 127 }, // ListingState: 8 discriminator + 120 data
-      ],
+      filters: [{ dataSize: 127 }],
     });
 
-    const listings: ListingOnChain[] = [];
+    // Step 1: Parse all accounts synchronously — no awaits, pure byte parsing
+    const parsed: Array<{
+      pubkey: string; mintStr: string; creator: string;
+      tokenAAmount: bigint; tokenAUsdVal: bigint; tokenAXntVal: bigint;
+      burnBps: number; isEcosystem: boolean;
+    }> = [];
 
     for (const { pubkey, account } of accounts) {
       try {
         const data = account.data;
-        // Skip discriminator (8 bytes)
         let offset = 8;
-
-        const creator      = new PublicKey(data.slice(offset, offset + 32)); offset += 32;
-        const tokenAMint   = new PublicKey(data.slice(offset, offset + 32)); offset += 32;
+        const creator    = new PublicKey(data.slice(offset, offset + 32)); offset += 32;
+        const tokenAMint = new PublicKey(data.slice(offset, offset + 32)); offset += 32;
         const tokenAAmount = data.readBigUInt64LE(offset); offset += 8;
         const tokenAUsdVal = data.readBigUInt64LE(offset); offset += 8;
         const tokenAXntVal = data.readBigUInt64LE(offset); offset += 8;
-        const tokenAMc     = data.readBigUInt64LE(offset); offset += 8;
-        const burnBps      = data.readUInt16LE(offset); offset += 2;
-        const isEcosystem  = data[offset] === 1; offset += 1;
-        const statusByte   = data[offset]; offset += 1;
-
-        const status = statusByte === 0 ? 'open'
-                     : statusByte === 1 ? 'matched'
-                     : 'delisted';
-
-        if (status !== 'open') continue;
-
-        const mintStr = tokenAMint.toBase58();
-        const meta = await fetchTokenMeta(mintStr);
-
-        // Read decimals directly from on-chain mint account (offset 44 in both SPL and Token-2022)
-        // This is always correct regardless of token type or metadata availability
-        let decimals = meta.decimals ?? 9;
-        try {
-          const mintInfo = await conn.getAccountInfo(tokenAMint);
-          if (mintInfo?.data && mintInfo.data.length >= 45) {
-            decimals = mintInfo.data[44];
-          }
-        } catch {}
-
-        listings.push({
-          id:           pubkey.toBase58(),
-          creator:      creator.toBase58(),
-          tokenAMint:   mintStr,
-          tokenASymbol: meta.symbol,
-          tokenALogo:   meta.logo,
-          amount:       Number(tokenAAmount),
-          amountUi:     Number(tokenAAmount) / Math.pow(10, decimals),
-          usdVal:       Number(tokenAUsdVal),
-          usdValUi:     Number(tokenAUsdVal) / 1_000_000,
-          xntVal:       Number(tokenAXntVal),
-          burnBps:      burnBps,
-          isEcosystem:  isEcosystem,
-          status:       status as any,
-          createdAt:    Date.now(),
-        });
+        offset += 8; // skip mc
+        const burnBps     = data.readUInt16LE(offset); offset += 2;
+        const isEcosystem = data[offset] === 1; offset += 1;
+        const statusByte  = data[offset];
+        if (statusByte !== 0) continue; // only open listings
+        parsed.push({ pubkey: pubkey.toBase58(), mintStr: tokenAMint.toBase58(),
+          creator: creator.toBase58(), tokenAAmount, tokenAUsdVal, tokenAXntVal,
+          burnBps, isEcosystem });
       } catch { continue; }
     }
+
+    if (parsed.length === 0) return [];
+
+    // Step 2: Fetch all metadata + decimals in parallel (one Promise.all)
+    const uniqueMints = [...new Set(parsed.map(p => p.mintStr))];
+    const [metaResults, mintInfoResults] = await Promise.all([
+      // All metadata in parallel
+      Promise.all(uniqueMints.map(mint => fetchTokenMeta(mint).catch(() => ({
+        symbol: mint.slice(0,4).toUpperCase(), name: mint.slice(0,8),
+        decimals: 9, source: 'fallback' as const
+      })))),
+      // All mint accounts in one multipleAccounts call (much faster than N individual calls)
+      conn.getMultipleAccountsInfo(uniqueMints.map(m => new PublicKey(m))).catch(() => []),
+    ]);
+
+    // Build lookup maps
+    const metaMap = new Map<string, typeof metaResults[0]>();
+    const decimalsMap = new Map<string, number>();
+    uniqueMints.forEach((mint, i) => {
+      metaMap.set(mint, metaResults[i]);
+      const mintInfo = mintInfoResults?.[i];
+      if (mintInfo?.data && mintInfo.data.length >= 45) {
+        decimalsMap.set(mint, (mintInfo.data as Buffer)[44]);
+      } else {
+        decimalsMap.set(mint, metaResults[i]?.decimals ?? 9);
+      }
+    });
+
+    // Step 3: Assemble listings from maps — no more awaits
+    const listings: ListingOnChain[] = parsed.map(p => {
+      const meta     = metaMap.get(p.mintStr)!;
+      const decimals = decimalsMap.get(p.mintStr) ?? 9;
+      return {
+        id:           p.pubkey,
+        creator:      p.creator,
+        tokenAMint:   p.mintStr,
+        tokenASymbol: meta.symbol,
+        tokenALogo:   meta.logo,
+        amount:       Number(p.tokenAAmount),
+        amountUi:     Number(p.tokenAAmount) / Math.pow(10, decimals),
+        usdVal:       Number(p.tokenAUsdVal),
+        usdValUi:     Number(p.tokenAUsdVal) / 1_000_000,
+        xntVal:       Number(p.tokenAXntVal),
+        burnBps:      p.burnBps,
+        isEcosystem:  p.isEcosystem,
+        status:       'open' as const,
+        createdAt:    Date.now(),
+      };
+    });
 
     return listings.sort((a, b) => b.usdValUi - a.usdValUi);
   } catch (e) {
@@ -662,26 +882,40 @@ const ListingCard: FC<{
   isOwn: boolean;
   xntPrice: number;
   lbBalance: number;
+  livePrice: number | null;
   onMatch: (l: ListingOnChain) => void;
   onEdit: (l: ListingOnChain) => void;
   onDelist: (l: ListingOnChain) => void;
-}> = React.memo(({ listing, isMobile, idx, isOwn, xntPrice, lbBalance, onMatch, onEdit, onDelist }) => {
+}> = React.memo(({ listing, isMobile, idx, isOwn, xntPrice, lbBalance, livePrice, onMatch, onEdit, onDelist }) => {
   const burn     = BURN_OPTIONS.find(b => b.bps === listing.burnBps) || BURN_OPTIONS[0];
   const eachPct  = listing.burnBps < 10000 ? (10000 - listing.burnBps) / 2 / 100 : 0;
-  const xntValUi = listing.xntVal / LAMPORTS_PER_SOL;
 
-  // Fetch logo if not already loaded — uses 3-layer metadata system
-  const [logo, setLogo] = useState<string | undefined>(listing.tokenALogo);
+  // Fetch logo using full 3-layer system (Token-2022 URI → Metaplex → XDEX)
+  const [logo, setLogo] = useState<string | undefined>(
+    listing.tokenALogo || _metaCache.get(listing.tokenAMint)?.logo
+  );
   useEffect(() => {
-    if (logo) return; // already have it
+    if (logo) return;
     fetchTokenMeta(listing.tokenAMint).then(m => { if (m.logo) setLogo(m.logo); });
   }, [listing.tokenAMint]);
 
-  // Calculate what the fee would be for this listing
-  const xntPriceUSD6 = Math.floor((xntPrice || 0.4187) * 1_000_000);
-  const matchFeeLamps = calculateFeeXnt(
-    listing.isEcosystem, lbBalance, listing.usdVal, xntPriceUSD6
-  );
+  // ── Live USD value derived from passed-in price (no self-fetch) ───────────
+  // livePrice: null = not yet loaded, 0 = loaded but no price, >0 = has price
+  const liveUsdVal  = livePrice != null && livePrice > 0 ? listing.amountUi * livePrice : listing.usdValUi;
+  const liveXntVal  = xntPrice > 0 ? liveUsdVal / xntPrice : listing.xntVal / LAMPORTS_PER_SOL;
+  const priceLoading = livePrice === null;
+  // Price diff vs stored listing value — show badge once price is loaded
+  const priceDiff   = (livePrice != null && livePrice > 0 && listing.usdValUi > 0)
+    ? ((liveUsdVal - listing.usdValUi) / listing.usdValUi) * 100
+    : 0;
+  const priceUp     = priceDiff > 0.1;
+  const priceDown   = priceDiff < -0.1;
+  // Show badge whenever we have a live price — even if small change
+  const showBadge   = livePrice != null && livePrice > 0 && Math.abs(priceDiff) >= 0.1;
+
+  const liveUsdVal6   = Math.floor(liveUsdVal * 1_000_000);
+  const xntPriceUSD6  = Math.floor((xntPrice || 0.4187) * 1_000_000);
+  const matchFeeLamps = calculateFeeXnt(listing.isEcosystem, lbBalance, liveUsdVal6, xntPriceUSD6);
   const { xnt: matchFeeXnt, usd: matchFeeUsd } = feeXntToDisplay(matchFeeLamps, xntPriceUSD6);
 
   return (
@@ -764,14 +998,31 @@ const ListingCard: FC<{
             color: listing.tokenAMint === BRAINS_MINT ? '#00d4ff' : '#00c98d' }}>
             {fmtNum(listing.amountUi)} {listing.tokenASymbol}
           </div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 12 : 14,
-            fontWeight: 700, color: '#00c98d', marginBottom: 2 }}>
-            {fmtUSD(listing.usdValUi)}
+          {/* Live USD value with price change indicator */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 12 : 14,
+              fontWeight: 700, color: priceLoading ? '#4a6a8a' : '#00c98d' }}>
+              {priceLoading ? '...' : fmtUSD(liveUsdVal)}
+            </div>
+            {!priceLoading && showBadge && (
+              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
+                color: priceUp ? '#00c98d' : '#ff4444',
+                background: priceUp ? 'rgba(0,201,141,.1)' : 'rgba(255,68,68,.1)',
+                border: `1px solid ${priceUp ? 'rgba(0,201,141,.3)' : 'rgba(255,68,68,.3)'}`,
+                borderRadius: 4, padding: '1px 5px' }}>
+                {priceUp ? '▲' : '▼'} {Math.abs(priceDiff).toFixed(1)}%
+              </span>
+            )}
           </div>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 8 : 9,
-            color: '#4a6a8a', marginBottom: 12 }}>
-            {fmtXNT(xntValUi)} XNT
+            color: '#4a6a8a', marginBottom: 2 }}>
+            {fmtXNT(liveXntVal)} XNT
           </div>
+          {livePrice != null && livePrice > 0 && (
+            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 8, color: '#3a5a6a', marginBottom: 10 }}>
+              @ {livePrice < 0.000001 ? livePrice.toExponential(3) : livePrice.toFixed(6)} USD/{listing.tokenASymbol}
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
             {isOwn ? (
@@ -1406,9 +1657,10 @@ const MatchModal: FC<{
   publicKey: PublicKey;
   connection: any;
   signTransaction: any;
+  livePrice: number | null;
   onClose: () => void;
   onMatched: () => void;
-}> = ({ listing, isMobile, publicKey, connection, signTransaction, onClose, onMatched }) => {
+}> = ({ listing, isMobile, publicKey, connection, signTransaction, livePrice, onClose, onMatched }) => {
   const [tokenBMint, setTokenBMint] = useState('');
   const [tokenBMeta, setTokenBMeta] = useState<{symbol:string;logo?:string;decimals:number;balance:number;price:number;hasPool:boolean;checking:boolean} | null>(null);
   const [amount, setAmount]         = useState('');
@@ -1417,6 +1669,10 @@ const MatchModal: FC<{
   const [txSig, setTxSig] = useState("");
   const [xntPrice, setXntPrice]     = useState(0.4187);
   const [lbRaw, setLbRaw]           = useState(0);
+  // Live USD value — derived from passed-in livePrice prop (no self-fetch needed)
+  const liveUsdValUi = livePrice != null && livePrice > 0
+    ? listing.amountUi * livePrice
+    : listing.usdValUi;
   // Wallet token list — auto-populated from on-chain
   const [walletTokens, setWalletTokens] = useState<{mint:string;symbol:string;logo?:string;balance:number;price:number;decimals:number}[]>([]);
   const [loadingWallet, setLoadingWallet] = useState(true);
@@ -1522,7 +1778,7 @@ const MatchModal: FC<{
   const amt        = parseFloat(amount) || 0;
   const xntPrice6  = Math.floor(xntPrice * 1_000_000);
   const usdValB    = amt * (tokenBMeta?.price ?? 0);
-  const usdValA    = listing.usdValUi;
+  const usdValA    = liveUsdValUi;
   const diff       = Math.abs(usdValA - usdValB);
   const tolerance  = usdValA * 0.0005;
   const priceMatch = usdValB > 0 && diff <= tolerance;
@@ -1857,7 +2113,7 @@ const MatchModal: FC<{
           // Award LB points for LP burn (fire and forget — non-blocking)
           if (listing.burnBps > 0) {
             const burnedFraction = listing.burnBps / 10000;
-            const pointsEach = Math.floor(listing.usdValUi * burnedFraction * 1.888);
+            const pointsEach = Math.floor(liveUsdValUi * burnedFraction * 1.888);
             if (pointsEach > 0) {
               const weekId = new Date().toISOString().slice(0, 7);
               awardLabWorkPoints(listing.creator, pointsEach, `LP burn match — ${listing.burnBps/100}% burn · pool ${poolState.toBase58().slice(0,8)}`, 'defi_burn', weekId).catch(() => {});
@@ -1907,13 +2163,13 @@ const MatchModal: FC<{
                 {fmtNum(listing.amountUi)} {listing.tokenASymbol}
               </div>
               <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa' }}>
-                {fmtUSD(listing.usdValUi)} · {listing.burnBps / 100}% burn · by {truncAddr(listing.creator)}
+                {fmtUSD(liveUsdValUi)} · {listing.burnBps / 100}% burn · by {truncAddr(listing.creator)}
               </div>
             </div>
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 900,
               color: '#ff8c00', background: 'rgba(255,140,0,.1)', border: '1px solid rgba(255,140,0,.25)',
               borderRadius: 8, padding: '4px 12px' }}>
-              YOU NEED ≈{fmtUSD(listing.usdValUi)}
+              YOU NEED ≈{fmtUSD(liveUsdValUi)}
             </div>
           </div>
         </div>
@@ -1944,7 +2200,7 @@ const MatchModal: FC<{
                   checkTokenB(t.mint);
                   // Auto-fill optimal amount
                   if (t.price > 0) {
-                    const optAmt = listing.usdValUi / t.price;
+                    const optAmt = liveUsdValUi / t.price;
                     setAmount(Math.min(optAmt, t.balance).toFixed(t.decimals > 4 ? 4 : t.decimals));
                   }
                 }}
@@ -1963,15 +2219,15 @@ const MatchModal: FC<{
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700,
-                      color: usdVal >= listing.usdValUi * 0.995 ? '#00c98d' : usdVal > 0 ? '#ff8c00' : '#4a6a8a' }}>
+                      color: usdVal >= liveUsdValUi * 0.995 ? '#00c98d' : usdVal > 0 ? '#ff8c00' : '#4a6a8a' }}>
                       {fmtUSD(usdVal)}
                     </div>
-                    {usdVal < listing.usdValUi * 0.995 && usdVal > 0 && (
+                    {usdVal < liveUsdValUi * 0.995 && usdVal > 0 && (
                       <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#ff6666' }}>
                         INSUFFICIENT
                       </div>
                     )}
-                    {usdVal >= listing.usdValUi * 0.995 && (
+                    {usdVal >= liveUsdValUi * 0.995 && (
                       <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#00c98d' }}>
                         ✓ ELIGIBLE
                       </div>
@@ -2014,7 +2270,7 @@ const MatchModal: FC<{
         {tokenBMeta?.hasPool && (
           <>
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 8 }}>
-              AMOUNT TO DEPOSIT (must equal ≈{fmtUSD(listing.usdValUi)})
+              AMOUNT TO DEPOSIT (must equal ≈{fmtUSD(liveUsdValUi)})
             </div>
             <div style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(0,255,128,.15)',
               borderRadius: 12, padding: '14px 16px', marginBottom: 12 }}>
@@ -2035,7 +2291,7 @@ const MatchModal: FC<{
                   {priceMatch
                     ? <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#00c98d' }}>✓ PRICE MATCH</span>
                     : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#ff6666' }}>
-                        ✗ needs to be ≈{fmtUSD(listing.usdValUi)} (±0.5%)
+                        ✗ needs to be ≈{fmtUSD(liveUsdValUi)} (±0.5%)
                       </span>}
                 </div>
               )}
@@ -2228,7 +2484,7 @@ const EditModal: FC<{
               CURRENT: {fmtNum(listing.amountUi)} {listing.tokenASymbol}
             </div>
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, color: '#00c98d' }}>
-              {fmtUSD(listing.usdValUi)}
+              {fmtUSD(liveUsdValUi)}
             </div>
           </div>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a', marginTop: 4 }}>
@@ -2425,7 +2681,7 @@ const DelistModal: FC<{
                 {fmtNum(listing.amountUi)} {listing.tokenASymbol}
               </div>
               <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa', marginTop: 2 }}>
-                {fmtUSD(listing.usdValUi)} · {listing.burnBps / 100}% burn
+                {fmtUSD(liveUsdValUi)} · {listing.burnBps / 100}% burn
               </div>
             </div>
           </div>
@@ -2484,13 +2740,960 @@ const DelistModal: FC<{
   );
 };
 
+// ─── SWAP TAB ─────────────────────────────────────────────────────────────────
+// Pinned tokens always shown at top regardless of wallet
+// Known token logos and metadata — hardcoded for pinned/common tokens on X1
+const XNT_TOKEN_DEFAULT: WalletToken    = { mint: 'So11111111111111111111111111111111111111112', symbol: 'XNT',    decimals: 9, logo: undefined, balance: 0, rawBalance: 0n, program: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', pinned: true };
+const BRAINS_TOKEN_DEFAULT: WalletToken = { mint: 'EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC1EHUBtPN', symbol: 'BRAINS', decimals: 9, logo: undefined, balance: 0, rawBalance: 0n, program: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', pinned: true };
+
+interface WalletToken {
+  mint: string; symbol: string; decimals: number;
+  logo?: string; balance: number; rawBalance: bigint; program: string;
+  pinned?: boolean;
+}
+
+const SwapTab: FC<{
+  isMobile: boolean; publicKey: PublicKey | null;
+  connection: Connection; signTransaction: any;
+}> = ({ isMobile, publicKey, connection, signTransaction }) => {
+  const [walletTokens, setWalletTokens] = useState<WalletToken[]>([]);
+  const [loadingWallet, setLoadingWallet] = useState(false);
+  const [tokenIn,  setTokenIn]  = useState<WalletToken>(XNT_TOKEN_DEFAULT);
+  const [tokenOut, setTokenOut] = useState<WalletToken>(BRAINS_TOKEN_DEFAULT);
+
+  // Fetch logos for both pinned tokens on mount from XDEX API
+  useEffect(() => {
+    const mints = [WXNT_MINT, BRAINS_MINT];
+    batchFetchLogos(mints).then(logos => {
+      const xntLogo    = logos.get(WXNT_MINT);
+      const brainsLogo = logos.get(BRAINS_MINT);
+      if (xntLogo)    setTokenIn(prev  => prev.mint === WXNT_MINT   ? { ...prev, logo: xntLogo    } : prev);
+      if (brainsLogo) setTokenOut(prev => prev.mint === BRAINS_MINT ? { ...prev, logo: brainsLogo } : prev);
+    });
+  }, []);
+  const [amtIn, setAmtIn]       = useState('');
+  const [poolState, setPoolState] = useState<any>(null);
+  const [status, setStatus]     = useState('');
+  const [pending, setPending]   = useState(false);
+  const [loadingPool, setLoadingPool] = useState(false);
+  const [quoteOut, setQuoteOut] = useState(0);
+  const [priceImpact, setPriceImpact] = useState(0);
+  const [slipBps, setSlipBps]   = useState(50);
+  const [showInPicker,  setShowInPicker]  = useState(false);
+  const [showOutPicker, setShowOutPicker] = useState(false);
+  const [xntPriceUsd, setXntPriceUsd] = useState(0.4187);
+  const [vaultIn, setVaultIn]   = useState(0n);
+  const [vaultOut, setVaultOut] = useState(0n);
+  const [lastTxSig, setLastTxSig] = useState('');
+
+  async function rpc(method: string, params: any[]) {
+    const r = await fetch(RPC, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error.message);
+    return j.result;
+  }
+  function readPk(d: Uint8Array, o: number) { return new PublicKey(d.slice(o, o + 32)).toBase58(); }
+  function readU64b(d: Uint8Array, o: number) { return new DataView(d.buffer, d.byteOffset + o, 8).getBigUint64(0, true); }
+  async function discHash(name: string) {
+    const h = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(`global:${name}`));
+    return Buffer.from(new Uint8Array(h).slice(0, 8));
+  }
+  async function getVaultBal(addr: string): Promise<bigint> {
+    try { const r = await rpc('getAccountInfo', [addr, { encoding: 'base64' }]); if (!r?.value) return 0n; return readU64b(new Uint8Array(Buffer.from(r.value.data[0], 'base64')), 64); } catch { return 0n; }
+  }
+
+  // Fetch XNT price
+  useEffect(() => {
+    fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${WXNT_MINT}`, { signal: AbortSignal.timeout(5000) })
+      .then(r => r.json()).then(j => { if (j.success && j.data?.price) setXntPriceUsd(Number(j.data.price)); }).catch(() => {});
+  }, []);
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  // ── Refresh all balances + prices ─────────────────────────────────────────────
+  const refreshAll = useCallback(async () => {
+    if (!publicKey || refreshing) return;
+    setRefreshing(true);
+    try {
+      // Refresh XNT price
+      fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${WXNT_MINT}`, { signal: AbortSignal.timeout(5000) })
+        .then(r => r.json()).then(j => { if (j.success && j.data?.price) setXntPriceUsd(Number(j.data.price)); }).catch(() => {});
+
+      // Refresh vault balances if pool is loaded
+      if (poolState) {
+        const t0IsIn = poolState.token0Mint === tokenIn.mint;
+        const [vi, vo] = await Promise.all([
+          getVaultBal(t0IsIn ? poolState.token0Vault : poolState.token1Vault),
+          getVaultBal(t0IsIn ? poolState.token1Vault : poolState.token0Vault),
+        ]);
+        setVaultIn(vi); setVaultOut(vo);
+      }
+
+      // Refresh wallet token balances
+      const [spl, t22] = await Promise.all([
+        rpc('getTokenAccountsByOwner', [publicKey.toBase58(), { programId: TOKEN_PROGRAM_ID.toBase58() }, { encoding: 'base64' }]),
+        rpc('getTokenAccountsByOwner', [publicKey.toBase58(), { programId: TOKEN_2022_PROGRAM_ID.toBase58() }, { encoding: 'base64' }]),
+      ]);
+      const all = [
+        ...(spl?.value || []).map((a: any) => ({ ...a, prog: TOKEN_PROGRAM_ID.toBase58() })),
+        ...(t22?.value || []).map((a: any) => ({ ...a, prog: TOKEN_2022_PROGRAM_ID.toBase58() })),
+      ];
+      const balMap = new Map<string, { raw: bigint; prog: string }>();
+      for (const acc of all) {
+        try {
+          const d = new Uint8Array(Buffer.from(acc.account.data[0], 'base64'));
+          const mint = readPk(d, 0);
+          const raw  = readU64b(d, 64);
+          if (raw > 0n) balMap.set(mint, { raw, prog: acc.prog });
+        } catch {}
+      }
+      // Update tokenIn/tokenOut balances
+      setTokenIn(prev => {
+        const b = balMap.get(prev.mint);
+        return b ? { ...prev, balance: Number(b.raw) / Math.pow(10, prev.decimals), rawBalance: b.raw } : { ...prev, balance: 0, rawBalance: 0n };
+      });
+      setTokenOut(prev => {
+        const b = balMap.get(prev.mint);
+        return b ? { ...prev, balance: Number(b.raw) / Math.pow(10, prev.decimals), rawBalance: b.raw } : { ...prev, balance: 0, rawBalance: 0n };
+      });
+      // Update full wallet list too
+      setWalletTokens(prev => prev.map(t => {
+        const b = balMap.get(t.mint);
+        return b ? { ...t, balance: Number(b.raw) / Math.pow(10, t.decimals), rawBalance: b.raw } : t;
+      }));
+    } catch {}
+    finally { setRefreshing(false); }
+  }, [publicKey, poolState, tokenIn.mint, tokenOut.mint, refreshing]);
+
+  // ── Load all wallet token accounts — batch fetch all metadata at once ────────
+  useEffect(() => {
+    if (!publicKey) { setWalletTokens([]); return; }
+    setLoadingWallet(true);
+    (async () => {
+      try {
+        // Step 1: Get all token accounts with parsed data (includes decimals — no extra RPC needed)
+        const conn2 = new Connection(RPC, 'confirmed');
+        const [spl, t22] = await Promise.all([
+          conn2.getParsedTokenAccountsByOwner(publicKey, { programId: TOKEN_PROGRAM_ID }),
+          conn2.getParsedTokenAccountsByOwner(publicKey, { programId: TOKEN_2022_PROGRAM_ID }),
+        ]);
+
+        // Step 2: Parse and filter immediately — no metadata fetch needed for NFT detection
+        const raw: { mint: string; rawBalance: bigint; balance: number; decimals: number; program: string }[] = [];
+        for (const { account } of [...spl.value, ...t22.value]) {
+          try {
+            const info = (account.data as any).parsed?.info;
+            if (!info) continue;
+            const mint     = info.mint as string;
+            const decimals = info.tokenAmount?.decimals as number ?? 0;
+            const rawAmt   = BigInt(info.tokenAmount?.amount ?? '0');
+            const uiAmt    = info.tokenAmount?.uiAmount as number ?? 0;
+            // Filter: skip zero balance, skip NFTs (decimals 0 or 1)
+            if (rawAmt === 0n || decimals <= 1) continue;
+            const prog = account.owner.toBase58();
+            raw.push({ mint, rawBalance: rawAmt, balance: uiAmt, decimals, program: prog });
+          } catch {}
+        }
+
+        // Step 3: Show tokens immediately with just decimals/balance while metadata loads
+        // Use cached metadata if available
+        const quickTokens: WalletToken[] = raw.map(r => {
+          const cached = _metaCache.get(r.mint);
+          return {
+            mint: r.mint, symbol: cached?.symbol ?? r.mint.slice(0,4).toUpperCase(),
+            decimals: r.decimals, logo: cached?.logo,
+            balance: r.balance, rawBalance: r.rawBalance, program: r.program,
+          };
+        }).sort((a, b) => b.balance - a.balance);
+        setWalletTokens(quickTokens);
+
+        // Step 4: Batch fetch metadata for all mints in parallel
+        const allMints = raw.map(r => r.mint);
+        const metaMap = await batchFetchMeta(allMints);
+
+        // Step 5: Update with full metadata
+        const tokens: WalletToken[] = raw.map(r => {
+          const meta = metaMap.get(r.mint) || _metaCache.get(r.mint);
+          return {
+            mint: r.mint,
+            symbol: meta?.symbol ?? r.mint.slice(0,4).toUpperCase(),
+            decimals: r.decimals, // use decimals from chain, NOT from meta
+            logo: meta?.logo,
+            balance: r.balance, rawBalance: r.rawBalance, program: r.program,
+          };
+        }).sort((a, b) => b.balance - a.balance);
+
+        // Step 6: Fetch missing logos in background (non-blocking)
+        const missingLogoMints = tokens.filter(t => !t.logo).map(t => t.mint);
+        if (missingLogoMints.length > 0) {
+          batchFetchLogos(missingLogoMints).then(logos => {
+            setWalletTokens(prev => prev.map(t => ({ ...t, logo: logos.get(t.mint) || t.logo })));
+          });
+        }
+
+        setWalletTokens(tokens);
+
+        // Update selected token balances + logos
+        const xntW    = tokens.find(t => t.mint === XNT_TOKEN_DEFAULT.mint);
+        const brainsW = tokens.find(t => t.mint === BRAINS_TOKEN_DEFAULT.mint);
+        if (xntW)    setTokenIn(prev  => prev.mint === XNT_TOKEN_DEFAULT.mint    ? { ...prev, balance: xntW.balance,    rawBalance: xntW.rawBalance,    logo: xntW.logo    || prev.logo } : prev);
+        if (brainsW) setTokenOut(prev => prev.mint === BRAINS_TOKEN_DEFAULT.mint ? { ...prev, balance: brainsW.balance, rawBalance: brainsW.rawBalance, logo: brainsW.logo || prev.logo } : prev);
+        setTokenIn(prev  => prev.logo ? prev : { ...prev, logo: tokens.find(t => t.mint === prev.mint)?.logo });
+        setTokenOut(prev => prev.logo ? prev : { ...prev, logo: tokens.find(t => t.mint === prev.mint)?.logo });
+      } catch (e) { console.error('wallet load error', e); }
+      finally { setLoadingWallet(false); }
+    })();
+  }, [publicKey]);
+
+  // ── Find XDEX pool ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!tokenIn?.mint || !tokenOut?.mint || tokenIn.mint === tokenOut.mint) { setPoolState(null); setStatus(''); return; }
+    setLoadingPool(true); setStatus(''); setQuoteOut(0);
+    (async () => {
+      try {
+        const [m0, m1] = [tokenIn.mint, tokenOut.mint].sort();
+
+        let foundPool: any = null;
+
+        // Helper: read pool state from raw account data
+        const parsePoolAccount = (data: Uint8Array, address: string) => {
+          const D = 8;
+          return { address,
+            ammConfig:   readPk(data, D),
+            token0Vault: readPk(data, D+64),
+            token1Vault: readPk(data, D+96),
+            token0Mint:  readPk(data, D+160),
+            token1Mint:  readPk(data, D+192),
+            token0Prog:  readPk(data, D+224),
+            token1Prog:  readPk(data, D+256),
+            obsKey:      readPk(data, D+288),
+            dec0: data[D+331] || 9,
+            dec1: data[D+332] || 9,
+          };
+        };
+
+        // ── Method 1: XDEX API — covers all pools created through their UI ────────
+        // This is the most reliable for XDEX-native pools (like XNT/BRAINS)
+        if (!foundPool) {
+          try {
+            const endpoints = [
+              `/api/xdex-price/api/xendex/pool/tokens/${tokenIn.mint}/${tokenOut.mint}?network=mainnet`,
+              `/api/xdex-price/api/xendex/pool/tokens/${tokenOut.mint}/${tokenIn.mint}?network=mainnet`,
+              `/api/xdex-price/api/xendex/pool/tokens/${m0}/${m1}?network=mainnet`,
+            ];
+            for (const url of endpoints) {
+              try {
+                const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+                const j = await r.json();
+                const poolData = j.success && j.data ? j.data : null;
+                if (!poolData) continue;
+                // API may return pool address under different keys
+                const poolAddr = poolData.poolAddress || poolData.pool_address || poolData.id || poolData.address || poolData.poolId;
+                if (!poolAddr) continue;
+                const res = await rpc('getAccountInfo', [poolAddr, { encoding: 'base64' }]);
+                if (res?.value) {
+                  foundPool = parsePoolAccount(new Uint8Array(Buffer.from(res.value.data[0], 'base64')), poolAddr);
+                  break;
+                }
+              } catch {}
+            }
+          } catch {}
+        }
+
+        // ── Method 2: XDEX pool list search ──────────────────────────────────────
+        if (!foundPool) {
+          try {
+            const listEndpoints = [
+              `/api/xdex-price/api/xendex/pool/list?network=mainnet&token=${tokenIn.mint}`,
+              `/api/xdex-price/api/xendex/pool/list?network=mainnet&token=${tokenOut.mint}`,
+              `/api/xdex-price/api/xendex/pools?network=mainnet&token0=${m0}&token1=${m1}`,
+            ];
+            for (const url of listEndpoints) {
+              try {
+                const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+                const j = await r.json();
+                const list: any[] = Array.isArray(j) ? j : (j?.data ?? j?.pools ?? j?.result ?? []);
+                // Find pool that matches both mints
+                const match = list.find((p: any) => {
+                  const mints = [p.token0Mint, p.token1Mint, p.mintA, p.mintB, p.token0, p.token1].filter(Boolean);
+                  return mints.includes(tokenIn.mint) && mints.includes(tokenOut.mint);
+                });
+                if (match) {
+                  const poolAddr = match.poolAddress || match.pool_address || match.id || match.address;
+                  if (poolAddr) {
+                    const res = await rpc('getAccountInfo', [poolAddr, { encoding: 'base64' }]);
+                    if (res?.value) {
+                      foundPool = parsePoolAccount(new Uint8Array(Buffer.from(res.value.data[0], 'base64')), poolAddr);
+                      break;
+                    }
+                  }
+                }
+              } catch {}
+              if (foundPool) break;
+            }
+          } catch {}
+        }
+
+        // ── Method 3: PDA derivation — try all known AMM configs ─────────────────
+        if (!foundPool) {
+          const AMM_CONFIGS = [
+            '2eFPWosizV6nSAGeSvi5tRgXLoqhjnSesra23ALA248c',
+            'GVSwm4smQBYcgAJU7qjFHLQBHTc4AdB3F2HbZp6KqKof',
+            'FcRvM5tEfmAKdVLnRmBFdWkACCUXhVmhFwfCDsJ4XDEP',
+            'CQYbhr6amxUER4p5SC44C63R4qw4NFc9Z4Db9vF4tZwG',
+          ];
+          for (const cfg of AMM_CONFIGS) {
+            try {
+              const [poolPda] = PublicKey.findProgramAddressSync(
+                [Buffer.from('pool'), new PublicKey(cfg).toBuffer(),
+                 new PublicKey(m0).toBuffer(), new PublicKey(m1).toBuffer()],
+                new PublicKey(XDEX_PROGRAM)
+              );
+              const res = await rpc('getAccountInfo', [poolPda.toBase58(), { encoding: 'base64' }]);
+              if (res?.value) {
+                foundPool = parsePoolAccount(new Uint8Array(Buffer.from(res.value.data[0], 'base64')), poolPda.toBase58());
+                break;
+              }
+            } catch {}
+          }
+        }
+
+        // ── Method 4: Our own PoolRecords (CPI-created pools) ────────────────────
+        if (!foundPool) {
+          try {
+            const poolRecords = await rpc('getProgramAccounts', [PROGRAM_ID, {
+              encoding: 'base64', filters: [{ dataSize: 282 }]
+            }]);
+            for (const { account } of (poolRecords || [])) {
+              const d = new Uint8Array(Buffer.from(account.data[0], 'base64'));
+              const tokenA = readPk(d, 8 + 64);
+              const tokenB = readPk(d, 8 + 96);
+              if (d[281] === 1) continue; // skip seeded
+              const matches = (tokenA === m0 && tokenB === m1) || (tokenA === m1 && tokenB === m0);
+              if (matches) {
+                const poolAddr = readPk(d, 8);
+                const res = await rpc('getAccountInfo', [poolAddr, { encoding: 'base64' }]);
+                if (res?.value) {
+                  foundPool = parsePoolAccount(new Uint8Array(Buffer.from(res.value.data[0], 'base64')), poolAddr);
+                  break;
+                }
+              }
+            }
+          } catch {}
+        }
+
+        if (!foundPool) {
+          setPoolState(null);
+          setStatus('⚠️ No XDEX pool found for this pair. Make sure a pool exists on XDEX for these tokens.');
+          return;
+        }
+
+        setPoolState(foundPool);
+        // Pre-fetch vault balances
+        const t0IsIn = foundPool.token0Mint === tokenIn.mint;
+        const [vi, vo] = await Promise.all([
+          getVaultBal(t0IsIn ? foundPool.token0Vault : foundPool.token1Vault),
+          getVaultBal(t0IsIn ? foundPool.token1Vault : foundPool.token0Vault),
+        ]);
+        setVaultIn(vi); setVaultOut(vo);
+        setStatus('');
+      } catch (e) { console.error('pool find error', e); setPoolState(null); setStatus('❌ Error finding pool.'); }
+      finally { setLoadingPool(false); }
+    })();
+  }, [tokenIn?.mint, tokenOut?.mint]);
+
+  // ── Compute quote ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!poolState || !amtIn || isNaN(parseFloat(amtIn)) || parseFloat(amtIn) <= 0 || vaultIn === 0n) { setQuoteOut(0); setPriceImpact(0); return; }
+    const rawIn  = BigInt(Math.floor(parseFloat(amtIn) * Math.pow(10, tokenIn.decimals)));
+    const amtFee = rawIn * 997500n / 1_000_000n;
+    const rawOut = vaultIn > 0n && vaultOut > 0n ? amtFee * vaultOut / (vaultIn + amtFee) : 0n;
+    setQuoteOut(Number(rawOut) / Math.pow(10, tokenOut.decimals));
+    setPriceImpact(vaultIn > 0n ? Number(rawIn * 10_000n / (vaultIn + rawIn)) / 100 : 0);
+  }, [amtIn, vaultIn, vaultOut, tokenIn, tokenOut]);
+
+  // ── Execute swap ──────────────────────────────────────────────────────────────
+  const handleSwap = async () => {
+    if (!publicKey || !poolState || !amtIn || parseFloat(amtIn) <= 0) return;
+    setPending(true); setStatus('Building swap transaction…');
+    try {
+      const { Transaction: Tx, TransactionInstruction: TxIx } = await import('@solana/web3.js');
+      const conn = new Connection(RPC, 'confirmed');
+      const t0IsIn = poolState.token0Mint === tokenIn.mint;
+      const rawIn  = BigInt(Math.floor(parseFloat(amtIn) * Math.pow(10, tokenIn.decimals)));
+      // Refresh vault balances fresh
+      const [vi, vo] = await Promise.all([getVaultBal(t0IsIn ? poolState.token0Vault : poolState.token1Vault), getVaultBal(t0IsIn ? poolState.token1Vault : poolState.token0Vault)]);
+      const amtFee = rawIn * 997500n / 1_000_000n;
+      const rawOut = vi > 0n && vo > 0n ? amtFee * vo / (vi + amtFee) : 0n;
+      const minOut = rawOut * BigInt(10_000 - slipBps) / 10_000n;
+      const inputMint  = new PublicKey(tokenIn.mint);
+      const outputMint = new PublicKey(tokenOut.mint);
+      const inputProg  = new PublicKey(tokenIn.program);
+      const outputProg = new PublicKey(t0IsIn ? poolState.token1Prog : poolState.token0Prog);
+      const inputAta   = getAssociatedTokenAddressSync(inputMint, publicKey, false, inputProg);
+      const outputAta  = getAssociatedTokenAddressSync(outputMint, publicKey, false, outputProg);
+      const d = await discHash('swap_base_input');
+      const data = Buffer.alloc(24); d.copy(data, 0); data.writeBigUInt64LE(rawIn, 8); data.writeBigUInt64LE(minOut, 16);
+      const keys = [
+        { pubkey: publicKey,                              isSigner: true,  isWritable: false },
+        { pubkey: new PublicKey(XDEX_LP_AUTH),            isSigner: false, isWritable: false },
+        { pubkey: new PublicKey(poolState.ammConfig),     isSigner: false, isWritable: false },
+        { pubkey: new PublicKey(poolState.address),       isSigner: false, isWritable: true  },
+        { pubkey: inputAta,                               isSigner: false, isWritable: true  },
+        { pubkey: outputAta,                              isSigner: false, isWritable: true  },
+        { pubkey: new PublicKey(t0IsIn ? poolState.token0Vault : poolState.token1Vault), isSigner: false, isWritable: true },
+        { pubkey: new PublicKey(t0IsIn ? poolState.token1Vault : poolState.token0Vault), isSigner: false, isWritable: true },
+        { pubkey: inputProg,                              isSigner: false, isWritable: false },
+        { pubkey: outputProg,                             isSigner: false, isWritable: false },
+        { pubkey: inputMint,                              isSigner: false, isWritable: false },
+        { pubkey: outputMint,                             isSigner: false, isWritable: false },
+        { pubkey: new PublicKey(poolState.obsKey),        isSigner: false, isWritable: true  },
+      ];
+      const ix = new TxIx({ programId: new PublicKey(XDEX_PROGRAM), keys, data });
+      const { blockhash } = await conn.getLatestBlockhash('confirmed');
+      const tx = new Tx({ feePayer: publicKey, recentBlockhash: blockhash });
+      const outInfo = await conn.getAccountInfo(outputAta);
+      if (!outInfo) tx.add(createAssociatedTokenAccountIdempotentInstruction(publicKey, outputAta, publicKey, outputMint, outputProg));
+      tx.add(ix);
+      setStatus('Waiting for wallet…');
+      const signed = await signTransaction(tx);
+      const rawTx = signed.serialize();
+      // Send with skipPreflight for faster submission, retry a few times
+      let sig = '';
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          sig = await conn.sendRawTransaction(rawTx, { skipPreflight: true, maxRetries: 3 });
+          break;
+        } catch (e: any) {
+          if (attempt === 2) throw e;
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
+      setStatus(`Confirming… (tx: ${sig.slice(0,8)}…)`);
+      // Poll for up to 60 seconds (40 × 1500ms)
+      for (let i = 0; i < 40; i++) {
+        await new Promise(r => setTimeout(r, 1500));
+        try {
+          const st = await conn.getSignatureStatus(sig, { searchTransactionHistory: true });
+          if (st?.value?.err) throw new Error(`Transaction failed: ${JSON.stringify(st.value.err)}`);
+          if (st?.value?.confirmationStatus === 'confirmed' || st?.value?.confirmationStatus === 'finalized') {
+            setLastTxSig(sig);
+            setStatus(`✅ Swap complete!`);
+            setAmtIn(''); setQuoteOut(0);
+            // Refresh all balances + vault after 1.5s (let chain settle)
+            setTimeout(() => refreshAll(), 1500);
+            return;
+          }
+        } catch (e: any) {
+          if (e.message?.startsWith('Transaction failed')) throw e;
+          // getSignatureStatus can fail transiently — keep polling
+        }
+      }
+      // If still not confirmed, check explorer link — tx may have gone through
+      setLastTxSig(sig);
+      setStatus(`⚠️ Confirmation timed out — tx may still succeed. Check explorer.`);
+      setTimeout(() => refreshAll(), 2000);
+    } catch (e: any) { setStatus('❌ ' + (e?.message ?? String(e)).slice(0, 200)); }
+    finally { setPending(false); }
+  };
+
+  const isErr = status.startsWith('❌');
+  const isOk  = status.startsWith('✅');
+  const isWarn = status.startsWith('⚠️');
+
+  // Derived display values
+  const inUsd  = parseFloat(amtIn || '0') * (tokenIn.mint === WXNT_MINT ? xntPriceUsd : 0);
+  const outUsd = quoteOut * (tokenOut.mint === WXNT_MINT ? xntPriceUsd : 0);
+  const rate   = vaultIn > 0n && vaultOut > 0n
+    ? Number(vaultOut) / Math.pow(10, tokenOut.decimals) / (Number(vaultIn) / Math.pow(10, tokenIn.decimals))
+    : 0;
+  const estGasXnt = 0.0002;
+
+  // Build wallet token list: pinned first, then rest — always apply known token overrides
+  function buildWalletList(exclude?: string): WalletToken[] {
+    const pinned: WalletToken[] = [XNT_TOKEN_DEFAULT, BRAINS_TOKEN_DEFAULT].map(p => {
+      const found = walletTokens.find(t => t.mint === p.mint);
+      const cached = _metaCache.get(p.mint);
+      const logo = found?.logo || cached?.logo;
+      const symbol = HARDCODED_META[p.mint]?.symbol ?? found?.symbol ?? p.symbol;
+      return found
+        ? { ...found, pinned: true, symbol, logo }
+        : { ...p, symbol, logo };
+    });
+    const rest = walletTokens
+      .filter(t => t.mint !== XNT_TOKEN_DEFAULT.mint && t.mint !== BRAINS_TOKEN_DEFAULT.mint)
+      .map(t => {
+        const cached = _metaCache.get(t.mint);
+        const known  = HARDCODED_META[t.mint];
+        return { ...t, symbol: known?.symbol ?? t.symbol, logo: t.logo || cached?.logo };
+      });
+    return [...pinned, ...rest].filter(t => t.mint !== exclude);
+  }
+
+  // ── Token Picker Modal — searches wallet + XDEX API ───────────────────────────
+  const TokenPickerModal: FC<{
+    title: string; exclude?: string;
+    onSelect: (t: WalletToken) => void; onClose: () => void;
+  }> = ({ title, exclude, onSelect, onClose }) => {
+    const [search, setSearch] = useState('');
+    const [xdexResults, setXdexResults] = useState<WalletToken[]>([]);
+    const [searching, setSearching] = useState(false);
+
+    // Filter wallet tokens by search
+    const walletList = buildWalletList(exclude);
+    const filteredWallet = search
+      ? walletList.filter(t => t.symbol.toLowerCase().includes(search.toLowerCase()) || t.mint.toLowerCase().includes(search.toLowerCase()))
+      : walletList;
+
+    // Search XDEX token list when typing — multi-strategy
+    useEffect(() => {
+      if (!search || search.length < 2) { setXdexResults([]); return; }
+      setSearching(true);
+      const timer = setTimeout(async () => {
+        const walletMints = new Set(filteredWallet.map(t => t.mint));
+        const found: WalletToken[] = [];
+
+        const addToken = (t: any, source?: string) => {
+          const mint = t.address || t.mint || t.tokenAddress || t.token_address;
+          if (!mint || walletMints.has(mint) || mint === exclude) return;
+          if (found.find(f => f.mint === mint)) return;
+          const decimals = t.decimals ?? 9;
+          if (decimals <= 1) return; // filter NFTs
+          found.push({
+            mint, symbol: t.symbol || t.name?.slice(0,8) || mint.slice(0,6).toUpperCase(),
+            decimals, logo: t.logo || t.logoUri || t.image || t.icon,
+            balance: 0, rawBalance: 0n,
+            program: TOKEN_2022_PROGRAM_ID.toBase58(),
+          });
+        };
+
+        // Strategy 1: If it looks like a mint address — fetch directly
+        if (search.length >= 32) {
+          try {
+            const [metaRes, priceRes] = await Promise.all([
+              fetchTokenMeta(search).catch(() => null),
+              fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${search}`, { signal: AbortSignal.timeout(4000) }).then(r => r.json()).catch(() => null),
+            ]);
+            if (metaRes && metaRes.decimals > 1) {
+              addToken({ address: search, symbol: metaRes.symbol, decimals: metaRes.decimals, logo: metaRes.logo || priceRes?.data?.logo });
+            } else if (priceRes?.success && priceRes?.data) {
+              addToken({ ...priceRes.data, address: search });
+            }
+          } catch {}
+        }
+
+        // Strategy 2: Try XDEX price API by symbol — if it returns a match, use it
+        if (found.length === 0) {
+          try {
+            // XDEX price endpoint accepts token address — try treating search as partial address
+            const r = await fetch(
+              `/api/xdex-price/api/token-price/prices?network=X1%20Mainnet&token_addresses=${encodeURIComponent(search)}`,
+              { signal: AbortSignal.timeout(4000) }
+            );
+            if (r.ok) {
+              const j = await r.json();
+              const items: any[] = Array.isArray(j?.data) ? j.data : [];
+              items.filter(t => t?.symbol?.toLowerCase().includes(search.toLowerCase()) || t?.token_address?.toLowerCase().includes(search.toLowerCase()))
+                .slice(0, 10).forEach(t => addToken({ ...t, address: t.token_address }));
+            }
+          } catch {}
+        }
+
+        // Strategy 3: Search XDEX pool list for tokens matching the query symbol
+        if (found.length === 0) {
+          try {
+            const r = await fetch(
+              `/api/xdex-price/api/xendex/pool/list?network=mainnet`,
+              { signal: AbortSignal.timeout(5000) }
+            );
+            if (r.ok) {
+              const j = await r.json();
+              const pools: any[] = Array.isArray(j) ? j : (j?.data ?? j?.pools ?? []);
+              const s = search.toLowerCase();
+              for (const pool of pools) {
+                // Each pool has token0/token1 info
+                for (const side of ['token0', 'token1', 'mintA', 'mintB']) {
+                  const t = pool[side] || (side === 'mintA' ? { address: pool.mintA, symbol: pool.symbol0 } : side === 'mintB' ? { address: pool.mintB, symbol: pool.symbol1 } : null);
+                  if (!t) continue;
+                  const sym = (t.symbol || '').toLowerCase();
+                  const addr = t.address || t.mint || '';
+                  if (sym.includes(s) || addr.toLowerCase().includes(s)) {
+                    addToken(t);
+                  }
+                }
+                if (found.length >= 10) break;
+              }
+            }
+          } catch {}
+        }
+
+        // Strategy 4: Search our own pool records for tokens matching the query
+        if (found.length === 0) {
+          try {
+            // We have pool records with tokenA/B mints — if any symbol matches, show it
+            // This is a client-side search of already-loaded pool data
+            const r = await fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${encodeURIComponent(search)}`, { signal: AbortSignal.timeout(4000) });
+            const j = await r.json();
+            if (j?.success && j?.data && j.data.symbol?.toLowerCase().includes(search.toLowerCase())) {
+              addToken({ ...j.data, address: j.data.address || j.data.mint });
+            }
+          } catch {}
+        }
+
+        setXdexResults(found.slice(0, 10));
+        setSearching(false);
+      }, 400);
+      return () => clearTimeout(timer);
+    }, [search]);
+
+    const allResults = [...filteredWallet, ...xdexResults];
+
+    // Shared token row renderer
+    const TokenRow = ({ t, i }: { t: WalletToken; i: number }) => (
+      <div key={t.mint + i} onClick={() => { onSelect(t); onClose(); }}
+        style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
+          borderRadius: 10, cursor: 'pointer', marginBottom: 4,
+          background: t.pinned ? 'rgba(0,212,255,.04)' : 'rgba(255,255,255,.02)',
+          border: `1px solid ${t.pinned ? 'rgba(0,212,255,.12)' : 'rgba(255,255,255,.05)'}`,
+          transition: 'all .15s' }}
+        onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(0,212,255,.35)')}
+        onMouseLeave={e => (e.currentTarget.style.borderColor = t.pinned ? 'rgba(0,212,255,.12)' : 'rgba(255,255,255,.05)')}>
+        <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
+          background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {t.logo
+            ? <img src={t.logo} alt={t.symbol} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 900, color: '#00d4ff' }}>{t.symbol.slice(0,2)}</span>}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 700, color: '#e0f0ff' }}>{t.symbol}</span>
+            {t.pinned && <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#00d4ff', background: 'rgba(0,212,255,.1)', padding: '1px 5px', borderRadius: 4 }}>★</span>}
+            {!t.pinned && t.balance === 0 && <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 8, color: '#4a6a8a', background: 'rgba(255,255,255,.04)', padding: '1px 5px', borderRadius: 4 }}>XDEX</span>}
+          </div>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#3a5a6a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.mint.slice(0,14)}…{t.mint.slice(-4)}</div>
+        </div>
+        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: t.balance > 0 ? '#9abacf' : '#3a5a6a', flexShrink: 0 }}>
+          {t.balance > 0 ? t.balance.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'}
+        </div>
+      </div>
+    );
+
+    return createPortal(
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 10000,
+        background: 'rgba(0,0,0,.92)', backdropFilter: 'blur(16px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 420,
+          background: 'linear-gradient(155deg,#0d1622,#080c0f)',
+          border: '1px solid rgba(0,212,255,.2)', borderRadius: 20,
+          padding: '20px 16px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+          {/* Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 900, color: '#fff' }}>{title}</div>
+            <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: '50%', cursor: 'pointer',
+              border: '1px solid rgba(255,255,255,.12)', background: 'rgba(8,12,15,.9)', color: '#6a8aaa', fontSize: 16 }}>×</button>
+          </div>
+          {/* Search */}
+          <div style={{ position: 'relative', marginBottom: 12 }}>
+            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#4a6a8a', fontSize: 14 }}>🔍</span>
+            <input value={search} onChange={e => setSearch(e.target.value)} autoFocus
+              placeholder="Search name, symbol, address or paste mint…"
+              style={{ width: '100%', padding: '10px 12px 10px 36px', borderRadius: 12, boxSizing: 'border-box',
+                background: 'rgba(255,255,255,.04)', border: '1px solid rgba(0,212,255,.15)',
+                color: '#e0f0ff', fontFamily: 'Sora,sans-serif', fontSize: 12, outline: 'none' }} />
+            {searching && <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: '#4a6a8a' }}>⟳</span>}
+          </div>
+          {/* Token list */}
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {loadingWallet && !search
+              ? <div style={{ textAlign: 'center', padding: '30px 0', fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#4a6a8a' }}>⟳ Loading wallet tokens…</div>
+              : allResults.length === 0 && !searching
+              ? <div style={{ textAlign: 'center', padding: '30px 0' }}>
+                  <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#4a6a8a', marginBottom: 8 }}>
+                    No tokens found
+                  </div>
+                  {search.length > 0 && search.length < 32 && (
+                    <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#3a5a6a' }}>
+                      Try pasting the full mint address
+                    </div>
+                  )}
+                </div>
+              : allResults.map((t, i) => <TokenRow key={t.mint + i} t={t} i={i} />)}
+          </div>
+          <div style={{ marginTop: 10, fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#2a3a4a', textAlign: 'center' }}>
+            Showing wallet tokens + all XDEX indexed tokens
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  };
+
+  // ── Token Button ──────────────────────────────────────────────────────────────
+  // Token logo with proper fallback to colored letter avatar
+  const SwapLogo: FC<{ token: WalletToken; size?: number; color?: string }> = ({ token, size = 22, color = '#00d4ff' }) => {
+    const [imgFailed, setImgFailed] = useState(false);
+    return (
+      <div style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
+        background: imgFailed || !token.logo ? `${color}18` : 'transparent',
+        border: `1px solid ${color}33`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {token.logo && !imgFailed
+          ? <img src={token.logo} alt={token.symbol}
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              onError={() => setImgFailed(true)} />
+          : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: size * 0.38,
+              fontWeight: 900, color }}>{token.symbol.slice(0,2).toUpperCase()}</span>}
+      </div>
+    );
+  };
+
+  const TokenBtn: FC<{ token: WalletToken; color: string; onClick: () => void }> = ({ token, color, onClick }) => (
+    <button onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px',
+      borderRadius: 12, cursor: 'pointer', border: `1px solid ${color}33`, background: `${color}0f`,
+      flexShrink: 0, transition: 'all .15s' }}
+      onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = color + '66'; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = color + '33'; }}>
+      <SwapLogo token={token} size={22} color={color} />
+      <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 900, color }}>{token.symbol}</span>
+      <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: color + '88' }}>▾</span>
+    </button>
+  );
+
+  const parsedAmt = parseFloat(amtIn || '0');
+  const insufficientBal = publicKey && parsedAmt > tokenIn.balance;
+
+  return (
+    <div style={{ maxWidth: 500, margin: '0 auto', animation: 'fadeUp 0.4s ease both' }}>
+      <div style={{ background: 'linear-gradient(155deg,#0d1622,#080c0f)',
+        border: '1px solid rgba(0,212,255,.12)', borderRadius: 20,
+        padding: isMobile ? '20px 16px' : '28px 28px' }}>
+
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 18, fontWeight: 900, color: '#fff' }}>🔄 SWAP</div>
+            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a', marginTop: 2 }}>Any SPL or Token-2022 · X1 Mainnet</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Refresh button */}
+            <button onClick={() => refreshAll()} disabled={refreshing || !publicKey}
+              title="Refresh balances & prices"
+              style={{ width: 32, height: 32, borderRadius: '50%', cursor: refreshing || !publicKey ? 'not-allowed' : 'pointer',
+                background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.2)',
+                color: '#00d4ff', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'all .2s', opacity: !publicKey ? 0.4 : 1 }}>
+              <span style={{ display: 'inline-block', animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>↻</span>
+            </button>
+            {/* Slippage setting */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>Slippage:</span>
+              {[10, 50, 100].map(b => (
+                <button key={b} onClick={() => setSlipBps(b)} style={{ padding: '3px 8px', borderRadius: 6, cursor: 'pointer',
+                  fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
+                  background: slipBps === b ? 'rgba(0,212,255,.15)' : 'rgba(255,255,255,.04)',
+                  border: `1px solid ${slipBps === b ? 'rgba(0,212,255,.35)' : 'rgba(255,255,255,.08)'}`,
+                  color: slipBps === b ? '#00d4ff' : '#4a6a8a' }}>{b / 100}%</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* YOU PAY */}
+        <div style={{ background: 'rgba(255,255,255,.025)', border: '1px solid rgba(0,212,255,.1)', borderRadius: 16, padding: '16px', marginBottom: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#4a6a8a' }}>You Pay</span>
+            {publicKey && (
+              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>
+                Balance: <span style={{ color: '#9abacf', fontWeight: 600 }}>{tokenIn.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ flex: 1 }}>
+              <input value={amtIn} onChange={e => setAmtIn(e.target.value)} placeholder="0.00" type="number" min="0"
+                style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none',
+                  fontFamily: 'Orbitron,monospace', fontSize: 28, fontWeight: 700,
+                  color: insufficientBal ? '#ff6666' : '#e0f0ff', boxSizing: 'border-box' }} />
+              {inUsd > 0 && <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>≈ ${inUsd.toFixed(4)} USD</div>}
+            </div>
+            <TokenBtn token={tokenIn} color="#00d4ff" onClick={() => setShowInPicker(true)} />
+          </div>
+          {/* % preset buttons */}
+          {publicKey && tokenIn.balance > 0 && (
+            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+              {[25, 50, 75, 100].map(pct => (
+                <button key={pct} onClick={() => setAmtIn((tokenIn.balance * pct / 100).toFixed(Math.min(tokenIn.decimals, 6)))}
+                  style={{ flex: 1, padding: '5px 0', borderRadius: 8, cursor: 'pointer',
+                    fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
+                    background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.15)',
+                    color: '#4a8aaa', transition: 'all .15s' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,212,255,.15)'; (e.currentTarget as HTMLButtonElement).style.color = '#00d4ff'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,212,255,.06)'; (e.currentTarget as HTMLButtonElement).style.color = '#4a8aaa'; }}>
+                  {pct === 100 ? 'MAX' : `${pct}%`}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Flip button */}
+        <div style={{ textAlign: 'center', margin: '4px 0', position: 'relative', zIndex: 1 }}>
+          <button onClick={() => {
+            const tmp = tokenIn; setTokenIn(tokenOut); setTokenOut(tmp);
+            setAmtIn(''); setQuoteOut(0);
+          }} style={{ width: 36, height: 36, borderRadius: '50%', cursor: 'pointer',
+            background: 'linear-gradient(135deg,rgba(0,212,255,.15),rgba(191,90,242,.1))',
+            border: '1px solid rgba(0,212,255,.3)', color: '#00d4ff', fontSize: 16,
+            transition: 'transform .2s' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'rotate(180deg)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'rotate(0deg)'; }}>⇅</button>
+        </div>
+
+        {/* YOU RECEIVE */}
+        <div style={{ background: 'rgba(255,255,255,.025)', border: '1px solid rgba(191,90,242,.1)', borderRadius: 16, padding: '16px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#4a6a8a' }}>You Receive</span>
+            {publicKey && (
+              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>
+                Balance: <span style={{ color: '#9abacf', fontWeight: 600 }}>{tokenOut.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 28, fontWeight: 700, color: quoteOut > 0 ? '#bf5af2' : '#2a3a4a' }}>
+                {quoteOut > 0 ? quoteOut.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '0.00'}
+              </div>
+              {outUsd > 0 && <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>≈ ${outUsd.toFixed(4)} USD</div>}
+            </div>
+            <TokenBtn token={tokenOut} color="#bf5af2" onClick={() => setShowOutPicker(true)} />
+          </div>
+        </div>
+
+        {/* Pool loading */}
+        {loadingPool && (
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#4a6a8a', textAlign: 'center', marginBottom: 12 }}>
+            🔍 Finding pool…
+          </div>
+        )}
+
+        {/* Info row — Rate / Price Impact / Est Gas / Slippage */}
+        {poolState && !loadingPool && vaultIn > 0n && (
+          <div style={{ background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.05)',
+            borderRadius: 12, padding: '12px 16px', marginBottom: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
+              {/* Rate */}
+              <div>
+                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#4a6a8a', marginBottom: 3 }}>Rate</div>
+                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#9abacf', lineHeight: 1.4 }}>
+                  {rate > 0 ? <>
+                    <div>1 {tokenIn.symbol} ≈ {rate.toLocaleString(undefined, { maximumFractionDigits: 4 })} {tokenOut.symbol}</div>
+                    {rate > 0 && <div style={{ color: '#4a6a8a' }}>1 {tokenOut.symbol} ≈ {(1/rate).toLocaleString(undefined, { maximumFractionDigits: 4 })} {tokenIn.symbol}</div>}
+                  </> : '—'}
+                </div>
+              </div>
+              {/* Price Impact */}
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#4a6a8a', marginBottom: 3 }}>Price Impact</div>
+                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700,
+                  color: priceImpact > 5 ? '#ff4444' : priceImpact > 2 ? '#ff8c00' : '#00c98d' }}>
+                  {priceImpact.toFixed(2)}%{priceImpact > 5 ? ' ⚠️' : ''}
+                </div>
+              </div>
+              {/* Est Gas */}
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#4a6a8a', marginBottom: 3 }}>Est. Gas</div>
+                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#9abacf' }}>~{estGasXnt} XNT</div>
+              </div>
+              {/* Slippage */}
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#4a6a8a', marginBottom: 3 }}>Slippage</div>
+                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#9abacf' }}>{(slipBps / 100).toFixed(1)}%</div>
+              </div>
+            </div>
+            {/* Route */}
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,.04)',
+              display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+              <SwapLogo token={tokenIn} size={24} color="#00d4ff" />
+              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>→</span>
+              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a', background: 'rgba(255,255,255,.04)', padding: '2px 8px', borderRadius: 6 }}>XDEX Pool</span>
+              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>→</span>
+              <SwapLogo token={tokenOut} size={24} color="#bf5af2" />
+            </div>
+          </div>
+        )}
+
+        {/* Status */}
+        {status && (
+          <div style={{ margin: '10px 0 14px', padding: '10px 14px', borderRadius: 10,
+            fontFamily: 'Sora,sans-serif', fontSize: 12, lineHeight: 1.6,
+            background: isErr ? 'rgba(255,68,68,.08)' : isOk ? 'rgba(0,201,141,.08)' : isWarn ? 'rgba(255,140,0,.08)' : 'rgba(255,255,255,.04)',
+            border: `1px solid ${isErr ? 'rgba(255,68,68,.25)' : isOk ? 'rgba(0,201,141,.25)' : isWarn ? 'rgba(255,140,0,.25)' : 'rgba(255,255,255,.08)'}`,
+            color: isErr ? '#ff8888' : isOk ? '#00c98d' : isWarn ? '#ff8c00' : '#9abacf' }}>{status}</div>
+        )}
+
+        {/* Explorer button — shown after swap attempt with a tx sig */}
+        {(isOk || isWarn) && lastTxSig && (
+          <a href={`https://explorer.mainnet.x1.xyz/tx/${lastTxSig}`} target="_blank" rel="noreferrer"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              width: '100%', padding: '11px 0', borderRadius: 10, marginBottom: 12, textDecoration: 'none',
+              background: 'rgba(0,201,141,.08)', border: '1px solid rgba(0,201,141,.25)',
+              fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 700, color: '#00c98d',
+              boxSizing: 'border-box' as const, letterSpacing: 1 }}>
+            VIEW ON EXPLORER ↗ · {lastTxSig.slice(0,8)}…{lastTxSig.slice(-6)}
+          </a>
+        )}
+
+        {/* Swap Button */}
+        {!publicKey
+          ? <div style={{ textAlign: 'center', padding: '14px 0', fontFamily: 'Sora,sans-serif', fontSize: 13, color: '#4a6a8a', background: 'rgba(255,255,255,.03)', borderRadius: 12, border: '1px solid rgba(255,255,255,.06)' }}>Connect wallet to swap</div>
+          : <button onClick={handleSwap}
+              disabled={pending || !poolState || !amtIn || parsedAmt <= 0 || !!insufficientBal}
+              style={{ width: '100%', padding: '15px 0', borderRadius: 14, cursor: (pending || !poolState || !amtIn || parsedAmt <= 0) ? 'not-allowed' : 'pointer',
+                fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 900, transition: 'all .15s',
+                background: pending || !poolState ? 'rgba(255,255,255,.04)'
+                  : insufficientBal ? 'rgba(255,68,68,.1)'
+                  : 'linear-gradient(135deg,rgba(0,212,255,.22),rgba(191,90,242,.12))',
+                border: `1px solid ${pending || !poolState ? 'rgba(255,255,255,.08)'
+                  : insufficientBal ? 'rgba(255,68,68,.35)' : 'rgba(0,212,255,.45)'}`,
+                color: pending || !poolState ? '#4a6a8a' : insufficientBal ? '#ff6666' : '#00d4ff',
+                boxShadow: (!pending && poolState && !insufficientBal && parsedAmt > 0) ? '0 0 20px rgba(0,212,255,.12)' : 'none' }}>
+              {pending ? 'SWAPPING…'
+                : loadingPool ? 'FINDING POOL…'
+                : !poolState && tokenIn.mint !== tokenOut.mint ? 'NO POOL FOUND'
+                : insufficientBal ? `INSUFFICIENT ${tokenIn.symbol}`
+                : !amtIn || parsedAmt <= 0 ? 'ENTER AMOUNT'
+                : `SWAP ${tokenIn.symbol} → ${tokenOut.symbol}`}
+            </button>
+        }
+
+        <div style={{ marginTop: 12, fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#2a3a4a', textAlign: 'center' }}>
+          0.25% fee · Powered by XDEX CP-Swap · X1 Mainnet
+        </div>
+      </div>
+
+      {/* Token Pickers */}
+      {showInPicker  && <TokenPickerModal title="SELECT INPUT TOKEN"  exclude={tokenOut?.mint} onSelect={t => {
+        const known = HARDCODED_META[t.mint];
+        setTokenIn(known ? { ...t, symbol: known.symbol, logo: t.logo || known.logo } : t);
+      }} onClose={() => setShowInPicker(false)}  />}
+      {showOutPicker && <TokenPickerModal title="SELECT OUTPUT TOKEN" exclude={tokenIn?.mint}  onSelect={t => {
+        const known = HARDCODED_META[t.mint];
+        setTokenOut(known ? { ...t, symbol: known.symbol, logo: t.logo || known.logo } : t);
+      }} onClose={() => setShowOutPicker(false)} />}
+    </div>
+  );
+};
+
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 const PairingMarketplace: FC = () => {
   const { publicKey, sendTransaction, signTransaction } = useWallet();
   const { connection } = useConnection();
   const isMobile = useIsMobile();
 
-  const [tab, setTab]               = useState<'listings' | 'mine' | 'pools'>('listings');
+  const [tab, setTab]               = useState<'listings' | 'mine' | 'pools' | 'swap'>('listings');
   const [filter, setFilter]         = useState<'all' | 'brains' | 'lb'>('all');
   const [listings, setListings]     = useState<ListingOnChain[]>([]);
   const [loading, setLoading]       = useState(true);
@@ -2499,10 +3702,12 @@ const PairingMarketplace: FC = () => {
   const [editTarget, setEditTarget]     = useState<ListingOnChain | null>(null);
   const [delistTarget, setDelistTarget] = useState<ListingOnChain | null>(null);
   const [xntPrice, setXntPrice]     = useState(0.4187);
-  const [lbBalance, setLbBalance]   = useState(0); // raw LB balance
+  const [lbBalance, setLbBalance]   = useState(0);
   const [platformVolume, setPlatformVolume] = useState(0);
   const [totalPools, setTotalPools]         = useState(0);
   const [totalListings, setTotalListings]   = useState(0);
+  // Shared live prices map: mint → USD price — fetched once for all listings
+  const [livePrices, setLivePrices] = useState<Map<string, number | null>>(new Map());
 
   // Fetch XNT price
   useEffect(() => {
@@ -2533,17 +3738,70 @@ const PairingMarketplace: FC = () => {
     });
   }, []);
 
+  // Batch fetch live prices for all listed tokens — one call for all mints
+  const fetchLivePrices = useCallback(async (mints: string[]) => {
+    if (mints.length === 0) return;
+    const unique = [...new Set(mints)];
+    // Mark all as loading (null) immediately so cards show loading state
+    setLivePrices(prev => {
+      const next = new Map(prev);
+      unique.forEach(m => { if (!next.has(m)) next.set(m, null); });
+      return next;
+    });
+    try {
+      const res = await fetch(
+        `/api/xdex-price/api/token-price/prices?network=X1%20Mainnet&token_addresses=${unique.join(',')}`,
+        { signal: AbortSignal.timeout(8000) }
+      );
+      const j = await res.json();
+      const newPrices = new Map<string, number | null>();
+      // Start with null for all (no price found)
+      unique.forEach(m => newPrices.set(m, null));
+      if (j?.success && Array.isArray(j?.data)) {
+        for (const item of j.data) {
+          if (item?.token_address && item?.price) {
+            newPrices.set(item.token_address, Number(item.price));
+          }
+        }
+      }
+      // Individual fallback for missing
+      const missing = unique.filter(m => !newPrices.get(m));
+      await Promise.all(missing.map(async mint => {
+        try {
+          const r = await fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${mint}`, { signal: AbortSignal.timeout(4000) });
+          const j2 = await r.json();
+          if (j2?.success && j2?.data?.price) newPrices.set(mint, Number(j2.data.price));
+        } catch {}
+      }));
+      setLivePrices(newPrices);
+    } catch {}
+  }, []);
+
   // Fetch on-chain listings
   const loadListings = useCallback(async () => {
     setLoading(true);
     try {
       const data = await fetchOnChainListings();
       setListings(data);
+      // Pre-fetch logos for all listing tokens immediately
+      const mints = [...new Set(data.map(l => l.tokenAMint))];
+      batchFetchLogos(mints); // non-blocking, updates _metaCache
+      // Batch fetch prices
+      fetchLivePrices(mints);
     } catch { setListings([]); }
     finally { setLoading(false); }
-  }, []);
+  }, [fetchLivePrices]);
 
   useEffect(() => { loadListings(); }, [loadListings]);
+
+  // Refresh prices every 30s
+  useEffect(() => {
+    if (listings.length === 0) return;
+    const interval = setInterval(() => {
+      fetchLivePrices(listings.map(l => l.tokenAMint));
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [listings, fetchLivePrices]);
 
   const filtered = useMemo(() => {
     let l = listings.filter(x => x.status === 'open');
@@ -2670,8 +3928,9 @@ const PairingMarketplace: FC = () => {
           {([
             { id: 'listings', label: '🟢 MARKETPLACE',    sub: `${listings.filter(l => l.status === 'open').length} open` },
             { id: 'create',   label: '⚡ CREATE LISTING', sub: 'lock tokens · pay fee' },
-            { id: 'mine',     label: '📋 MY LISTINGS',    sub: myCount > 0 ? `${myCount} active` : 'your listings' },
+            { id: 'swap',     label: '🔄 SWAP',           sub: 'any X1 token' },
             { id: 'pools',    label: '🏊 LB POOLS',       sub: 'swap · deposit · withdraw' },
+            { id: 'mine',     label: '📋 MY LISTINGS',    sub: myCount > 0 ? `${myCount} active` : 'your listings' },
           ] as { id: string; label: string; sub: string }[]).map(m => {
             const isMarket = m.id === 'listings';
             const isCreate = m.id === 'create';
@@ -2738,8 +3997,11 @@ const PairingMarketplace: FC = () => {
         {/* ── POOLS TAB ── */}
         {tab === 'pools' && <PoolsTab key={Date.now()} />}
 
+        {/* ── SWAP TAB ── */}
+        {tab === 'swap' && <SwapTab isMobile={isMobile} publicKey={publicKey} connection={connection} signTransaction={signTransaction} />}
+
         {/* ── LISTINGS ── */}
-        {tab !== 'pools' && (loading ? (
+        {tab !== 'pools' && tab !== 'swap' && (loading ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {[0, 1, 2].map(i => (
               <div key={i} style={{ height: 110, borderRadius: 14,
@@ -2778,6 +4040,7 @@ const PairingMarketplace: FC = () => {
             <ListingCard key={listing.id} listing={listing} isMobile={isMobile} idx={idx}
               isOwn={publicKey?.toBase58() === listing.creator}
               xntPrice={xntPrice} lbBalance={lbBalance}
+              livePrice={livePrices.get(listing.tokenAMint) ?? null}
               onMatch={setMatchTarget}
               onEdit={(l) => setEditTarget(l)}
               onDelist={(l) => setDelistTarget(l)}
@@ -2846,6 +4109,7 @@ const PairingMarketplace: FC = () => {
           publicKey={publicKey}
           connection={connection}
           signTransaction={signTransaction}
+          livePrice={livePrices.get(matchTarget.tokenAMint) ?? null}
           onClose={() => setMatchTarget(null)}
           onMatched={() => { setMatchTarget(null); loadListings(); }}
         />

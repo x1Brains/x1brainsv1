@@ -360,6 +360,7 @@ const WithdrawModal: FC<{
   const [pct, setPct]       = useState(100);
   const [status, setStatus] = useState('');
   const [pending, setPending] = useState(false);
+  const [txSig, setTxSig]   = useState('');
 
   const lpDecimals = pool.lpDecimals || 9;
   const lpUi       = Number(pool.walletLp) / Math.pow(10, lpDecimals);
@@ -442,8 +443,9 @@ const WithdrawModal: FC<{
         const st = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
         if (st?.value?.err) throw new Error(JSON.stringify(st.value.err));
         if (st?.value?.confirmationStatus === 'confirmed' || st?.value?.confirmationStatus === 'finalized') {
-          setStatus(`✅ Withdrawn! Tx: ${sig.slice(0, 20)}…`);
-          setTimeout(() => { onDone(); onClose(); }, 2000);
+          setStatus(`✅ Withdrawn!`);
+          setTxSig(sig);
+          setTimeout(() => { onDone(); onClose(); }, 3000);
           return;
         }
       }
@@ -524,6 +526,16 @@ const WithdrawModal: FC<{
         </div>
 
         <StatusBox msg={status} />
+        {txSig && (
+          <a href={`https://explorer.mainnet.x1.xyz/tx/${txSig}`} target="_blank" rel="noreferrer"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              width: '100%', padding: '10px 0', borderRadius: 10, marginBottom: 10, textDecoration: 'none',
+              background: 'rgba(0,201,141,.08)', border: '1px solid rgba(0,201,141,.25)',
+              fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 700, color: '#00c98d',
+              boxSizing: 'border-box' as const }}>
+            🔍 VIEW ON EXPLORER · {txSig.slice(0,8)}…{txSig.slice(-6)}
+          </a>
+        )}
         <button onClick={handleWithdraw} disabled={pending || lpToRemove === 0n} style={{
           width: '100%', padding: '14px 0', borderRadius: 12,
           cursor: pending ? 'not-allowed' : 'pointer',
@@ -554,6 +566,7 @@ const DepositModal: FC<{
   const [amt1, setAmt1]     = useState('');
   const [status, setStatus] = useState('');
   const [pending, setPending] = useState(false);
+  const [txSig, setTxSig]   = useState('');
   const [bal0, setBal0]     = useState(0);
   const [bal1, setBal1]     = useState(0);
 
@@ -672,8 +685,9 @@ const DepositModal: FC<{
         const st = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
         if (st?.value?.err) throw new Error(JSON.stringify(st.value.err));
         if (st?.value?.confirmationStatus === 'confirmed' || st?.value?.confirmationStatus === 'finalized') {
-          setStatus(`✅ Deposited! You received LP tokens.\nTx: ${sig.slice(0, 20)}…`);
-          setTimeout(() => { onDone(); onClose(); }, 2500);
+          setStatus(`✅ Deposited! You received LP tokens.`);
+          setTxSig(sig);
+          setTimeout(() => { onDone(); onClose(); }, 3000);
           return;
         }
       }
@@ -760,6 +774,16 @@ const DepositModal: FC<{
         )}
 
         <StatusBox msg={status} />
+        {txSig && (
+          <a href={`https://explorer.mainnet.x1.xyz/tx/${txSig}`} target="_blank" rel="noreferrer"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              width: '100%', padding: '10px 0', borderRadius: 10, marginBottom: 10, textDecoration: 'none',
+              background: 'rgba(0,201,141,.08)', border: '1px solid rgba(0,201,141,.25)',
+              fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 700, color: '#00c98d',
+              boxSizing: 'border-box' as const }}>
+            🔍 VIEW ON EXPLORER · {txSig.slice(0,8)}…{txSig.slice(-6)}
+          </a>
+        )}
         <button onClick={handleDeposit} disabled={pending || !amt0 || !amt1} style={{
           width: '100%', padding: '14px 0', borderRadius: 12,
           cursor: pending ? 'not-allowed' : 'pointer',
@@ -896,6 +920,7 @@ const SwapModal: FC<{
   const [amtIn, setAmtIn]       = useState('');
   const [status, setStatus]     = useState('');
   const [pending, setPending]   = useState(false);
+  const [txSig, setTxSig]       = useState('');
   const [slipBps, setSlipBps]   = useState(50);
   const [bal0, setBal0]         = useState<number>(0);
   const [bal1, setBal1]         = useState<number>(0);
@@ -1001,8 +1026,9 @@ const SwapModal: FC<{
         const st = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
         if (st?.value?.err) throw new Error(JSON.stringify(st.value.err));
         if (st?.value?.confirmationStatus === 'confirmed' || st?.value?.confirmationStatus === 'finalized') {
-          setStatus(`✅ Swapped! Tx: ${sig.slice(0, 20)}…`);
-          setTimeout(() => { onDone(); onClose(); }, 2000);
+          setStatus(`✅ Swapped!`);
+          setTxSig(sig);
+          setTimeout(() => { onDone(); onClose(); }, 3000);
           return;
         }
       }
@@ -1123,6 +1149,16 @@ const SwapModal: FC<{
         </div>
 
         <StatusBox msg={status} />
+        {txSig && (
+          <a href={`https://explorer.mainnet.x1.xyz/tx/${txSig}`} target="_blank" rel="noreferrer"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              width: '100%', padding: '10px 0', borderRadius: 10, marginBottom: 10, textDecoration: 'none',
+              background: 'rgba(191,90,242,.08)', border: '1px solid rgba(191,90,242,.25)',
+              fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 700, color: '#bf5af2',
+              boxSizing: 'border-box' as const }}>
+            🔍 VIEW ON EXPLORER · {txSig.slice(0,8)}…{txSig.slice(-6)}
+          </a>
+        )}
         <button onClick={handleSwap} disabled={pending || rawIn === 0n || parsedIn > balIn} style={{
           width: '100%', padding: '14px 0', borderRadius: 12,
           cursor: (pending || rawIn === 0n) ? 'not-allowed' : 'pointer',

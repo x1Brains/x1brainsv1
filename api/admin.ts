@@ -26,6 +26,9 @@
 //   { action: 'insert_burn_event',  payload: { sig, wallet, amount, block_time } }
 //   { action: 'insert_announcement', payload: { title, body, category, pinned, created_at } }
 //   { action: 'insert_lbp_reward',  payload: { address, lb_points, reason, category, awarded_by, week_id } }
+//   { action: 'save_address',       payload: { owner_wallet, saved_wallet, nickname } }
+//   { action: 'delete_address',     payload: { id } }
+//   { action: 'get_addresses',      payload: { owner_wallet } }
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -203,6 +206,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const { error } = await sb.from('labwork_rewards').insert(payload);
         if (error) return err(res, error.message);
         return ok(res);
+      }
+
+      // ── Saved Addresses ──────────────────────────────────────────
+      case 'save_address': {
+        const { owner_wallet, saved_wallet, nickname } = payload;
+        if (!owner_wallet || owner_wallet.length < 32 || owner_wallet.length > 44)
+          return err(res, 'Invalid owner_wallet');
+        if (!saved_wallet || saved_wallet.length < 32 || saved_wallet.length > 44)
+          return err(res, 'Invalid saved_wallet');
+        if (!nickname || nickname.length > 50)
+          return err(res, 'Invalid nickname');
+        const { error } = await sb.from('saved_addresses').insert({
+          owner_wallet: owner_wallet.trim(),
+          saved_wallet: saved_wallet.trim(),
+          nickname:     nickname.trim(),
+        });
+        if (error) return err(res, error.message);
+        return ok(res);
+      }
+
+      case 'delete_address': {
+        const { id } = payload;
+        if (!id) return err(res, 'Missing id');
+        const { error } = await sb.from('saved_addresses').delete().eq('id', id);
+        if (error) return err(res, error.message);
+        return ok(res);
+      }
+
+      case 'get_addresses': {
+        const { owner_wallet } = payload;
+        if (!owner_wallet) return err(res, 'Missing owner_wallet');
+        const { data, error } = await sb
+          .from('saved_addresses')
+          .select('*')
+          .eq('owner_wallet', owner_wallet)
+          .order('created_at', { ascending: false });
+        if (error) return err(res, error.message);
+        return ok(res, data);
       }
 
       default:

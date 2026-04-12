@@ -513,6 +513,7 @@ export interface SavedAddressRow {
 }
 
 export async function getSavedAddresses(ownerWallet: string): Promise<SavedAddressRow[]> {
+  // READ via anon client — public read policy allows users to see their own addresses
   if (!supabase) return [];
   try {
     const { data, error } = await supabase
@@ -526,13 +527,21 @@ export async function getSavedAddresses(ownerWallet: string): Promise<SavedAddre
 }
 
 export async function insertSavedAddress(row: Omit<SavedAddressRow, 'id' | 'created_at'>): Promise<void> {
-  if (!supabase) return;
-  try { await supabase.from('saved_addresses').insert(row); } catch {}
+  // WRITE via admin API — anon key blocked from inserting
+  try {
+    await adminFetch('save_address', {
+      owner_wallet: row.owner_wallet,
+      saved_wallet: row.saved_wallet,
+      nickname:     row.nickname,
+    });
+  } catch {}
 }
 
 export async function deleteSavedAddress(id: string): Promise<void> {
-  if (!supabase) return;
-  try { await supabase.from('saved_addresses').delete().eq('id', id); } catch {}
+  // DELETE via admin API — anon key blocked from deleting
+  try {
+    await adminFetch('delete_address', { id });
+  } catch {}
 }
 
 // ═════════════════════════════════════════════
