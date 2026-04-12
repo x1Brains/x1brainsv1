@@ -13,3 +13,11 @@ target/deploy/*-keypair.json
 
 # Build artifacts
 target/
+
+# Dev scripts & artifacts
+mnt/
+*.txt
+gettx*.js
+verify[0-9]*.js
+check*.js
+inspect_*.js
