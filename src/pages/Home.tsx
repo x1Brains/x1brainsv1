@@ -288,7 +288,7 @@ const Home: FC = () => {
             )}
           </div>
 
-          {/* ── LAB WORK 🧪 — Standalone card routing to /labwork ── */}
+          {/* ── LAB WORK 🧪 — Split card: NFT Marketplace + LP Pairing ── */}
           <div
             style={{
               position: 'relative',
@@ -296,47 +296,82 @@ const Home: FC = () => {
               border: '1px solid #ffb70030',
               borderRadius: 16,
               padding: '28px 24px',
-              cursor: 'pointer',
+              cursor: 'default',
               animation: 'fadeUp 0.5s ease 0.3s both',
               overflow: 'hidden',
               transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             }}
-            onClick={() => navigate('/labwork')}
-            onMouseEnter={e => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = '#ffb700'; el.style.transform = 'translateY(-6px)'; el.style.boxShadow = '0 16px 50px rgba(0,0,0,0.5), 0 0 30px #ffb70020'; }}
-            onMouseLeave={e => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = '#ffb70030'; el.style.transform = 'translateY(0)'; el.style.boxShadow = 'none'; }}
           >
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, transparent, #ffb700, transparent)', opacity: 0.6 }} />
             <div style={{ position: 'absolute', top: -40, right: -40, width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle, #ffb70012 0%, transparent 70%)', pointerEvents: 'none' }} />
 
-            <div style={{ fontSize: 40, marginBottom: 18, display: 'block', filter: 'drop-shadow(0 0 12px #ffb70060)' }}>🧪</div>
+            <div style={{ fontSize: 40, marginBottom: 12, display: 'block', filter: 'drop-shadow(0 0 12px #ffb70060)' }}>🧪</div>
 
             <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 16, fontWeight: 900, letterSpacing: 3, color: '#ffb700', marginBottom: 6, textTransform: 'uppercase' }}>
-              LAB WORK 🧪
+              LAB WORK
             </div>
 
-            <p style={{ fontSize: 13, color: '#7a9ab8', lineHeight: 1.7, marginBottom: 16 }}>
-              The X1 Brains NFT scanner and marketplace — scan wallets, inspect collections, list and buy NFTs, and mint LB tokens on X1 blockchain.
+            <p style={{ fontSize: 13, color: '#7a9ab8', lineHeight: 1.7, marginBottom: 18 }}>
+              The full X1 Brains Lab Work suite — NFT marketplace and DeFi LP pairing platform on X1 blockchain.
             </p>
 
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
-              {[
-                { text: '🧠 NFTs', color: '#ffb700' },
-                { text: '🔬 SCAN', color: '#ff8c00' },
-                { text: '🪙 MINT LB', color: '#00c98d' },
-                { text: '🛒 MARKETPLACE', color: '#00d4ff' },
-              ].map(tag => (
-                <span key={tag.text} style={{
-                  fontFamily: 'Orbitron, monospace', fontSize: 7, fontWeight: 700, letterSpacing: 1,
-                  color: tag.color, background: `${tag.color}10`, border: `1px solid ${tag.color}20`,
-                  borderRadius: 5, padding: '3px 8px',
-                }}>{tag.text}</span>
-              ))}
-            </div>
+            {/* NFT Marketplace sub-button */}
+            <button
+              onClick={e => { e.stopPropagation(); navigate('/labwork'); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                background: 'rgba(255,183,0,0.06)', border: '1px solid rgba(255,183,0,0.18)',
+                borderRadius: 10, padding: '12px 14px', cursor: 'pointer',
+                transition: 'all 0.2s', textAlign: 'left', marginBottom: 10,
+                position: 'relative', overflow: 'hidden',
+              }}
+              onMouseEnter={e => { const el = e.currentTarget; el.style.background = 'rgba(255,183,0,0.14)'; el.style.borderColor = 'rgba(255,183,0,0.45)'; el.style.transform = 'translateX(3px)'; }}
+              onMouseLeave={e => { const el = e.currentTarget; el.style.background = 'rgba(255,183,0,0.06)'; el.style.borderColor = 'rgba(255,183,0,0.18)'; el.style.transform = 'translateX(0)'; }}
+            >
+              <span style={{ fontSize: 22, flexShrink: 0 }}>🧠</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                  <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#ffb700' }}>LB NFT MARKETPLACE</span>
+                  <span style={{
+                    fontFamily: 'Orbitron, monospace', fontSize: 7, fontWeight: 900, letterSpacing: 1,
+                    color: '#0a0e14', background: '#ffb700', borderRadius: 4, padding: '1px 6px',
+                  }}>NFT</span>
+                </div>
+                <div style={{ fontFamily: 'Sora, sans-serif', fontSize: 9, color: '#5c7a90' }}>Scan · List · Buy · Mint LB tokens</div>
+              </div>
+              <span style={{ color: '#ffb700', fontSize: 11, opacity: 0.7 }}>→</span>
+            </button>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ffb700', letterSpacing: 2, fontWeight: 700 }}>ENTER</span>
-              <span style={{ color: '#ffb700', fontSize: 12 }}>→</span>
-            </div>
+            {/* LP Pairing sub-button */}
+            <button
+              onClick={e => { e.stopPropagation(); navigate('/labworkdefi'); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                background: 'rgba(0,201,141,0.06)', border: '1px solid rgba(0,201,141,0.18)',
+                borderRadius: 10, padding: '12px 14px', cursor: 'pointer',
+                transition: 'all 0.2s', textAlign: 'left',
+                position: 'relative', overflow: 'hidden',
+              }}
+              onMouseEnter={e => { const el = e.currentTarget; el.style.background = 'rgba(0,201,141,0.14)'; el.style.borderColor = 'rgba(0,201,141,0.45)'; el.style.transform = 'translateX(3px)'; }}
+              onMouseLeave={e => { const el = e.currentTarget; el.style.background = 'rgba(0,201,141,0.06)'; el.style.borderColor = 'rgba(0,201,141,0.18)'; el.style.transform = 'translateX(0)'; }}
+            >
+              <span style={{ fontSize: 22, flexShrink: 0 }}>⚡</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                  <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#00c98d' }}>LB LP PAIRING</span>
+                  <span style={{
+                    fontFamily: 'Orbitron, monospace', fontSize: 7, fontWeight: 900, letterSpacing: 1,
+                    color: '#0a0e14', background: '#00c98d', borderRadius: 4, padding: '1px 6px',
+                  }}>DEFI</span>
+                  <span style={{
+                    fontFamily: 'Orbitron, monospace', fontSize: 7, fontWeight: 900, letterSpacing: 1,
+                    color: '#00c98d', background: 'rgba(0,201,141,0.15)', border: '1px solid rgba(0,201,141,0.4)', borderRadius: 4, padding: '1px 6px',
+                  }}>NEW</span>
+                </div>
+                <div style={{ fontFamily: 'Sora, sans-serif', fontSize: 9, color: '#5c7a90' }}>Swap · LP Pairing · Charts · Deposit · Withdraw</div>
+              </div>
+              <span style={{ color: '#00c98d', fontSize: 11, opacity: 0.7 }}>→</span>
+            </button>
           </div>
 
           {/* ── CYBERDYNE UNLIMITED ── */}
