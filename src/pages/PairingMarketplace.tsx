@@ -792,14 +792,131 @@ const ListingCard: FC<{
   const matchFeeLamps = calculateFeeXnt(listing.isEcosystem, lbBalance, liveUsdVal6, xntPriceUSD6);
   const { xnt: matchFeeXnt, usd: matchFeeUsd } = feeXntToDisplay(matchFeeLamps, xntPriceUSD6);
 
+  if (isMobile) {
+    // ── MOBILE CARD — compact 2-row layout ──────────────────────────────────
+    return (
+      <div style={{
+        background: '#0d1520', border: '1px solid rgba(255,255,255,.07)',
+        borderRadius: 10, padding: '10px 12px', marginBottom: 6,
+        position: 'relative', overflow: 'hidden',
+        animation: `fadeUp 0.4s ease ${idx * 0.04}s both`,
+      }}>
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 1,
+          background: 'linear-gradient(90deg,transparent,rgba(255,140,0,.25),transparent)' }} />
+        <div style={{ position: 'absolute', left: 0, top: '15%', bottom: '15%', width: 2, borderRadius: 2,
+          background: listing.isEcosystem ? 'rgba(0,212,255,.4)' : 'rgba(255,140,0,.4)' }} />
+
+        {/* Row 1 — logo + title + match button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <TokenLogo mint={listing.tokenAMint} logo={logo} symbol={listing.tokenASymbol} size={32} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap', overflow: 'hidden' }}>
+              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 900,
+                color: '#e0f0ff', letterSpacing: .3, whiteSpace: 'nowrap', overflow: 'hidden',
+                textOverflow: 'ellipsis', maxWidth: 130 }}>
+                {listing.tokenASymbol} / ANY
+              </span>
+              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 8, flexShrink: 0,
+                color: listing.isEcosystem ? 'rgba(0,212,255,.8)' : 'rgba(255,255,255,.4)',
+                background: listing.isEcosystem ? 'rgba(0,212,255,.07)' : 'rgba(255,255,255,.05)',
+                border: `1px solid ${listing.isEcosystem ? 'rgba(0,212,255,.2)' : 'rgba(255,255,255,.1)'}`,
+                borderRadius: 3, padding: '1px 5px' }}>
+                {listing.isEcosystem ? 'ECO' : 'OPEN'}
+              </span>
+              {listing.burnBps > 0 && (
+                <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 8, flexShrink: 0,
+                  color: 'rgba(255,140,0,.8)', background: 'rgba(255,140,0,.07)',
+                  border: '1px solid rgba(255,140,0,.2)', borderRadius: 3, padding: '1px 5px' }}>
+                  {burn.label} 🔥
+                </span>
+              )}
+            </div>
+            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#3a5a6a', marginTop: 1 }}>
+              by {truncAddr(listing.creator)}
+            </div>
+          </div>
+          {/* Match/Edit/Delist */}
+          {isOwn ? (
+            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+              <button onClick={e => { e.stopPropagation(); onEdit(listing); }}
+                style={{ padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
+                  background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.2)',
+                  fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700, color: '#00d4ff' }}>
+                EDIT
+              </button>
+              <button onClick={e => { e.stopPropagation(); onDelist(listing); }}
+                style={{ padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
+                  background: 'rgba(255,68,68,.04)', border: '1px solid rgba(255,68,68,.15)',
+                  fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700, color: '#ff6666' }}>
+                DELIST
+              </button>
+            </div>
+          ) : (
+            <button onClick={e => { e.stopPropagation(); onMatch(listing); }}
+              style={{ padding: '7px 14px', borderRadius: 8, cursor: 'pointer', flexShrink: 0,
+                background: 'linear-gradient(135deg,rgba(0,255,128,.15),rgba(0,200,100,.06))',
+                border: '1px solid rgba(0,255,128,.4)',
+                fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 900, color: '#00ff80' }}>
+              ⚡ MATCH
+            </button>
+          )}
+        </div>
+
+        {/* Row 2 — amount + price + chips */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'nowrap', alignItems: 'center', minWidth: 0, overflow: 'hidden' }}>
+            <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 8,
+              color: 'rgba(255,255,255,.2)', background: 'rgba(255,255,255,.03)',
+              border: '1px solid rgba(255,255,255,.06)', borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap' }}>
+              LP {eachPct > 0 ? `${eachPct}%` : 'None'}
+            </span>
+            <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 8,
+              color: 'rgba(255,255,255,.2)', background: 'rgba(255,255,255,.03)',
+              border: '1px solid rgba(255,255,255,.06)', borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap' }}>
+              {fmtXNT(matchFeeXnt)}
+            </span>
+            {listing.burnBps > 0 && (
+              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 8,
+                color: 'rgba(255,140,0,.6)', background: 'rgba(255,140,0,.05)',
+                border: '1px solid rgba(255,140,0,.12)', borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap' }}>
+                ×1.888 LB
+              </span>
+            )}
+          </div>
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontWeight: 900, fontSize: 12,
+              color: '#e0f0ff', whiteSpace: 'nowrap' }}>
+              {fmtNum(listing.amountUi)} {listing.tokenASymbol}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#9abacf' }}>
+                {priceLoading ? '…' : fmtUSD(liveUsdVal)}
+              </span>
+              {!priceLoading && showBadge && (
+                <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 8,
+                  color: priceUp ? '#00c98d' : '#ff4444',
+                  background: priceUp ? 'rgba(0,201,141,.08)' : 'rgba(255,68,68,.08)',
+                  border: `1px solid ${priceUp ? 'rgba(0,201,141,.2)' : 'rgba(255,68,68,.2)'}`,
+                  borderRadius: 3, padding: '1px 4px' }}>
+                  {priceUp ? '▲' : '▼'}{Math.abs(priceDiff).toFixed(1)}%
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── DESKTOP CARD ────────────────────────────────────────────────────────────
   return (
     <div style={{
       background: '#0d1520',
       border: '1px solid rgba(255,255,255,.07)',
-      borderRadius: 12, padding: isMobile ? '12px 14px' : '14px 18px',
+      borderRadius: 12, padding: '14px 18px',
       marginBottom: 8, position: 'relative', overflow: 'hidden',
       animation: `fadeUp 0.4s ease ${idx * 0.04}s both`, transition: 'border-color 0.18s',
-      display: 'flex', alignItems: 'center', gap: isMobile ? 10 : 14,
+      display: 'flex', alignItems: 'center', gap: 14,
     }}
     onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,140,0,.25)'; }}
     onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,255,255,.07)'; }}>
@@ -813,13 +930,12 @@ const ListingCard: FC<{
         background: listing.isEcosystem ? 'rgba(0,212,255,.4)' : 'rgba(255,140,0,.4)' }} />
 
       {/* Logo */}
-      <TokenLogo mint={listing.tokenAMint} logo={logo}
-        symbol={listing.tokenASymbol} size={isMobile ? 36 : 42} />
+      <TokenLogo mint={listing.tokenAMint} logo={logo} symbol={listing.tokenASymbol} size={42} />
 
       {/* Left content */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
-          <span style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 12 : 14,
+          <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 14,
             fontWeight: 900, color: '#e0f0ff', letterSpacing: .5 }}>
             {listing.tokenASymbol} / ANY TOKEN
           </span>
@@ -866,10 +982,10 @@ const ListingCard: FC<{
       </div>
 
       {/* Right — amount + price + match */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 10 : 16, flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontFamily: 'Orbitron,monospace', fontWeight: 900,
-            fontSize: isMobile ? 13 : 16, letterSpacing: .5, color: '#e0f0ff', marginBottom: 2 }}>
+            fontSize: 16, letterSpacing: .5, color: '#e0f0ff', marginBottom: 2 }}>
             {fmtNum(listing.amountUi)} {listing.tokenASymbol}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'flex-end' }}>
