@@ -3892,6 +3892,7 @@ const PairingMarketplace: FC = () => {
         input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
         input[type=number]{-moz-appearance:textfield}
         input::placeholder{color:#4a6a8a}
+        .ticker-scroll::-webkit-scrollbar{display:none}
       `}</style>
 
       <div style={{ position: 'relative', zIndex: 1, maxWidth: 1100, margin: '0 auto' }}>
@@ -3936,17 +3937,21 @@ const PairingMarketplace: FC = () => {
             </div>
 
             {/* ── TICKER BAR ── */}
-            <div style={{
+            <div className="ticker-scroll" style={{
               width: '100%', maxWidth: 900, margin: '0 auto 0',
               animation: 'fadeUp 0.5s ease 0.18s both',
               background: 'rgba(255,140,0,.06)',
               border: '1px solid rgba(255,140,0,.18)',
               borderBottom: 'none',
               borderRadius: '10px 10px 0 0',
-              padding: isMobile ? '8px 14px' : '10px 28px',
+              padding: isMobile ? '7px 10px' : '10px 28px',
               display: 'flex', alignItems: 'center',
-              justifyContent: 'space-between',
+              justifyContent: isMobile ? 'flex-start' : 'space-between',
               gap: 0,
+              overflowX: isMobile ? 'auto' : 'visible',
+              overflowY: 'visible',
+              WebkitOverflowScrolling: 'touch',
+              scrollbarWidth: 'none',
             }}>
               {[
                 { sym: 'BRAINS', val: brainsPrice > 0 ? `$${brainsPrice.toFixed(4)}` : '…', chg: '+1.75%', up: true },
@@ -3957,12 +3962,13 @@ const PairingMarketplace: FC = () => {
               ].map((t, i) => (
                 <React.Fragment key={t.sym}>
                   {i > 0 && <div style={{ width: 1, height: 14, background: 'rgba(255,140,0,.2)', flexShrink: 0 }} />}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px' }}>
-                    <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, letterSpacing: 1.5,
+                  <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 6,
+                    padding: isMobile ? '0 8px' : '0 12px', flexShrink: 0 }}>
+                    <span style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 7 : 8, letterSpacing: 1,
                       color: 'rgba(255,140,0,.6)', fontWeight: 700 }}>{t.sym}</span>
-                    <span style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 11 : 12,
+                    <span style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 10 : 12,
                       fontWeight: 700, color: '#e0f0ff' }}>{t.val}</span>
-                    {t.chg && (
+                    {t.chg && !isMobile && (
                       <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 9,
                         color: t.up ? '#00c98d' : '#ff4444' }}>{t.chg}</span>
                     )}
@@ -4014,10 +4020,10 @@ const PairingMarketplace: FC = () => {
                     position: 'absolute', top: 0, left: 0, right: 0, height: 1,
                     background: `linear-gradient(90deg,${color}55,transparent)`,
                   }} />
-                  <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10,
+                  <div style={{ fontFamily: 'Sora,sans-serif', fontSize: isMobile ? 8 : 10,
                     letterSpacing: 1, color: 'rgba(255,255,255,.3)',
-                    marginBottom: 10, textTransform: 'uppercase' }}>{label}</div>
-                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 16 : 20,
+                    marginBottom: isMobile ? 6 : 10, textTransform: 'uppercase' }}>{label}</div>
+                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 14 : 20,
                     fontWeight: 700, color, letterSpacing: 0.5, lineHeight: 1 }}>{value}</div>
                   <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10,
                     color: 'rgba(255,255,255,.18)', marginTop: 6 }}>{sub}</div>
