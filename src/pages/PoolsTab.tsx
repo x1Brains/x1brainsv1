@@ -122,6 +122,28 @@ function fmtUSD(v: number): string {
   return `$${v.toFixed(4)}`;
 }
 function truncAddr(a: string): string { return `${a.slice(0, 4)}…${a.slice(-4)}`; }
+
+// ─── Copy-to-clipboard button ─────────────────────────────────────────────────
+const CopyButton: FC<{ text: string; size?: number }> = ({ text, size = 11 }) => {
+  const [copied, setCopied] = React.useState(false);
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  };
+  return (
+    <button onClick={handleCopy} title={copied ? 'Copied!' : 'Copy address'} style={{
+      background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px',
+      color: copied ? '#00c98d' : '#3a5a6a', fontSize: size,
+      lineHeight: 1, borderRadius: 4, flexShrink: 0,
+      transition: 'color .15s',
+    }}>
+      {copied ? '✓' : '⎘'}
+    </button>
+  );
+};
 function useIsMobile(): boolean {
   const [m, setM] = useState(typeof window !== 'undefined' ? window.innerWidth < 640 : false);
   useEffect(() => {
@@ -215,15 +237,56 @@ async function fetchXdexMeta(mint: string): Promise<TokenMeta | null> {
   return null;
 }
 
+// ─── Hardcoded symbol/decimal overrides — always win over on-chain fetch ───────
+// Logo is still fetched from Token-2022 metadata URI in the background.
+const KNOWN_META: Record<string, { symbol: string; name: string; decimals: number }> = {
+  'So11111111111111111111111111111111111111112':     { symbol: 'XNT',    name: 'X1 Native Token',  decimals: 9 },
+  'EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC1EHUBtPN': { symbol: 'BRAINS', name: 'X1 Brains',        decimals: 9 },
+  'Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6': { symbol: 'LB',     name: 'Lab Work',         decimals: 2 },
+  'XNMbEwZFFBKQhqyW3taa8cAUp1xBUHfyzRFJQvZET4m':  { symbol: 'XNM',    name: 'Xenblocks Mining',  decimals: 9 },
+  'XUNigZPoe8f657NkRf7KF8tqj9ekouT4SoECsD6G2Bm':  { symbol: 'XUNI',   name: 'Xenblocks Uni',     decimals: 9 },
+  'XBLKLmxhADMVX3DsdwymvHyYbBYfKa5eKhtpiQ2kj7T':  { symbol: 'XBLK',   name: 'Xenblocks',         decimals: 9 },
+};
+
 async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
-  if (_metaCache.has(mint)) return _metaCache.get(mint)!;
+  // Return from cache if we already have a logo — fully resolved
+  const cached = _metaCache.get(mint);
+  if (cached?.logo) return cached;
+
+  const known = KNOWN_META[mint];
+
+  // For known tokens: seed cache with correct symbol immediately, then fetch logo
+  if (known && !cached) {
+    _metaCache.set(mint, { ...known }); // no logo yet — will be filled below
+  }
+
+  // Always attempt full metadata fetch to get the logo
   const t22 = await fetchToken2022Meta(mint);
-  if (t22) { _metaCache.set(mint, t22); return t22; }
+  if (t22) {
+    // Merge: keep known symbol/decimals if available, use fetched logo
+    const merged: TokenMeta = known
+      ? { ...known, logo: t22.logo }
+      : t22;
+    _metaCache.set(mint, merged);
+    return merged;
+  }
   const mpx = await fetchMetaplexMeta(mint);
-  if (mpx) { _metaCache.set(mint, mpx); return mpx; }
+  if (mpx) {
+    const merged: TokenMeta = known ? { ...known, logo: mpx.logo } : mpx;
+    _metaCache.set(mint, merged);
+    return merged;
+  }
   const xdex = await fetchXdexMeta(mint);
-  if (xdex) { _metaCache.set(mint, xdex); return xdex; }
-  const fallback: TokenMeta = { symbol: mint.slice(0,4).toUpperCase(), name: mint.slice(0,8), decimals: 9 };
+  if (xdex) {
+    const merged: TokenMeta = known ? { ...known, logo: xdex.logo } : xdex;
+    _metaCache.set(mint, merged);
+    return merged;
+  }
+
+  // Fallback — use known if available, otherwise truncate address
+  const fallback: TokenMeta = known
+    ? { ...known }
+    : { symbol: mint.slice(0,4).toUpperCase(), name: mint.slice(0,8), decimals: 9 };
   _metaCache.set(mint, fallback);
   return fallback;
 }
@@ -1186,10 +1249,16 @@ const PoolCard: FC<{
   connection: Connection;
   signTransaction: any;
   onRefresh: () => void;
-}> = ({ pool, isMobile, publicKey, connection, signTransaction, onRefresh }) => {
+  onModalChange: (open: boolean) => void;
+  trendingRank?: number;
+}> = ({ pool, isMobile, publicKey, connection, signTransaction, onRefresh, onModalChange, trendingRank }) => {
   const [modal, setModal] = useState<'withdraw' | 'deposit' | 'swap' | null>(null);
   const [chartData, setChartData] = useState<PricePoint[]>([]);
   const [chartLoaded, setChartLoaded] = useState(false);
+
+  // Notify parent whenever a modal opens or closes so it can suppress background refresh
+  const openModal = (m: 'withdraw' | 'deposit' | 'swap') => { setModal(m); onModalChange(true); };
+  const closeModal = () => { setModal(null); onModalChange(false); };
 
   useEffect(() => {
     if (!pool.state) return;
@@ -1229,11 +1298,39 @@ const PoolCard: FC<{
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 14 : 16, fontWeight: 900, color: '#e0f0ff' }}>
               {pool.sym0} / {pool.sym1}
             </div>
-            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a', marginTop: 2 }}>
-              {pool.seeded ? 'SEEDED POOL' : 'LAB WORK POOL'} · {burnPct}% BURN
+            <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+              {pool.seeded ? (
+                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, letterSpacing: 1,
+                  color: '#ff8c00', background: 'rgba(255,140,0,.12)',
+                  border: '1px solid rgba(255,140,0,.35)', borderRadius: 5, padding: '2px 7px' }}>
+                  🧠 ECOSYSTEM
+                </span>
+              ) : (
+                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, letterSpacing: 1,
+                  color: '#00c98d', background: 'rgba(0,201,141,.1)',
+                  border: '1px solid rgba(0,201,141,.3)', borderRadius: 5, padding: '2px 7px' }}>
+                  ⚗️ LAB WORK
+                </span>
+              )}
+              {burnPct > 0 && (
+                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, letterSpacing: 1,
+                  color: '#ff4444', background: 'rgba(255,68,68,.1)',
+                  border: '1px solid rgba(255,68,68,.3)', borderRadius: 5, padding: '2px 7px' }}>
+                  🔥 {burnPct}% BURN
+                </span>
+              )}
             </div>
           </div>
           <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+            {trendingRank && (
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 900,
+                color: trendingRank === 1 ? '#ffd700' : trendingRank === 2 ? '#c0c0c0' : trendingRank === 3 ? '#cd7f32' : '#4a6a8a',
+                background: trendingRank <= 3 ? 'rgba(255,215,0,.08)' : 'rgba(255,255,255,.04)',
+                border: `1px solid ${trendingRank === 1 ? 'rgba(255,215,0,.3)' : trendingRank === 2 ? 'rgba(192,192,192,.3)' : trendingRank === 3 ? 'rgba(205,127,50,.3)' : 'rgba(255,255,255,.08)'}`,
+                borderRadius: 6, padding: '2px 8px', marginBottom: 4, display: 'inline-block' }}>
+                {trendingRank === 1 ? '🥇' : trendingRank === 2 ? '🥈' : trendingRank === 3 ? '🥉' : `#${trendingRank}`} TRENDING
+              </div>
+            )}
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 13 : 15, fontWeight: 900, color: '#00d4ff' }}>
               {fmtUSD(pool.tvlUsd)}
             </div>
@@ -1270,22 +1367,37 @@ const PoolCard: FC<{
         {/* LP distribution */}
         <div style={{ background: 'rgba(255,255,255,.02)', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#3a5a6a', marginBottom: 8 }}>LP DISTRIBUTION</div>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            {[
+          {(() => {
+            const rows = [
               { label: 'BURNED',    val: pool.lpBurned,   color: '#ff4444' },
               { label: 'TREASURY',  val: pool.lpTreasury, color: '#ff8c00' },
               { label: 'CREATOR A', val: pool.lpUserA,    color: '#00d4ff' },
               { label: 'CREATOR B', val: pool.lpUserB,    color: '#bf5af2' },
-            ].map(r => (
-              <div key={r.label} style={{ minWidth: 60 }}>
-                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#3a5a6a', marginBottom: 2 }}>{r.label}</div>
-                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
-                  color: r.val > 0n ? r.color : '#2a3a4a' }}>
-                  {r.val > 0n ? fmtNum(Number(r.val) / Math.pow(10, lpDecimals), 2) : '—'}
-                </div>
+            ];
+            const totalLp = rows.reduce((s, r) => s + r.val, 0n);
+            return (
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                {rows.map(r => {
+                  const ui  = Number(r.val) / Math.pow(10, lpDecimals);
+                  const pct = totalLp > 0n ? Number(r.val * 10_000n / totalLp) / 100 : 0;
+                  return (
+                    <div key={r.label} style={{ minWidth: 64 }}>
+                      <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#3a5a6a', marginBottom: 2 }}>{r.label}</div>
+                      <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
+                        color: r.val > 0n ? r.color : '#2a3a4a' }}>
+                        {r.val > 0n ? fmtNum(ui, 2) : '—'}
+                      </div>
+                      {r.val > 0n && totalLp > 0n && (
+                        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 8, color: r.color, opacity: 0.6, marginTop: 1 }}>
+                          {pct.toFixed(1)}%
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            ))}
-          </div>
+            );
+          })()}
         </div>
 
         {/* Your LP */}
@@ -1301,9 +1413,10 @@ const PoolCard: FC<{
 
         {/* Pool address + explorer link */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#3a5a6a' }}>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#3a5a6a', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
             Pool: <a href={`https://explorer.x1.xyz/address/${pool.poolAddr}`} target="_blank" rel="noreferrer"
               style={{ color: '#4a6a8a', textDecoration: 'none' }}>{truncAddr(pool.poolAddr)}</a>
+            <CopyButton text={pool.poolAddr} size={10} />
             {' · '}
             {new Date(pool.createdAt * 1000).toLocaleDateString()}
           </div>
@@ -1315,16 +1428,41 @@ const PoolCard: FC<{
           </a>
         </div>
 
+        {/* Creator wallets */}
+        <div style={{ display: 'flex', gap: 16, marginBottom: 14, flexWrap: 'wrap' }}>
+          {pool.seeded ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#3a5a6a' }}>CREATED BY:</span>
+              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
+                color: '#ff8c00', background: 'rgba(255,140,0,.08)',
+                border: '1px solid rgba(255,140,0,.2)', borderRadius: 5, padding: '2px 8px' }}>
+                XDEX
+              </span>
+            </div>
+          ) : (
+            [
+              { label: 'CREATOR A', addr: pool.creatorA },
+              { label: 'CREATOR B', addr: pool.creatorB },
+            ].map(c => (
+              <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#3a5a6a' }}>{c.label}:</span>
+                <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#4a6a8a' }}>{truncAddr(c.addr)}</span>
+                <CopyButton text={c.addr} size={10} />
+              </div>
+            ))
+          )}
+        </div>
+
         {/* Action buttons */}
         {publicKey ? (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={() => setModal('swap')} style={{
+            <button onClick={() => openModal('swap')} style={{
               flex: 1, minWidth: 80, padding: '10px 0', borderRadius: 10, cursor: 'pointer',
               background: 'linear-gradient(135deg,rgba(191,90,242,.15),rgba(191,90,242,.05))',
               border: '1px solid rgba(191,90,242,.35)',
               fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 900, color: '#bf5af2',
             }}>⚡ SWAP</button>
-            <button onClick={() => setModal('deposit')} style={{
+            <button onClick={() => openModal('deposit')} style={{
               flex: 1, minWidth: 80, padding: '10px 0', borderRadius: 10, cursor: 'pointer',
               background: 'linear-gradient(135deg,rgba(0,201,141,.15),rgba(0,201,141,.05))',
               border: '1px solid rgba(0,201,141,.35)',
@@ -1332,7 +1470,7 @@ const PoolCard: FC<{
             }}>➕ DEPOSIT</button>
             {/* Only show WITHDRAW if wallet actually owns LP tokens */}
             {hasLp && pool.walletLp > 0n && (
-              <button onClick={() => setModal('withdraw')} style={{
+              <button onClick={() => openModal('withdraw')} style={{
                 flex: 1, minWidth: 80, padding: '10px 0', borderRadius: 10, cursor: 'pointer',
                 background: 'linear-gradient(135deg,rgba(0,212,255,.15),rgba(0,212,255,.05))',
                 border: '1px solid rgba(0,212,255,.35)',
@@ -1350,17 +1488,17 @@ const PoolCard: FC<{
       {modal === 'withdraw' && publicKey && pool.state && (
         <WithdrawModal pool={pool} isMobile={isMobile} publicKey={publicKey}
           connection={connection} signTransaction={signTransaction}
-          onClose={() => setModal(null)} onDone={onRefresh} />
+          onClose={closeModal} onDone={() => { closeModal(); onRefresh(); }} />
       )}
       {modal === 'deposit' && publicKey && pool.state && (
         <DepositModal pool={pool} isMobile={isMobile} publicKey={publicKey}
           connection={connection} signTransaction={signTransaction}
-          onClose={() => setModal(null)} onDone={onRefresh} />
+          onClose={closeModal} onDone={() => { closeModal(); onRefresh(); }} />
       )}
       {modal === 'swap' && publicKey && pool.state && (
         <SwapModal pool={pool} isMobile={isMobile} publicKey={publicKey}
           connection={connection} signTransaction={signTransaction}
-          onClose={() => setModal(null)} onDone={onRefresh} />
+          onClose={closeModal} onDone={() => { closeModal(); onRefresh(); }} />
       )}
     </>
   );
@@ -1374,13 +1512,17 @@ const PoolsTab: FC = () => {
 
   const [pools, setPools]     = useState<PoolView[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter]   = useState<'all' | 'mine'>('all');
+  const [filter, setFilter]   = useState<'all' | 'ecosystem' | 'trending' | 'mine'>('all');
 
-  const loadPools = useCallback(async () => {
-    setLoading(true);
+  // Track whether any PoolCard modal is open — suppress background refresh while true
+  const anyModalOpen = React.useRef(false);
+
+  const loadPools = useCallback(async (silent = false) => {
+    // Don't wipe the UI with a spinner during background refreshes
+    if (!silent) setLoading(true);
     try {
       const records = await fetchPoolRecords();
-      const realPools = records.filter(r => !r.seeded);
+      const realPools = records; // show all pools including seeded ecosystem pools
 
       // Load all pool states, vault balances, metadata, LP balances in parallel
       const views = await Promise.all(realPools.map(async (rec): Promise<PoolView> => {
@@ -1404,18 +1546,31 @@ const PoolsTab: FC = () => {
           // Token ordering: PoolRecord stores our tokenA/B but XDEX sorts them lexicographically
           // state.token0Mint is the lexicographically smaller mint
           const t0IsA = state.token0Mint === rec.tokenAMint;
-          const sym0  = t0IsA ? metaA.symbol : metaB.symbol;
-          const sym1  = t0IsA ? metaB.symbol : metaA.symbol;
+          // Always prefer KNOWN_META symbol over whatever metadata fetch returned
+          const sym0  = KNOWN_META[state.token0Mint]?.symbol ?? (t0IsA ? metaA.symbol : metaB.symbol);
+          const sym1  = KNOWN_META[state.token1Mint]?.symbol ?? (t0IsA ? metaB.symbol : metaA.symbol);
           const logo0 = t0IsA ? metaA.logo   : metaB.logo;
           const logo1 = t0IsA ? metaB.logo   : metaA.logo;
 
-          const [v0, v1, walletLp] = await Promise.all([
+          const [v0, v1, walletLp, lpMintInfo] = await Promise.all([
             fetchVaultBalance(state.token0Vault),
             fetchVaultBalance(state.token1Vault),
             publicKey ? fetchWalletLpBalance(rec.lpMint, publicKey.toBase58()) : Promise.resolve(0n),
+            // Always read LP decimals from the mint account — pool state byte is unreliable
+            rpcCall('getAccountInfo', [rec.lpMint, { encoding: 'base64' }]).catch(() => null),
           ]);
 
-          // If pool state gives dec=0 (layout mismatch), read from mint account directly
+          // LP decimals: read from mint account at offset 44 (reliable for SPL and Token-2022)
+          let lpDecimalsResolved = state.lpDecimals || 9;
+          if (lpMintInfo?.value) {
+            try {
+              const lpMintData = new Uint8Array(Buffer.from(lpMintInfo.value.data[0], 'base64'));
+              const fromMint = lpMintData[44];
+              if (fromMint > 0 && fromMint <= 18) lpDecimalsResolved = fromMint;
+            } catch {}
+          }
+
+          // Token decimals: read from mint account directly if pool state has zero (layout mismatch)
           let dec0 = state.dec0;
           let dec1 = state.dec1;
           if (dec0 === 0 || dec1 === 0) {
@@ -1438,24 +1593,41 @@ const PoolsTab: FC = () => {
           const v0Ui = Number(v0) / Math.pow(10, dec0);
           const v1Ui = Number(v1) / Math.pow(10, dec1);
 
-          // Get real USD price for token0 using the correct XDEX prices endpoint
+          // Get real USD prices for BOTH tokens from XDEX API
+          // For BRAINS: API returns stale price — derive from this pool's vault ratio using token0 price
           let price0 = 0, price1 = 0, tvlUsd = 0;
+          const BRAINS_MINT_LOCAL = 'EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC1EHUBtPN';
           try {
-            const p0res = await fetch(
-              `/api/xdex-price/api/token-price/prices?network=X1%20Mainnet&token_addresses=${state.token0Mint}`,
-              { signal: AbortSignal.timeout(5000) }
-            );
-            const p0j = await p0res.json();
-            // Parse response — handle array or object format
-            if (p0j?.success === true && Array.isArray(p0j?.data)) {
-              const item = p0j.data.find((i: any) => i?.token_address === state.token0Mint);
-              if (item?.price) price0 = Number(item.price);
-            } else if (p0j?.success && p0j?.data?.price) {
-              price0 = Number(p0j.data.price);
-            }
-            if (price0 > 0 && v0Ui > 0 && v1Ui > 0) {
-              price1 = price0 * (v0Ui / v1Ui);
-              tvlUsd = price0 * v0Ui + price1 * v1Ui;
+            // Determine which side is BRAINS
+            const brainsIsToken1 = state.token1Mint === BRAINS_MINT_LOCAL;
+            const brainsIsToken0 = state.token0Mint === BRAINS_MINT_LOCAL;
+            const nonBrainsMint  = brainsIsToken1 ? state.token0Mint : brainsIsToken0 ? state.token1Mint : null;
+
+            if (nonBrainsMint) {
+              // Pool has BRAINS on one side — fetch only the non-BRAINS token price
+              const pRes = await fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${nonBrainsMint}`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null);
+              const refPrice = pRes?.success && pRes?.data?.price ? Number(pRes.data.price) : 0;
+              if (refPrice > 0 && v0Ui > 0 && v1Ui > 0) {
+                if (brainsIsToken1) {
+                  price0 = refPrice;
+                  price1 = refPrice * (v0Ui / v1Ui); // BRAINS = token0_price × (vault0/vault1)
+                } else {
+                  price1 = refPrice;
+                  price0 = refPrice * (v1Ui / v0Ui); // BRAINS = token1_price × (vault1/vault0)
+                }
+                tvlUsd = price0 * v0Ui + price1 * v1Ui;
+              }
+            } else {
+              // No BRAINS side — fetch both prices independently
+              const [p0res, p1res] = await Promise.all([
+                fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${state.token0Mint}`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null),
+                fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${state.token1Mint}`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null),
+              ]);
+              if (p0res?.success && p0res?.data?.price) price0 = Number(p0res.data.price);
+              if (p1res?.success && p1res?.data?.price) price1 = Number(p1res.data.price);
+              if (price0 > 0 && price1 > 0) tvlUsd = price0 * v0Ui + price1 * v1Ui;
+              else if (price0 > 0) { price1 = price0 * (v0Ui / v1Ui); tvlUsd = price0 * v0Ui + price1 * v1Ui; }
+              else if (price1 > 0) { price0 = price1 * (v1Ui / v0Ui); tvlUsd = price0 * v0Ui + price1 * v1Ui; }
             }
           } catch {}
 
@@ -1466,10 +1638,10 @@ const PoolsTab: FC = () => {
             price1 = v1Ui > 0 ? (tvlUsd / 2) / v1Ui : 0;
           }
 
-          // LP price = TVL / LP supply
+          // LP price = TVL / LP supply (use resolved decimals, not raw state field)
           const supply  = Number(state.lpSupply);
           const lpPrice = supply > 0 && tvlUsd > 0
-            ? tvlUsd / (supply / Math.pow(10, state.lpDecimals))
+            ? tvlUsd / (supply / Math.pow(10, lpDecimalsResolved))
             : 0;
 
           return {
@@ -1477,7 +1649,7 @@ const PoolsTab: FC = () => {
             state, vault0Bal: v0, vault1Bal: v1,
             sym0, sym1, logo0, logo1,
             tvlUsd, price0, price1, lpPrice,
-            walletLp, lpDecimals: state.lpDecimals,
+            walletLp, lpDecimals: lpDecimalsResolved,
             dec0, dec1,
             loading: false,
           };
@@ -1487,6 +1659,32 @@ const PoolsTab: FC = () => {
       }));
 
       setPools(views);
+
+      // Dispatch ecosystem TVL to dashboard — only the 5 known BRAINS ecosystem pools
+      const ECOSYSTEM_POOL_ADDRS = new Set([
+        '7deZorr98nLdZhpmSdUgu8WY4NAjSpeLDGxHzaTAxrUg',
+        '4C4o1Zgzrt996t2BupL65WJvkifZZ3Ncv3oZxe2CxrW4',
+        'AhgJp8b2aFu9dgFbZZwSs5QhQXWgvtiY6MFaMzxriApb',
+        'HWmgietnQGE3eK11PhaCsZi6E3iFzCK3n8wTDrYoiLoP',
+        'DjaYfY2s7BFxs8Se13ZVcHS48UCvZgFFuxaWgPiabYve',
+      ]);
+      const ecosystemTvl = views
+        .filter(v => ECOSYSTEM_POOL_ADDRS.has(v.address))
+        .reduce((sum, v) => sum + (v.tvlUsd || 0), 0);
+      if (ecosystemTvl > 0) {
+        window.dispatchEvent(new CustomEvent('xbrains-tvl', { detail: { totalTvl: ecosystemTvl } }));
+      }
+
+      // Background logo refresh — fetchTokenMeta may have returned without a logo on first call
+      // (Token-2022 URI fetch can be slow). Re-fetch all mints and patch logos into state.
+      const allMints = [...new Set(views.flatMap(v => [v.tokenAMint, v.tokenBMint]))];
+      Promise.allSettled(allMints.map(m => fetchTokenMeta(m))).then(() => {
+        setPools(prev => prev.map(p => ({
+          ...p,
+          logo0: _metaCache.get(p.state?.token0Mint ?? p.tokenAMint)?.logo ?? p.logo0,
+          logo1: _metaCache.get(p.state?.token1Mint ?? p.tokenBMint)?.logo ?? p.logo1,
+        })));
+      });
     } catch (e) {
       console.error('Failed to load pools:', e);
     } finally {
@@ -1495,6 +1693,14 @@ const PoolsTab: FC = () => {
   }, [publicKey]);
 
   useEffect(() => { loadPools(); }, [loadPools]);
+
+  // Background refresh every 60s — skips silently if any modal is open
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!anyModalOpen.current) loadPools(true);
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [loadPools]);
 
   // Re-fetch wallet LP balances when publicKey changes (wallet connects after initial load)
   useEffect(() => {
@@ -1509,9 +1715,19 @@ const PoolsTab: FC = () => {
     refreshLpBalances();
   }, [publicKey]);
 
-  const filtered = filter === 'mine' && publicKey
-    ? pools.filter(p => p.creatorA === publicKey.toBase58() || p.creatorB === publicKey.toBase58() || p.walletLp > 0n)
-    : pools;
+  const filtered = (() => {
+    let list = [...pools];
+    if (filter === 'ecosystem') return list.filter(p => p.seeded);
+    if (filter === 'mine' && publicKey)
+      return list.filter(p => p.creatorA === publicKey.toBase58() || p.creatorB === publicKey.toBase58() || p.walletLp > 0n);
+    if (filter === 'trending')
+      return list.filter(p => p.tvlUsd > 0).sort((a, b) => b.tvlUsd - a.tvlUsd);
+    // 'all' — ecosystem pools first, then protocol pools by TVL
+    return list.sort((a, b) => {
+      if (a.seeded !== b.seeded) return a.seeded ? -1 : 1;
+      return b.tvlUsd - a.tvlUsd;
+    });
+  })();
 
   return (
     <div style={{ width: '100%' }}>
@@ -1524,21 +1740,27 @@ const PoolsTab: FC = () => {
             🏊 LAB WORK POOLS
           </div>
           <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a', marginTop: 3 }}>
-            {pools.length} pool{pools.length !== 1 ? 's' : ''} · swap, deposit & withdraw directly
+            {pools.filter(p => !p.seeded).length} protocol pool{pools.filter(p => !p.seeded).length !== 1 ? 's' : ''} · {pools.filter(p => p.seeded).length} ecosystem pool{pools.filter(p => p.seeded).length !== 1 ? 's' : ''} · swap, deposit & withdraw
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {/* Filter tabs */}
           <div style={{ display: 'flex', background: 'rgba(255,255,255,.04)',
-            border: '1px solid rgba(255,255,255,.08)', borderRadius: 10, padding: 3 }}>
-            {(['all', 'mine'] as const).map(f => (
-              <button key={f} onClick={() => setFilter(f)} style={{
-                padding: '5px 12px', borderRadius: 8, cursor: 'pointer',
+            border: '1px solid rgba(255,255,255,.08)', borderRadius: 10, padding: 3, flexWrap: 'wrap', gap: 2 }}>
+            {([
+              { id: 'all',       label: '🌐 ALL',        color: '#00d4ff' },
+              { id: 'ecosystem', label: '🧠 ECOSYSTEM',  color: '#ff8c00' },
+              { id: 'trending',  label: '🔥 TRENDING',   color: '#ff4444' },
+              { id: 'mine',      label: '👤 MINE',       color: '#bf5af2' },
+            ] as { id: typeof filter; label: string; color: string }[]).map(f => (
+              <button key={f.id} onClick={() => setFilter(f.id)} style={{
+                padding: '5px 10px', borderRadius: 8, cursor: 'pointer',
                 fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 900,
-                background: filter === f ? 'rgba(0,212,255,.15)' : 'transparent',
-                border: `1px solid ${filter === f ? 'rgba(0,212,255,.3)' : 'transparent'}`,
-                color: filter === f ? '#00d4ff' : '#4a6a8a',
-              }}>{f === 'all' ? 'ALL POOLS' : 'MY POOLS'}</button>
+                background: filter === f.id ? `${f.color}20` : 'transparent',
+                border: `1px solid ${filter === f.id ? f.color + '55' : 'transparent'}`,
+                color: filter === f.id ? f.color : '#4a6a8a',
+                transition: 'all .15s',
+              }}>{f.label}</button>
             ))}
           </div>
           {/* Refresh */}
@@ -1570,20 +1792,29 @@ const PoolsTab: FC = () => {
           <div style={{ fontSize: 48, marginBottom: 16 }}>🏊</div>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 12 : 16,
             fontWeight: 900, color: '#9abacf', letterSpacing: 2, marginBottom: 8 }}>
-            {filter === 'mine' ? 'NO POOLS FOUND' : 'NO POOLS YET'}
+            {filter === 'mine' ? 'NO POOLS FOUND'
+              : filter === 'ecosystem' ? 'NO ECOSYSTEM POOLS'
+              : filter === 'trending' ? 'NO ACTIVE POOLS'
+              : 'NO POOLS YET'}
           </div>
           <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#4a6a8a' }}>
             {filter === 'mine'
               ? 'You have no LP positions or created pools.'
+              : filter === 'ecosystem'
+              ? 'No ecosystem pools have been seeded yet.'
+              : filter === 'trending'
+              ? 'No pools with TVL data found.'
               : 'Pools appear here once a listing is matched.'}
           </div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {filtered.map(pool => (
+          {filtered.map((pool, idx) => (
             <PoolCard key={pool.pda} pool={pool} isMobile={isMobile}
               publicKey={publicKey} connection={connection} signTransaction={signTransaction}
-              onRefresh={loadPools} />
+              onRefresh={() => loadPools(true)}
+              onModalChange={(open) => { anyModalOpen.current = open; }}
+              trendingRank={filter === 'trending' ? idx + 1 : undefined} />
           ))}
         </div>
       )}
