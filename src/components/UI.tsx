@@ -196,7 +196,27 @@ export const TopBar: FC = () => {
         >
           <span style={{ fontSize: 12 }}>🧪</span>
           <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#bf5af2', letterSpacing: 2, fontWeight: 700 }}>LAB WORK</span>
-          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#fff', background: '#bf5af2', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NEW</span>
+          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#fff', background: '#bf5af2', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NFT</span>
+        </button>
+        )}
+
+        {/* LP PAIRING — top nav button */}
+        {!isLabWorkDefi && (
+        <button className="tb-hide-mobile" onClick={() => navigate('/labworkdefi')}
+          style={{
+            background: 'rgba(0,201,141,0.06)',
+            border: '1px solid rgba(0,201,141,0.25)',
+            borderRadius: 8, padding: '7px 12px', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 6,
+            backdropFilter: 'blur(12px)', transition: 'all 0.2s',
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,201,141,0.18)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(0,201,141,0.6)'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,201,141,0.06)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(0,201,141,0.25)'; }}
+        >
+          <span style={{ fontSize: 12 }}>⚡</span>
+          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#00c98d', letterSpacing: 2, fontWeight: 700 }}>LP PAIRING</span>
+          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#0a0e14', background: '#00c98d', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>DEFI</span>
+          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#00c98d', background: 'rgba(0,201,141,0.15)', border: '1px solid rgba(0,201,141,0.4)', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NEW</span>
         </button>
         )}
 
@@ -258,11 +278,23 @@ export const TopBar: FC = () => {
               >
                 <span style={{ fontSize: 14 }}>🧪</span>
                 <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#bf5af2', letterSpacing: 1.5, fontWeight: 700 }}>LAB WORK</span>
-                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#fff', background: '#bf5af2', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NEW</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#fff', background: '#bf5af2', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NFT</span>
                 {isLabWork && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#bf5af2' }} />}
               </button>
 
-              {/* LAB WORK DeFi — hidden until delist fixed */}
+              {/* LP PAIRING */}
+              <button
+                onClick={() => { navigate('/labworkdefi'); setNavOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isLabWorkDefi ? 'rgba(0,201,141,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,201,141,0.1)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isLabWorkDefi ? 'rgba(0,201,141,0.1)' : 'transparent'; }}
+              >
+                <span style={{ fontSize: 14 }}>⚡</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#00c98d', letterSpacing: 1.5, fontWeight: 700 }}>LP PAIRING</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#0a0e14', background: '#00c98d', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>DEFI</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#00c98d', background: 'rgba(0,201,141,0.15)', border: '1px solid rgba(0,201,141,0.4)', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NEW</span>
+                {isLabWorkDefi && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#00c98d' }} />}
+              </button>
 
               {/* CYBERDYNE */}
               <button
