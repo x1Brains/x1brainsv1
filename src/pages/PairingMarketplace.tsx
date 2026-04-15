@@ -3863,11 +3863,39 @@ const PairingMarketplace: FC = () => {
         // For now use the reliable approach: sum individual pool TVL from XDEX price API
         // using token0 price × vault0 + token1 price × vault1
 
-        // Wire TVL from PoolsTab via window event — persistent listener, not once
+        // Wire TVL from PoolsTab via window event (fires when user opens LB POOLS tab)
         const handleTvlUpdate = (e: any) => {
           if (e.detail?.totalTvl > 0) setTotalTVL(e.detail.totalTvl);
         };
         window.addEventListener('xbrains-tvl', handleTvlUpdate);
+
+        // Also fetch TVL directly — don't depend on PoolsTab being mounted.
+        // Sum TVL for the 5 known ecosystem pools using XDEX pool API.
+        const ECOSYSTEM_POOLS = [
+          '7deZorr98nLdZhpmSdUgu8WY4NAjSpeLDGxHzaTAxrUg',
+          '4C4o1Zgzrt996t2BupL65WJvkifZZ3Ncv3oZxe2CxrW4',
+          'AhgJp8b2aFu9dgFbZZwSs5QhQXWgvtiY6MFaMzxriApb',
+          'HWmgietnQGE3eK11PhaCsZi6E3iFzCK3n8wTDrYoiLoP',
+          'DjaYfY2s7BFxs8Se13ZVcHS48UCvZgFFuxaWgPiabYve',
+        ];
+        try {
+          const tvlResults = await Promise.allSettled(
+            ECOSYSTEM_POOLS.map(addr =>
+              fetch(`${XDEX_BASE}/xendex/pool/${addr}?network=mainnet`, { signal: AbortSignal.timeout(6000) })
+                .then(r => r.ok ? r.json() : null)
+            )
+          );
+          let ecosystemTvl = 0;
+          for (const r of tvlResults) {
+            if (r.status !== 'fulfilled' || !r.value) continue;
+            const pool = r.value;
+            // XDEX returns tvl or total_tvl or liquidity_usd depending on version
+            const tvl = pool?.tvl ?? pool?.total_tvl ?? pool?.liquidity_usd ?? pool?.tvlUsd ?? 0;
+            ecosystemTvl += Number(tvl) || 0;
+          }
+          if (ecosystemTvl > 0) setTotalTVL(ecosystemTvl);
+        } catch {}
+
         return () => window.removeEventListener('xbrains-tvl', handleTvlUpdate);
       } catch {}
     })();
