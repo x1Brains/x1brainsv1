@@ -405,7 +405,7 @@ const LabWork: FC = () => {
   // ── Platform stats — live from chain, independent of tradeLogs ──
   const [platformVolXnt,  setPlatformVolXnt]  = useState<number>(0);
   const [platformSales,   setPlatformSales]   = useState<number>(0);
-  const [biggestSaleLive, setBiggestSaleLive] = useState<{ price: number; sig: string; timestamp: number } | null>(null);
+  const [biggestSaleLive, setBiggestSaleLive] = useState<{ price: number; sig: string; timestamp: number; nftMint?: string; nftData?: NFTData } | null>(null);
 
   const loadPlatformStats = useCallback(async () => {
     // Walk ALL signatures on the marketplace program.
@@ -496,7 +496,7 @@ const LabWork: FC = () => {
     console.log('[PlatformStats] done — sales:', salesCount, 'vol lamports:', totalLamports, 'biggest:', biggest);
     setPlatformVolXnt(totalLamports / 1e9);
     setPlatformSales(salesCount);
-    if (biggest) setBiggestSaleLive(biggest);
+    if (biggest) setBiggestSaleLive({ ...biggest });
   }, [connection]);
 
   // ── NFT wallet loader ────────────────────────────────────────────
@@ -833,7 +833,15 @@ const LabWork: FC = () => {
         const biggest = buySales.reduce((b, l) => (!b || (l.price ?? 0) > (b.price ?? 0)) ? l : b, null as TradeLog | null);
         if (volXnt > 0) setPlatformVolXnt(volXnt);
         if (buySales.length > 0) setPlatformSales(buySales.length);
-        if (biggest?.price) setBiggestSaleLive({ price: biggest.price, sig: biggest.sig, timestamp: biggest.timestamp });
+        if (biggest?.price) {
+          setBiggestSaleLive({ price: biggest.price, sig: biggest.sig, timestamp: biggest.timestamp, nftMint: biggest.nftMint, nftData: biggest.nftData });
+          // Enrich NFT metadata for biggest sale if not already loaded
+          if (biggest.nftMint && !biggest.nftData?.image) {
+            enrichNFTFromMint(connection, biggest.nftMint).then(nftData => {
+              setBiggestSaleLive(prev => prev ? { ...prev, nftData } : prev);
+            }).catch(() => {});
+          }
+        }
       }
 
       // ── Step 6: Enrich metadata for top 10 visible only ──
@@ -1606,16 +1614,17 @@ const LabWork: FC = () => {
                           <>
                             <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
                               <div style={{ width:56, height:56, borderRadius:12, overflow:'hidden', flexShrink:0, background:'rgba(0,0,0,.3)', position:'relative', border:'2px solid rgba(255,170,0,.25)' }}>
-                                {(biggestSaleLive ? null : biggestSale?.nftData?.image)
-                                  ? <img src={biggestSale!.nftData!.image!} alt="" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }} onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
+                                {(biggestSaleLive?.nftData?.image || biggestSale?.nftData?.image)
+                                  ? <img src={(biggestSaleLive?.nftData?.image ?? biggestSale?.nftData?.image)!} alt="" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }} onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
                                   : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22 }}>🖼️</div>
                                 }
                               </div>
                               <div style={{ flex:1, minWidth:0 }}>
                                 <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 9 : 10, fontWeight:700, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                                  {biggestSaleLive
-                                    ? biggestSaleLive.sig.slice(0,10)+'…'
-                                    : (biggestSale?.nftData?.name ?? biggestSale?.nftMint.slice(0,10)+'…')}
+                                  {biggestSaleLive?.nftData?.name
+                                    ?? biggestSale?.nftData?.name
+                                    ?? biggestSaleLive?.nftMint?.slice(0,10)+'…'
+                                    ?? biggestSaleLive?.sig.slice(0,10)+'…'}
                                 </div>
                                 <div style={{ fontFamily:'Sora,sans-serif', fontSize:9, color:'#9abacf', marginTop:3 }}>
                                   {new Date((biggestSaleLive?.timestamp ?? biggestSale?.timestamp ?? 0)*1000).toLocaleDateString()}
