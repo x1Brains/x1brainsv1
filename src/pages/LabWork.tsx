@@ -564,52 +564,78 @@ const LabWork: FC = () => {
   const loadActivity = useCallback(async () => {
     setLoadingActivity(true);
     try {
-      // ── Step 1: Supabase first — render immediately if we have data ──
+      // ── Step 1: Supabase — fetch ALL trades via 1000-row pagination, no cap ──
       let supaLogs: TradeLog[] = [];
       try {
         if (supabase) {
-          const { data } = await supabase
-            .from('labwork_trades')
-            .select('*')
-            .order('timestamp', { ascending: false })
-            .limit(50);
-          if (data && data.length > 0) {
-            supaLogs = data.map((r: any) => ({
+          let from = 0;
+          const PAGE = 1000;
+          while (true) {
+            const { data } = await supabase
+              .from('labwork_trades')
+              .select('*')
+              .order('timestamp', { ascending: false })
+              .range(from, from + PAGE - 1);
+            if (!data || data.length === 0) break;
+            supaLogs.push(...data.map((r: any) => ({
               sig: r.sig, type: r.type, nftMint: r.nft_mint,
               price: r.price, seller: r.seller, buyer: r.buyer,
               timestamp: r.timestamp,
-            }));
-            // Render Supabase logs immediately — don't wait for chain or enrichment
+            })));
+            if (data.length < PAGE) break;
+            from += PAGE;
+          }
+          // Render Supabase logs immediately so UI isn't blank during chain walk
+          if (supaLogs.length > 0) {
             setTradeLogs(supaLogs);
             setLoadingActivity(false);
           }
         }
       } catch { /* supabase not available */ }
 
-      // ── Step 2: Chain fetch — only if Supabase had no data ──
-      // If Supabase returned results we already have good data; skip the slow chain walk.
-      let chainLogs: TradeLog[] = [];
-      if (supaLogs.length === 0) {
-        try {
-          const progId     = getMarketplaceProgramId();
-          const sigs       = await connection.getSignaturesForAddress(progId, { limit: 25 });
-          const validSigs  = sigs.filter((s: any) => !s.err).slice(0, 12);
-          const listDisc = DISC_LIST_NFT;
-          const buyDisc  = DISC_BUY_NFT;
-          const delistDisc = DISC_CANCEL;
+      // ── Step 2: ALWAYS walk the chain to backfill any missing txns ──
+      // Uses `before` cursor to page through ALL signatures, not just last 25.
+      // Stops walking back once it hits sigs already in Supabase (already backfilled).
+      // Any new chain txns found are written to Supabase immediately via saveTrade
+      // so they're found instantly on the next page load without re-walking.
+      try {
+        const progId     = getMarketplaceProgramId();
+        const supaSet    = new Set(supaLogs.map(l => l.sig));
+        const listDisc   = DISC_LIST_NFT;
+        const buyDisc    = DISC_BUY_NFT;
+        const delistDisc = DISC_CANCEL;
+        const progIdStr  = progId.toBase58();
 
-          // Fetch all transactions in parallel (not sequential)
+        const chainLogs: TradeLog[] = [];
+        let before: string | undefined = undefined;
+        let keepGoing = true;
+
+        while (keepGoing) {
+          const opts: any = { limit: 100 };
+          if (before) opts.before = before;
+
+          const sigs = await connection.getSignaturesForAddress(progId, opts);
+          if (!sigs || sigs.length === 0) break;
+
+          const validSigs = sigs.filter((s: any) => !s.err);
+
+          // Once all sigs in this page are already in Supabase, history is fully synced
+          const newSigs = validSigs.filter((s: any) => !supaSet.has(s.signature));
+          if (newSigs.length === 0) { keepGoing = false; break; }
+
+          // Fetch full tx data for new sigs in parallel
           const txResults = await Promise.allSettled(
-            validSigs.map((s: any) => connection.getTransaction(s.signature, {
+            newSigs.map((s: any) => connection.getTransaction(s.signature, {
               maxSupportedTransactionVersion: 0,
               commitment: 'confirmed',
             }))
           );
 
+          const batchNew: TradeLog[] = [];
           txResults.forEach((result, idx) => {
             if (result.status !== 'fulfilled' || !result.value) return;
             const tx  = result.value;
-            const sig = validSigs[idx].signature;
+            const sig = newSigs[idx].signature;
             const ts  = tx.blockTime ?? 0;
             const msg = tx.transaction?.message;
             const accountKeys: string[] = (msg?.accountKeys ?? msg?.staticAccountKeys ?? [])
@@ -618,7 +644,7 @@ const LabWork: FC = () => {
 
             for (const ix of ixs as any[]) {
               const progKey = accountKeys[ix.programIdIndex ?? -1] ?? '';
-              if (progKey !== progId.toBase58()) continue;
+              if (progKey !== progIdStr) continue;
 
               let dataHex = '';
               if (ix.data) {
@@ -628,9 +654,9 @@ const LabWork: FC = () => {
 
               const disc8 = dataHex.slice(0, 16);
               let type: TradeLog['type'] | null = null;
-              if (disc8 === listDisc)   type = 'list';
-              if (disc8 === buyDisc)    type = 'buy';
-              if (disc8 === delistDisc) type = 'delist';
+              if (disc8 === listDisc)    type = 'list';
+              if (disc8 === buyDisc)     type = 'buy';
+              if (disc8 === delistDisc)  type = 'delist';
               if (!type) continue;
 
               const ixAccs = (ix.accounts ?? []).map((i: number) => accountKeys[i] ?? '');
@@ -641,43 +667,64 @@ const LabWork: FC = () => {
               if (type !== 'delist' && dataHex.length >= 32) {
                 try { price = Number(Buffer.from(dataHex.slice(16, 32), 'hex').readBigUInt64LE(0)); } catch {}
               }
-              chainLogs.push({ sig, type, nftMint: mint, price, seller, buyer, timestamp: ts });
+              batchNew.push({ sig, type, nftMint: mint, price, seller, buyer, timestamp: ts });
             }
           });
-        } catch { /* chain fetch failed — supabase is fallback */ }
-      }
 
-      // ── Step 3: Merge + deduplicate ──
-      const supaSet = new Set(supaLogs.map(l => l.sig));
-      const merged  = [...supaLogs, ...chainLogs.filter(l => !supaSet.has(l.sig))]
-        .sort((a, b) => b.timestamp - a.timestamp)
-        .slice(0, 50);
+          // Persist newly found chain txns to Supabase so they won't be re-walked next time
+          for (const log of batchNew) {
+            saveTrade({
+              sig: log.sig, type: log.type, nftMint: log.nftMint,
+              price: log.price, seller: log.seller, buyer: log.buyer,
+              timestamp: log.timestamp,
+            });
+          }
 
-      if (merged.length === 0) { setLoadingActivity(false); return; }
+          chainLogs.push(...batchNew);
 
-      // ── Set tradeLogs immediately so overviewData populates without waiting for enrichment ──
-      setTradeLogs(merged);
-      setLoadingActivity(false);
+          // Advance cursor to walk further back in history
+          before = sigs[sigs.length - 1].signature;
+          if (sigs.length < 100) keepGoing = false;
 
-      // ── Step 4: Enrich metadata — only top 10, concurrency-capped ──
-      // Use cached data first, only fetch what's missing
-      const toEnrich = merged.slice(0, 10).filter(l => !l.nftData && l.nftMint);
-      const CONCURRENCY = 3;
-      const enrichedMap = new Map<string, NFTData>();
-      for (let i = 0; i < toEnrich.length; i += CONCURRENCY) {
-        const chunk = toEnrich.slice(i, i + CONCURRENCY);
-        const results = await Promise.allSettled(
-          chunk.map(log => enrichNFTFromMint(connection, log.nftMint))
-        );
-        results.forEach((r, idx) => {
-          if (r.status === 'fulfilled') enrichedMap.set(chunk[idx].sig, r.value);
-        });
-      }
+          // Small yield between pages to avoid hammering the RPC
+          await new Promise(r => setTimeout(r, 150));
+        }
 
-      const final = merged.map(log =>
-        enrichedMap.has(log.sig) ? { ...log, nftData: enrichedMap.get(log.sig) } : log
-      );
-      setTradeLogs(final);
+        // ── Step 3: Merge Supabase + chain, deduplicate, sort full history ──
+        if (chainLogs.length > 0) {
+          const supaSet2 = new Set(supaLogs.map(l => l.sig));
+          const merged = [...supaLogs, ...chainLogs.filter(l => !supaSet2.has(l.sig))]
+            .sort((a, b) => b.timestamp - a.timestamp);
+          setTradeLogs(merged);
+          setLoadingActivity(false);
+        }
+      } catch (e) { console.error('[LabWork] chain backfill error:', e); }
+
+      if (supaLogs.length === 0) { setLoadingActivity(false); return; }
+
+      // ── Step 4: Enrich metadata for the top 10 visible logs only ──
+      setTradeLogs(prev => {
+        const toEnrich = prev.slice(0, 10).filter(l => !l.nftData && l.nftMint);
+        if (toEnrich.length === 0) return prev;
+        const CONCURRENCY = 3;
+        (async () => {
+          const enrichedMap = new Map<string, NFTData>();
+          for (let i = 0; i < toEnrich.length; i += CONCURRENCY) {
+            const chunk = toEnrich.slice(i, i + CONCURRENCY);
+            const results = await Promise.allSettled(
+              chunk.map(log => enrichNFTFromMint(connection, log.nftMint))
+            );
+            results.forEach((r, idx) => {
+              if (r.status === 'fulfilled') enrichedMap.set(chunk[idx].sig, r.value);
+            });
+          }
+          setTradeLogs(all =>
+            all.map(log => enrichedMap.has(log.sig) ? { ...log, nftData: enrichedMap.get(log.sig) } : log)
+          );
+        })();
+        return prev;
+      });
+
     } catch (e) { console.error('loadActivity error:', e); }
     setLoadingActivity(false);
   }, [connection]);
