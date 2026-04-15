@@ -401,6 +401,91 @@ const LabWork: FC = () => {
   const [boosts,       setBoosts]       = useState<BoostRecord[]>([]);
   const [boostTarget,  setBoostTarget]  = useState<Listing | null>(null);
 
+  // ── Platform stats — live from chain, independent of tradeLogs ──
+  const [platformVolXnt,  setPlatformVolXnt]  = useState<number>(0);
+  const [platformSales,   setPlatformSales]   = useState<number>(0);
+  const [biggestSaleLive, setBiggestSaleLive] = useState<{ price: number; sig: string; timestamp: number } | null>(null);
+
+  const loadPlatformStats = useCallback(async () => {
+    // Walk ALL signatures on the marketplace program.
+    // For each confirmed buy tx, the platform wallet receives 1.888% of sale price.
+    // Total volume = sum(platformDelta / 0.01888) for all buy instructions.
+    // This is always live and accurate — no Supabase dependency.
+    if (!PLATFORM_WALLET) return;
+    const progId       = getMarketplaceProgramId();
+    const platformStr  = PLATFORM_WALLET.toBase58();
+    const FEE_RATE     = 0.01888;
+    const DISC_BUY_HEX = DISC_BUY_NFT;
+
+    let totalLamports = 0;
+    let salesCount    = 0;
+    let biggest: { price: number; sig: string; timestamp: number } | null = null;
+    let before: string | undefined = undefined;
+
+    try {
+      while (true) {
+        const opts: any = { limit: 100 };
+        if (before) opts.before = before;
+        const sigs = await connection.getSignaturesForAddress(progId, opts);
+        if (!sigs || sigs.length === 0) break;
+
+        const validSigs = sigs.filter((s: any) => !s.err);
+        const txResults = await Promise.allSettled(
+          validSigs.map((s: any) => connection.getTransaction(s.signature, {
+            maxSupportedTransactionVersion: 0, commitment: 'confirmed',
+          }))
+        );
+
+        for (let i = 0; i < txResults.length; i++) {
+          const result = txResults[i];
+          if (result.status !== 'fulfilled' || !result.value) continue;
+          const tx  = result.value;
+          const sig = validSigs[i].signature;
+          const ts  = tx.blockTime ?? 0;
+          const msg = tx.transaction?.message;
+          const accountKeys: string[] = (msg?.accountKeys ?? msg?.staticAccountKeys ?? [])
+            .map((k: any) => k?.toBase58?.() ?? k?.toString?.() ?? k);
+          const platformIdx = accountKeys.indexOf(platformStr);
+          if (platformIdx < 0) continue;
+
+          const pre   = (tx.meta?.preBalances  ?? [])[platformIdx] ?? 0;
+          const post  = (tx.meta?.postBalances ?? [])[platformIdx] ?? 0;
+          const delta = post - pre;
+          if (delta <= 0) continue;
+
+          // Only count buy instructions (not delist/cancel fees)
+          const ixs = msg?.instructions ?? [];
+          let isBuy = false;
+          for (const ix of ixs as any[]) {
+            const progKey = accountKeys[ix.programIdIndex ?? -1] ?? '';
+            if (progKey !== progId.toBase58()) continue;
+            let dataHex = '';
+            if (ix.data) {
+              try { dataHex = Buffer.from(ix.data, 'base58' as any).toString('hex'); }
+              catch { try { dataHex = Buffer.from(ix.data, 'base64').toString('hex'); } catch {} }
+            }
+            if (dataHex.slice(0, 16) === DISC_BUY_HEX) { isBuy = true; break; }
+          }
+          if (!isBuy) continue;
+
+          // Recover full sale price: fee = price * 0.01888 → price = fee / 0.01888
+          const salePrice = Math.round(delta / FEE_RATE);
+          totalLamports += salePrice;
+          salesCount++;
+          if (!biggest || salePrice > biggest.price) biggest = { price: salePrice, sig, timestamp: ts };
+        }
+
+        before = sigs[sigs.length - 1].signature;
+        if (sigs.length < 100) break;
+        await new Promise(r => setTimeout(r, 150));
+      }
+    } catch (e) { console.error('[LabWork] loadPlatformStats error:', e); }
+
+    setPlatformVolXnt(totalLamports / 1e9);
+    setPlatformSales(salesCount);
+    if (biggest) setBiggestSaleLive(biggest);
+  }, [connection]);
+
   // ── NFT wallet loader ────────────────────────────────────────────
   useEffect(() => {
     if (!publicKey || !connection) { setNfts([]); setLoading(false); return; }
@@ -743,6 +828,7 @@ const LabWork: FC = () => {
 
   useEffect(() => { loadListings(); }, []);
   useEffect(() => { loadActivity(); }, []);
+  useEffect(() => { loadPlatformStats(); }, []);
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' as any }); }, []);
   useEffect(() => { if (pageMode === 'gallery' && nfts.length === 0 && publicKey) { /* NFTs load via wallet useEffect */ } }, [pageMode]);
 
@@ -819,7 +905,7 @@ const LabWork: FC = () => {
       saveTrade({ sig, type:'buy', nftMint: listing.nftMint, price: listing.price, seller: listing.seller, buyer: publicKey.toBase58(), timestamp: Math.floor(Date.now()/1000) });
       // Inject new buy into tradeLogs immediately so overview/activity update at once
       setTradeLogs(prev => [{ sig, type: 'buy' as const, nftMint: listing.nftMint, price: listing.price, seller: listing.seller, buyer: publicKey.toBase58(), timestamp: Math.floor(Date.now()/1000), nftData: listing.nftData }, ...prev]);
-      setTimeout(() => { setConfirmTarget(null); setTxStatus(''); loadListings(); loadActivity(); }, 2500);
+      setTimeout(() => { setConfirmTarget(null); setTxStatus(''); loadListings(); loadActivity(); loadPlatformStats(); }, 2500);
     } catch (e: any) {
       setTxStatus(`❌ ${e?.message?.slice(0,120) ?? 'Transaction failed'}`);
     } finally { setTxPending(false); }
@@ -1349,10 +1435,10 @@ const LabWork: FC = () => {
                     border:'1px solid rgba(255,255,255,.07)', marginBottom: isMobile ? 20 : 28,
                     flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
                     {[
-                      { label:'TOTAL LISTINGS', value: listings.length.toString(),      unit:'',    color:'#00d4ff', sub:'active on-chain' },
-                      { label:'TOTAL VOLUME',   value: totalVolXnt.toFixed(2),          unit:'XNT', color:'#00c98d', sub:'all time' },
+                      { label:'TOTAL LISTINGS', value: listings.length.toString(),                                              unit:'',    color:'#00d4ff', sub:'active on-chain' },
+                      { label:'TOTAL VOLUME',   value: platformVolXnt > 0 ? platformVolXnt.toFixed(2) : totalVolXnt.toFixed(2), unit:'XNT', color:'#00c98d', sub:'all time' },
                       { label:'FLOOR PRICE',    value: floorListing ? lamportsToXnt(floorListing.price) : '—', unit: floorListing ? 'XNT' : '', color:'#bf5af2', sub:'lowest listing' },
-                      { label:'TOTAL SALES',    value: sales.length.toString(),         unit:'',    color:'#ffaa00', sub:'completed buys' },
+                      { label:'TOTAL SALES',    value: platformSales > 0 ? platformSales.toString() : sales.length.toString(),      unit:'',    color:'#ffaa00', sub:'completed buys' },
                     ].map(({ label, value, unit, color, sub }, i, arr) => (
                       <div key={label} style={{
                         flex: isMobile ? '1 1 50%' : 1,
@@ -1480,29 +1566,36 @@ const LabWork: FC = () => {
                       {/* Biggest Sale */}
                       <div style={{ background:'linear-gradient(135deg,rgba(255,170,0,.08),rgba(191,90,242,.05))', border:'1px solid rgba(255,170,0,.2)', borderRadius:16, padding: isMobile ? '16px 14px' : '20px 20px', flex:1 }}>
                         <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 9 : 10, fontWeight:900, color:'#ffaa00', letterSpacing:1.5, marginBottom:12 }}>🏆 BIGGEST SALE</div>
-                        {biggestSale ? (
+                        {(biggestSaleLive || biggestSale) ? (
                           <>
                             <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
                               <div style={{ width:56, height:56, borderRadius:12, overflow:'hidden', flexShrink:0, background:'rgba(0,0,0,.3)', position:'relative', border:'2px solid rgba(255,170,0,.25)' }}>
-                                {biggestSale.nftData?.image
-                                  ? <img src={biggestSale.nftData.image} alt="" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }} onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
+                                {(biggestSaleLive ? null : biggestSale?.nftData?.image)
+                                  ? <img src={biggestSale!.nftData!.image!} alt="" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }} onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
                                   : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22 }}>🖼️</div>
                                 }
                               </div>
                               <div style={{ flex:1, minWidth:0 }}>
-                                <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 9 : 10, fontWeight:700, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{biggestSale.nftData?.name ?? biggestSale.nftMint.slice(0,10)+'…'}</div>
-                                <div style={{ fontFamily:'Sora,sans-serif', fontSize:9, color:'#9abacf', marginTop:3 }}>{new Date(biggestSale.timestamp*1000).toLocaleDateString()}</div>
-                                {biggestSale.buyer && <div style={{ fontFamily:'monospace', fontSize:8, color:'#9abacf', marginTop:2 }}>BUYER: {biggestSale.buyer.slice(0,8)}…</div>}
+                                <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 9 : 10, fontWeight:700, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                                  {biggestSaleLive
+                                    ? biggestSaleLive.sig.slice(0,10)+'…'
+                                    : (biggestSale?.nftData?.name ?? biggestSale?.nftMint.slice(0,10)+'…')}
+                                </div>
+                                <div style={{ fontFamily:'Sora,sans-serif', fontSize:9, color:'#9abacf', marginTop:3 }}>
+                                  {new Date((biggestSaleLive?.timestamp ?? biggestSale?.timestamp ?? 0)*1000).toLocaleDateString()}
+                                </div>
+                                {!biggestSaleLive && biggestSale?.buyer && <div style={{ fontFamily:'monospace', fontSize:8, color:'#9abacf', marginTop:2 }}>BUYER: {biggestSale.buyer.slice(0,8)}…</div>}
+                                {biggestSaleLive && <a href={`https://explorer.mainnet.x1.xyz/tx/${biggestSaleLive.sig}`} target="_blank" rel="noopener" style={{ fontFamily:'monospace', fontSize:8, color:'#bf5af2', marginTop:2, display:'block' }}>VIEW TX ↗</a>}
                               </div>
                             </div>
                             <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 22 : 28, fontWeight:900, color:'#ffaa00' }}>
-                              {lamportsToXnt(biggestSale.price!)}
+                              {lamportsToXnt(biggestSaleLive?.price ?? biggestSale?.price ?? 0)}
                               <span style={{ fontSize:11, color:'#7a6a3a', fontWeight:400, marginLeft:6 }}>XNT</span>
                             </div>
                           </>
                         ) : (
                           <div style={{ textAlign:'center', padding:'24px 0', fontFamily:'Orbitron,monospace', fontSize:10, color:'#9abacf' }}>
-                            {loadingActivity ? 'LOADING…' : 'NO SALES YET'}
+                            {platformSales === 0 && platformVolXnt === 0 ? 'LOADING…' : 'NO SALES YET'}
                           </div>
                         )}
                       </div>
