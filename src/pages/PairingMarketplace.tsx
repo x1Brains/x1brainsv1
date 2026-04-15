@@ -2570,9 +2570,7 @@ const DelistModal: FC<{
     return () => { try { document.body.style.position = ''; document.body.style.top = ''; window.scrollTo(0, sy); } catch {} };
   }, []);
 
-  // liveUsdValUi — use listing's stored USD value (no live price feed in delist context)
-  const liveUsdValUi = listing.usdValUi;
-  const delistFeeUsd = liveUsdValUi * 0.00444;
+  const delistFeeUsd = listing.usdValUi * 0.00444;
   const delistFeeXnt = xntPrice > 0 ? delistFeeUsd / xntPrice : 0;
 
   const handleDelist = async () => {
@@ -3865,16 +3863,12 @@ const PairingMarketplace: FC = () => {
         // For now use the reliable approach: sum individual pool TVL from XDEX price API
         // using token0 price × vault0 + token1 price × vault1
 
-        // The most reliable source is the PoolsTab which already computes this correctly.
-        // Wire TVL from PoolsTab via window event
+        // Wire TVL from PoolsTab via window event — persistent listener, not once
         const handleTvlUpdate = (e: any) => {
           if (e.detail?.totalTvl > 0) setTotalTVL(e.detail.totalTvl);
         };
-        window.addEventListener('xbrains-tvl', handleTvlUpdate, { once: true });
-
-        // Hardcode fallback from verified XDEX sources Apr 14 2026
-        // Will be overridden when PoolsTab loads and dispatches real TVL
-        setTotalTVL(17940);
+        window.addEventListener('xbrains-tvl', handleTvlUpdate);
+        return () => window.removeEventListener('xbrains-tvl', handleTvlUpdate);
       } catch {}
     })();
   }, []);
@@ -3894,17 +3888,22 @@ const PairingMarketplace: FC = () => {
     })();
   }, [publicKey, connection]);
 
-  // Fetch platform stats
+  // Fetch platform stats — poll every 30s so volume stays live
   useEffect(() => {
-    fetchPlatformStats().then(s => {
-      setPlatformVolume(s.totalVolume);
-      setTotalPools(s.totalPools);
-      setTotalListings(s.totalListings);
-    });
+    const run = () => {
+      fetchPlatformStats().then(s => {
+        if (s.totalVolume > 0) setPlatformVolume(s.totalVolume);
+        if (s.totalPools   > 0) setTotalPools(s.totalPools);
+        if (s.totalListings > 0) setTotalListings(s.totalListings);
+      });
+    };
+    run();
+    const interval = setInterval(run, 30_000);
     // Pre-fetch LB price so dashboard shows it immediately
     fetchXdexPrice(LB_MINT).then(p => {
       if (p) setLivePrices(prev => new Map(prev).set(LB_MINT, p.priceUSD));
     });
+    return () => clearInterval(interval);
   }, []);
 
   // Batch fetch live prices for all listed tokens — one call for all mints
