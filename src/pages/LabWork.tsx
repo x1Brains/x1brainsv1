@@ -470,8 +470,17 @@ const LabWork: FC = () => {
           }
           if (!isBuy) continue;
 
-          // Recover full sale price: fee = price * 0.01888 → price = fee / 0.01888
-          const salePrice = Math.round(delta / FEE_RATE);
+          // First try program log: "Sold <mint> for <N> lamports"
+          let salePrice = 0;
+          try {
+            const logMessages: string[] = tx.meta?.logMessages ?? [];
+            for (const line of logMessages) {
+              const m = line.match(/Sold\s+\S+\s+for\s+(\d+)\s+lamports/i);
+              if (m) { salePrice = Number(m[1]); break; }
+            }
+          } catch {}
+          // Fallback: derive from platform fee delta
+          if (!salePrice) salePrice = Math.round(delta / FEE_RATE);
           totalLamports += salePrice;
           salesCount++;
           if (!biggest || salePrice > biggest.price) biggest = { price: salePrice, sig, timestamp: ts };
@@ -697,7 +706,18 @@ const LabWork: FC = () => {
         if (type !== 'delist' && dataHex.length >= 32) {
           try { price = Number(Buffer.from(dataHex.slice(16, 32), 'hex').readBigUInt64LE(0)); } catch {}
         }
-        // Buy ix has no price in data — recover from seller balance delta
+        // Buy ix has no price in data bytes.
+        // First try: parse program log "Sold <mint> for <N> lamports" — most reliable.
+        // Fallback: seller balance delta / 0.98112
+        if (type === 'buy' && !price) {
+          try {
+            const logMessages: string[] = tx.meta?.logMessages ?? [];
+            for (const line of logMessages) {
+              const m = line.match(/Sold\s+\S+\s+for\s+(\d+)\s+lamports/i);
+              if (m) { price = Number(m[1]); break; }
+            }
+          } catch {}
+        }
         if (type === 'buy' && !price) {
           try {
             const sellerIdx = accountKeys.indexOf(seller);
