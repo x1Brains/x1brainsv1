@@ -411,11 +411,13 @@ const LabWork: FC = () => {
     // For each confirmed buy tx, the platform wallet receives 1.888% of sale price.
     // Total volume = sum(platformDelta / 0.01888) for all buy instructions.
     // This is always live and accurate — no Supabase dependency.
-    if (!PLATFORM_WALLET) return;
+    if (!PLATFORM_WALLET || !MARKETPLACE_DEPLOYED) return;
     const progId       = getMarketplaceProgramId();
+    const progIdStr    = progId.toBase58(); // cache once — don't call in loop
     const platformStr  = PLATFORM_WALLET.toBase58();
     const FEE_RATE     = 0.01888;
     const DISC_BUY_HEX = DISC_BUY_NFT;
+    console.log('[PlatformStats] starting walk — program:', progIdStr, 'platform:', platformStr);
 
     let totalLamports = 0;
     let salesCount    = 0;
@@ -458,7 +460,7 @@ const LabWork: FC = () => {
           let isBuy = false;
           for (const ix of ixs as any[]) {
             const progKey = accountKeys[ix.programIdIndex ?? -1] ?? '';
-            if (progKey !== progId.toBase58()) continue;
+            if (progKey !== progIdStr) continue;
             let dataHex = '';
             if (ix.data) {
               try { dataHex = Buffer.from(ix.data, 'base58' as any).toString('hex'); }
@@ -481,6 +483,7 @@ const LabWork: FC = () => {
       }
     } catch (e) { console.error('[LabWork] loadPlatformStats error:', e); }
 
+    console.log('[PlatformStats] done — sales:', salesCount, 'vol lamports:', totalLamports, 'biggest:', biggest);
     setPlatformVolXnt(totalLamports / 1e9);
     setPlatformSales(salesCount);
     if (biggest) setBiggestSaleLive(biggest);
