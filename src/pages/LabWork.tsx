@@ -394,6 +394,8 @@ const LabWork: FC = () => {
   const [txPending, setTxPending]             = useState(false);
   const [tradeLogs, setTradeLogs]             = useState<TradeLog[]>([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
+  const [activityPage, setActivityPage]       = useState(1);
+  const ACTIVITY_PAGE_SIZE = 20;
 
   // Boost state
   const [boosts,       setBoosts]       = useState<BoostRecord[]>([]);
@@ -563,6 +565,7 @@ const LabWork: FC = () => {
 
   const loadActivity = useCallback(async () => {
     setLoadingActivity(true);
+    setActivityPage(1); // reset to page 1 on every reload
     try {
       // ── Step 1: Supabase — fetch ALL trades via 1000-row pagination, no cap ──
       let supaLogs: TradeLog[] = [];
@@ -594,10 +597,9 @@ const LabWork: FC = () => {
       } catch { /* supabase not available */ }
 
       // ── Step 2: ALWAYS walk the chain to backfill any missing txns ──
-      // Uses `before` cursor to page through ALL signatures, not just last 25.
-      // Stops walking back once it hits sigs already in Supabase (already backfilled).
-      // Any new chain txns found are written to Supabase immediately via saveTrade
-      // so they're found instantly on the next page load without re-walking.
+      // Uses `before` cursor to page ALL signatures — not just last 25.
+      // Stops once it finds a page where every sig is already in Supabase.
+      // New txns found are written to Supabase immediately via saveTrade.
       try {
         const progId     = getMarketplaceProgramId();
         const supaSet    = new Set(supaLogs.map(l => l.sig));
@@ -617,13 +619,12 @@ const LabWork: FC = () => {
           const sigs = await connection.getSignaturesForAddress(progId, opts);
           if (!sigs || sigs.length === 0) break;
 
-          const validSigs = sigs.filter((s: any) => !s.err);
+          const validSigs  = sigs.filter((s: any) => !s.err);
+          const newSigs    = validSigs.filter((s: any) => !supaSet.has(s.signature));
 
-          // Once all sigs in this page are already in Supabase, history is fully synced
-          const newSigs = validSigs.filter((s: any) => !supaSet.has(s.signature));
+          // All sigs on this page already in Supabase — history is fully synced
           if (newSigs.length === 0) { keepGoing = false; break; }
 
-          // Fetch full tx data for new sigs in parallel
           const txResults = await Promise.allSettled(
             newSigs.map((s: any) => connection.getTransaction(s.signature, {
               maxSupportedTransactionVersion: 0,
@@ -671,7 +672,7 @@ const LabWork: FC = () => {
             }
           });
 
-          // Persist newly found chain txns to Supabase so they won't be re-walked next time
+          // Persist newly found chain txns to Supabase
           for (const log of batchNew) {
             saveTrade({
               sig: log.sig, type: log.type, nftMint: log.nftMint,
@@ -681,26 +682,23 @@ const LabWork: FC = () => {
           }
 
           chainLogs.push(...batchNew);
-
-          // Advance cursor to walk further back in history
           before = sigs[sigs.length - 1].signature;
           if (sigs.length < 100) keepGoing = false;
-
-          // Small yield between pages to avoid hammering the RPC
-          await new Promise(r => setTimeout(r, 150));
+          await new Promise(r => setTimeout(r, 150)); // throttle RPC
         }
 
-        // ── Step 3: Merge Supabase + chain, deduplicate, sort full history ──
+        // ── Step 3: Merge, deduplicate, sort full history ──
         if (chainLogs.length > 0) {
           const supaSet2 = new Set(supaLogs.map(l => l.sig));
           const merged = [...supaLogs, ...chainLogs.filter(l => !supaSet2.has(l.sig))]
             .sort((a, b) => b.timestamp - a.timestamp);
           setTradeLogs(merged);
           setLoadingActivity(false);
+        } else if (supaLogs.length === 0) {
+          // Nothing from either source
+          setLoadingActivity(false);
         }
-      } catch (e) { console.error('[LabWork] chain backfill error:', e); }
-
-      if (supaLogs.length === 0) { setLoadingActivity(false); return; }
+      } catch (e) { console.error('[LabWork] chain backfill error:', e); setLoadingActivity(false); }
 
       // ── Step 4: Enrich metadata for the top 10 visible logs only ──
       setTradeLogs(prev => {
@@ -1980,7 +1978,10 @@ const LabWork: FC = () => {
             {marketTab === 'activity' && (
               <div style={{ animation:'fadeUp 0.3s ease both' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-                  <span style={{ fontFamily:'Orbitron,monospace', fontSize:11, color:'#8aaac8', letterSpacing:1 }}>RECENT TRADES</span>
+                  <span style={{ fontFamily:'Orbitron,monospace', fontSize:11, color:'#8aaac8', letterSpacing:1 }}>
+                    RECENT TRADES
+                    {tradeLogs.length > 0 && <span style={{ color:'#4a6a8a', fontSize:9, marginLeft:8 }}>({tradeLogs.length} total)</span>}
+                  </span>
                   <button type="button" onClick={loadActivity} disabled={loadingActivity} style={{ background:'rgba(0,212,255,.08)', border:'1px solid rgba(0,212,255,.2)', borderRadius:8, padding:'5px 12px', fontSize:9, color:'#00d4ff', cursor:'pointer', fontFamily:'Orbitron,monospace' }}>
                     {loadingActivity ? '⟳ LOADING…' : '↺ REFRESH'}
                   </button>
@@ -1989,41 +1990,86 @@ const LabWork: FC = () => {
                   <div style={{ textAlign:'center', padding:40, color:'#8aaac8', fontSize:11 }}>Loading activity…</div>
                 ) : tradeLogs.length === 0 ? (
                   <div style={{ textAlign:'center', padding:40, color:'#8aaac8', fontSize:11 }}>No activity found</div>
-                ) : (
-                  <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                    {tradeLogs.map((log, i) => (
-                      <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.06)', borderRadius:10, overflow:'hidden' }}>
-                        <div style={{ width:44, height:44, borderRadius:8, overflow:'hidden', flexShrink:0, background:'rgba(0,0,0,.3)', position:'relative' }}>
-                          {log.nftData?.image
-                            ? <img src={log.nftData.image} alt={log.nftData?.name ?? ''} style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', imageRendering:'pixelated', display:'block' }} onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
-                            : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>🖼️</div>
-                          }
-                        </div>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
-                            <span style={{ fontFamily:'Orbitron,monospace', fontSize:9, fontWeight:700,
-                              color: log.type==='buy'?'#00c98d':log.type==='list'?'#00d4ff':log.type==='boost'?'#bf5af2':'#ff9944',
-                              background: log.type==='buy'?'rgba(0,201,141,.1)':log.type==='list'?'rgba(0,212,255,.1)':log.type==='boost'?'rgba(191,90,242,.1)':'rgba(255,153,68,.1)',
-                              border: `1px solid ${log.type==='buy'?'rgba(0,201,141,.3)':log.type==='list'?'rgba(0,212,255,.3)':log.type==='boost'?'rgba(191,90,242,.3)':'rgba(255,153,68,.3)'}`,
-                              padding:'2px 7px', borderRadius:4 }}>
-                              {log.type==='buy'?'⚡ SOLD':log.type==='list'?'🏷️ LISTED':log.type==='boost'?'🔥 BOOSTED':'↩ DELISTED'}
-                            </span>
-                            <span style={{ fontSize:10, color:'#e0f0ff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                              {log.nftData?.name ?? log.nftMint.slice(0,12)+'…'}
-                            </span>
+                ) : (() => {
+                  const totalPages = Math.ceil(tradeLogs.length / ACTIVITY_PAGE_SIZE);
+                  const pageLogs   = tradeLogs.slice((activityPage - 1) * ACTIVITY_PAGE_SIZE, activityPage * ACTIVITY_PAGE_SIZE);
+                  return (
+                    <>
+                      <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                        {pageLogs.map((log, i) => (
+                          <div key={log.sig + i} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.06)', borderRadius:10, overflow:'hidden' }}>
+                            <div style={{ width:44, height:44, borderRadius:8, overflow:'hidden', flexShrink:0, background:'rgba(0,0,0,.3)', position:'relative' }}>
+                              {log.nftData?.image
+                                ? <img src={log.nftData.image} alt={log.nftData?.name ?? ''} style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', imageRendering:'pixelated', display:'block' }} onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
+                                : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>🖼️</div>
+                              }
+                            </div>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
+                                <span style={{ fontFamily:'Orbitron,monospace', fontSize:9, fontWeight:700,
+                                  color: log.type==='buy'?'#00c98d':log.type==='list'?'#00d4ff':log.type==='boost'?'#bf5af2':'#ff9944',
+                                  background: log.type==='buy'?'rgba(0,201,141,.1)':log.type==='list'?'rgba(0,212,255,.1)':log.type==='boost'?'rgba(191,90,242,.1)':'rgba(255,153,68,.1)',
+                                  border: `1px solid ${log.type==='buy'?'rgba(0,201,141,.3)':log.type==='list'?'rgba(0,212,255,.3)':log.type==='boost'?'rgba(191,90,242,.3)':'rgba(255,153,68,.3)'}`,
+                                  padding:'2px 7px', borderRadius:4 }}>
+                                  {log.type==='buy'?'⚡ SOLD':log.type==='list'?'🏷️ LISTED':log.type==='boost'?'🔥 BOOSTED':'↩ DELISTED'}
+                                </span>
+                                <span style={{ fontSize:10, color:'#e0f0ff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                                  {log.nftData?.name ?? log.nftMint.slice(0,12)+'…'}
+                                </span>
+                              </div>
+                              <div style={{ fontSize:9, color:'#8aaac8' }}>
+                                {log.type==='boost' && (log as any).brains ? <span style={{ color:'#bf5af2', marginRight:8 }}>🔥 {((log as any).brains as number).toLocaleString()} BRAINS</span> : log.price ? <span style={{ color:'#00d4ff', marginRight:8 }}>{lamportsToXnt(log.price)} XNT</span> : null}
+                                <span>{new Date(log.timestamp * 1000).toLocaleString()}</span>
+                              </div>
+                            </div>
+                            <a href={`https://explorer.mainnet.x1.xyz/tx/${log.sig}`} target="_blank" rel="noopener"
+                              style={{ color:'#9abacf', fontSize:10, textDecoration:'none', flexShrink:0, padding:'4px 8px', border:'1px solid rgba(255,255,255,.06)', borderRadius:6, fontFamily:'monospace' }}
+                              title={log.sig}>TX ↗</a>
                           </div>
-                          <div style={{ fontSize:9, color:'#8aaac8' }}>
-                            {log.type==='boost' && (log as any).brains ? <span style={{ color:'#bf5af2', marginRight:8 }}>🔥 {((log as any).brains as number).toLocaleString()} BRAINS</span> : log.price ? <span style={{ color:'#00d4ff', marginRight:8 }}>{lamportsToXnt(log.price)} XNT</span> : null}
-                            <span>{new Date(log.timestamp * 1000).toLocaleString()}</span>
-                          </div>
-                        </div>
-                        <a href={`https://explorer.mainnet.x1.xyz/tx/${log.sig}`} target="_blank" rel="noopener"
-                          style={{ color:'#9abacf', fontSize:10, textDecoration:'none', flexShrink:0, padding:'4px 8px', border:'1px solid rgba(255,255,255,.06)', borderRadius:6, fontFamily:'monospace' }}
-                          title={log.sig}>TX ↗</a>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                )}
+
+                      {/* Pagination controls */}
+                      {totalPages > 1 && (
+                        <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, marginTop:20 }}>
+                          <button type="button" onClick={() => setActivityPage(p => Math.max(1, p - 1))} disabled={activityPage === 1}
+                            style={{ padding:'6px 14px', borderRadius:8, cursor: activityPage === 1 ? 'not-allowed' : 'pointer',
+                              background:'rgba(0,212,255,.06)', border:'1px solid rgba(0,212,255,.2)',
+                              fontFamily:'Orbitron,monospace', fontSize:9, color: activityPage === 1 ? '#2a4a5a' : '#00d4ff',
+                              opacity: activityPage === 1 ? 0.4 : 1 }}>← PREV</button>
+
+                          <div style={{ display:'flex', gap:4 }}>
+                            {Array.from({ length: totalPages }, (_, i) => i + 1)
+                              .filter(p => p === 1 || p === totalPages || Math.abs(p - activityPage) <= 2)
+                              .reduce<(number | '…')[]>((acc, p, idx, arr) => {
+                                if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push('…');
+                                acc.push(p);
+                                return acc;
+                              }, [])
+                              .map((p, i) => p === '…'
+                                ? <span key={`ellipsis-${i}`} style={{ padding:'6px 4px', color:'#4a6a8a', fontFamily:'Orbitron,monospace', fontSize:9 }}>…</span>
+                                : <button key={p} type="button" onClick={() => setActivityPage(p as number)}
+                                    style={{ width:32, height:32, borderRadius:7, cursor:'pointer',
+                                      background: activityPage === p ? 'rgba(0,212,255,.18)' : 'rgba(255,255,255,.03)',
+                                      border: `1px solid ${activityPage === p ? 'rgba(0,212,255,.5)' : 'rgba(255,255,255,.08)'}`,
+                                      fontFamily:'Orbitron,monospace', fontSize:9, fontWeight: activityPage === p ? 900 : 400,
+                                      color: activityPage === p ? '#00d4ff' : '#6a8aaa' }}>{p}</button>
+                              )}
+                          </div>
+
+                          <button type="button" onClick={() => setActivityPage(p => Math.min(totalPages, p + 1))} disabled={activityPage === totalPages}
+                            style={{ padding:'6px 14px', borderRadius:8, cursor: activityPage === totalPages ? 'not-allowed' : 'pointer',
+                              background:'rgba(0,212,255,.06)', border:'1px solid rgba(0,212,255,.2)',
+                              fontFamily:'Orbitron,monospace', fontSize:9, color: activityPage === totalPages ? '#2a4a5a' : '#00d4ff',
+                              opacity: activityPage === totalPages ? 0.4 : 1 }}>NEXT →</button>
+                        </div>
+                      )}
+                      <div style={{ textAlign:'center', marginTop:8, fontFamily:'Orbitron,monospace', fontSize:8, color:'#3a5a7a' }}>
+                        PAGE {activityPage} / {totalPages} · SHOWING {(activityPage - 1) * ACTIVITY_PAGE_SIZE + 1}–{Math.min(activityPage * ACTIVITY_PAGE_SIZE, tradeLogs.length)} OF {tradeLogs.length}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             )}
           </>
