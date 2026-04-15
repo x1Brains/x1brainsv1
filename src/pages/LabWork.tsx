@@ -1,4 +1,5 @@
 import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
+import bs58 from 'bs58';
 import { createPortal } from 'react-dom';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import {
@@ -461,12 +462,12 @@ const LabWork: FC = () => {
           for (const ix of ixs as any[]) {
             const progKey = accountKeys[ix.programIdIndex ?? -1] ?? '';
             if (progKey !== progIdStr) continue;
-            let dataHex = '';
+            let dHex2 = '';
             if (ix.data) {
-              try { dataHex = Buffer.from(ix.data, 'base58' as any).toString('hex'); }
-              catch { try { dataHex = Buffer.from(ix.data, 'base64').toString('hex'); } catch {} }
+              try { dHex2 = Buffer.from(bs58.decode(ix.data as string)).toString('hex'); }
+              catch { try { dHex2 = Buffer.from(ix.data as string, 'base64').toString('hex'); } catch {} }
             }
-            if (dataHex.slice(0, 16) === DISC_BUY_HEX) { isBuy = true; break; }
+            if (dHex2.slice(0, 16) === DISC_BUY_HEX) { isBuy = true; break; }
           }
           if (!isBuy) continue;
 
@@ -685,12 +686,12 @@ const LabWork: FC = () => {
         const progKey = accountKeys[ix.programIdIndex ?? -1] ?? '';
         if (progKey !== progIdStr) continue;
 
+        // ix.data from getTransaction is base58-encoded (legacy tx format)
         let dataHex = '';
         if (ix.data) {
-          try { dataHex = Buffer.from(ix.data, 'base58' as any).toString('hex'); }
-          catch { try { dataHex = Buffer.from(ix.data, 'base64').toString('hex'); } catch {} }
+          try { dataHex = Buffer.from(bs58.decode(ix.data as string)).toString('hex'); }
+          catch { try { dataHex = Buffer.from(ix.data as string, 'base64').toString('hex'); } catch {} }
         }
-
         const disc8 = dataHex.slice(0, 16);
         let type: TradeLog['type'] | null = null;
         if (disc8 === listDisc)    type = 'list';
@@ -743,30 +744,7 @@ const LabWork: FC = () => {
       const progId    = getMarketplaceProgramId();
       const progIdStr = progId.toBase58();
 
-      // ── Step 1: Always fetch the LATEST 100 sigs from chain first ──
-      // This guarantees newest txns always appear regardless of Supabase state.
-      const latestSigs = await connection.getSignaturesForAddress(progId, { limit: 100 });
-      const validLatest = (latestSigs ?? []).filter((s: any) => !s.err);
-      const latestTxResults = await Promise.allSettled(
-        validLatest.map((s: any) => connection.getTransaction(s.signature, {
-          maxSupportedTransactionVersion: 0, commitment: 'confirmed',
-        }))
-      );
-      const latestLogs = parseTxBatch(latestTxResults, validLatest, progIdStr);
-
-      // Persist to Supabase immediately
-      for (const log of latestLogs) {
-        saveTrade({ sig: log.sig, type: log.type, nftMint: log.nftMint,
-          price: log.price, seller: log.seller, buyer: log.buyer, timestamp: log.timestamp });
-      }
-
-      // Show latest logs immediately — don't wait for Supabase full fetch
-      if (latestLogs.length > 0) {
-        setTradeLogs(latestLogs.sort((a, b) => b.timestamp - a.timestamp));
-        setLoadingActivity(false);
-      }
-
-      // ── Step 2: Supabase — fetch ALL historical trades ──
+      // ── Step 1: Supabase — fetch ALL historical trades we already know about ──
       let supaLogs: TradeLog[] = [];
       try {
         if (supabase) {
@@ -787,46 +765,65 @@ const LabWork: FC = () => {
             if (data.length < PAGE) break;
             from += PAGE;
           }
+          if (supaLogs.length > 0) {
+            setTradeLogs(supaLogs.sort((a, b) => b.timestamp - a.timestamp));
+            setLoadingActivity(false);
+          }
         }
       } catch { /* supabase not available */ }
 
-      // ── Step 3: Backfill chain — walk backwards until hitting known sigs ──
-      const supaSet    = new Set(supaLogs.map(l => l.sig));
-      const latestSet  = new Set(latestLogs.map(l => l.sig));
-      const allKnown   = new Set([...supaSet, ...latestSet]);
-      const chainLogs: TradeLog[] = [...latestLogs];
-      let before: string | undefined = validLatest.length > 0
-        ? validLatest[validLatest.length - 1].signature
-        : undefined;
+      // ── Step 2: Walk the ENTIRE program history from chain ──
+      // Never stop early — walk ALL pages until the beginning of program history.
+      // Every tx not already in Supabase gets parsed + saved.
+      // This guarantees no tx is ever missed regardless of when it happened.
+      const supaSet   = new Set(supaLogs.map(l => l.sig));
+      const chainLogs: TradeLog[] = [];
+      let before: string | undefined = undefined;
 
-      while (before) {
-        const sigs = await connection.getSignaturesForAddress(progId, { limit: 100, before });
+      while (true) {
+        const opts: any = { limit: 100 };
+        if (before) opts.before = before;
+        const sigs = await connection.getSignaturesForAddress(progId, opts);
         if (!sigs || sigs.length === 0) break;
-        const validSigs = sigs.filter((s: any) => !s.err);
-        const newSigs   = validSigs.filter((s: any) => !allKnown.has(s.signature));
-        if (newSigs.length === 0) break; // caught up with known history
 
-        const txResults = await Promise.allSettled(
-          newSigs.map((s: any) => connection.getTransaction(s.signature, {
-            maxSupportedTransactionVersion: 0, commitment: 'confirmed',
-          }))
-        );
-        const batch = parseTxBatch(txResults, newSigs, progIdStr);
-        for (const log of batch) {
-          allKnown.add(log.sig);
-          saveTrade({ sig: log.sig, type: log.type, nftMint: log.nftMint,
-            price: log.price, seller: log.seller, buyer: log.buyer, timestamp: log.timestamp });
+        const validSigs = sigs.filter((s: any) => !s.err);
+        // Only fetch full tx data for sigs not already in Supabase
+        const newSigs   = validSigs.filter((s: any) => !supaSet.has(s.signature));
+
+        if (newSigs.length > 0) {
+          const txResults = await Promise.allSettled(
+            newSigs.map((s: any) => connection.getTransaction(s.signature, {
+              maxSupportedTransactionVersion: 0, commitment: 'confirmed',
+            }))
+          );
+          const batch = parseTxBatch(txResults, newSigs, progIdStr);
+          for (const log of batch) {
+            supaSet.add(log.sig); // mark as known so we don't re-fetch
+            saveTrade({ sig: log.sig, type: log.type, nftMint: log.nftMint,
+              price: log.price, seller: log.seller, buyer: log.buyer, timestamp: log.timestamp });
+          }
+          chainLogs.push(...batch);
+
+          // Update UI progressively as we find new txns
+          if (batch.length > 0) {
+            setTradeLogs(prev => {
+              const map = new Map<string, TradeLog>();
+              for (const l of [...prev, ...batch]) map.set(l.sig, l);
+              return Array.from(map.values()).sort((a, b) => b.timestamp - a.timestamp);
+            });
+            setLoadingActivity(false);
+          }
         }
-        chainLogs.push(...batch);
+
         before = sigs[sigs.length - 1].signature;
-        if (sigs.length < 100) break;
+        if (sigs.length < 100) break; // reached beginning of program history
         await new Promise(r => setTimeout(r, 150));
       }
 
-      // ── Step 4: Merge everything, deduplicate, sort ──
-      const finalSet = new Map<string, TradeLog>();
-      for (const log of [...supaLogs, ...chainLogs]) finalSet.set(log.sig, log);
-      const merged = Array.from(finalSet.values()).sort((a, b) => b.timestamp - a.timestamp);
+      // ── Step 3: Final merge — Supabase + all chain finds ──
+      const finalMap = new Map<string, TradeLog>();
+      for (const l of [...supaLogs, ...chainLogs]) finalMap.set(l.sig, l);
+      const merged = Array.from(finalMap.values()).sort((a, b) => b.timestamp - a.timestamp);
       if (merged.length > 0) { setTradeLogs(merged); setLoadingActivity(false); }
 
       // ── Step 5: Also refresh platform volume stats now that we have full history ──
