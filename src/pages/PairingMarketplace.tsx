@@ -2570,7 +2570,9 @@ const DelistModal: FC<{
     return () => { try { document.body.style.position = ''; document.body.style.top = ''; window.scrollTo(0, sy); } catch {} };
   }, []);
 
-  const delistFeeUsd = listing.usdValUi * 0.00444;
+  // liveUsdValUi — use listing's stored USD value (no live price feed in delist context)
+  const liveUsdValUi = listing.usdValUi;
+  const delistFeeUsd = liveUsdValUi * 0.00444;
   const delistFeeXnt = xntPrice > 0 ? delistFeeUsd / xntPrice : 0;
 
   const handleDelist = async () => {
