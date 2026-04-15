@@ -668,6 +668,20 @@ const LabWork: FC = () => {
               if (type !== 'delist' && dataHex.length >= 32) {
                 try { price = Number(Buffer.from(dataHex.slice(16, 32), 'hex').readBigUInt64LE(0)); } catch {}
               }
+              // Buy ix data contains only discriminator — no price bytes.
+              // Recover price from seller pre/post lamport balance change.
+              // Seller receives 98.112% of sale price so: total = sellerDelta / 0.98112
+              if (type === 'buy' && !price) {
+                try {
+                  const sellerIdx = accountKeys.indexOf(seller);
+                  if (sellerIdx >= 0) {
+                    const pre  = (tx.meta?.preBalances  ?? [])[sellerIdx] ?? 0;
+                    const post = (tx.meta?.postBalances ?? [])[sellerIdx] ?? 0;
+                    const delta = post - pre;
+                    if (delta > 0) price = Math.round(delta / 0.98112);
+                  }
+                } catch {}
+              }
               batchNew.push({ sig, type, nftMint: mint, price, seller, buyer, timestamp: ts });
             }
           });
@@ -803,7 +817,9 @@ const LabWork: FC = () => {
       if (!confirmed) throw new Error(`Timed out. Check tx: ${sig}`);
       setTxStatus(`✅ NFT purchased! <a href="https://explorer.mainnet.x1.xyz/tx/${sig}" target="_blank" rel="noopener" style="color:#00d4ff;text-decoration:underline">View Tx ↗</a>`);
       saveTrade({ sig, type:'buy', nftMint: listing.nftMint, price: listing.price, seller: listing.seller, buyer: publicKey.toBase58(), timestamp: Math.floor(Date.now()/1000) });
-      setTimeout(() => { setConfirmTarget(null); setTxStatus(''); loadListings(); }, 2500);
+      // Inject new buy into tradeLogs immediately so overview/activity update at once
+      setTradeLogs(prev => [{ sig, type: 'buy' as const, nftMint: listing.nftMint, price: listing.price, seller: listing.seller, buyer: publicKey.toBase58(), timestamp: Math.floor(Date.now()/1000), nftData: listing.nftData }, ...prev]);
+      setTimeout(() => { setConfirmTarget(null); setTxStatus(''); loadListings(); loadActivity(); }, 2500);
     } catch (e: any) {
       setTxStatus(`❌ ${e?.message?.slice(0,120) ?? 'Transaction failed'}`);
     } finally { setTxPending(false); }
@@ -854,7 +870,9 @@ const LabWork: FC = () => {
       if (!confirmed) throw new Error(`Timed out. Check tx: ${sig}`);
       setTxStatus(`✅ Delisted! <a href="https://explorer.mainnet.x1.xyz/tx/${sig}" target="_blank" rel="noopener" style="color:#00d4ff;text-decoration:underline">View Tx ↗</a>`);
       saveTrade({ sig, type:'delist', nftMint: listing.nftMint, price: listing.price, seller: publicKey.toBase58(), timestamp: Math.floor(Date.now()/1000) });
-      setTimeout(() => { setConfirmTarget(null); setTxStatus(''); loadListings(); }, 2000);
+      // Inject new delist into tradeLogs immediately
+      setTradeLogs(prev => [{ sig, type: 'delist' as const, nftMint: listing.nftMint, price: listing.price, seller: publicKey.toBase58(), timestamp: Math.floor(Date.now()/1000), nftData: listing.nftData }, ...prev]);
+      setTimeout(() => { setConfirmTarget(null); setTxStatus(''); loadListings(); loadActivity(); }, 2000);
     } catch (e: any) {
       setTxStatus(`❌ ${e?.message?.slice(0,120) ?? 'Transaction failed'}`);
     } finally { setTxPending(false); }
@@ -895,7 +913,7 @@ const LabWork: FC = () => {
     return { colMap2, collections2, filteredListings };
   }, [listings, browseCollection]);
   const overviewData = useMemo(() => {
-    const sales       = tradeLogs.filter(l => l.type === 'buy' && l.price);
+    const sales       = tradeLogs.filter(l => l.type === 'buy' && l.price != null && l.price > 0);
     const totalVolXnt = sales.reduce((s, l) => s + (l.price ?? 0), 0) / 1e9;
     const biggestSale = sales.reduce((best, l) => (!best || (l.price ?? 0) > (best.price ?? 0)) ? l : best, null as TradeLog | null);
     const floorListing = listings.length > 0 ? listings.reduce((a, b) => a.price < b.price ? a : b) : null;
@@ -2271,7 +2289,7 @@ const LabWork: FC = () => {
           sendTransaction={sendTransaction}
           signTransaction={signTransaction}
           onClose={() => { setShowListModal(false); setPrelistNft(null); }}
-          onListed={() => { setShowListModal(false); setPrelistNft(null); loadListings(); }}
+          onListed={() => { setShowListModal(false); setPrelistNft(null); loadListings(); loadActivity(); }}
         />
       )}
 
@@ -2304,7 +2322,7 @@ const LabWork: FC = () => {
           sendTransaction={sendTransaction}
           signTransaction={signTransaction}
           onClose={() => setBoostTarget(null)}
-          onBoosted={() => { setBoostTarget(null); loadListings(); }}
+          onBoosted={() => { setBoostTarget(null); loadListings(); loadActivity(); }}
         />
       )}
     </div>
