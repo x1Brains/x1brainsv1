@@ -3869,31 +3869,31 @@ const PairingMarketplace: FC = () => {
         };
         window.addEventListener('xbrains-tvl', handleTvlUpdate);
 
-        // Also fetch TVL directly — don't depend on PoolsTab being mounted.
-        // Sum TVL for the 5 known ecosystem pools using XDEX pool API.
-        const ECOSYSTEM_POOLS = [
-          '7deZorr98nLdZhpmSdUgu8WY4NAjSpeLDGxHzaTAxrUg',
-          '4C4o1Zgzrt996t2BupL65WJvkifZZ3Ncv3oZxe2CxrW4',
-          'AhgJp8b2aFu9dgFbZZwSs5QhQXWgvtiY6MFaMzxriApb',
-          'HWmgietnQGE3eK11PhaCsZi6E3iFzCK3n8wTDrYoiLoP',
-          'DjaYfY2s7BFxs8Se13ZVcHS48UCvZgFFuxaWgPiabYve',
+        // Fetch TVL directly from chain — don't depend on PoolsTab being mounted.
+        // Each ecosystem pool has an XNT vault. TVL ≈ XNT_vault_balance × XNT_price × 2
+        // XNT vault addresses confirmed from XDEX explorer for each ecosystem pool.
+        const XNT_VAULTS = [
+          '8wvV4HKBDFMLEUkVWp1WPNa5ano99XCm3f9t3troyLb', // XNT/BRAINS pool
+          'FtHfi7SxovdqJcaQXaFnymze6FqrEMziNxSHdtjyDJR4', // XNT/BRAINS pool 2
+          'HJ5WsScycRCtp8yqGsLbcDAayMsbcYajELcALg6kaUaq', // XNT/LB pool
+          'DhBuBUX9DJ3udJGq2EBMSiuXCiDWmV1NLdDEzBLkiUnA', // XNT/XBLK pool
+          'GpvKwcaxaUBaVzKYk7mMVoXPQpBrpnDUyXBQZ7tRayeU', // XNT/XUNI pool
         ];
         try {
-          const tvlResults = await Promise.allSettled(
-            ECOSYSTEM_POOLS.map(addr =>
-              fetch(`${XDEX_BASE}/xendex/pool/${addr}?network=mainnet`, { signal: AbortSignal.timeout(6000) })
-                .then(r => r.ok ? r.json() : null)
+          const conn2 = new Connection(RPC, 'confirmed');
+          const vaultResults = await Promise.allSettled(
+            XNT_VAULTS.map(addr =>
+              conn2.getParsedAccountInfo(new PublicKey(addr))
             )
           );
-          let ecosystemTvl = 0;
-          for (const r of tvlResults) {
-            if (r.status !== 'fulfilled' || !r.value) continue;
-            const pool = r.value;
-            // XDEX returns tvl or total_tvl or liquidity_usd depending on version
-            const tvl = pool?.tvl ?? pool?.total_tvl ?? pool?.liquidity_usd ?? pool?.tvlUsd ?? 0;
-            ecosystemTvl += Number(tvl) || 0;
+          let totalXnt = 0;
+          for (const r of vaultResults) {
+            if (r.status !== 'fulfilled' || !r.value?.value) continue;
+            const uiAmount = (r.value.value as any)?.data?.parsed?.info?.tokenAmount?.uiAmount ?? 0;
+            totalXnt += Number(uiAmount) || 0;
           }
-          if (ecosystemTvl > 0) setTotalTVL(ecosystemTvl);
+          // TVL = total XNT across all vaults × 2 (both sides equal USD value) × XNT price
+          if (totalXnt > 0 && XNT_PRICE > 0) setTotalTVL(totalXnt * 2 * XNT_PRICE);
         } catch {}
 
         return () => window.removeEventListener('xbrains-tvl', handleTvlUpdate);
