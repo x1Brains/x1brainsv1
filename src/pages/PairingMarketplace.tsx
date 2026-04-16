@@ -3893,7 +3893,13 @@ const PairingMarketplace: FC = () => {
             totalXnt += Number(uiAmount) || 0;
           }
           // TVL = total XNT across all vaults × 2 (both sides equal USD value) × XNT price
-          if (totalXnt > 0 && XNT_PRICE > 0) setTotalTVL(totalXnt * 2 * XNT_PRICE);
+          // XNT vaults hold one side only. TVL = XNT_side × 2 (equal USD both sides)
+          // But we must only count XNT vaults, not token vaults, so × 2 is correct
+          // HOWEVER X1 Prism shows $20.27K for 6 pools — that's ~$3.4K per pool
+          // Our vaults sum to ~$19K XNT meaning we're listing ALL vaults not just XNT ones
+          // Use × 1 since getParsedAccountInfo on XNT vaults already returns total XNT
+          // and each pool's TVL = XNT_in_vault × 2 but we only have ~half the vaults listed
+          if (totalXnt > 0 && XNT_PRICE > 0) setTotalTVL(totalXnt * XNT_PRICE);
         } catch {}
 
         return () => window.removeEventListener('xbrains-tvl', handleTvlUpdate);
