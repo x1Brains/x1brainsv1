@@ -2672,7 +2672,7 @@ const DelistModal: FC<{
                 {fmtNum(listing.amountUi)} {listing.tokenASymbol}
               </div>
               <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa', marginTop: 2 }}>
-                {fmtUSD(liveUsdValUi)} · {listing.burnBps / 100}% burn
+                {fmtUSD(listing.usdValUi)} · {listing.burnBps / 100}% burn
               </div>
             </div>
           </div>
