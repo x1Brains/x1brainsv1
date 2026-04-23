@@ -1,0 +1,36 @@
+[package]
+name = "brains_farm"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "brains_farm"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+# Admin test tools — enables force_mature_position instruction.
+# BUILD WITHOUT THIS FEATURE FOR MAINNET.
+# Build with:  cargo build-sbf --features admin-test-tools
+admin-test-tools = []
+
+[dependencies]
+anchor-lang         = { version = "0.32.1", features = ["init-if-needed"] }
+anchor-spl          = { version = "0.32.1", features = ["token", "token_2022", "token_2022_extensions", "associated_token"] }
+solana-security-txt = "1.1.1"
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+
+[profile.release.build-override]
+opt-level = 3
+incremental = false
+codegen-units = 1
