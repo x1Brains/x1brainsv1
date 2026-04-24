@@ -21,3 +21,5 @@ gettx*.js
 verify[0-9]*.js
 check*.js
 inspect_*.js
+scripts/force-mature.js
+scripts/check-force-mature-alive.js

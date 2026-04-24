@@ -4184,6 +4184,71 @@ const PairingMarketplace: FC = () => {
           </div>
         </div>
 
+        {/* ── LP FARMS ANNOUNCEMENT ── */}
+        <div
+          onClick={() => window.location.href = '/lpfarms'}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,140,0,.35)';
+            (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,140,0,.04)';
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,140,0,.18)';
+            (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,140,0,.02)';
+          }}
+          style={{
+            marginBottom: isMobile ? 16 : 20,
+            padding: isMobile ? '10px 14px' : '11px 18px',
+            borderRadius: 10,
+            background: 'rgba(255,140,0,.02)',
+            border: '1px solid rgba(255,140,0,.18)',
+            cursor: 'pointer',
+            display: 'flex', alignItems: 'center',
+            gap: isMobile ? 10 : 14,
+            transition: 'all .2s',
+            animation: 'fadeUp 0.4s ease 0.1s both',
+          }}
+        >
+          {/* NEW badge */}
+          <div style={{
+            fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
+            color: '#ff8c00', letterSpacing: 1.5, padding: '3px 7px',
+            borderRadius: 4, background: 'rgba(255,140,0,.1)',
+            border: '1px solid rgba(255,140,0,.3)', flexShrink: 0,
+          }}>
+            NEW
+          </div>
+
+          {/* Copy */}
+          <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+            <div style={{
+              fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 10 : 11,
+              fontWeight: 700, color: '#e0f0ff', letterSpacing: 1,
+              textTransform: 'uppercase', marginBottom: 2,
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}>
+              LP Farms live
+            </div>
+            <div style={{
+              fontFamily: 'Sora,sans-serif', fontSize: isMobile ? 9 : 10,
+              color: '#9abacf', lineHeight: 1.4,
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}>
+              Stake BRAINS/XNT or LB/XNT LP · lock 30 / 90 / 365d · up to 8× rewards
+            </div>
+          </div>
+
+          {/* Arrow */}
+          <div style={{
+            fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 700,
+            color: '#ff8c00', letterSpacing: 1, flexShrink: 0,
+            padding: isMobile ? '4px 8px' : '5px 11px', borderRadius: 5,
+            border: '1px solid rgba(255,140,0,.3)',
+            background: 'rgba(255,140,0,.05)',
+          }}>
+            OPEN →
+          </div>
+        </div>
+
         {/* ── MODE SWITCHER ── */}
         <div style={{ display: 'flex', gap: 6, marginBottom: isMobile ? 20 : 30,
           background: 'rgba(255,255,255,.03)', borderRadius: 14, padding: 4,

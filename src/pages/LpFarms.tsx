@@ -65,12 +65,55 @@ const CLAIM_COOLDOWN_SEC = 86_400;
 const STAKE_FEE_LAMPORTS = 5_000_000; // 0.005 XNT
 
 // Penalty bps
-const PENALTY_P1_STANDARD = 400;   // 4.000%
-const PENALTY_P1_DISCOUNT = 188;   // 1.888%
-const PENALTY_P2_STANDARD = 188;   // 1.888%
-const PENALTY_P2_DISCOUNT = 88;    // 0.888%
+// ─── LB tier ladder (matches on-chain accumulator.rs exactly) ─────────────────
+// Four tiers + baseline. Penalty shrinks as LB holdings grow. Checked highest-
+// first so users always get their best-qualifying tier.
+const PENALTY_P1_STANDARD = 400;   // 4.000% — no LB
+const PENALTY_P1_TIER1    = 188;   // 1.888% — ≥ 33 LB
+const PENALTY_P1_TIER2    = 100;   // 1.000% — ≥ 330 LB
+const PENALTY_P1_TIER3    =  50;   // 0.500% — ≥ 3,300 LB
 
-const LB_DISCOUNT_THRESHOLD = 3_300; // 33 LB at 2 decimals
+const PENALTY_P2_STANDARD = 188;   // 1.888% — no LB
+const PENALTY_P2_TIER1    =  88;   // 0.888% — ≥ 33 LB
+const PENALTY_P2_TIER2    =  44;   // 0.444% — ≥ 330 LB
+const PENALTY_P2_TIER3    =  22;   // 0.222% — ≥ 3,300 LB
+
+// Raw units (2 decimals) — multiply displayed LB by 100 for raw
+const LB_TIER1_THRESHOLD_RAW =   3_300;  // 33 LB
+const LB_TIER2_THRESHOLD_RAW =  33_000;  // 330 LB
+const LB_TIER3_THRESHOLD_RAW = 330_000;  // 3,300 LB
+
+// UI-friendly thresholds
+const LB_TIER1_THRESHOLD_UI =    33;
+const LB_TIER2_THRESHOLD_UI =   330;
+const LB_TIER3_THRESHOLD_UI = 3_300;
+
+// Returns 0 (no tier / standard), 1, 2, or 3
+function getLbTier(lbBalanceRaw: number | bigint): number {
+  const bal = Number(lbBalanceRaw);
+  if (bal >= LB_TIER3_THRESHOLD_RAW) return 3;
+  if (bal >= LB_TIER2_THRESHOLD_RAW) return 2;
+  if (bal >= LB_TIER1_THRESHOLD_RAW) return 1;
+  return 0;
+}
+
+// Returns the penalty in bps for a given (period, tier) combo
+function getPenaltyBps(period: 1 | 2, tier: number): number {
+  if (period === 1) {
+    if (tier === 3) return PENALTY_P1_TIER3;
+    if (tier === 2) return PENALTY_P1_TIER2;
+    if (tier === 1) return PENALTY_P1_TIER1;
+    return PENALTY_P1_STANDARD;
+  } else {
+    if (tier === 3) return PENALTY_P2_TIER3;
+    if (tier === 2) return PENALTY_P2_TIER2;
+    if (tier === 1) return PENALTY_P2_TIER1;
+    return PENALTY_P2_STANDARD;
+  }
+}
+
+// Back-compat alias — keep for any external references, but prefer getLbTier
+const LB_DISCOUNT_THRESHOLD = LB_TIER1_THRESHOLD_RAW;
 const ACC_PRECISION = BigInt('1000000000000000000'); // 1e18
 
 // Helper: 10^n as a number, for converting raw token amounts to UI amounts
@@ -108,6 +151,9 @@ interface FarmOnChain {
   lpPriceUsd:            number;
   lpDecimals:            number;       // read from lp_mint at fetch time
   rewardDecimals:        number;       // read from reward_mint at fetch time
+  otherTokenLogo?:       string;       // logo for the non-XNT side (BRAINS or LB)
+  xntLogo?:              string;       // XNT logo
+  otherTokenSymbol?:     string;       // "BRAINS" or "LB"
 }
 
 interface PositionOnChain {
@@ -268,11 +314,10 @@ async function fetchLpPrice(
   connection: Connection,
 ): Promise<number> {
   const meta = POOL_BY_LP[lpMint];
-  if (!meta) { console.warn('[lpPrice] no POOL_BY_LP entry for', lpMint); return 0; }
+  if (!meta) return 0;
   try {
     const poolInfo = await connection.getAccountInfo(new PublicKey(meta.pool));
     if (!poolInfo || poolInfo.data.length < 350) {
-      console.warn('[lpPrice] pool account missing or too small', meta.pool, poolInfo?.data.length);
       return 0;
     }
 
@@ -323,11 +368,6 @@ async function fetchLpPrice(
     const v1Raw = readU64(new Uint8Array(v1Info.data), 64);
     const v0Ui = Number(v0Raw) / pow10(dec0);
     const v1Ui = Number(v1Raw) / pow10(dec1);
-    console.log('[lpPrice]', lpMint.slice(0,6), {
-      token0Mint: token0Mint.slice(0,6), token1Mint: token1Mint.slice(0,6),
-      v0Ui, v1Ui, dec0, dec1, lpDecimals,
-      lpSupplyRaw: lpSupplyRaw.toString(),
-    });
     if (v0Ui === 0 || v1Ui === 0) return 0;
 
     // Derive TVL using whichever side has a reliable price feed.
@@ -359,10 +399,8 @@ async function fetchLpPrice(
     if (lpSupplyUi === 0) return 0;
 
     const lpPrice = tvlUsd / lpSupplyUi;
-    console.log('[lpPrice]', lpMint.slice(0,6), { tvlUsd, lpSupplyUi, lpPrice });
     return lpPrice;
   } catch (e) {
-    console.warn('fetchLpPrice failed for', lpMint, e);
     return 0;
   }
 }
@@ -446,6 +484,17 @@ async function fetchFarms(connection: Connection): Promise<FarmOnChain[]> {
           console.warn('Failed to read mint decimals, using defaults:', e);
         }
 
+        // Logos — fetch reward token's logo from Token-2022 metadata.
+        // XNT is the paired side in both current farms but has no logo yet,
+        // so we pass undefined and let TokenLogo render the 'X' placeholder.
+        let otherTokenLogo: string | undefined;
+        try {
+          const lg = await fetchTokenLogo(rewardMint, connection);
+          if (lg) otherTokenLogo = lg;
+        } catch {}
+        const otherTokenSymbol = rewardSymbol;
+        const xntLogo = undefined;
+
         results.push({
           pubkey: pubkey.toBase58(),
           lpMint, rewardMint, rewardSymbol, lpSymbol, lpVault, rewardVault,
@@ -460,6 +509,7 @@ async function fetchFarms(connection: Connection): Promise<FarmOnChain[]> {
           vaultBalance, runwayDays,
           rewardPriceUsd, lpPriceUsd,
           lpDecimals, rewardDecimals,
+          otherTokenLogo, xntLogo, otherTokenSymbol,
         });
       } catch { continue; }
     }
@@ -653,6 +703,301 @@ const TxLink: FC<{ sig: string; color?: string }> = ({ sig, color = '#00d4ff' })
   );
 };
 
+// ─── Token logos ──────────────────────────────────────────────────────────────
+// Simple fetch from Token-2022 on-chain metadata (URI → JSON → image).
+// Cached in-memory so we don't re-fetch on every render.
+const _logoCache = new Map<string, string | null>();
+
+async function fetchTokenLogo(mint: string, connection: Connection): Promise<string | null> {
+  if (_logoCache.has(mint)) return _logoCache.get(mint) || null;
+  try {
+    const info = await connection.getParsedAccountInfo(new PublicKey(mint));
+    const parsed = (info?.value?.data as any)?.parsed?.info;
+    const exts = parsed?.extensions as any[] | undefined;
+    const metaExt = exts?.find((e: any) => e.extension === 'tokenMetadata');
+    const uri = metaExt?.state?.uri as string | undefined;
+    if (!uri) { _logoCache.set(mint, null); return null; }
+    const r = await fetch(uri, { signal: AbortSignal.timeout(5000) });
+    const j = await r.json();
+    const logo: string | undefined = j?.image || j?.logo || j?.icon;
+    _logoCache.set(mint, logo || null);
+    return logo || null;
+  } catch {
+    _logoCache.set(mint, null);
+    return null;
+  }
+}
+
+// XNT has no standard logo yet — let TokenLogo fall through to text-letter placeholder.
+
+// TokenLogo component — img with graceful fallback to symbol-letter placeholder
+const TokenLogo: FC<{
+  src?: string; symbol: string; size?: number; offset?: number;
+}> = ({ src, symbol, size = 20, offset = 0 }) => {
+  const [failed, setFailed] = useState(false);
+  const COLORS = ['#ff8c00', '#ffb700', '#00d4ff', '#00c98d', '#bf5af2'];
+  const ci = (symbol?.charCodeAt(0) ?? 65) % COLORS.length;
+  const ci2 = (ci + 2) % COLORS.length;
+  const radius = size * 0.22;
+
+  const style: React.CSSProperties = {
+    width: size, height: size, borderRadius: radius,
+    background: src && !failed ? '#111820'
+      : `linear-gradient(135deg,${COLORS[ci]},${COLORS[ci2]})`,
+    border: '1px solid rgba(255,255,255,.08)',
+    objectFit: 'cover', flexShrink: 0,
+    marginLeft: offset,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontFamily: 'Orbitron,monospace',
+    fontSize: size * 0.42, fontWeight: 900,
+    color: '#0a0e14',
+  };
+
+  if (src && !failed) {
+    return (
+      <img src={src} alt={symbol} crossOrigin="anonymous" style={style}
+        onError={() => setFailed(true)} />
+    );
+  }
+  return <div style={style}>{symbol?.slice(0, 1) || '?'}</div>;
+};
+
+// Paired logo — two overlapping token logos (BRAINS + XNT, etc.)
+const PairLogo: FC<{
+  logoA?: string; symbolA: string;   // native/primary token (BRAINS/LB) — shown on top
+  logoB?: string; symbolB: string;   // paired token (XNT) — shown behind
+  size?: number;
+}> = ({ logoA, symbolA, logoB, symbolB, size = 22 }) => {
+  const overlap = Math.floor(size * 0.35);
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0,
+      position: 'relative' }}>
+      <div style={{ position: 'relative', zIndex: 2 }}>
+        <TokenLogo src={logoA} symbol={symbolA} size={size} />
+      </div>
+      <div style={{ position: 'relative', zIndex: 1, marginLeft: -overlap }}>
+        <TokenLogo src={logoB} symbol={symbolB} size={size} />
+      </div>
+    </div>
+  );
+};
+
+
+// Restrained educational section matching the LabWorkDefi aesthetic: small type,
+// muted palette, data-dense tables. No heavy color emphasis, no large emoji.
+const TokenomicsPanel: FC<{ isMobile: boolean }> = ({ isMobile }) => {
+  const [open, setOpen] = useState(false);
+
+  const SectionHeader: FC<{ label: string }> = ({ label }) => (
+    <div style={{
+      fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
+      color: '#4a6a8a', letterSpacing: 1.5, marginTop: 18, marginBottom: 8,
+      textTransform: 'uppercase',
+    }}>{label}</div>
+  );
+
+  const tableTh: React.CSSProperties = {
+    textAlign: 'left', padding: '6px 8px 6px 0', fontWeight: 600,
+    fontSize: 8, color: '#4a6a8a', letterSpacing: .5,
+    borderBottom: '1px solid rgba(255,255,255,.06)',
+  };
+  const tableTd: React.CSSProperties = {
+    padding: '5px 8px 5px 0', fontSize: 9, color: '#9abacf',
+    borderBottom: '1px solid rgba(255,255,255,.03)',
+  };
+  const tableTdRight: React.CSSProperties = { ...tableTd, textAlign: 'right', paddingRight: 0 };
+
+  return (
+    <div style={{
+      marginBottom: isMobile ? 14 : 20,
+      background: 'rgba(255,255,255,.015)',
+      border: '1px solid rgba(255,255,255,.06)',
+      borderRadius: 10, overflow: 'hidden',
+    }}>
+      {/* Header */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%', padding: isMobile ? '11px 14px' : '13px 18px',
+          background: 'transparent', border: 'none', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          textAlign: 'left',
+        }}
+      >
+        <div>
+          <div style={{
+            fontFamily: 'Orbitron,monospace', fontSize: 10,
+            fontWeight: 700, color: '#9abacf', letterSpacing: 1.5,
+            textTransform: 'uppercase',
+          }}>How it works</div>
+          <div style={{
+            fontFamily: 'Sora,sans-serif', fontSize: 9,
+            color: '#3a5a6a', marginTop: 3,
+          }}>APR amps · lock tiers · exit policy · LB discount ladder</div>
+        </div>
+        <div style={{
+          fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700,
+          color: '#4a6a8a', letterSpacing: 1,
+        }}>{open ? '−' : '+'}</div>
+      </button>
+
+      {open && (
+        <div style={{
+          padding: isMobile ? '4px 14px 18px' : '4px 18px 20px',
+          fontFamily: 'Sora,sans-serif', fontSize: 10,
+          color: '#9abacf', lineHeight: 1.6,
+          borderTop: '1px solid rgba(255,255,255,.04)',
+        }}>
+          {/* Overview */}
+          <SectionHeader label="Overview" />
+          <div>
+            Perpetual LP farms. Stake BRAINS/XNT or LB/XNT LP tokens to earn BRAINS or LB
+            rewards. Rewards emit at a fixed rate until the vault depletes. Longer locks
+            receive a larger share of emissions.
+          </div>
+
+          {/* Lock tiers */}
+          <SectionHeader label="Lock tiers · APR multipliers" />
+          <table style={{ width: '100%', borderCollapse: 'collapse',
+            fontFamily: 'Orbitron,monospace' }}>
+            <thead>
+              <tr>
+                <th style={tableTh}>Lock duration</th>
+                <th style={{...tableTh, textAlign: 'right'}}>Multiplier</th>
+                <th style={{...tableTh, textAlign: 'right'}}>vs baseline</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style={tableTd}>30 days</td>
+                <td style={tableTdRight}>2×</td>
+                <td style={tableTdRight}>baseline</td>
+              </tr>
+              <tr>
+                <td style={tableTd}>90 days</td>
+                <td style={tableTdRight}>4×</td>
+                <td style={tableTdRight}>2× APR</td>
+              </tr>
+              <tr>
+                <td style={{...tableTd, borderBottom: 'none'}}>365 days</td>
+                <td style={{...tableTdRight, borderBottom: 'none'}}>8×</td>
+                <td style={{...tableTdRight, borderBottom: 'none'}}>4× APR</td>
+              </tr>
+            </tbody>
+          </table>
+          <div style={{ marginTop: 8, fontSize: 9, color: '#4a6a8a' }}>
+            Effective stake = LP amount × multiplier. Your share of emissions equals your
+            effective stake divided by total effective across all positions.
+          </div>
+
+          {/* Exit policy */}
+          <SectionHeader label="Exit policy" />
+          <div style={{ marginBottom: 6 }}>
+            <span style={{ color: '#9abacf', fontWeight: 600 }}>Grace (days 1–3).</span>{' '}
+            Full LP returned, accrued rewards forfeited to vault. Intended as an "undo"
+            window for mistakes.
+          </div>
+          <div style={{ marginBottom: 6 }}>
+            <span style={{ color: '#9abacf', fontWeight: 600 }}>Early (past grace, before unlock).</span>{' '}
+            LP penalty applied (see ladder below), rewards forfeited.
+          </div>
+          <div>
+            <span style={{ color: '#9abacf', fontWeight: 600 }}>Mature (at or past unlock).</span>{' '}
+            Full LP returned, full accrued rewards paid out.
+          </div>
+          <div style={{ marginTop: 8, fontSize: 9, color: '#4a6a8a' }}>
+            Forfeited rewards remain in the vault and become re-emittable, marginally
+            increasing APR for remaining stakers.
+          </div>
+
+          {/* LB discount ladder */}
+          <SectionHeader label="LB-holder penalty discount ladder" />
+          <div style={{ marginBottom: 8, fontSize: 10, color: '#9abacf' }}>
+            Holding LB tokens reduces early-exit penalty across two periods:
+            P1 (first half of lock past grace) and P2 (second half).
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse',
+            fontFamily: 'Orbitron,monospace' }}>
+            <thead>
+              <tr>
+                <th style={tableTh}>Tier</th>
+                <th style={tableTh}>LB held</th>
+                <th style={{...tableTh, textAlign: 'right'}}>P1 penalty</th>
+                <th style={{...tableTh, textAlign: 'right'}}>P2 penalty</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style={tableTd}>—</td>
+                <td style={tableTd}>&lt; 33</td>
+                <td style={tableTdRight}>4.000%</td>
+                <td style={tableTdRight}>1.888%</td>
+              </tr>
+              <tr>
+                <td style={tableTd}>T1</td>
+                <td style={tableTd}>≥ 33</td>
+                <td style={tableTdRight}>1.888%</td>
+                <td style={tableTdRight}>0.888%</td>
+              </tr>
+              <tr>
+                <td style={tableTd}>T2</td>
+                <td style={tableTd}>≥ 330</td>
+                <td style={tableTdRight}>1.000%</td>
+                <td style={tableTdRight}>0.444%</td>
+              </tr>
+              <tr>
+                <td style={{...tableTd, borderBottom: 'none'}}>T3</td>
+                <td style={{...tableTd, borderBottom: 'none'}}>≥ 3,300</td>
+                <td style={{...tableTdRight, borderBottom: 'none'}}>0.500%</td>
+                <td style={{...tableTdRight, borderBottom: 'none'}}>0.222%</td>
+              </tr>
+            </tbody>
+          </table>
+          <div style={{ marginTop: 8, fontSize: 9, color: '#4a6a8a' }}>
+            Balance checked from the user's LB token account at exit. No action required.
+          </div>
+
+          {/* Claim */}
+          <SectionHeader label="Claim cooldown" />
+          <div>
+            Positions past grace can claim accrued rewards while still staked.
+            Claims have a 24-hour cooldown per position. Rewards continue accruing
+            between claims.
+          </div>
+
+          {/* Runway */}
+          <SectionHeader label="Reward runway" />
+          <div>
+            Each farm emits from a finite reward vault at a fixed rate until depletion.
+            The runway metric shown on each farm card reflects days of emissions
+            remaining at the current rate. Anyone may donate to a farm vault.
+          </div>
+
+          {/* Transparency */}
+          <SectionHeader label="On-chain transparency" />
+          <div>
+            All state and math are on-chain. Admin controls are limited to pause
+            (stake/claim blocked, unstake always works), rate updates, and withdrawal
+            of un-earmarked surplus (never touches rewards owed to active stakers).
+            Admin cannot seize staked LP or alter positions.
+          </div>
+          <div style={{ marginTop: 6, fontFamily: 'Orbitron,monospace',
+            fontSize: 9, color: '#4a6a8a', wordBreak: 'break-all' }}>
+            Program: Ci1qDtdoSh8mCtJTVoX1tArbnLydQUZYu9RiqukRFJpg
+          </div>
+
+          <div style={{ marginTop: 16, paddingTop: 12,
+            borderTop: '1px solid rgba(255,255,255,.04)',
+            fontSize: 9, color: '#3a5a6a', fontStyle: 'italic' }}>
+            Not financial advice. APRs are variable, locks are final, and smart contract
+            risk applies. Do your own research.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Farm Card ────────────────────────────────────────────────────────────────
 const FarmCard: FC<{
   farm: FarmOnChain;
@@ -673,106 +1018,114 @@ const FarmCard: FC<{
 
   return (
     <div style={{
-      background: 'linear-gradient(155deg,#0d1622,#080c0f)',
+      background: 'rgba(255,255,255,.015)',
       border: `1px solid ${isHot}22`,
-      borderRadius: 16,
-      padding: isMobile ? '20px 16px' : '26px 28px',
-      marginBottom: 16,
+      borderRadius: 12,
+      padding: isMobile ? '14px 14px' : '16px 20px',
+      marginBottom: 12,
       position: 'relative', overflow: 'hidden',
       animation: 'fadeUp 0.4s ease both',
-      transition: 'all 0.2s',
+      transition: 'border-color 0.2s',
     }}
-      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = `${isHot}66`; }}
+      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = `${isHot}55`; }}
       onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = `${isHot}22`; }}>
 
-      {/* Top accent line */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2,
-        background: `linear-gradient(90deg, transparent, ${isHot}, transparent)`,
-        boxShadow: `0 0 12px ${isHot}55` }} />
-
-      {/* Glow orb */}
-      <div style={{ position: 'absolute', top: -40, right: -40, width: 180, height: 180,
-        borderRadius: '50%', background: isHot, opacity: 0.08, filter: 'blur(50px)',
-        pointerEvents: 'none' }} />
+      {/* Thin top accent */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1,
+        background: `linear-gradient(90deg, transparent, ${isHot}66, transparent)` }} />
 
       {/* Status badges */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
-        {farm.paused && (
-          <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 900,
-            padding: '3px 9px', borderRadius: 5, color: '#ff8c00',
-            background: 'rgba(255,140,0,.1)', border: '1px solid rgba(255,140,0,.3)' }}>
-            ⏸ PAUSED
-          </span>
-        )}
-        {farm.runwayDays <= 30 && farm.runwayDays > 0 && (
-          <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 900,
-            padding: '3px 9px', borderRadius: 5, color: '#ff6666',
-            background: 'rgba(255,68,68,.1)', border: '1px solid rgba(255,68,68,.3)' }}>
-            ⚠ LOW RUNWAY
-          </span>
-        )}
-        {farm.runwayDays === 0 && farm.vaultBalance === 0n && (
-          <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 900,
-            padding: '3px 9px', borderRadius: 5, color: '#ff4444',
-            background: 'rgba(255,68,68,.15)', border: '1px solid rgba(255,68,68,.4)' }}>
-            DRAINED
-          </span>
-        )}
-        {myStakeCount > 0 && (
-          <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 900,
-            padding: '3px 9px', borderRadius: 5, color: '#00c98d',
-            background: 'rgba(0,201,141,.1)', border: '1px solid rgba(0,201,141,.3)' }}>
-            {myStakeCount} MY STAKE{myStakeCount > 1 ? 'S' : ''}
-          </span>
-        )}
-      </div>
+      {(farm.paused || (farm.runwayDays <= 30 && farm.runwayDays > 0) ||
+        (farm.runwayDays === 0 && farm.vaultBalance === 0n) || myStakeCount > 0) && (
+        <div style={{ display: 'flex', gap: 5, marginBottom: 10, flexWrap: 'wrap' }}>
+          {farm.paused && (
+            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
+              padding: '2px 7px', borderRadius: 4, color: '#ff8c00', letterSpacing: .5,
+              background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.25)' }}>
+              PAUSED
+            </span>
+          )}
+          {farm.runwayDays <= 30 && farm.runwayDays > 0 && (
+            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
+              padding: '2px 7px', borderRadius: 4, color: '#ff6666', letterSpacing: .5,
+              background: 'rgba(255,68,68,.08)', border: '1px solid rgba(255,68,68,.25)' }}>
+              LOW RUNWAY
+            </span>
+          )}
+          {farm.runwayDays === 0 && farm.vaultBalance === 0n && (
+            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
+              padding: '2px 7px', borderRadius: 4, color: '#ff4444', letterSpacing: .5,
+              background: 'rgba(255,68,68,.12)', border: '1px solid rgba(255,68,68,.35)' }}>
+              DRAINED
+            </span>
+          )}
+          {myStakeCount > 0 && (
+            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
+              padding: '2px 7px', borderRadius: 4, color: '#00c98d', letterSpacing: .5,
+              background: 'rgba(0,201,141,.08)', border: '1px solid rgba(0,201,141,.25)' }}>
+              {myStakeCount} MY STAKE{myStakeCount > 1 ? 'S' : ''}
+            </span>
+          )}
+        </div>
+      )}
 
-      {/* Header: pair + reward */}
+      {/* Header: pair logos + title + reward vault */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 16 : 22,
-            fontWeight: 900, color: '#e0f0ff', letterSpacing: 1, marginBottom: 4 }}>
-            {farm.lpSymbol} <span style={{ color: isHot }}>→</span> {farm.rewardSymbol}
-          </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#c0d0e0',
-            display: 'flex', alignItems: 'center', gap: 6 }}>
-            Stake {farm.lpSymbol}, earn {farm.rewardSymbol}
-            <CopyButton text={farm.pubkey} />
+        marginBottom: 14, gap: 12, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <PairLogo
+            logoA={farm.otherTokenLogo} symbolA={farm.otherTokenSymbol || farm.rewardSymbol}
+            logoB={farm.xntLogo} symbolB="XNT"
+            size={isMobile ? 32 : 36}
+          />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 14 : 16,
+              fontWeight: 900, color: '#e0f0ff', letterSpacing: .5, lineHeight: 1.2,
+              whiteSpace: 'nowrap' }}>
+              {farm.lpSymbol} <span style={{ color: isHot, opacity: .8 }}>→</span> {farm.rewardSymbol}
+            </div>
+            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#6a90a8',
+              display: 'flex', alignItems: 'center', gap: 5, marginTop: 3 }}>
+              Stake {farm.lpSymbol}, earn {farm.rewardSymbol}
+              <CopyButton text={farm.pubkey} />
+            </div>
           </div>
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#8899aa', marginBottom: 2 }}>
-            REWARD VAULT
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#4a6a8a',
+            letterSpacing: 1, textTransform: 'uppercase' }}>
+            Reward vault
           </div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 700, color: isHot }}>
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700,
+            color: isHot, marginTop: 2 }}>
             {fmtNum(Number(farm.vaultBalance) / pow10(farm.rewardDecimals))} {farm.rewardSymbol}
           </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#c0d0e0' }}>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#9abacf' }}>
             {fmtUSD(vaultUsd)}
           </div>
         </div>
       </div>
 
       {/* APR grid — 3 tiers */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 12 }}>
         {LOCK_TIERS.map((tier, i) => {
           const apr = [apr30, apr90, apr365][i];
           return (
             <div key={tier.id} style={{
-              background: `${tier.color}08`,
-              border: `1px solid ${tier.color}33`,
-              borderRadius: 10, padding: '12px 10px', textAlign: 'center',
+              background: `${tier.color}06`,
+              border: `1px solid ${tier.color}22`,
+              borderRadius: 7, padding: '9px 8px', textAlign: 'center',
             }}>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8,
-                letterSpacing: 1.5, color: tier.color, marginBottom: 4, fontWeight: 700 }}>
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7,
+                letterSpacing: 1, color: tier.color, marginBottom: 3, fontWeight: 700 }}>
                 {tier.label}
               </div>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 16 : 20,
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 13 : 15,
                 fontWeight: 900, color: tier.color, lineHeight: 1 }}>
                 {apr > 0 ? `${apr < 10_000 ? apr.toFixed(1) : fmtNum(apr, 0)}%` : '—'}
               </div>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#c0d0e0', marginTop: 4 }}>
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#4a6a8a', marginTop: 3,
+                letterSpacing: .5 }}>
                 APR · {tier.multDisplay}
               </div>
             </div>
@@ -782,40 +1135,42 @@ const FarmCard: FC<{
 
       {/* Stats row */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
-        gap: 8, marginBottom: 18, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,.05)' }}>
+        gap: 6, marginBottom: 12, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,.04)' }}>
         {[
-          { label: 'TVL',      value: fmtUSD(tvlUsd),                  color: '#e0f0ff' },
-          { label: 'STAKED',   value: fmtNum(Number(farm.totalStaked)/pow10(farm.lpDecimals)), color: '#d0dde8' },
-          { label: 'RUNWAY',   value: farm.runwayDays > 0 ? `${fmtNum(farm.runwayDays, 0)}d` : '—', color: farm.runwayDays <= 30 ? '#ff8c00' : '#00c98d' },
-          { label: 'EMITTED',  value: fmtNum(Number(farm.totalEmitted)/pow10(farm.rewardDecimals)), color: '#bf5af2' },
+          { label: 'TVL',     value: fmtUSD(tvlUsd),                                                             color: '#e0f0ff' },
+          { label: 'STAKED',  value: fmtNum(Number(farm.totalStaked)/pow10(farm.lpDecimals)),                    color: '#9abacf' },
+          { label: 'RUNWAY',  value: farm.runwayDays > 0 ? `${fmtNum(farm.runwayDays, 0)}d` : '—',              color: farm.runwayDays <= 30 ? '#ff8c00' : '#9abacf' },
+          { label: 'EMITTED', value: fmtNum(Number(farm.totalEmitted)/pow10(farm.rewardDecimals)),               color: '#9abacf' },
         ].map(stat => (
           <div key={stat.label}>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, letterSpacing: 1,
-              color: '#8899aa', marginBottom: 2 }}>{stat.label}</div>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 700,
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, letterSpacing: 1,
+              color: '#4a6a8a', marginBottom: 2, textTransform: 'uppercase' }}>{stat.label}</div>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700,
               color: stat.color }}>{stat.value}</div>
           </div>
         ))}
       </div>
 
       {/* Actions */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 6 }}>
         <button onClick={onStake} disabled={farm.paused || farm.closed}
-          style={{ flex: 2, padding: '13px 20px', borderRadius: 11, cursor: farm.paused || farm.closed ? 'not-allowed' : 'pointer',
+          style={{ flex: 2, padding: '10px 14px', borderRadius: 8,
+            cursor: farm.paused || farm.closed ? 'not-allowed' : 'pointer',
             background: farm.paused || farm.closed
-              ? 'rgba(255,255,255,.04)'
-              : `linear-gradient(135deg, ${isHot}22, ${isHot}08)`,
-            border: `1px solid ${farm.paused || farm.closed ? 'rgba(255,255,255,.08)' : `${isHot}66`}`,
-            fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 900,
-            color: farm.paused || farm.closed ? '#4a6a8a' : isHot, letterSpacing: 1.5 }}>
-          ⚡ STAKE LP
+              ? 'rgba(255,255,255,.02)'
+              : `${isHot}15`,
+            border: `1px solid ${farm.paused || farm.closed ? 'rgba(255,255,255,.06)' : `${isHot}44`}`,
+            fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 700,
+            color: farm.paused || farm.closed ? '#4a6a8a' : isHot, letterSpacing: 1.2,
+            transition: 'all .15s' }}>
+          Stake LP
         </button>
         <button onClick={onFund}
-          style={{ flex: 1, padding: '13px 20px', borderRadius: 11, cursor: 'pointer',
-            background: 'rgba(0,201,141,.08)', border: '1px solid rgba(0,201,141,.3)',
-            fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 900,
-            color: '#00c98d', letterSpacing: 1.5 }}>
-          💧 DONATE
+          style={{ flex: 1, padding: '10px 14px', borderRadius: 8, cursor: 'pointer',
+            background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.08)',
+            fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 700,
+            color: '#9abacf', letterSpacing: 1.2, transition: 'all .15s' }}>
+          Donate
         </button>
       </div>
     </div>
@@ -917,11 +1272,16 @@ const PositionCard: FC<{
 
       {/* Penalty warning if early */}
       {!isMatured && !isInGrace && (
-        <div style={{ padding: '8px 12px', borderRadius: 8, marginBottom: 12,
-          background: 'rgba(255,140,0,.06)', border: '1px solid rgba(255,140,0,.2)',
-          fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#ff8c00' }}>
-          ⚠️ Early exit: {(position.penaltyBps / 100).toFixed(3)}% LP penalty + all rewards forfeited
-          &nbsp;(LB holders get {position.penaltyBps === PENALTY_P1_STANDARD ? '1.888' : '0.888'}%)
+        <div style={{ padding: '8px 12px', borderRadius: 7, marginBottom: 12,
+          background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
+          fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#9abacf', lineHeight: 1.5 }}>
+          Early exit: {(position.penaltyBps / 100).toFixed(3)}% LP penalty · rewards forfeited.
+          <br/>
+          <span style={{ color: '#4a6a8a' }}>
+            LB discount: T1 ≥33 → {(position.penaltyBps === PENALTY_P1_STANDARD ? PENALTY_P1_TIER1 : PENALTY_P2_TIER1)/100}%{' · '}
+            T2 ≥330 → {(position.penaltyBps === PENALTY_P1_STANDARD ? PENALTY_P1_TIER2 : PENALTY_P2_TIER2)/100}%{' · '}
+            T3 ≥3,300 → {(position.penaltyBps === PENALTY_P1_STANDARD ? PENALTY_P1_TIER3 : PENALTY_P2_TIER3)/100}%
+          </span>
         </div>
       )}
 
@@ -1173,12 +1533,67 @@ const StakeModal: FC<{
         </div>
 
         {/* Penalty disclosure */}
-        <div style={{ padding: '10px 14px', borderRadius: 8, marginBottom: 14,
-          background: 'rgba(255,140,0,.05)', border: '1px solid rgba(255,140,0,.15)',
-          fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#d0dde8', lineHeight: 1.6 }}>
+        <div style={{ padding: '12px 14px', borderRadius: 8, marginBottom: 14,
+          background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
+          fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#9abacf', lineHeight: 1.5 }}>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
-            color: '#ff8c00', marginBottom: 4, letterSpacing: 1 }}>EARLY EXIT PENALTY</div>
-          Days 1-3: no penalty · After grace, first half: 4.0% LP (1.888% LB holders) · Second half: 1.888% (0.888% LB) · Mature: free. All pending rewards forfeited on early exit.
+            color: '#4a6a8a', marginBottom: 8, letterSpacing: 1, textTransform: 'uppercase' }}>
+            Exit policy
+          </div>
+          <div style={{ marginBottom: 10, fontSize: 10 }}>
+            Grace (days 1–3): full LP returned, rewards forfeited. Past grace: LP penalty +
+            rewards forfeited. Mature: full LP + full rewards.
+          </div>
+
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
+            color: '#4a6a8a', marginTop: 12, marginBottom: 6, letterSpacing: 1, textTransform: 'uppercase' }}>
+            LB-holder discount ladder
+          </div>
+          <table style={{ width: '100%', fontSize: 9, borderCollapse: 'collapse',
+            fontFamily: 'Orbitron,monospace' }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', padding: '4px 8px 4px 0', fontWeight: 600,
+                  fontSize: 8, color: '#4a6a8a', letterSpacing: .5,
+                  borderBottom: '1px solid rgba(255,255,255,.06)' }}>Tier</th>
+                <th style={{ textAlign: 'left', padding: '4px 8px 4px 0', fontWeight: 600,
+                  fontSize: 8, color: '#4a6a8a', letterSpacing: .5,
+                  borderBottom: '1px solid rgba(255,255,255,.06)' }}>LB held</th>
+                <th style={{ textAlign: 'right', padding: '4px 8px 4px 0', fontWeight: 600,
+                  fontSize: 8, color: '#4a6a8a', letterSpacing: .5,
+                  borderBottom: '1px solid rgba(255,255,255,.06)' }}>P1</th>
+                <th style={{ textAlign: 'right', padding: '4px 0', fontWeight: 600,
+                  fontSize: 8, color: '#4a6a8a', letterSpacing: .5,
+                  borderBottom: '1px solid rgba(255,255,255,.06)' }}>P2</th>
+              </tr>
+            </thead>
+            <tbody style={{ color: '#9abacf' }}>
+              <tr>
+                <td style={{ padding: '4px 8px 4px 0', borderBottom: '1px solid rgba(255,255,255,.03)' }}>—</td>
+                <td style={{ padding: '4px 8px 4px 0', borderBottom: '1px solid rgba(255,255,255,.03)' }}>&lt; 33</td>
+                <td style={{ padding: '4px 8px 4px 0', textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,.03)' }}>4.000%</td>
+                <td style={{ padding: '4px 0', textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,.03)' }}>1.888%</td>
+              </tr>
+              <tr>
+                <td style={{ padding: '4px 8px 4px 0', borderBottom: '1px solid rgba(255,255,255,.03)' }}>T1</td>
+                <td style={{ padding: '4px 8px 4px 0', borderBottom: '1px solid rgba(255,255,255,.03)' }}>≥ 33</td>
+                <td style={{ padding: '4px 8px 4px 0', textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,.03)' }}>1.888%</td>
+                <td style={{ padding: '4px 0', textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,.03)' }}>0.888%</td>
+              </tr>
+              <tr>
+                <td style={{ padding: '4px 8px 4px 0', borderBottom: '1px solid rgba(255,255,255,.03)' }}>T2</td>
+                <td style={{ padding: '4px 8px 4px 0', borderBottom: '1px solid rgba(255,255,255,.03)' }}>≥ 330</td>
+                <td style={{ padding: '4px 8px 4px 0', textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,.03)' }}>1.000%</td>
+                <td style={{ padding: '4px 0', textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,.03)' }}>0.444%</td>
+              </tr>
+              <tr>
+                <td style={{ padding: '4px 8px 4px 0' }}>T3</td>
+                <td style={{ padding: '4px 8px 4px 0' }}>≥ 3,300</td>
+                <td style={{ padding: '4px 8px 4px 0', textAlign: 'right' }}>0.500%</td>
+                <td style={{ padding: '4px 0', textAlign: 'right' }}>0.222%</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
         <StatusBox msg={status} />
@@ -1360,17 +1775,16 @@ const UnstakeModal: FC<{
   const now = Math.floor(Date.now() / 1000);
   const isMatured = now >= position.unlockTs;
   const isInGrace = now <= position.graceEndTs;
-  const hasDiscount = lbBal >= LB_DISCOUNT_THRESHOLD;
+  const lbTier = getLbTier(lbBal);
+  const hasDiscount = lbTier > 0; // kept for button-hint copy below
 
-  // Compute penalty with actual LB discount
+  // Compute penalty with actual LB tier (matches on-chain logic exactly)
   let penaltyBps = 0;
+  let period: 1 | 2 = 1;
   if (!isMatured && !isInGrace) {
     const midpoint = position.startTs + position.lockDuration / 2;
-    if (now < midpoint) {
-      penaltyBps = hasDiscount ? PENALTY_P1_DISCOUNT : PENALTY_P1_STANDARD;
-    } else {
-      penaltyBps = hasDiscount ? PENALTY_P2_DISCOUNT : PENALTY_P2_STANDARD;
-    }
+    period = now < midpoint ? 1 : 2;
+    penaltyBps = getPenaltyBps(period, lbTier);
   }
   const penaltyRaw = (position.amount * BigInt(penaltyBps)) / 10_000n;
   const lpReturnedRaw = position.amount - penaltyRaw;
@@ -1464,7 +1878,7 @@ const UnstakeModal: FC<{
     } finally { setPending(false); }
   };
 
-  const accentColor = isMatured ? '#00c98d' : isEarly ? '#ff6666' : '#00d4ff';
+  const accentColor = isMatured ? '#00c98d' : isInGrace ? '#ffb347' : '#ff6666';
 
   return createPortal(
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999,
@@ -1491,7 +1905,7 @@ const UnstakeModal: FC<{
           {isMatured
             ? 'Lock period complete. Full LP + rewards returned.'
             : isInGrace
-            ? 'Within 3-day grace period. No penalty, full rewards.'
+            ? 'Within 3-day grace period. Full LP returned, all pending rewards forfeited to vault.'
             : 'Early exit: LP penalty + all pending rewards forfeited.'}
         </div>
 
@@ -1499,10 +1913,16 @@ const UnstakeModal: FC<{
           borderRadius: 12, padding: '16px', marginBottom: 16 }}>
           {[
             { label: 'LP RETURNED',  val: `${fmtNum(returnedUi, 4)} LP`, color: '#00c98d' },
-            ...(penaltyUi > 0 ? [{ label: `PENALTY (${(penaltyBps/100).toFixed(3)}%${hasDiscount ? ' · LB discount' : ''})`, val: `-${fmtNum(penaltyUi, 4)} LP → treasury`, color: '#ff8c00' }] : []),
-            { label: isEarly ? 'REWARDS FORFEITED' : 'REWARDS PAID',
-              val: isEarly ? `${fmtNum(earnedUi, 4)} ${farm.rewardSymbol} stays in vault` : `${fmtNum(earnedUi, 4)} ${farm.rewardSymbol}`,
-              color: isEarly ? '#ff6666' : '#00c98d' },
+            ...(penaltyUi > 0 ? [{
+              label: `PENALTY (${(penaltyBps/100).toFixed(3)}%${lbTier > 0 ? ` · T${lbTier} LB discount` : ''})`,
+              val: `-${fmtNum(penaltyUi, 4)} LP → treasury`,
+              color: '#ff8c00',
+            }] : []),
+            { label: isMatured ? 'REWARDS PAID' : 'REWARDS FORFEITED',
+              val: isMatured
+                ? `${fmtNum(earnedUi, 4)} ${farm.rewardSymbol}`
+                : `${fmtNum(earnedUi, 4)} ${farm.rewardSymbol} stays in vault`,
+              color: isMatured ? '#00c98d' : '#ff6666' },
           ].map(r => (
             <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between',
               padding: '6px 0', borderTop: '1px solid rgba(255,255,255,.04)' }}>
@@ -1514,11 +1934,26 @@ const UnstakeModal: FC<{
           ))}
         </div>
 
-        {!isMatured && !isInGrace && !hasDiscount && (
-          <div style={{ padding: '10px 14px', borderRadius: 8, marginBottom: 14,
-            background: 'rgba(0,201,141,.06)', border: '1px solid rgba(0,201,141,.2)',
-            fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#d0dde8' }}>
-            💡 Hold 33+ LB for reduced penalty. You currently hold {(lbBal/100).toFixed(2)} LB.
+        {!isMatured && !isInGrace && lbTier < 3 && (
+          <div style={{ padding: '10px 12px', borderRadius: 7, marginBottom: 14,
+            background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
+            fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#9abacf', lineHeight: 1.5 }}>
+            {lbTier === 0 && (
+              <>You hold {(lbBal/100).toFixed(2)} LB. Hold {(LB_TIER1_THRESHOLD_UI - lbBal/100).toFixed(2)} more to reach T1 ({period === 1 ? '1.888' : '0.888'}% penalty).</>
+            )}
+            {lbTier === 1 && (
+              <>T1 active · {(lbBal/100).toFixed(2)} LB. Hold {(LB_TIER2_THRESHOLD_UI - lbBal/100).toFixed(2)} more to reach T2 ({period === 1 ? '1.000' : '0.444'}% penalty).</>
+            )}
+            {lbTier === 2 && (
+              <>T2 active · {(lbBal/100).toFixed(2)} LB. Hold {(LB_TIER3_THRESHOLD_UI - lbBal/100).toFixed(2)} more to reach T3 ({period === 1 ? '0.500' : '0.222'}% penalty).</>
+            )}
+          </div>
+        )}
+        {!isMatured && !isInGrace && lbTier === 3 && (
+          <div style={{ padding: '10px 12px', borderRadius: 7, marginBottom: 14,
+            background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
+            fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#9abacf', lineHeight: 1.5 }}>
+            T3 active · {(lbBal/100).toFixed(2)} LB. Lowest penalty tier reached.
           </div>
         )}
 
@@ -1996,40 +2431,10 @@ const LpFarms: FC = () => {
           )
         )}
 
-        {/* ── HOW IT WORKS (only on farms tab) ────────────────────────── */}
+        {/* ── HOW IT WORKS / TOKENOMICS (only on farms tab) ────────────── */}
         {tab === 'farms' && !loading && farms.length > 0 && (
-          <div style={{ marginTop: 40, background: 'rgba(255,255,255,.02)',
-            border: '1px solid rgba(255,255,255,.06)', borderRadius: 16,
-            padding: isMobile ? '20px 18px' : '28px 32px',
-            animation: 'fadeUp 0.5s ease 0.3s both' }}>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 11 : 13,
-              fontWeight: 900, color: '#fff', letterSpacing: 1.5, marginBottom: isMobile ? 18 : 24 }}>
-              HOW LP FARMS WORK
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3,1fr)',
-              gap: isMobile ? 14 : 18 }}>
-              {[
-                { n: '01', title: 'STAKE LP', color: '#00d4ff',
-                  desc: 'Stake BRAINS/XNT or LB/XNT LP tokens. Pick your lock: 30d (2×), 90d (4×), or 365d (8×). Higher lock = more rewards.' },
-                { n: '02', title: 'EARN CONTINUOUSLY', color: '#00c98d',
-                  desc: 'Rewards accrue every second based on your weight. Claim every 24 hours or let them compound until unstake.' },
-                { n: '03', title: 'UNSTAKE FREELY', color: '#ff8c00',
-                  desc: '3-day grace window, no penalty. Early exit past grace: small LP penalty + forfeited rewards (boost APR for others). Mature exit: full LP + all rewards.' },
-              ].map(s => (
-                <div key={s.n} style={{ background: 'rgba(255,255,255,.02)',
-                  border: '1px solid rgba(255,255,255,.06)', borderRadius: 12,
-                  padding: isMobile ? '16px' : '20px 22px', position: 'relative', overflow: 'hidden' }}>
-                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2,
-                    background: `linear-gradient(90deg,${s.color},transparent)` }} />
-                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 22 : 28,
-                    fontWeight: 900, color: s.color, opacity: .35, marginBottom: 10 }}>{s.n}</div>
-                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 10 : 12,
-                    fontWeight: 900, color: '#e0f0ff', marginBottom: 8 }}>{s.title}</div>
-                  <div style={{ fontFamily: 'Sora,sans-serif', fontSize: isMobile ? 11 : 12,
-                    color: '#c0d0e0', lineHeight: 1.7 }}>{s.desc}</div>
-                </div>
-              ))}
-            </div>
+          <div style={{ marginTop: isMobile ? 24 : 36 }}>
+            <TokenomicsPanel isMobile={isMobile} />
           </div>
         )}
       </div>
