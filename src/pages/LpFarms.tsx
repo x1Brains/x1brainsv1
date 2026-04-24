@@ -28,6 +28,21 @@ const FARM_PROGRAM_ID = 'Ci1qDtdoSh8mCtJTVoX1tArbnLydQUZYu9RiqukRFJpg';
 const BRAINS_MINT  = 'EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC1EHUBtPN';
 const LB_MINT      = 'Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6';
 const WXNT_MINT    = 'So11111111111111111111111111111111111111112';
+
+// XDEX pool addresses keyed by LP mint — used to derive pool reserves for LP pricing.
+// Pool holds its token vaults as ATAs where authority = pool pubkey itself.
+const POOL_BY_LP: Record<string, { pool: string; other: string }> = {
+  // BRAINS/XNT LP
+  'FSFjPXo9vAvVsjh6YuuNTjetZ6oZBgfYA6TLcWTYmwq3': {
+    pool:  '7deZorr98nLdZhpmSdUgu8WY4NAjSpeLDGxHzaTAxrUg',
+    other: BRAINS_MINT,
+  },
+  // LB/XNT LP
+  '85g2x1AcRyogMTDuWNWKJDPFQ3pTQdBpNWm2tK4YiXci': {
+    pool:  'CKtXmX82rLBqNkfpCBPUoHLmtZhgBdVWpVPW93hHHCCK',
+    other: LB_MINT,
+  },
+};
 const TREASURY     = 'CAeTTU2zk2EjWLKVeg4zxYhHu7gba1oRN8NHEDjpK9XF';
 
 // Pool addresses (from BRAINSFARMS.md) — used by seeding script to derive LP mint
@@ -58,6 +73,12 @@ const PENALTY_P2_DISCOUNT = 88;    // 0.888%
 const LB_DISCOUNT_THRESHOLD = 3_300; // 33 LB at 2 decimals
 const ACC_PRECISION = BigInt('1000000000000000000'); // 1e18
 
+// Helper: 10^n as a number, for converting raw token amounts to UI amounts
+// based on a mint's decimals. Safe up to 15 decimals (JS Number precision).
+function pow10(n: number): number {
+  return Math.pow(10, n);
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═════════════════════════════════════════════════════════════════════════════
@@ -85,11 +106,8 @@ interface FarmOnChain {
   runwayDays:            number;
   rewardPriceUsd:        number;
   lpPriceUsd:            number;
-  // Mint decimals — CRITICAL to respect these; reward mints differ
-  // (BRAINS=9, LB=2). Using a hardcoded 1e9 anywhere that touches a
-  // reward amount is a bug.
-  rewardDecimals:        number;
-  lpDecimals:            number;
+  lpDecimals:            number;       // read from lp_mint at fetch time
+  rewardDecimals:        number;       // read from reward_mint at fetch time
 }
 
 interface PositionOnChain {
@@ -157,10 +175,6 @@ function fmtDuration(secs: number): string {
 
 function truncAddr(a: string): string { return `${a.slice(0,4)}…${a.slice(-4)}`; }
 
-// Integer power of 10 as a plain number. Safe up to 1e15 (2^53 limit);
-// all decimals we care about (2, 6, 9) are well under that.
-function pow10(n: number): number { let r = 1; for (let i = 0; i < n; i++) r *= 10; return r; }
-
 // Anchor discriminator: first 8 bytes of sha256("global:<ix_name>")
 async function disc(name: string): Promise<Buffer> {
   const msg = new TextEncoder().encode(`global:${name}`);
@@ -215,24 +229,6 @@ async function getTokenProgram(mint: PublicKey, connection: Connection): Promise
   return TOKEN_PROGRAM_ID;
 }
 
-// ─── Mint decimals lookup ─────────────────────────────────────────────────────
-// Both SPL Token and Token-2022 Mint accounts have `decimals` at offset 44
-// (mint_authority_flag:4 + mint_authority:32 + supply:8 = 44).
-async function getMintDecimals(mint: PublicKey, connection: Connection, fallback = 9): Promise<number> {
-  try {
-    const info = await connection.getAccountInfo(mint);
-    if (!info) return fallback;
-    // Fast path via parsed JSON if available
-    try {
-      const parsed = await connection.getParsedAccountInfo(mint);
-      const d = (parsed?.value?.data as any)?.parsed?.info?.decimals;
-      if (typeof d === 'number') return d;
-    } catch {}
-    // Fallback: raw byte offset 44
-    return info.data[44] ?? fallback;
-  } catch { return fallback; }
-}
-
 // ─── XDEX price ───────────────────────────────────────────────────────────────
 async function fetchPrice(mint: string): Promise<number> {
   try {
@@ -243,6 +239,132 @@ async function fetchPrice(mint: string): Promise<number> {
     const j = await r.json();
     return Number(j?.data?.price) || 0;
   } catch { return 0; }
+}
+
+// ─── LP price via pool reserves ───────────────────────────────────────────────
+// Mirrors the production pattern from PoolsTab.tsx.
+// XDEX pool account layout:
+//   D=8 (discriminator skip)
+//   D+64:  token0Vault
+//   D+96:  token1Vault
+//   D+128: lpMint
+//   D+160: token0Mint
+//   D+192: token1Mint
+//   D+330: lpDecimals
+//   D+331: dec0
+//   D+332: dec1
+//   D+333: lpSupply (u64 LE)
+//
+// For pools containing BRAINS, XDEX's BRAINS price feed can be stale, so we
+// derive BRAINS price from the vault ratio using the XNT side as the anchor.
+
+// Read a u64 LE from a byte array — works on Buffer and Uint8Array alike.
+function readU64(d: Uint8Array, o: number): bigint {
+  return new DataView(d.buffer, d.byteOffset + o, 8).getBigUint64(0, true);
+}
+
+async function fetchLpPrice(
+  lpMint: string,
+  connection: Connection,
+): Promise<number> {
+  const meta = POOL_BY_LP[lpMint];
+  if (!meta) { console.warn('[lpPrice] no POOL_BY_LP entry for', lpMint); return 0; }
+  try {
+    const poolInfo = await connection.getAccountInfo(new PublicKey(meta.pool));
+    if (!poolInfo || poolInfo.data.length < 350) {
+      console.warn('[lpPrice] pool account missing or too small', meta.pool, poolInfo?.data.length);
+      return 0;
+    }
+
+    const d = new Uint8Array(poolInfo.data);
+    const D = 8;
+    const token0Vault = new PublicKey(d.slice(D + 64,  D + 96)).toBase58();
+    const token1Vault = new PublicKey(d.slice(D + 96,  D + 128)).toBase58();
+    const token0Mint  = new PublicKey(d.slice(D + 160, D + 192)).toBase58();
+    const token1Mint  = new PublicKey(d.slice(D + 192, D + 224)).toBase58();
+    let   dec0        = d[D + 331];
+    let   dec1        = d[D + 332];
+
+    // LP decimals AND supply: pool state lpSupply drifts from the mint's real
+    // supply (XDEX only tracks pool-created LP). Always read from the mint.
+    // SPL Mint layout: supply at bytes 36-44 (u64 LE), decimals at byte 44.
+    let lpDecimals = 9;
+    let lpSupplyRaw = 0n;
+    try {
+      const lpMintInfo = await connection.getAccountInfo(new PublicKey(lpMint));
+      if (lpMintInfo && lpMintInfo.data.length >= 45) {
+        const mintBytes = new Uint8Array(lpMintInfo.data);
+        lpSupplyRaw = readU64(mintBytes, 36);
+        const fromMint = mintBytes[44];
+        if (fromMint > 0 && fromMint <= 18) lpDecimals = fromMint;
+      }
+    } catch {}
+    if (lpSupplyRaw === 0n) return 0;
+
+    // Pool state byte for decimals is sometimes 0 — fall back to mint account
+    if (dec0 === 0 || dec1 === 0) {
+      const [m0, m1] = await Promise.all([
+        connection.getAccountInfo(new PublicKey(token0Mint)),
+        connection.getAccountInfo(new PublicKey(token1Mint)),
+      ]);
+      if (m0 && m0.data.length >= 45 && dec0 === 0) dec0 = new Uint8Array(m0.data)[44];
+      if (m1 && m1.data.length >= 45 && dec1 === 0) dec1 = new Uint8Array(m1.data)[44];
+    }
+    if (dec0 === 0) dec0 = 9;
+    if (dec1 === 0) dec1 = 9;
+
+    // Fetch vault balances (SPL TokenAccount: amount at offset 64 as u64 LE)
+    const [v0Info, v1Info] = await Promise.all([
+      connection.getAccountInfo(new PublicKey(token0Vault)),
+      connection.getAccountInfo(new PublicKey(token1Vault)),
+    ]);
+    if (!v0Info || !v1Info || v0Info.data.length < 72 || v1Info.data.length < 72) return 0;
+    const v0Raw = readU64(new Uint8Array(v0Info.data), 64);
+    const v1Raw = readU64(new Uint8Array(v1Info.data), 64);
+    const v0Ui = Number(v0Raw) / pow10(dec0);
+    const v1Ui = Number(v1Raw) / pow10(dec1);
+    console.log('[lpPrice]', lpMint.slice(0,6), {
+      token0Mint: token0Mint.slice(0,6), token1Mint: token1Mint.slice(0,6),
+      v0Ui, v1Ui, dec0, dec1, lpDecimals,
+      lpSupplyRaw: lpSupplyRaw.toString(),
+    });
+    if (v0Ui === 0 || v1Ui === 0) return 0;
+
+    // Derive TVL using whichever side has a reliable price feed.
+    // BRAINS price on Prism is known to be stale — derive from ratio if BRAINS is a side.
+    const brainsIsToken0 = token0Mint === BRAINS_MINT;
+    const brainsIsToken1 = token1Mint === BRAINS_MINT;
+    const brainsIsSide   = brainsIsToken0 || brainsIsToken1;
+
+    let tvlUsd = 0;
+    if (brainsIsSide) {
+      const nonBrainsMint = brainsIsToken0 ? token1Mint : token0Mint;
+      const refPrice = await fetchPrice(nonBrainsMint);
+      if (refPrice > 0) {
+        const refSideUsd = brainsIsToken0 ? refPrice * v1Ui : refPrice * v0Ui;
+        tvlUsd = refSideUsd * 2;
+      }
+    } else {
+      const [p0, p1] = await Promise.all([
+        fetchPrice(token0Mint),
+        fetchPrice(token1Mint),
+      ]);
+      if (p0 > 0 && p1 > 0) tvlUsd = p0 * v0Ui + p1 * v1Ui;
+      else if (p0 > 0)      tvlUsd = p0 * v0Ui * 2;
+      else if (p1 > 0)      tvlUsd = p1 * v1Ui * 2;
+    }
+    if (tvlUsd === 0) return 0;
+
+    const lpSupplyUi = Number(lpSupplyRaw) / pow10(lpDecimals);
+    if (lpSupplyUi === 0) return 0;
+
+    const lpPrice = tvlUsd / lpSupplyUi;
+    console.log('[lpPrice]', lpMint.slice(0,6), { tvlUsd, lpSupplyUi, lpPrice });
+    return lpPrice;
+  } catch (e) {
+    console.warn('fetchLpPrice failed for', lpMint, e);
+    return 0;
+  }
 }
 
 // ─── Fetch all farms from on-chain ────────────────────────────────────────────
@@ -300,16 +422,29 @@ async function fetchFarms(connection: Connection): Promise<FarmOnChain[]> {
           : 0;
         const runwayDays = Math.floor(runwaySecs / 86_400);
 
-        // Prices
+        // Prices — reward from Prism feed, LP computed from pool reserves
         const rewardPriceUsd = await fetchPrice(rewardMint);
-        const lpPriceUsd     = await fetchPrice(lpMint); // may be 0 — LP mints don't always have direct price
+        const lpPriceUsd     = await fetchLpPrice(lpMint, connection);
 
-        // Mint decimals — CRITICAL: reward mints have different decimals
-        // (BRAINS=9, LB=2). Do NOT hardcode 1e9 for reward amounts.
-        const [rewardDecimals, lpDecimals] = await Promise.all([
-          getMintDecimals(new PublicKey(rewardMint), connection, 9),
-          getMintDecimals(new PublicKey(lpMint), connection, 9),
-        ]);
+        // Decimals — read from the mint accounts directly.
+        // SPL Mint layout: decimals is byte 44 for both Token and Token-2022.
+        // Defaults kept for defensive fallback.
+        let lpDecimals = 9;
+        let rewardDecimals = 9;
+        try {
+          const [lpMintInfo, rewardMintInfo] = await Promise.all([
+            connection.getAccountInfo(new PublicKey(lpMint)),
+            connection.getAccountInfo(new PublicKey(rewardMint)),
+          ]);
+          if (lpMintInfo && lpMintInfo.data.length >= 45) {
+            lpDecimals = lpMintInfo.data[44];
+          }
+          if (rewardMintInfo && rewardMintInfo.data.length >= 45) {
+            rewardDecimals = rewardMintInfo.data[44];
+          }
+        } catch (e) {
+          console.warn('Failed to read mint decimals, using defaults:', e);
+        }
 
         results.push({
           pubkey: pubkey.toBase58(),
@@ -324,7 +459,7 @@ async function fetchFarms(connection: Connection): Promise<FarmOnChain[]> {
           paused, closed,
           vaultBalance, runwayDays,
           rewardPriceUsd, lpPriceUsd,
-          rewardDecimals, lpDecimals,
+          lpDecimals, rewardDecimals,
         });
       } catch { continue; }
     }
@@ -428,43 +563,40 @@ async function fetchPositions(
 }
 
 // ─── APR calculation (live) ───────────────────────────────────────────────────
-// Real APR = (raw_rate_per_sec × SECONDS_PER_YEAR × multiplier_bps / BPS)
-//          / (total_effective_raw) × (reward_price / lp_price_per_raw_unit)
+// Real APR = (rewards_per_year_usd / tvl_usd) × (tier_mult / avg_mult) × 100
 //
-// We show per-tier APR because multiplier differs by tier.
+// At zero TVL there's no "real" APR — we show a hypothetical at $1,000 TVL so
+// the display is honest: "if you were the only staker with $1k, you'd earn X%."
+// This number is ALWAYS SHOWN WITH A "PROJ" LABEL so users know it's indicative.
 function computeApr(
   farm: FarmOnChain,
   lockMultBps: number,
 ): number {
-  if (farm.totalEffective === 0n || farm.lpPriceUsd === 0 || farm.rewardPriceUsd === 0) {
-    // If no TVL yet, show hypothetical APR at "1 LP staked in this tier"
-    // reward_per_year_usd / 1_lp_value_usd × multiplier
-    if (farm.rewardRatePerSec === 0n) return 0;
-    const rawRatePerSec = Number(farm.rewardRatePerSec) / 1e18;
-    const rewardPerYear = rawRatePerSec * 365 * 86_400;
-    const rewardPerYearUsd = rewardPerYear * farm.rewardPriceUsd;
-    // Assume $1 LP staked (arbitrary baseline). Real APR depends on LP price.
-    // This is just a placeholder until someone stakes.
-    return rewardPerYearUsd > 0 ? (rewardPerYearUsd * (lockMultBps / 10_000)) * 100 : 0;
-  }
+  if (farm.rewardRatePerSec === 0n || farm.rewardPriceUsd === 0) return 0;
 
-  // Once there's real TVL:
-  // rate_raw_per_sec = rewardRatePerSec / 1e18
+  // Rewards/year in USD (same for both branches).
   const rateRawPerSec = Number(farm.rewardRatePerSec) / 1e18;
   const rewardPerYearRaw = rateRawPerSec * 365 * 86_400;
-  const rewardPerYearUsd = rewardPerYearRaw * farm.rewardPriceUsd;
+  // rewardPerYearRaw is in RAW reward units — divide by 10^rewardDecimals for UI units.
+  const rewardPerYearUi = rewardPerYearRaw / pow10(farm.rewardDecimals);
+  const rewardPerYearUsd = rewardPerYearUi * farm.rewardPriceUsd;
 
-  // total_effective is in raw LP units × bps scale — so USD TVL is
-  // total_staked × lp_price (effective is just weighted, not dollarized)
+  // Zero-TVL fallback: show hypothetical APR at $1,000 TVL and apply the tier
+  // multiplier so users can compare tiers before anyone has staked. This is a
+  // pre-launch marketing number — real APR kicks in once total_effective > 0.
+  if (farm.totalEffective === 0n || farm.lpPriceUsd === 0) {
+    const HYPO_TVL_USD = 1000;
+    const BASELINE_MULT_BPS = 20_000;  // L30 (2×) = reference tier
+    const tierBoost = lockMultBps / BASELINE_MULT_BPS;
+    return (rewardPerYearUsd / HYPO_TVL_USD) * 100 * tierBoost;
+  }
+
+  // Real APR once TVL exists.
   const totalStakedUi = Number(farm.totalStaked) / pow10(farm.lpDecimals);
   const tvlUsd = totalStakedUi * farm.lpPriceUsd;
   if (tvlUsd === 0) return 0;
 
-  // Blended APR = rewards_per_year_usd / tvl_usd
   const blendedApr = (rewardPerYearUsd / tvlUsd) * 100;
-
-  // Per-tier APR = blended × (tier_mult / avg_mult)
-  // avg_mult = total_effective / total_staked (bps scale)
   const avgMultBps = Number(farm.totalEffective) * 10_000 / Number(farm.totalStaked);
   const tierShare = lockMultBps / avgMultBps;
 
@@ -603,20 +735,20 @@ const FarmCard: FC<{
             fontWeight: 900, color: '#e0f0ff', letterSpacing: 1, marginBottom: 4 }}>
             {farm.lpSymbol} <span style={{ color: isHot }}>→</span> {farm.rewardSymbol}
           </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa',
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#c0d0e0',
             display: 'flex', alignItems: 'center', gap: 6 }}>
             Stake {farm.lpSymbol}, earn {farm.rewardSymbol}
             <CopyButton text={farm.pubkey} />
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#4a6a8a', marginBottom: 2 }}>
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#8899aa', marginBottom: 2 }}>
             REWARD VAULT
           </div>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 700, color: isHot }}>
             {fmtNum(Number(farm.vaultBalance) / pow10(farm.rewardDecimals))} {farm.rewardSymbol}
           </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#6a8aaa' }}>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#c0d0e0' }}>
             {fmtUSD(vaultUsd)}
           </div>
         </div>
@@ -640,7 +772,7 @@ const FarmCard: FC<{
                 fontWeight: 900, color: tier.color, lineHeight: 1 }}>
                 {apr > 0 ? `${apr < 10_000 ? apr.toFixed(1) : fmtNum(apr, 0)}%` : '—'}
               </div>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#6a8aaa', marginTop: 4 }}>
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#c0d0e0', marginTop: 4 }}>
                 APR · {tier.multDisplay}
               </div>
             </div>
@@ -653,13 +785,13 @@ const FarmCard: FC<{
         gap: 8, marginBottom: 18, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,.05)' }}>
         {[
           { label: 'TVL',      value: fmtUSD(tvlUsd),                  color: '#e0f0ff' },
-          { label: 'STAKED',   value: fmtNum(Number(farm.totalStaked)/pow10(farm.lpDecimals)), color: '#9abacf' },
+          { label: 'STAKED',   value: fmtNum(Number(farm.totalStaked)/pow10(farm.lpDecimals)), color: '#d0dde8' },
           { label: 'RUNWAY',   value: farm.runwayDays > 0 ? `${fmtNum(farm.runwayDays, 0)}d` : '—', color: farm.runwayDays <= 30 ? '#ff8c00' : '#00c98d' },
           { label: 'EMITTED',  value: fmtNum(Number(farm.totalEmitted)/pow10(farm.rewardDecimals)), color: '#bf5af2' },
         ].map(stat => (
           <div key={stat.label}>
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, letterSpacing: 1,
-              color: '#4a6a8a', marginBottom: 2 }}>{stat.label}</div>
+              color: '#8899aa', marginBottom: 2 }}>{stat.label}</div>
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 700,
               color: stat.color }}>{stat.value}</div>
           </div>
@@ -743,7 +875,7 @@ const PositionCard: FC<{
             {statusBadge.label}
           </span>
         </div>
-        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#3a5a6a' }}>
+        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#708090' }}>
           #{position.nonce}
         </div>
       </div>
@@ -752,28 +884,28 @@ const PositionCard: FC<{
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)',
         gap: 10, marginBottom: 12 }}>
         <div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#4a6a8a',
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#8899aa',
             letterSpacing: 1, marginBottom: 2 }}>STAKED</div>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 700, color: '#e0f0ff' }}>
             {fmtNum(amountUi, 3)} LP
           </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#6a8aaa' }}>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#c0d0e0' }}>
             {fmtUSD(amountUsd)}
           </div>
         </div>
         <div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#4a6a8a',
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#8899aa',
             letterSpacing: 1, marginBottom: 2 }}>EARNED</div>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 700, color: '#00c98d' }}>
             {fmtNum(earnedUi, 4)} {farm.rewardSymbol}
           </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#6a8aaa' }}>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#c0d0e0' }}>
             {fmtUSD(earnedUsd)}
           </div>
         </div>
         {!isMobile && (
           <div>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#4a6a8a',
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#8899aa',
               letterSpacing: 1, marginBottom: 2 }}>MATURES</div>
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 700,
               color: isMatured ? '#00c98d' : '#9abacf' }}>
@@ -828,10 +960,9 @@ const StakeModal: FC<{
   publicKey: PublicKey;
   connection: Connection;
   signTransaction: any;
-  existingPositions: PositionOnChain[]; // all of this user's positions on this farm
   onClose: () => void;
   onStaked: () => void;
-}> = ({ farm, isMobile, publicKey, connection, signTransaction, existingPositions, onClose, onStaked }) => {
+}> = ({ farm, isMobile, publicKey, connection, signTransaction, onClose, onStaked }) => {
   const [amount, setAmount]   = useState('');
   const [lockId, setLockId]   = useState<LockId>('locked90');
   const [lpBal, setLpBal]     = useState(0);
@@ -888,37 +1019,17 @@ const StakeModal: FC<{
       const lpTokenProg = await getTokenProgram(lpMintPk, connection);
       const lpAta = getAssociatedTokenAddressSync(lpMintPk, publicKey, false, lpTokenProg);
 
-      // Find smallest unused nonce in [0, MAX_POSITIONS_PER_USER_PER_FARM).
-      // We use the already-fetched positions list (set of taken nonces) so this
-      // is O(1) RPC calls instead of up to 100 serial getAccountInfo roundtrips.
-      // Program constant MAX_POSITIONS_PER_USER_PER_FARM = 100.
-      const MAX_POSITIONS = 100;
-      const taken = new Set<number>(existingPositions.map(p => p.nonce));
-      if (taken.size >= MAX_POSITIONS) {
-        throw new Error(`Position limit reached (${MAX_POSITIONS} per farm). Unstake an existing position first.`);
-      }
+      // Find unused nonce
       let nonce = 0;
-      while (taken.has(nonce)) nonce++;
-      // Defensive: confirm on-chain that the derived PDA is actually unused.
-      // Guards against a just-created position that hasn't hit our 30s refresh.
-      const [candidatePk] = derivePosition(publicKey, farmPk, nonce);
-      const candidateInfo = await connection.getAccountInfo(candidatePk);
-      if (candidateInfo) {
-        // Fall back to a slower scan from current point if cache was stale
-        let found = -1;
-        for (let i = nonce + 1; i < MAX_POSITIONS; i++) {
-          if (taken.has(i)) continue;
-          const [p] = derivePosition(publicKey, farmPk, i);
-          const info = await connection.getAccountInfo(p);
-          if (!info) { found = i; break; }
-        }
-        if (found < 0) throw new Error('Could not find a free nonce slot. Please refresh and try again.');
-        nonce = found;
+      for (let i = 0; i < 100; i++) {
+        const [p] = derivePosition(publicKey, farmPk, i);
+        const info = await connection.getAccountInfo(p);
+        if (!info) { nonce = i; break; }
       }
       const [positionPk] = derivePosition(publicKey, farmPk, nonce);
 
       const lockTypeByte = lockId === 'locked30' ? 0 : lockId === 'locked90' ? 1 : 2;
-      const rawAmt = BigInt(Math.floor(amt * pow10(farm.lpDecimals))); // LP raw units
+      const rawAmt = BigInt(Math.floor(amt * pow10(farm.lpDecimals))); // LP decimals = 9
 
       const d = await disc('stake');
       const params = Buffer.alloc(8 + 1 + 4);
@@ -993,13 +1104,13 @@ const StakeModal: FC<{
           ⚡ STAKE {farm.lpSymbol}
         </div>
         <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11,
-          color: '#6a8aaa', marginBottom: 18 }}>
+          color: '#c0d0e0', marginBottom: 18 }}>
           Earn {farm.rewardSymbol} rewards. Lock duration determines multiplier.
         </div>
 
         {/* Amount */}
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2,
-          color: '#4a6a8a', marginBottom: 8 }}>AMOUNT TO STAKE</div>
+          color: '#8899aa', marginBottom: 8 }}>AMOUNT TO STAKE</div>
         <div style={{ background: 'rgba(255,255,255,.04)',
           border: '1px solid rgba(255,140,0,.2)',
           borderRadius: 12, padding: '14px 16px', marginBottom: 14 }}>
@@ -1015,7 +1126,7 @@ const StakeModal: FC<{
               MAX
             </button>
           </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#6a8aaa', marginTop: 6 }}>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#c0d0e0', marginTop: 6 }}>
             Balance: {fmtNum(lpBal, 4)} LP
             {amt > 0 && <> · ≈ {fmtUSD(amountUsd)}</>}
           </div>
@@ -1023,7 +1134,7 @@ const StakeModal: FC<{
 
         {/* Lock tier picker */}
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2,
-          color: '#4a6a8a', marginBottom: 8 }}>LOCK DURATION</div>
+          color: '#8899aa', marginBottom: 8 }}>LOCK DURATION</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
           {LOCK_TIERS.map(t => (
             <button key={t.id} onClick={() => setLockId(t.id)}
@@ -1036,7 +1147,7 @@ const StakeModal: FC<{
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900,
                 color: lockId === t.id ? t.color : '#4a6a8a', marginTop: 4 }}>{t.multDisplay}</div>
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8,
-                color: '#4a6a8a', marginTop: 3 }}>weight</div>
+                color: '#8899aa', marginTop: 3 }}>weight</div>
             </button>
           ))}
         </div>
@@ -1046,16 +1157,16 @@ const StakeModal: FC<{
           border: '1px solid rgba(255,255,255,.06)',
           borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9,
-            color: '#4a6a8a', letterSpacing: 1, marginBottom: 10 }}>PROJECTION</div>
+            color: '#8899aa', letterSpacing: 1, marginBottom: 10 }}>PROJECTION</div>
           {[
             { label: 'EFFECTIVE APR',       val: apr > 0 ? `${apr < 10_000 ? apr.toFixed(2) : fmtNum(apr, 0)}%` : '—', color: tier.color },
             { label: 'YEARLY REWARD (est)', val: projYearReward > 0 ? `${fmtNum(projYearReward, 2)} ${farm.rewardSymbol}` : '—', color: '#00c98d' },
-            { label: 'UNLOCK DATE',         val: `${tier.days} days from now`, color: '#9abacf' },
+            { label: 'UNLOCK DATE',         val: `${tier.days} days from now`, color: '#d0dde8' },
             { label: 'STAKE FEE',            val: `${feeXnt} XNT`, color: '#ff8c00' },
           ].map(r => (
             <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between',
               padding: '4px 0', fontFamily: 'Orbitron,monospace', fontSize: 10 }}>
-              <span style={{ color: '#4a6a8a', letterSpacing: .5 }}>{r.label}</span>
+              <span style={{ color: '#8899aa', letterSpacing: .5 }}>{r.label}</span>
               <span style={{ color: r.color, fontWeight: 700 }}>{r.val}</span>
             </div>
           ))}
@@ -1064,7 +1175,7 @@ const StakeModal: FC<{
         {/* Penalty disclosure */}
         <div style={{ padding: '10px 14px', borderRadius: 8, marginBottom: 14,
           background: 'rgba(255,140,0,.05)', border: '1px solid rgba(255,140,0,.15)',
-          fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#9abacf', lineHeight: 1.6 }}>
+          fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#d0dde8', lineHeight: 1.6 }}>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
             color: '#ff8c00', marginBottom: 4, letterSpacing: 1 }}>EARLY EXIT PENALTY</div>
           Days 1-3: no penalty · After grace, first half: 4.0% LP (1.888% LB holders) · Second half: 1.888% (0.888% LB) · Mature: free. All pending rewards forfeited on early exit.
@@ -1188,18 +1299,18 @@ const ClaimModal: FC<{
           border: '1px solid rgba(0,201,141,.2)', borderRadius: 12,
           padding: '20px', marginBottom: 18, textAlign: 'center' }}>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9,
-            color: '#4a6a8a', letterSpacing: 1, marginBottom: 8 }}>YOU'LL CLAIM</div>
+            color: '#8899aa', letterSpacing: 1, marginBottom: 8 }}>YOU'LL CLAIM</div>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 28, fontWeight: 900,
             color: '#00c98d', marginBottom: 4 }}>
             {fmtNum(earnedUi, 6)} {farm.rewardSymbol}
           </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#9abacf' }}>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#d0dde8' }}>
             ≈ {fmtUSD(earnedUsd)}
           </div>
         </div>
 
         <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11,
-          color: '#6a8aaa', marginBottom: 18, lineHeight: 1.6 }}>
+          color: '#c0d0e0', marginBottom: 18, lineHeight: 1.6 }}>
           Position stays open after claim. Next claim available in 24 hours.
         </div>
 
@@ -1375,7 +1486,7 @@ const UnstakeModal: FC<{
           color: '#fff', letterSpacing: 1, marginBottom: 4 }}>
           {isMatured ? '✓ UNSTAKE' : isInGrace ? '🛡️ GRACE EXIT' : '⚠ EARLY EXIT'}
         </div>
-        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa',
+        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#c0d0e0',
           marginBottom: 18, lineHeight: 1.5 }}>
           {isMatured
             ? 'Lock period complete. Full LP + rewards returned.'
@@ -1396,7 +1507,7 @@ const UnstakeModal: FC<{
             <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between',
               padding: '6px 0', borderTop: '1px solid rgba(255,255,255,.04)' }}>
               <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 8,
-                color: '#4a6a8a', letterSpacing: .5 }}>{r.label}</span>
+                color: '#8899aa', letterSpacing: .5 }}>{r.label}</span>
               <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11,
                 fontWeight: 700, color: r.color, textAlign: 'right', maxWidth: '60%' }}>{r.val}</span>
             </div>
@@ -1406,7 +1517,7 @@ const UnstakeModal: FC<{
         {!isMatured && !isInGrace && !hasDiscount && (
           <div style={{ padding: '10px 14px', borderRadius: 8, marginBottom: 14,
             background: 'rgba(0,201,141,.06)', border: '1px solid rgba(0,201,141,.2)',
-            fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#9abacf' }}>
+            fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#d0dde8' }}>
             💡 Hold 33+ LB for reduced penalty. You currently hold {(lbBal/100).toFixed(2)} LB.
           </div>
         )}
@@ -1418,7 +1529,7 @@ const UnstakeModal: FC<{
           <button onClick={onClose}
             style={{ flex: 1, padding: '13px 0', borderRadius: 11, cursor: 'pointer',
               background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)',
-              fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700, color: '#6a8aaa' }}>
+              fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700, color: '#c0d0e0' }}>
             CANCEL
           </button>
           <button onClick={handleUnstake} disabled={pending}
@@ -1462,7 +1573,7 @@ const DonateModal: FC<{
   const amt = parseFloat(amount) || 0;
   const amtUsd = amt * farm.rewardPriceUsd;
   const additionalRunwayDays = farm.rewardRatePerSec > 0n
-    ? Math.floor(Number(BigInt(Math.floor(amt * pow10(farm.rewardDecimals))) * ACC_PRECISION / farm.rewardRatePerSec) / 86_400)
+    ? Math.floor(Number(BigInt(Math.floor(amt * 1e9)) * ACC_PRECISION / farm.rewardRatePerSec) / 86_400)
     : 0;
   const canSubmit = amt > 0 && amt <= bal && !pending;
 
@@ -1535,13 +1646,13 @@ const DonateModal: FC<{
           color: '#fff', letterSpacing: 1, marginBottom: 4 }}>
           💧 DONATE TO {farm.rewardSymbol} FARM
         </div>
-        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa',
+        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#c0d0e0',
           marginBottom: 18, lineHeight: 1.5 }}>
           Extend farm runway for existing stakers. Donations cannot be withdrawn.
         </div>
 
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9,
-          letterSpacing: 2, color: '#4a6a8a', marginBottom: 8 }}>
+          letterSpacing: 2, color: '#8899aa', marginBottom: 8 }}>
           AMOUNT
         </div>
         <div style={{ background: 'rgba(255,255,255,.04)',
@@ -1559,7 +1670,7 @@ const DonateModal: FC<{
               MAX
             </button>
           </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#6a8aaa', marginTop: 6 }}>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#c0d0e0', marginTop: 6 }}>
             Balance: {fmtNum(bal, 4)} {farm.rewardSymbol}
             {amt > 0 && farm.rewardPriceUsd > 0 && <> · ≈ {fmtUSD(amtUsd)}</>}
           </div>
@@ -1570,7 +1681,7 @@ const DonateModal: FC<{
             background: 'rgba(0,201,141,.06)', border: '1px solid rgba(0,201,141,.2)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between',
               fontFamily: 'Orbitron,monospace', fontSize: 10 }}>
-              <span style={{ color: '#4a6a8a' }}>RUNWAY EXTENSION</span>
+              <span style={{ color: '#8899aa' }}>RUNWAY EXTENSION</span>
               <span style={{ color: '#00c98d', fontWeight: 700 }}>
                 +{fmtNum(additionalRunwayDays, 0)} days
               </span>
@@ -1705,12 +1816,12 @@ const LpFarms: FC = () => {
             <span style={{ color: '#e0f0ff' }}>STAKE & EARN</span>
           </h1>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 7 : 9,
-            color: '#9abace', letterSpacing: isMobile ? 2 : 3, marginBottom: isMobile ? 8 : 12,
+            color: '#d0dde8', letterSpacing: isMobile ? 2 : 3, marginBottom: isMobile ? 8 : 12,
             animation: 'fadeUp 0.5s ease 0.12s both' }}>
             X1 BLOCKCHAIN · LOCK LP · EARN REWARDS · PERPETUAL FARMS
           </div>
           <div style={{ fontFamily: 'Sora,sans-serif', fontSize: isMobile ? 11 : 13,
-            color: '#6a8aaa', marginBottom: isMobile ? 22 : 30,
+            color: '#c0d0e0', marginBottom: isMobile ? 22 : 30,
             letterSpacing: .5, animation: 'fadeUp 0.5s ease 0.15s both', lineHeight: 1.6 }}>
             Stake your BRAINS/XNT or LB/XNT LP tokens &nbsp;·&nbsp; Lock 30 / 90 / 365 days &nbsp;·&nbsp; Up to 8× boosted rewards
           </div>
@@ -1801,11 +1912,11 @@ const LpFarms: FC = () => {
             <div style={{ textAlign: 'center', padding: isMobile ? '60px 20px' : '100px 40px' }}>
               <div style={{ fontSize: 64, marginBottom: 24 }}>🌾</div>
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 14 : 20,
-                fontWeight: 900, color: '#9abacf', marginBottom: 12, letterSpacing: 2 }}>
+                fontWeight: 900, color: '#d0dde8', marginBottom: 12, letterSpacing: 2 }}>
                 NO FARMS LIVE YET
               </div>
               <div style={{ fontFamily: 'Sora,sans-serif', fontSize: isMobile ? 12 : 13,
-                color: '#6a8aaa', maxWidth: 380, margin: '0 auto', lineHeight: 1.7 }}>
+                color: '#c0d0e0', maxWidth: 380, margin: '0 auto', lineHeight: 1.7 }}>
                 Farms will appear here once the admin creates them. Check back soon.
               </div>
             </div>
@@ -1823,11 +1934,11 @@ const LpFarms: FC = () => {
             <div style={{ textAlign: 'center', padding: isMobile ? '60px 20px' : '100px 40px' }}>
               <div style={{ fontSize: 64, marginBottom: 24 }}>🔌</div>
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 14 : 20,
-                fontWeight: 900, color: '#9abacf', marginBottom: 12, letterSpacing: 2 }}>
+                fontWeight: 900, color: '#d0dde8', marginBottom: 12, letterSpacing: 2 }}>
                 CONNECT WALLET
               </div>
               <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 13,
-                color: '#6a8aaa', maxWidth: 340, margin: '0 auto', lineHeight: 1.7 }}>
+                color: '#c0d0e0', maxWidth: 340, margin: '0 auto', lineHeight: 1.7 }}>
                 Connect your wallet to see your stakes.
               </div>
             </div>
@@ -1835,11 +1946,11 @@ const LpFarms: FC = () => {
             <div style={{ textAlign: 'center', padding: isMobile ? '60px 20px' : '100px 40px' }}>
               <div style={{ fontSize: 64, marginBottom: 24 }}>📋</div>
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 14 : 20,
-                fontWeight: 900, color: '#9abacf', marginBottom: 12, letterSpacing: 2 }}>
+                fontWeight: 900, color: '#d0dde8', marginBottom: 12, letterSpacing: 2 }}>
                 NO ACTIVE STAKES
               </div>
               <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 13,
-                color: '#6a8aaa', maxWidth: 340, margin: '0 auto 24px', lineHeight: 1.7 }}>
+                color: '#c0d0e0', maxWidth: 340, margin: '0 auto 24px', lineHeight: 1.7 }}>
                 Head to the farms tab and stake your LP tokens to start earning.
               </div>
               <button onClick={() => setTab('farms')}
@@ -1865,7 +1976,7 @@ const LpFarms: FC = () => {
                 ].map(s => (
                   <div key={s.label}>
                     <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8,
-                      letterSpacing: 1, color: '#4a6a8a', marginBottom: 4 }}>{s.label}</div>
+                      letterSpacing: 1, color: '#8899aa', marginBottom: 4 }}>{s.label}</div>
                     <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 18,
                       fontWeight: 800, color: s.color }}>{s.val}</div>
                   </div>
@@ -1915,7 +2026,7 @@ const LpFarms: FC = () => {
                   <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 10 : 12,
                     fontWeight: 900, color: '#e0f0ff', marginBottom: 8 }}>{s.title}</div>
                   <div style={{ fontFamily: 'Sora,sans-serif', fontSize: isMobile ? 11 : 12,
-                    color: '#6a8aaa', lineHeight: 1.7 }}>{s.desc}</div>
+                    color: '#c0d0e0', lineHeight: 1.7 }}>{s.desc}</div>
                 </div>
               ))}
             </div>
@@ -1927,7 +2038,6 @@ const LpFarms: FC = () => {
       {stakeTarget && publicKey && (
         <StakeModal farm={stakeTarget} isMobile={isMobile}
           publicKey={publicKey} connection={connection} signTransaction={signTransaction}
-          existingPositions={positionsByFarm.get(stakeTarget.pubkey) ?? []}
           onClose={() => setStakeTarget(null)}
           onStaked={loadData} />
       )}
