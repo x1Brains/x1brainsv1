@@ -38,29 +38,56 @@ pub const CLAIM_COOLDOWN_SECS: i64 = 24 * 60 * 60;  // 24 hours
 
 // ── Early-exit penalty (two-tier, LP principal → treasury) ───────────────────
 //
+// Four-tier LB-holder discount ladder (checked highest-first so users always
+// get their best-qualifying tier). All values in bps.
+//
 // Period 1 (past grace, first 50% of lock duration):
-//   - Standard:                     4.000%  (400 bps)
-//   - LB holder (≥33 LB):           1.888%  (188 bps)
+//   - No LB (< 33 LB):              4.000%  (400 bps) [baseline]
+//   - Tier 1 (≥ 33 LB):             1.888%  (188 bps)
+//   - Tier 2 (≥ 330 LB):            1.000%  (100 bps)
+//   - Tier 3 (≥ 3,300 LB):          0.500%   (50 bps)
 //
 // Period 2 (second 50% of lock duration):
-//   - Standard:                     1.888%  (188 bps)
-//   - LB holder (≥33 LB):           0.888%   (88 bps)
+//   - No LB:                        1.888%  (188 bps) [baseline]
+//   - Tier 1 (≥ 33 LB):             0.888%   (88 bps)
+//   - Tier 2 (≥ 330 LB):            0.444%   (44 bps, rounded from 44.4)
+//   - Tier 3 (≥ 3,300 LB):          0.222%   (22 bps, rounded from 22.2)
 //
 // After lock expires: 0% penalty, free withdrawal forever.
 // Pending rewards are forfeited on any early exit → stay in vault, boost APR.
-pub const PENALTY_P1_STANDARD_BPS: u64 = 400;  // 4.000%
-pub const PENALTY_P1_DISCOUNT_BPS: u64 = 188;  // 1.888%
-pub const PENALTY_P2_STANDARD_BPS: u64 = 188;  // 1.888%
-pub const PENALTY_P2_DISCOUNT_BPS: u64 =  88;  // 0.888%
+// Rounding note: T2/T3 P2 values round down to nearest whole bp. Users lose
+// at most 0.004% of LP vs the exact decimal. Negligible and makes integer
+// arithmetic simpler throughout the program.
+pub const PENALTY_P1_STANDARD_BPS: u64 = 400;  // 4.000% — no LB
+pub const PENALTY_P1_TIER1_BPS:    u64 = 188;  // 1.888% — ≥ 33 LB
+pub const PENALTY_P1_TIER2_BPS:    u64 = 100;  // 1.000% — ≥ 330 LB
+pub const PENALTY_P1_TIER3_BPS:    u64 =  50;  // 0.500% — ≥ 3,300 LB
+
+pub const PENALTY_P2_STANDARD_BPS: u64 = 188;  // 1.888% — no LB
+pub const PENALTY_P2_TIER1_BPS:    u64 =  88;  // 0.888% — ≥ 33 LB
+pub const PENALTY_P2_TIER2_BPS:    u64 =  44;  // 0.444% — ≥ 330 LB
+pub const PENALTY_P2_TIER3_BPS:    u64 =  22;  // 0.222% — ≥ 3,300 LB
 
 pub const BPS_DENOMINATOR: u64 = 10_000;
 
-// ── LB discount threshold ─────────────────────────────────────────────────────
-// 33 LB at 2 decimals = 3300 raw units. Matches brains_pairing discount.
-pub const LB_DISCOUNT_THRESHOLD: u64 = 3_300;
+// ── LB discount thresholds (raw units, 2 decimals) ────────────────────────────
+// 33 LB = 3,300 raw, 330 LB = 33,000 raw, 3,300 LB = 330,000 raw.
+// Legacy name kept for backward-compat / call sites that want the minimum tier.
+pub const LB_DISCOUNT_THRESHOLD:       u64 =   3_300;  // 33 LB   (tier 1 entry)
+pub const LB_DISCOUNT_THRESHOLD_T1:    u64 =   3_300;  // 33 LB
+pub const LB_DISCOUNT_THRESHOLD_T2:    u64 =  33_000;  // 330 LB
+pub const LB_DISCOUNT_THRESHOLD_T3:    u64 = 330_000;  // 3,300 LB
 
 // ── APR caps — sanity limits to prevent admin fat-finger ─────────────────────
-pub const MAX_REWARD_RATE_PER_SEC: u128 = 1_000_000_000_000_000_000_000; // very generous upper bound
+// The cap is on the SCALED rate (after × ACC_PRECISION). Working backwards:
+//   raw_units_per_sec_ceiling = MAX_REWARD_RATE_PER_SEC / ACC_PRECISION
+//                             = 1e30 / 1e18 = 1e12 raw units/sec
+// For a 9-decimal reward token (BRAINS), that's 1,000 tokens/sec = ~31.5B/year.
+// For a 2-decimal reward token (LB), that's 10 billion tokens/sec. Either way,
+// any rate high enough to hit this cap is a clear fat-finger. Launch rates:
+//   BRAINS: 1.408e25 scaled (~0.014 BRAINS/sec)  → well under cap ✓
+//   LB:     1.585e16 scaled (~0.0000159 LB/sec)  → well under cap ✓
+pub const MAX_REWARD_RATE_PER_SEC: u128 = 1_000_000_000_000_000_000_000_000_000_000; // 1e30
 // 500% APR target ceiling displayed by UI, not enforced on-chain (honest:
 // actual APR is reward_rate × multiplier / total_effective, which we can't
 // bound without knowing TVL).

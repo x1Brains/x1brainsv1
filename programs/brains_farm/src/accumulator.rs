@@ -126,17 +126,19 @@ pub fn credit_position(
 }
 
 /// Compute the early-exit penalty for a position based on how far it is
-/// through its lock period and whether the user holds the LB discount.
+/// through its lock period and the user's LB holdings (4-tier ladder).
 ///
 /// Returns (penalty_bps, penalty_raw_lp).
 ///
 /// Rules:
 ///   - During grace (first 3 days from start_ts): 0%
-///   - Period 1 (past grace, first 50% of lock duration):
-///       4.000% standard, 1.888% LB holders
-///   - Period 2 (50% → 100% of lock duration):
-///       1.888% standard, 0.888% LB holders
-///   - After maturity (past unlock_ts): 0%
+///   - Past maturity (past unlock_ts): 0%
+///   - Otherwise: select period (P1 = past grace, before midpoint; P2 = midpoint to unlock)
+///     then pick LB tier (checked highest-first):
+///       Tier 3: ≥ 3,300 LB → smallest penalty
+///       Tier 2: ≥ 330 LB
+///       Tier 1: ≥ 33 LB
+///       None:   < 33 LB   → baseline penalty
 pub fn calc_early_exit_penalty(
     position: &StakePosition,
     lb_balance: u64,
@@ -157,22 +159,17 @@ pub fn calc_early_exit_penalty(
         .checked_add(position.lock_duration / 2)
         .ok_or(FarmError::Overflow)?;
 
-    let has_lb_discount = lb_balance >= LB_DISCOUNT_THRESHOLD;
+    let in_period_1 = now < midpoint_ts;
 
-    let penalty_bps = if now < midpoint_ts {
-        // Period 1 — past grace, before midpoint
-        if has_lb_discount {
-            PENALTY_P1_DISCOUNT_BPS
-        } else {
-            PENALTY_P1_STANDARD_BPS
-        }
+    // Tier ladder — check highest first so users always get their best tier.
+    let penalty_bps = if lb_balance >= LB_DISCOUNT_THRESHOLD_T3 {
+        if in_period_1 { PENALTY_P1_TIER3_BPS } else { PENALTY_P2_TIER3_BPS }
+    } else if lb_balance >= LB_DISCOUNT_THRESHOLD_T2 {
+        if in_period_1 { PENALTY_P1_TIER2_BPS } else { PENALTY_P2_TIER2_BPS }
+    } else if lb_balance >= LB_DISCOUNT_THRESHOLD_T1 {
+        if in_period_1 { PENALTY_P1_TIER1_BPS } else { PENALTY_P2_TIER1_BPS }
     } else {
-        // Period 2 — past midpoint, before unlock
-        if has_lb_discount {
-            PENALTY_P2_DISCOUNT_BPS
-        } else {
-            PENALTY_P2_STANDARD_BPS
-        }
+        if in_period_1 { PENALTY_P1_STANDARD_BPS } else { PENALTY_P2_STANDARD_BPS }
     };
 
     let penalty_raw = (position.amount as u128)

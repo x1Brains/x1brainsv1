@@ -81,10 +81,17 @@ pub struct Unstake<'info> {
     #[account(mut, address = farm.reward_vault @ FarmError::InvalidAccountData)]
     pub reward_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    // Treasury LP ATA — receives penalty LP
-    /// CHECK: validated via associated_token derivation in handler if penalty > 0
-    #[account(mut)]
-    pub treasury_lp_ata: UncheckedAccount<'info>,
+    // Treasury LP ATA — receives penalty LP.
+    // SECURITY: validated via associated_token constraints so an attacker can't
+    // substitute their own ATA as the "treasury" and nullify the early-exit
+    // penalty. Derivation-locked to (lp_mint, TREASURY_WALLET).
+    #[account(
+        mut,
+        associated_token::mint          = lp_mint,
+        associated_token::authority     = treasury,
+        associated_token::token_program = lp_token_program,
+    )]
+    pub treasury_lp_ata: Box<InterfaceAccount<'info, TokenAccount>>,
 
     /// CHECK: hardcoded treasury (owner of treasury_lp_ata)
     #[account(constraint = treasury.key() == TREASURY_WALLET @ FarmError::InvalidTreasury)]
