@@ -2156,14 +2156,18 @@ const LpFarms: FC = () => {
   const [tab, setTab]              = useState<'farms' | 'mystakes'>('farms');
   const [farms, setFarms]          = useState<FarmOnChain[]>([]);
   const [positions, setPositions]  = useState<PositionOnChain[]>([]);
-  const [loading, setLoading]      = useState(true);
+  const [loading, setLoading]      = useState(true);    // only on first-ever load
+  const [refreshing, setRefreshing] = useState(false);  // background poll; does not hide UI
   const [stakeTarget, setStakeTarget]     = useState<FarmOnChain | null>(null);
   const [donateTarget, setDonateTarget]   = useState<FarmOnChain | null>(null);
   const [claimTarget, setClaimTarget]     = useState<PositionOnChain | null>(null);
   const [unstakeTarget, setUnstakeTarget] = useState<PositionOnChain | null>(null);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  // loadData(silent=true)  → keeps cards on screen while fresh data fetches
+  // loadData(silent=false) → shows skeleton (only used on initial page load)
+  const loadData = useCallback(async (silent = true) => {
+    if (!silent) setLoading(true);
+    setRefreshing(true);
     try {
       const fs = await fetchFarms(connection);
       setFarms(fs);
@@ -2179,13 +2183,17 @@ const LpFarms: FC = () => {
       }
     } catch (e) {
       console.error('loadData error:', e);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, [connection, publicKey]);
 
-  useEffect(() => { loadData(); }, [loadData]);
-  // Refresh every 30s
+  // Initial load — shows skeleton
+  useEffect(() => { loadData(false); }, [loadData]);
+  // Background refresh every 30s — cards stay visible
   useEffect(() => {
-    const i = setInterval(() => loadData(), 30_000);
+    const i = setInterval(() => loadData(true), 30_000);
     return () => clearInterval(i);
   }, [loadData]);
 
