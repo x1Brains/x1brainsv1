@@ -108,8 +108,12 @@ pub const MULTIPLIER_90_BPS:  u64 = 40_000;
 pub const MULTIPLIER_365_BPS: u64 = 80_000;
 
 // ── Minimum stake amount (raw LP units) ───────────────────────────────────────
-// 1 LP token (XDEX LP is 9 decimals). Prevents dust positions.
-pub const MIN_STAKE_RAW: u64 = 1_000_000_000;
+// 100 raw units = 0.0000001 LP at 9-decimal LP mint.
+// XDEX LP tokens represent large pool shares (each raw unit ≈ $0.000007 at
+// current pool pricing), so setting this low lets small users ($3+) participate.
+// Spam is deterred by STAKE_FEE_XNT_LAMPORTS (0.005 XNT = ~$0.002 per stake),
+// not by this minimum. Mainly a sanity floor against accidental zero-shift errors.
+pub const MIN_STAKE_RAW: u64 = 100;
 
 // ── Stake fee (flat, to treasury, paid in XNT lamports) ──────────────────────
 // 0.005 XNT per stake. Spam deterrent.

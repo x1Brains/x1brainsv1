@@ -1,12 +1,14 @@
 // programs/brains_farm/src/instructions/unstake.rs
 // Close a position. Three paths:
-//   1. Grace exit (within 3 days of stake start): full LP + pending rewards
-//   2. Mature exit (past unlock_ts): full LP + pending rewards
-//   3. Early exit (past grace, before maturity): LP minus penalty%, rewards forfeited
+//   1. Grace exit (within 3 days of stake start): full LP, rewards FORFEITED
+//   2. Mature exit (past unlock_ts):               full LP + pending rewards
+//   3. Early exit (past grace, before maturity):   LP minus penalty%, rewards FORFEITED
 //
 // Penalty taken from LP principal goes to treasury. Forfeited rewards stay in
 // vault and decrement total_pending_rewards so they become emittable again,
-// effectively boosting APR for remaining stakers.
+// effectively boosting APR for remaining stakers. Grace exit is an "undo
+// button" for mistakes — your LP is safe, but you only earn by committing
+// to full maturity.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{
@@ -146,6 +148,17 @@ pub fn handler(ctx: Context<Unstake>, _params: UnstakeParams) -> Result<()> {
     };
 
     // ── Compute penalty & reward payout ───────────────────────────────────────
+    //
+    // Policy (tightened from original):
+    //   1. Grace exit (within 3 days):   LP returned in full, REWARDS FORFEITED
+    //   2. Early exit (past grace):      LP minus penalty,    REWARDS FORFEITED
+    //   3. Mature exit (past unlock_ts): LP returned in full, REWARDS PAID
+    //
+    // Grace now forfeits rewards to close the grace-period farming attack:
+    // mercenary capital can no longer stake for 2.9 days and walk away with
+    // 3 days of accrued rewards. Grace is now purely an "undo button" for
+    // mistakes — your LP is safe, but you only earn by committing fully.
+    // Forfeited rewards stay in the vault and boost APR for committed stakers.
     let position_amount   = ctx.accounts.position.amount;
     let pending_rewards   = ctx.accounts.position.pending_rewards;
 
@@ -155,13 +168,11 @@ pub fn handler(ctx: Context<Unstake>, _params: UnstakeParams) -> Result<()> {
         now,
     )?;
 
-    let is_early_exit = penalty_bps > 0;
-    let lp_to_owner = position_amount.checked_sub(penalty_raw).ok_or(FarmError::Overflow)?;
-    let reward_to_owner = if is_early_exit {
-        0 // forfeit rewards on early exit
-    } else {
-        pending_rewards
-    };
+    let is_matured  = now >= ctx.accounts.position.unlock_ts;
+    let rewards_forfeited = !is_matured;  // grace OR early → forfeit
+
+    let lp_to_owner     = position_amount.checked_sub(penalty_raw).ok_or(FarmError::Overflow)?;
+    let reward_to_owner = if rewards_forfeited { 0 } else { pending_rewards };
 
     // ── Transfer LP: vault → owner (minus penalty) ────────────────────────────
     let lp_mint_key     = ctx.accounts.farm.lp_mint;
@@ -243,7 +254,7 @@ pub fn handler(ctx: Context<Unstake>, _params: UnstakeParams) -> Result<()> {
     msg!(
         "Unstake: {} LP returned, {} LP penalty ({}bps), {} rewards paid ({} forfeited)",
         lp_to_owner, penalty_raw, penalty_bps, reward_to_owner,
-        if is_early_exit { pending_rewards } else { 0 }
+        if rewards_forfeited { pending_rewards } else { 0 }
     );
 
     ctx.accounts.global_state.is_locked = false;
