@@ -78,9 +78,21 @@ pub struct Unstake<'info> {
     )]
     pub owner_reward_ata: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    #[account(mut, address = farm.lp_vault     @ FarmError::InvalidAccountData)]
+    #[account(
+        mut,
+        address = farm.lp_vault @ FarmError::InvalidAccountData,
+        token::mint          = lp_mint,
+        token::authority     = farm,
+        token::token_program = lp_token_program,
+    )]
     pub lp_vault:     Box<InterfaceAccount<'info, TokenAccount>>,
-    #[account(mut, address = farm.reward_vault @ FarmError::InvalidAccountData)]
+    #[account(
+        mut,
+        address = farm.reward_vault @ FarmError::InvalidAccountData,
+        token::mint          = reward_mint,
+        token::authority     = farm,
+        token::token_program = reward_token_program,
+    )]
     pub reward_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     // Treasury LP ATA — receives penalty LP.
@@ -123,20 +135,31 @@ pub fn handler(ctx: Context<Unstake>, _params: UnstakeParams) -> Result<()> {
     accumulator::credit_position(&mut ctx.accounts.position, &ctx.accounts.farm)?;
 
     // ── Read LB balance for penalty discount ──────────────────────────────────
+    // SECURITY: must validate both mint AND owner of the passed account.
+    // Without the owner check, any user could pass a whale's LB ATA (public
+    // info) and inherit their tier discount. We read:
+    //   bytes 0..32   = mint
+    //   bytes 32..64  = owner
+    //   bytes 64..72  = amount
+    // Layout identical between classic SPL Token and Token-2022.
     let lb_balance: u64 = {
         let acc = &ctx.accounts.owner_lb_account;
         // Sentinel: if they pass the program id, treat as zero balance
         if acc.key() == *ctx.program_id {
             0
         } else {
-            // Verify the account is for LB mint. Read mint at offset 0..32.
             let data = acc.try_borrow_data()?;
             if data.len() >= 72 {
                 let mint_bytes: [u8; 32] = data[0..32]
                     .try_into()
                     .map_err(|_| FarmError::InvalidAccountData)?;
-                let acc_mint = Pubkey::new_from_array(mint_bytes);
-                if acc_mint == LB_MINT {
+                let owner_bytes: [u8; 32] = data[32..64]
+                    .try_into()
+                    .map_err(|_| FarmError::InvalidAccountData)?;
+                let acc_mint  = Pubkey::new_from_array(mint_bytes);
+                let acc_owner = Pubkey::new_from_array(owner_bytes);
+                // Must be LB mint AND owned by the staker
+                if acc_mint == LB_MINT && acc_owner == ctx.accounts.owner.key() {
                     accumulator::read_token_account_balance(acc)?
                 } else {
                     0

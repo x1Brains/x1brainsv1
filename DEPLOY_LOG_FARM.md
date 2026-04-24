@@ -58,3 +58,13 @@
 - **Binary size:** 522440 bytes (was 531736)
 - **Git:**       `main @ 87fd3a3` (dirty: uncommitted changes)
 - **Authority:** `CCcJuC3B7EwAq47VCPfgbvHvjf2xkuCj6wAKxNZ7vcY2`
+
+## 2026-04-24T05:59:55Z — upgrade
+
+- **Program:**   `Ci1qDtdoSh8mCtJTVoX1tArbnLydQUZYu9RiqukRFJpg`
+- **Signature:** `4erCt7P1gfrk1D3hJaHxdL39bVf1GjpTpkyu1sGnn4uEfFRh7PL55GTG7hS4hSxQyVdZ6a6dGdXRMBBwjgwau5bK`
+- **Slot:**      45186247 (was 45167273)
+- **Binary MD5:** `2a4cfbeecc12cfc11f050193df5162a4`
+- **Binary size:** 531760 bytes (was 531736)
+- **Git:**       `main @ df077ae` (dirty: uncommitted changes)
+- **Authority:** `CCcJuC3B7EwAq47VCPfgbvHvjf2xkuCj6wAKxNZ7vcY2`

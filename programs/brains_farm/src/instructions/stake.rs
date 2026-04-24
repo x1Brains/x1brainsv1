@@ -52,12 +52,17 @@ pub struct Stake<'info> {
     #[account(
         mut,
         address = farm.lp_vault @ FarmError::InvalidAccountData,
+        token::mint          = lp_mint,
+        token::authority     = farm,
+        token::token_program = lp_token_program,
     )]
     pub lp_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     // Reward vault — needed to read balance for accumulator cap
     #[account(
         address = farm.reward_vault @ FarmError::InvalidAccountData,
+        token::mint = farm.reward_mint,
+        token::authority = farm,
     )]
     pub reward_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -92,8 +97,17 @@ pub fn handler(ctx: Context<Stake>, params: StakeParams) -> Result<()> {
 
     ctx.accounts.global_state.is_locked = true;
 
-    // ── Input validation ──────────────────────────────────────────────────────
+    // ── Input validation (pre-transfer, cheap reject) ─────────────────────────
     require!(params.amount >= MIN_STAKE_RAW, FarmError::StakeTooSmall);
+    // Bound the nonce to MAX_POSITIONS_PER_USER_PER_FARM. This caps the PDA
+    // nonce space a single (user, farm) pair can use, preventing any user from
+    // opening unbounded positions. Closing a position frees its nonce for reuse
+    // (the PDA becomes reusable once rent is swept). In practice this is a
+    // DoS soft-limit — spam is already deterred by STAKE_FEE_XNT_LAMPORTS.
+    require!(
+        params.nonce < MAX_POSITIONS_PER_USER_PER_FARM,
+        FarmError::TooManyPositions
+    );
 
     // ── Settle farm accumulator BEFORE mutating TVL ───────────────────────────
     accumulator::settle_farm(
@@ -115,6 +129,14 @@ pub fn handler(ctx: Context<Stake>, params: StakeParams) -> Result<()> {
     )?;
 
     // ── Transfer LP tokens → lp_vault (with Token-2022 awareness) ─────────────
+    // SECURITY: we snapshot the vault balance before and after the transfer,
+    // then use the delta as the "actually received" amount. This guards against
+    // fee-on-transfer LP mints — where `params.amount` leaves the user's wallet
+    // but `params.amount - fee` arrives in the vault. Crediting the user with
+    // `params.amount` in that case would let them withdraw more than the vault
+    // holds, draining future stakers' positions.
+    let vault_before = ctx.accounts.lp_vault.amount;
+
     let is_token_2022 = ctx.accounts.lp_token_program.key()
         == anchor_spl::token_2022::spl_token_2022::id();
 
@@ -167,14 +189,18 @@ pub fn handler(ctx: Context<Stake>, params: StakeParams) -> Result<()> {
         )?;
     }
 
-    // Reload to get actual received amount (post-fee for Token-2022 mints)
+    // Reload to get post-transfer vault balance, then compute actual received.
+    // For ordinary LP mints without transfer fees, staked_raw == params.amount.
+    // For fee-on-transfer mints, staked_raw == params.amount - fee, matching
+    // what the vault actually holds.
     ctx.accounts.lp_vault.reload()?;
+    let vault_after = ctx.accounts.lp_vault.amount;
+    let staked_raw = vault_after
+        .checked_sub(vault_before)
+        .ok_or(FarmError::Overflow)?;
 
-    // Use post-fee actual amount for effective calc. For LPs without transfer fees,
-    // this equals params.amount. For fee mints it's slightly less.
-    // Simple approach: use params.amount directly since LP tokens generally don't
-    // have transfer fees. Refine here if ever supporting fee-on-transfer LPs.
-    let staked_raw = params.amount;
+    // Enforce minimum against the actual received amount (not params.amount).
+    require!(staked_raw >= MIN_STAKE_RAW, FarmError::StakeTooSmall);
 
     // Compute effective_amount = staked × multiplier_bps / BPS_DENOMINATOR
     let multiplier_bps = params.lock_type.multiplier_bps();
