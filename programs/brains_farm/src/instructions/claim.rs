@@ -63,6 +63,9 @@ pub struct Claim<'info> {
     #[account(
         mut,
         address = farm.reward_vault @ FarmError::InvalidAccountData,
+        token::mint          = reward_mint,
+        token::authority     = farm,
+        token::token_program = reward_token_program,
     )]
     pub reward_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -73,6 +76,15 @@ pub fn handler(ctx: Context<Claim>, _params: ClaimParams) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
 
     ctx.accounts.global_state.is_locked = true;
+
+    // ── Grace-period guard ────────────────────────────────────────────────────
+    // Claim is not permitted during the 3-day grace window. This closes the
+    // grace-farming loophole: without this check, a user could stake → wait 24h
+    // → claim → wait 24h → claim → grace-exit at day 2.9, capturing ~48h of
+    // rewards despite the "grace forfeits rewards" policy advertised on unstake.
+    // Post-grace, claim works normally as a way to pull accrued rewards without
+    // closing the position.
+    require!(now > ctx.accounts.position.grace_end_ts, FarmError::ClaimTooSoon);
 
     // ── 24h cooldown check ────────────────────────────────────────────────────
     let next_claim_allowed = ctx.accounts.position.last_claim_ts

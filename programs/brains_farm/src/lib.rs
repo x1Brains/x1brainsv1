@@ -21,7 +21,7 @@ solana_security_txt::security_txt! {
     contacts: "link:https://x1brains.io/security,twitter:@x1brains",
     policy: "Responsible disclosure appreciated. Contact before public disclosure.",
     preferred_languages: "en",
-    source_code: "https://github.com/x1stest/btv2"
+    source_code: "https://github.com/x1Brains/x1brainsv1"
 }
 
 // TODO: generate keypair and paste pubkey:

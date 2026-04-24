@@ -122,6 +122,15 @@ pub const STAKE_FEE_XNT_LAMPORTS: u64 = 5_000_000;
 // ── Position nonce cap — max concurrent positions per (user, farm) ───────────
 pub const MAX_POSITIONS_PER_USER_PER_FARM: u32 = 100;
 
+// ── Rate update sanity limits ────────────────────────────────────────────────
+// Admin cannot change the rate more than ±MAX_RATE_CHANGE_FACTOR per update.
+// Adding a proper timelock would require a new state field; the magnitude cap
+// alone removes admin's ability to drain the vault in seconds via a massive
+// rate spike. Ratcheting up by 2× repeatedly to reach a target is still
+// possible but visible on-chain and rate-limited by tx throughput.
+pub const MAX_RATE_UP_NUM:   u128 = 2;  // new_rate ≤ old_rate × 2
+pub const MAX_RATE_DOWN_DEN: u128 = 2;  // new_rate ≥ old_rate / 2
+
 // ── Farm lifecycle minimums ───────────────────────────────────────────────────
 // target_duration_seconds used in create_farm to compute initial rate.
 // After creation, farm runs until reward_vault is empty (no hard end date).

@@ -32,9 +32,17 @@ pub struct CloseFarm<'info> {
     )]
     pub farm: Account<'info, Farm>,
 
-    #[account(address = farm.lp_vault     @ FarmError::InvalidAccountData)]
+    #[account(
+        address = farm.lp_vault @ FarmError::InvalidAccountData,
+        token::mint = farm.lp_mint,
+        token::authority = farm,
+    )]
     pub lp_vault:     InterfaceAccount<'info, TokenAccount>,
-    #[account(address = farm.reward_vault @ FarmError::InvalidAccountData)]
+    #[account(
+        address = farm.reward_vault @ FarmError::InvalidAccountData,
+        token::mint = farm.reward_mint,
+        token::authority = farm,
+    )]
     pub reward_vault: InterfaceAccount<'info, TokenAccount>,
 }
 

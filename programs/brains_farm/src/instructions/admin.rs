@@ -89,6 +89,8 @@ pub struct UpdateRate<'info> {
 
     #[account(
         address = farm.reward_vault @ FarmError::InvalidAccountData,
+        token::mint = farm.reward_mint,
+        token::authority = farm,
     )]
     pub reward_vault: InterfaceAccount<'info, TokenAccount>,
 }
@@ -99,6 +101,23 @@ pub fn update_rate_handler(ctx: Context<UpdateRate>, params: UpdateRateParams) -
     require!(params.new_rate > 0, FarmError::RateZero);
     require!(params.new_rate <= MAX_REWARD_RATE_PER_SEC, FarmError::RateTooHigh);
 
+    // ── M7: rate-change magnitude cap (fat-finger + key-compromise guard) ────
+    // Prevents admin from making massive rate changes in a single tx. To reach
+    // a 10× target from current rate, admin must call update_rate ~4 times,
+    // each visible on-chain. Community has reaction time to notice anomalies.
+    // Skip this check when old_rate is 0 (first-time setup / post-depletion).
+    let old_rate = ctx.accounts.farm.reward_rate_per_sec;
+    if old_rate > 0 {
+        let max_up = old_rate
+            .checked_mul(MAX_RATE_UP_NUM)
+            .ok_or(FarmError::Overflow)?;
+        let min_down = old_rate
+            .checked_div(MAX_RATE_DOWN_DEN)
+            .ok_or(FarmError::Overflow)?;
+        require!(params.new_rate <= max_up,   FarmError::RateTooHigh);
+        require!(params.new_rate >= min_down, FarmError::RateTooHigh);
+    }
+
     // Settle at OLD rate before changing
     accumulator::settle_farm(
         &mut ctx.accounts.farm,
@@ -106,7 +125,6 @@ pub fn update_rate_handler(ctx: Context<UpdateRate>, params: UpdateRateParams) -
         now,
     )?;
 
-    let old_rate = ctx.accounts.farm.reward_rate_per_sec;
     ctx.accounts.farm.reward_rate_per_sec = params.new_rate;
 
     msg!("Rate updated: {} → {} (scaled)", old_rate, params.new_rate);
@@ -143,6 +161,9 @@ pub struct WithdrawRewards<'info> {
     #[account(
         mut,
         address = farm.reward_vault @ FarmError::InvalidAccountData,
+        token::mint          = reward_mint,
+        token::authority     = farm,
+        token::token_program = token_program,
     )]
     pub reward_vault: InterfaceAccount<'info, TokenAccount>,
 

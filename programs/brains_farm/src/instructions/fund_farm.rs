@@ -46,6 +46,9 @@ pub struct FundFarm<'info> {
     #[account(
         mut,
         address = farm.reward_vault @ FarmError::InvalidAccountData,
+        token::mint          = reward_mint,
+        token::authority     = farm,
+        token::token_program = token_program,
     )]
     pub reward_vault: InterfaceAccount<'info, TokenAccount>,
 
