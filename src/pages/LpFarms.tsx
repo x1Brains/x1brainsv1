@@ -85,6 +85,11 @@ interface FarmOnChain {
   runwayDays:            number;
   rewardPriceUsd:        number;
   lpPriceUsd:            number;
+  // Mint decimals — CRITICAL to respect these; reward mints differ
+  // (BRAINS=9, LB=2). Using a hardcoded 1e9 anywhere that touches a
+  // reward amount is a bug.
+  rewardDecimals:        number;
+  lpDecimals:            number;
 }
 
 interface PositionOnChain {
@@ -152,6 +157,10 @@ function fmtDuration(secs: number): string {
 
 function truncAddr(a: string): string { return `${a.slice(0,4)}…${a.slice(-4)}`; }
 
+// Integer power of 10 as a plain number. Safe up to 1e15 (2^53 limit);
+// all decimals we care about (2, 6, 9) are well under that.
+function pow10(n: number): number { let r = 1; for (let i = 0; i < n; i++) r *= 10; return r; }
+
 // Anchor discriminator: first 8 bytes of sha256("global:<ix_name>")
 async function disc(name: string): Promise<Buffer> {
   const msg = new TextEncoder().encode(`global:${name}`);
@@ -204,6 +213,24 @@ async function getTokenProgram(mint: PublicKey, connection: Connection): Promise
     if (info?.owner?.toBase58() === TOKEN_2022_PROGRAM_ID.toBase58()) return TOKEN_2022_PROGRAM_ID;
   } catch {}
   return TOKEN_PROGRAM_ID;
+}
+
+// ─── Mint decimals lookup ─────────────────────────────────────────────────────
+// Both SPL Token and Token-2022 Mint accounts have `decimals` at offset 44
+// (mint_authority_flag:4 + mint_authority:32 + supply:8 = 44).
+async function getMintDecimals(mint: PublicKey, connection: Connection, fallback = 9): Promise<number> {
+  try {
+    const info = await connection.getAccountInfo(mint);
+    if (!info) return fallback;
+    // Fast path via parsed JSON if available
+    try {
+      const parsed = await connection.getParsedAccountInfo(mint);
+      const d = (parsed?.value?.data as any)?.parsed?.info?.decimals;
+      if (typeof d === 'number') return d;
+    } catch {}
+    // Fallback: raw byte offset 44
+    return info.data[44] ?? fallback;
+  } catch { return fallback; }
 }
 
 // ─── XDEX price ───────────────────────────────────────────────────────────────
@@ -277,6 +304,13 @@ async function fetchFarms(connection: Connection): Promise<FarmOnChain[]> {
         const rewardPriceUsd = await fetchPrice(rewardMint);
         const lpPriceUsd     = await fetchPrice(lpMint); // may be 0 — LP mints don't always have direct price
 
+        // Mint decimals — CRITICAL: reward mints have different decimals
+        // (BRAINS=9, LB=2). Do NOT hardcode 1e9 for reward amounts.
+        const [rewardDecimals, lpDecimals] = await Promise.all([
+          getMintDecimals(new PublicKey(rewardMint), connection, 9),
+          getMintDecimals(new PublicKey(lpMint), connection, 9),
+        ]);
+
         results.push({
           pubkey: pubkey.toBase58(),
           lpMint, rewardMint, rewardSymbol, lpSymbol, lpVault, rewardVault,
@@ -290,6 +324,7 @@ async function fetchFarms(connection: Connection): Promise<FarmOnChain[]> {
           paused, closed,
           vaultBalance, runwayDays,
           rewardPriceUsd, lpPriceUsd,
+          rewardDecimals, lpDecimals,
         });
       } catch { continue; }
     }
@@ -421,7 +456,7 @@ function computeApr(
 
   // total_effective is in raw LP units × bps scale — so USD TVL is
   // total_staked × lp_price (effective is just weighted, not dollarized)
-  const totalStakedUi = Number(farm.totalStaked) / 1e9; // LP decimals = 9
+  const totalStakedUi = Number(farm.totalStaked) / pow10(farm.lpDecimals);
   const tvlUsd = totalStakedUi * farm.lpPriceUsd;
   if (tvlUsd === 0) return 0;
 
@@ -498,8 +533,8 @@ const FarmCard: FC<{
   const apr90  = computeApr(farm, 40_000);
   const apr365 = computeApr(farm, 80_000);
 
-  const tvlUsd = (Number(farm.totalStaked) / 1e9) * farm.lpPriceUsd;
-  const vaultUsd = (Number(farm.vaultBalance) / 1e9) * farm.rewardPriceUsd;
+  const tvlUsd = (Number(farm.totalStaked) / pow10(farm.lpDecimals)) * farm.lpPriceUsd;
+  const vaultUsd = (Number(farm.vaultBalance) / pow10(farm.rewardDecimals)) * farm.rewardPriceUsd;
   const myStakeCount = userPositions.length;
 
   const isHot = farm.rewardMint === BRAINS_MINT ? '#ff8c00' : '#00c98d';
@@ -579,7 +614,7 @@ const FarmCard: FC<{
             REWARD VAULT
           </div>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 700, color: isHot }}>
-            {fmtNum(Number(farm.vaultBalance) / 1e9)} {farm.rewardSymbol}
+            {fmtNum(Number(farm.vaultBalance) / pow10(farm.rewardDecimals))} {farm.rewardSymbol}
           </div>
           <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#6a8aaa' }}>
             {fmtUSD(vaultUsd)}
@@ -618,9 +653,9 @@ const FarmCard: FC<{
         gap: 8, marginBottom: 18, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,.05)' }}>
         {[
           { label: 'TVL',      value: fmtUSD(tvlUsd),                  color: '#e0f0ff' },
-          { label: 'STAKED',   value: fmtNum(Number(farm.totalStaked)/1e9), color: '#9abacf' },
+          { label: 'STAKED',   value: fmtNum(Number(farm.totalStaked)/pow10(farm.lpDecimals)), color: '#9abacf' },
           { label: 'RUNWAY',   value: farm.runwayDays > 0 ? `${fmtNum(farm.runwayDays, 0)}d` : '—', color: farm.runwayDays <= 30 ? '#ff8c00' : '#00c98d' },
-          { label: 'EMITTED',  value: fmtNum(Number(farm.totalEmitted)/1e9), color: '#bf5af2' },
+          { label: 'EMITTED',  value: fmtNum(Number(farm.totalEmitted)/pow10(farm.rewardDecimals)), color: '#bf5af2' },
         ].map(stat => (
           <div key={stat.label}>
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, letterSpacing: 1,
@@ -671,9 +706,9 @@ const PositionCard: FC<{
   const hoursToClaim = Math.floor(position.nextClaimInSec / 3_600);
   const minsToClaim  = Math.floor((position.nextClaimInSec % 3_600) / 60);
 
-  const amountUi  = Number(position.amount) / 1e9;
+  const amountUi  = Number(position.amount) / pow10(farm.lpDecimals);
   const amountUsd = amountUi * farm.lpPriceUsd;
-  const earnedUi  = Number(position.earnedNow) / 1e9;
+  const earnedUi  = Number(position.earnedNow) / pow10(farm.rewardDecimals);
   const earnedUsd = earnedUi * farm.rewardPriceUsd;
 
   const statusBadge = isMatured
@@ -793,9 +828,10 @@ const StakeModal: FC<{
   publicKey: PublicKey;
   connection: Connection;
   signTransaction: any;
+  existingPositions: PositionOnChain[]; // all of this user's positions on this farm
   onClose: () => void;
   onStaked: () => void;
-}> = ({ farm, isMobile, publicKey, connection, signTransaction, onClose, onStaked }) => {
+}> = ({ farm, isMobile, publicKey, connection, signTransaction, existingPositions, onClose, onStaked }) => {
   const [amount, setAmount]   = useState('');
   const [lockId, setLockId]   = useState<LockId>('locked90');
   const [lpBal, setLpBal]     = useState(0);
@@ -852,17 +888,37 @@ const StakeModal: FC<{
       const lpTokenProg = await getTokenProgram(lpMintPk, connection);
       const lpAta = getAssociatedTokenAddressSync(lpMintPk, publicKey, false, lpTokenProg);
 
-      // Find unused nonce
+      // Find smallest unused nonce in [0, MAX_POSITIONS_PER_USER_PER_FARM).
+      // We use the already-fetched positions list (set of taken nonces) so this
+      // is O(1) RPC calls instead of up to 100 serial getAccountInfo roundtrips.
+      // Program constant MAX_POSITIONS_PER_USER_PER_FARM = 100.
+      const MAX_POSITIONS = 100;
+      const taken = new Set<number>(existingPositions.map(p => p.nonce));
+      if (taken.size >= MAX_POSITIONS) {
+        throw new Error(`Position limit reached (${MAX_POSITIONS} per farm). Unstake an existing position first.`);
+      }
       let nonce = 0;
-      for (let i = 0; i < 100; i++) {
-        const [p] = derivePosition(publicKey, farmPk, i);
-        const info = await connection.getAccountInfo(p);
-        if (!info) { nonce = i; break; }
+      while (taken.has(nonce)) nonce++;
+      // Defensive: confirm on-chain that the derived PDA is actually unused.
+      // Guards against a just-created position that hasn't hit our 30s refresh.
+      const [candidatePk] = derivePosition(publicKey, farmPk, nonce);
+      const candidateInfo = await connection.getAccountInfo(candidatePk);
+      if (candidateInfo) {
+        // Fall back to a slower scan from current point if cache was stale
+        let found = -1;
+        for (let i = nonce + 1; i < MAX_POSITIONS; i++) {
+          if (taken.has(i)) continue;
+          const [p] = derivePosition(publicKey, farmPk, i);
+          const info = await connection.getAccountInfo(p);
+          if (!info) { found = i; break; }
+        }
+        if (found < 0) throw new Error('Could not find a free nonce slot. Please refresh and try again.');
+        nonce = found;
       }
       const [positionPk] = derivePosition(publicKey, farmPk, nonce);
 
       const lockTypeByte = lockId === 'locked30' ? 0 : lockId === 'locked90' ? 1 : 2;
-      const rawAmt = BigInt(Math.floor(amt * 1e9)); // LP decimals = 9
+      const rawAmt = BigInt(Math.floor(amt * pow10(farm.lpDecimals))); // LP raw units
 
       const d = await disc('stake');
       const params = Buffer.alloc(8 + 1 + 4);
@@ -1104,7 +1160,7 @@ const ClaimModal: FC<{
     } finally { setPending(false); }
   };
 
-  const earnedUi = Number(position.earnedNow) / 1e9;
+  const earnedUi = Number(position.earnedNow) / pow10(farm.rewardDecimals);
   const earnedUsd = earnedUi * farm.rewardPriceUsd;
 
   return createPortal(
@@ -1208,10 +1264,10 @@ const UnstakeModal: FC<{
   const penaltyRaw = (position.amount * BigInt(penaltyBps)) / 10_000n;
   const lpReturnedRaw = position.amount - penaltyRaw;
 
-  const amountUi  = Number(position.amount) / 1e9;
-  const returnedUi = Number(lpReturnedRaw) / 1e9;
-  const penaltyUi  = Number(penaltyRaw) / 1e9;
-  const earnedUi   = Number(position.earnedNow) / 1e9;
+  const amountUi  = Number(position.amount) / pow10(farm.lpDecimals);
+  const returnedUi = Number(lpReturnedRaw) / pow10(farm.lpDecimals);
+  const penaltyUi  = Number(penaltyRaw) / pow10(farm.lpDecimals);
+  const earnedUi   = Number(position.earnedNow) / pow10(farm.rewardDecimals);
   const isEarly = !isMatured && !isInGrace;
 
   const handleUnstake = async () => {
@@ -1406,7 +1462,7 @@ const DonateModal: FC<{
   const amt = parseFloat(amount) || 0;
   const amtUsd = amt * farm.rewardPriceUsd;
   const additionalRunwayDays = farm.rewardRatePerSec > 0n
-    ? Math.floor(Number(BigInt(Math.floor(amt * 1e9)) * ACC_PRECISION / farm.rewardRatePerSec) / 86_400)
+    ? Math.floor(Number(BigInt(Math.floor(amt * pow10(farm.rewardDecimals))) * ACC_PRECISION / farm.rewardRatePerSec) / 86_400)
     : 0;
   const canSubmit = amt > 0 && amt <= bal && !pending;
 
@@ -1419,7 +1475,7 @@ const DonateModal: FC<{
       const prog       = await getTokenProgram(rewardPk, connection);
       const funderAta  = getAssociatedTokenAddressSync(rewardPk, publicKey, false, prog);
 
-      const rawAmt = BigInt(Math.floor(amt * 1e9));
+      const rawAmt = BigInt(Math.floor(amt * pow10(farm.rewardDecimals)));
       const d = await disc('fund_farm');
       const params = Buffer.alloc(8);
       params.writeBigUInt64LE(rawAmt, 0);
@@ -1598,18 +1654,18 @@ const LpFarms: FC = () => {
 
   // Aggregate stats
   const totalVaultUsd = farms.reduce((s, f) =>
-    s + (Number(f.vaultBalance) / 1e9) * f.rewardPriceUsd, 0);
+    s + (Number(f.vaultBalance) / pow10(f.rewardDecimals)) * f.rewardPriceUsd, 0);
   const totalTvlUsd = farms.reduce((s, f) =>
-    s + (Number(f.totalStaked) / 1e9) * f.lpPriceUsd, 0);
+    s + (Number(f.totalStaked) / pow10(f.lpDecimals)) * f.lpPriceUsd, 0);
   const myTotalStakedUsd = positions.reduce((s, p) => {
     const farm = farms.find(f => f.pubkey === p.farm);
     if (!farm) return s;
-    return s + (Number(p.amount) / 1e9) * farm.lpPriceUsd;
+    return s + (Number(p.amount) / pow10(farm.lpDecimals)) * farm.lpPriceUsd;
   }, 0);
   const myPendingUsd = positions.reduce((s, p) => {
     const farm = farms.find(f => f.pubkey === p.farm);
     if (!farm) return s;
-    return s + (Number(p.earnedNow) / 1e9) * farm.rewardPriceUsd;
+    return s + (Number(p.earnedNow) / pow10(farm.rewardDecimals)) * farm.rewardPriceUsd;
   }, 0);
 
   return (
@@ -1871,6 +1927,7 @@ const LpFarms: FC = () => {
       {stakeTarget && publicKey && (
         <StakeModal farm={stakeTarget} isMobile={isMobile}
           publicKey={publicKey} connection={connection} signTransaction={signTransaction}
+          existingPositions={positionsByFarm.get(stakeTarget.pubkey) ?? []}
           onClose={() => setStakeTarget(null)}
           onStaked={loadData} />
       )}
