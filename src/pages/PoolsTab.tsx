@@ -15,6 +15,8 @@ import {
   TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID,
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountIdempotentInstruction,
+  createSyncNativeInstruction,
+  createCloseAccountInstruction,
 } from '@solana/spl-token';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -268,9 +270,10 @@ function schedulePersist() {
 
 async function fetchToken2022Meta(mint: string): Promise<TokenMeta | null> {
   try {
-    const conn = new Connection(RPC, 'confirmed');
-    const info = await conn.getParsedAccountInfo(new PublicKey(mint));
-    const parsed = (info?.value?.data as any)?.parsed?.info;
+    // Use rpcCall which has retry-on-429. jsonParsed encoding gives us
+    // pre-decoded extension data when available.
+    const res = await rpcCall('getAccountInfo', [mint, { encoding: 'jsonParsed' }]);
+    const parsed = (res?.value?.data as any)?.parsed?.info;
     if (!parsed) return null;
     const decimals = parsed.decimals ?? 9;
     const extensions = parsed.extensions as any[] | undefined;
@@ -281,7 +284,10 @@ async function fetchToken2022Meta(mint: string): Promise<TokenMeta | null> {
     if (!symbol && !name) return null;
     let logo: string | undefined;
     if (uri) {
-      try { const j = await (await fetch(uri, { signal: AbortSignal.timeout(5000) })).json(); logo = j?.image || j?.logo; } catch {}
+      try {
+        const j = await (await fetch(uri, { signal: AbortSignal.timeout(5000) })).json();
+        logo = j?.image || j?.logo;
+      } catch {}
     }
     return { symbol: symbol || mint.slice(0,6), name: name || mint.slice(0,6), logo, decimals };
   } catch { return null; }
@@ -289,29 +295,52 @@ async function fetchToken2022Meta(mint: string): Promise<TokenMeta | null> {
 
 async function fetchMetaplexMeta(mint: string): Promise<TokenMeta | null> {
   try {
-    const META = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
+    const META_PROGRAM = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s';
     const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('metadata'), META.toBuffer(), new PublicKey(mint).toBuffer()], META
+      [Buffer.from('metadata'), new PublicKey(META_PROGRAM).toBuffer(), new PublicKey(mint).toBuffer()],
+      new PublicKey(META_PROGRAM),
     );
-    const conn = new Connection(RPC, 'confirmed');
-    const info = await conn.getParsedAccountInfo(pda);
-    if (!info?.value) return null;
-    const data = info.value.data as Buffer;
-    if (!Buffer.isBuffer(data) || data.length < 1) return null;
-    let offset = 1 + 32 + 32;
+    // Read RAW base64 data — Metaplex Metadata is custom-encoded, NOT
+    // parseable by jsonParsed encoding. Previous code called
+    // getParsedAccountInfo and tried `data as Buffer`, which silently
+    // returned undefined for un-parseable accounts, killing this layer.
+    const res = await rpcCall('getAccountInfo', [pda.toBase58(), { encoding: 'base64' }]);
+    if (!res?.value?.data?.[0]) return null;
+    const data = Buffer.from(res.value.data[0], 'base64');
+    if (data.length < 1 + 32 + 32 + 4) return null;
+    let offset = 1 + 32 + 32; // key + update_authority + mint
     const nameLen = data.readUInt32LE(offset); offset += 4;
-    const name = data.slice(offset, offset + nameLen).toString('utf8').replace(/\0/g,'').trim(); offset += nameLen;
+    if (offset + nameLen + 4 > data.length) return null;
+    const name = data.slice(offset, offset + nameLen).toString('utf8').replace(/\0/g, '').trim();
+    offset += nameLen;
     const symLen = data.readUInt32LE(offset); offset += 4;
-    const symbol = data.slice(offset, offset + symLen).toString('utf8').replace(/\0/g,'').trim(); offset += symLen;
+    if (offset + symLen + 4 > data.length) return null;
+    const symbol = data.slice(offset, offset + symLen).toString('utf8').replace(/\0/g, '').trim();
+    offset += symLen;
     const uriLen = data.readUInt32LE(offset); offset += 4;
-    const uri = data.slice(offset, offset + uriLen).toString('utf8').replace(/\0/g,'').trim();
+    if (offset + uriLen > data.length) return null;
+    const uri = data.slice(offset, offset + uriLen).toString('utf8').replace(/\0/g, '').trim();
     if (!symbol && !name) return null;
+
+    // Optional logo fetch — non-blocking, skip on failure
     let logo: string | undefined;
     if (uri) {
-      try { const j = await (await fetch(uri, { signal: AbortSignal.timeout(5000) })).json(); logo = j?.image || j?.logo; } catch {}
+      try {
+        const j = await (await fetch(uri, { signal: AbortSignal.timeout(5000) })).json();
+        logo = j?.image || j?.logo;
+      } catch {}
     }
-    const mintInfo = await conn.getParsedAccountInfo(new PublicKey(mint));
-    const decimals = (mintInfo?.value?.data as any)?.parsed?.info?.decimals ?? 9;
+
+    // Decimals: read from the mint account itself (offset 44)
+    let decimals = 9;
+    try {
+      const mintRes = await rpcCall('getAccountInfo', [mint, { encoding: 'base64' }]);
+      if (mintRes?.value?.data?.[0]) {
+        const mintData = Buffer.from(mintRes.value.data[0], 'base64');
+        if (mintData.length > 44) decimals = mintData[44];
+      }
+    } catch {}
+
     return { symbol: symbol || mint.slice(0,6), name: name || mint.slice(0,6), logo, decimals };
   } catch { return null; }
 }
@@ -336,10 +365,49 @@ const KNOWN_META: Record<string, { symbol: string; name: string; decimals: numbe
   'XBLKLmxhADMVX3DsdwymvHyYbBYfKa5eKhtpiQ2kj7T':  { symbol: 'XBLK',   name: 'Xenblocks',         decimals: 9 },
 };
 
+// ─── Throttled background metadata fetcher ──────────────────────────────────
+// Background metadata fetches were causing massive RPC pressure: every pool
+// render kicked off 20+ parallel fetches, each doing 3 RPC calls. Total:
+// 60+ RPC calls every render. With X1 rate-limiting at ~10-50 req/sec, this
+// produced an avalanche of 429s.
+//
+// This helper serializes background fetches with a small delay between them,
+// and dedupes addresses in the queue. Result: ~5 req/sec for metadata,
+// leaving plenty of headroom for user-initiated tx flows.
+const _metaFetchQueue: string[] = [];
+const _metaFetchSeen = new Set<string>();
+let _metaFetchRunning = false;
+async function _processMetaFetchQueue() {
+  if (_metaFetchRunning) return;
+  _metaFetchRunning = true;
+  try {
+    while (_metaFetchQueue.length > 0) {
+      const mint = _metaFetchQueue.shift()!;
+      try { await fetchTokenMeta(mint); } catch {}
+      // 200ms gap between fetches keeps this well under any rate limit
+      await new Promise(r => setTimeout(r, 200));
+    }
+  } finally {
+    _metaFetchRunning = false;
+  }
+}
+function scheduleMetaFetch(mint: string) {
+  if (_metaFetchSeen.has(mint)) return;
+  _metaFetchSeen.add(mint);
+  _metaFetchQueue.push(mint);
+  _processMetaFetchQueue();
+}
+
 async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
-  // Return from cache if we already have a logo — fully resolved
+  // Cache hit if we have a real symbol (not the mint-prefix fallback). A
+  // real symbol means at least one layer resolved this token previously.
+  // We don't strictly need the logo to consider it resolved — logos may
+  // come from URI fetches that fail intermittently (CSP, IPFS gateway down,
+  // etc.) but the symbol is the critical data.
   const cached = _metaCache.get(mint);
+  const cachedIsRealSymbol = cached && cached.symbol && cached.symbol !== mint.slice(0, 4).toUpperCase();
   if (cached?.logo) return cached;
+  if (cachedIsRealSymbol && cached) return cached; // symbol resolved, logo might still backfill
 
   const known = KNOWN_META[mint];
 
@@ -349,10 +417,10 @@ async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
     schedulePersist();
   }
 
-  // Always attempt full metadata fetch to get the logo
+  // Try all 3 metadata sources. Persist whichever returns a real symbol,
+  // even without a logo — on next refresh we'll keep trying for the logo.
   const t22 = await fetchToken2022Meta(mint);
   if (t22) {
-    // Merge: keep known symbol/decimals if available, use fetched logo
     const merged: TokenMeta = known
       ? { ...known, logo: t22.logo }
       : t22;
@@ -375,13 +443,12 @@ async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
     return merged;
   }
 
-  // Fallback — use known if available, otherwise truncate address
+  // All 3 layers failed. Fall back to mint-prefix.
+  // Don't persist — we want to retry properly resolving on next page load.
   const fallback: TokenMeta = known
     ? { ...known }
     : { symbol: mint.slice(0,4).toUpperCase(), name: mint.slice(0,8), decimals: 9 };
   _metaCache.set(mint, fallback);
-  // NOTE: don't persist the truncated-address fallback — we want to retry
-  // properly resolving the symbol on next page load.
   if (known) schedulePersist();
   return fallback;
 }
@@ -494,6 +561,27 @@ async function fetchPoolRecords(): Promise<PoolRecord[]> {
 function parseXdexPoolState(data: Uint8Array | null): PoolState | null {
   if (!data) return null;
   try {
+    // Layout from raydium-cp-swap PoolState (verified via on-chain byte dump):
+    //   D+0   amm_config         Pubkey(32)
+    //   D+32  pool_creator       Pubkey(32)
+    //   D+64  token_0_vault      Pubkey(32)
+    //   D+96  token_1_vault      Pubkey(32)
+    //   D+128 lp_mint            Pubkey(32)
+    //   D+160 token_0_mint       Pubkey(32)
+    //   D+192 token_1_mint       Pubkey(32)
+    //   D+224 token_0_program    Pubkey(32)
+    //   D+256 token_1_program    Pubkey(32)
+    //   D+288 observation_key    Pubkey(32)
+    //   D+320 auth_bump          u8
+    //   D+321 status             u8
+    //   D+322 lp_mint_decimals   u8
+    //   D+323 mint_0_decimals    u8
+    //   D+324 mint_1_decimals    u8
+    //   D+325 lp_supply          u64    ← was off by 8 in old parser!
+    //
+    // Previous parser had auth_bump at D+328 (off by 8), which made
+    // lp_supply read garbage and lpAmt math compute 0 → ZeroTradingTokens
+    // (0x1776) on every deposit. Verified against on-chain byte dump.
     const D = 8;
     return {
       ammConfig:   readPubkey(data, D),
@@ -505,12 +593,12 @@ function parseXdexPoolState(data: Uint8Array | null): PoolState | null {
       token0Prog:  readPubkey(data, D + 224),
       token1Prog:  readPubkey(data, D + 256),
       obsKey:      readPubkey(data, D + 288),
-      authBump:    data[D + 328],
-      status:      data[D + 329],
-      lpDecimals:  data[D + 330],
-      dec0:        data[D + 331],
-      dec1:        data[D + 332],
-      lpSupply:    readU64(data, D + 333),
+      authBump:    data[D + 320],
+      status:      data[D + 321],
+      lpDecimals:  data[D + 322],
+      dec0:        data[D + 323],
+      dec1:        data[D + 324],
+      lpSupply:    readU64(data, D + 325),
     };
   } catch { return null; }
 }
@@ -648,6 +736,127 @@ async function fetchWalletLpBalance(lpMint: string, wallet: string): Promise<big
   } catch { return 0n; }
 }
 
+// ─── LP mint program detection (cached) ─────────────────────────────────────
+// XDEX pools don't follow a predictable rule for which token program owns
+// the LP mint — it depends on how the pool was created, not the token
+// programs of the underlying assets. (E.g. LB/BRAINS uses standard Token
+// for LP even though LB itself is Token-2022.) So we have to detect it.
+//
+// In-memory + localStorage cache: detection happens ONCE per LP mint and
+// is reused forever (program doesn't change for an existing mint).
+const _lpProgCache = new Map<string, string>();
+const LP_PROG_CACHE_KEY = 'x1brains:lpProg:v1';
+// Pre-seed known LP mints — verified against on-chain (zero RPC needed)
+_lpProgCache.set('FSFjPXo9vAvVsjh6YuuNTjetZ6oZBgfYA6TLcWTYmwq3', TOKEN_PROGRAM_ID.toBase58()); // XNT/BRAINS
+_lpProgCache.set('9qpcETqzHCfc1MtvDXasFYiwJYCCp8DC9BDdn7hs16vE', TOKEN_PROGRAM_ID.toBase58()); // LB/BRAINS
+(() => {
+  try {
+    const raw = localStorage.getItem(LP_PROG_CACHE_KEY);
+    if (!raw) return;
+    const cached = JSON.parse(raw) as Record<string, string>;
+    for (const [k, v] of Object.entries(cached)) _lpProgCache.set(k, v);
+  } catch {}
+})();
+function persistLpProgCache() {
+  try {
+    const obj: Record<string, string> = {};
+    for (const [k, v] of _lpProgCache.entries()) obj[k] = v;
+    localStorage.setItem(LP_PROG_CACHE_KEY, JSON.stringify(obj));
+  } catch {}
+}
+async function getLpProgram(lpMint: string): Promise<PublicKey> {
+  // Cache hit
+  const cached = _lpProgCache.get(lpMint);
+  if (cached) return new PublicKey(cached);
+  // RPC lookup
+  try {
+    const res = await rpcCall('getAccountInfo', [lpMint, { encoding: 'base64' }]);
+    const owner = res?.value?.owner;
+    if (owner === TOKEN_2022_PROGRAM_ID.toBase58()) {
+      _lpProgCache.set(lpMint, TOKEN_2022_PROGRAM_ID.toBase58());
+      persistLpProgCache();
+      return TOKEN_2022_PROGRAM_ID;
+    }
+    if (owner === TOKEN_PROGRAM_ID.toBase58()) {
+      _lpProgCache.set(lpMint, TOKEN_PROGRAM_ID.toBase58());
+      persistLpProgCache();
+      return TOKEN_PROGRAM_ID;
+    }
+  } catch {}
+  // Default: standard Token program (the historically-working default)
+  return TOKEN_PROGRAM_ID;
+}
+
+// ─── XDEX wallet tokens API (offload heavy RPC) ─────────────────────────────
+// XDEX's /api/xendex/wallet/tokens returns ALL tokens a wallet holds in ONE
+// HTTP call — including native XNT (mint = "111...111"), wrapped XNT, SPL
+// tokens, and Token-2022 tokens. Each entry includes raw amount, decimals,
+// symbol, and logo. This is the single biggest RPC saver: previously we'd
+// fire 5+ RPC calls (getBalance + getMultipleAccounts + per-mint metadata)
+// every time a Swap or Deposit modal opened. Now: 1 HTTP call to XDEX.
+//
+// XDEX returns balances for all tokens — including ones in non-whitelisted
+// pools — because the underlying chain RPC sees them. So this works for
+// every token a user holds, regardless of pool whitelist status.
+interface XdexWalletToken {
+  mint: string;
+  amount: number;        // raw amount (e.g. 1234567890 for 1.234567890 with 9 dec)
+  decimals: number;
+  ui_amount: number;
+  symbol: string;
+  name: string;
+  imageUrl?: string;
+  is_lp_token: boolean;
+}
+const _walletTokenCache = new Map<string, { ts: number; tokens: XdexWalletToken[] }>();
+const WALLET_CACHE_TTL = 15_000; // 15s — fresh enough that balances feel real-time
+
+async function fetchWalletTokensViaApi(wallet: string): Promise<XdexWalletToken[] | null> {
+  // Memory cache hit
+  const cached = _walletTokenCache.get(wallet);
+  if (cached && Date.now() - cached.ts < WALLET_CACHE_TTL) return cached.tokens;
+  try {
+    const r = await fetch(
+      `${XDEX_BASE}/xendex/wallet/tokens?network=X1+Mainnet&wallet_address=${wallet}`,
+      { signal: AbortSignal.timeout(8000) }
+    );
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!j?.success || !Array.isArray(j?.data?.tokens)) return null;
+    const tokens = j.data.tokens as XdexWalletToken[];
+    _walletTokenCache.set(wallet, { ts: Date.now(), tokens });
+    return tokens;
+  } catch {
+    return null;
+  }
+}
+
+// Resolve a single token's UI balance for a wallet.
+// Special case: native XNT lives in the API at mint "111...111", but our
+// constants use WXNT_MINT (So111...112) for the wrapped equivalent — both
+// represent the same user-facing balance, so we map between them.
+function getBalanceFromWalletTokens(
+  tokens: XdexWalletToken[],
+  mint: string,
+): { ui: number; raw: bigint } {
+  const NATIVE_SENTINEL = '111111111111111111111111111111111111111111';
+  // For wXNT mint, look up the native sentinel (and vice-versa as fallback)
+  const lookupMints = mint === WXNT_MINT
+    ? [NATIVE_SENTINEL, WXNT_MINT]
+    : [mint];
+  for (const lm of lookupMints) {
+    const t = tokens.find(x => x.mint === lm);
+    if (t) return { ui: t.ui_amount, raw: BigInt(Math.floor(t.amount)) };
+  }
+  return { ui: 0, raw: 0n };
+}
+
+// Invalidate wallet cache after a successful tx — caller can wait a moment
+// then re-query for fresh balance.
+function invalidateWalletCache(wallet: string) {
+  _walletTokenCache.delete(wallet);
+}
+
 // Constant product AMM quote: given amountIn, reserves, fee in bps
 function cpSwapQuote(amountIn: bigint, reserveIn: bigint, reserveOut: bigint, feeBps = 2500n): bigint {
   if (reserveIn === 0n || reserveOut === 0n || amountIn === 0n) return 0n;
@@ -763,6 +972,20 @@ const WithdrawModal: FC<{
       const { blockhash } = await connection.getLatestBlockhash('confirmed');
       const tx = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash });
 
+      // ── Determine LP mint program (cached, dynamic) ───────────────────────
+      // See deposit handler for full explanation. Detected once per LP mint
+      // and cached in localStorage so subsequent ops are zero-RPC.
+      const lpProg = await getLpProgram(pool.lpMint);
+      const ownerLpAtaCorrect = getAssociatedTokenAddressSync(lpMintPk, publicKey, false, lpProg);
+
+      // Patch the LP ATA in the keys array
+      const correctedKeys = keys.map(k =>
+        k.pubkey.toBase58() === ownerLpAta.toBase58()
+          ? { ...k, pubkey: ownerLpAtaCorrect }
+          : k
+      );
+      const correctedIx = new TransactionInstruction({ programId: programPk, keys: correctedKeys, data });
+
       // Create ATAs if needed
       const [i0, i1] = await Promise.all([
         connection.getAccountInfo(token0Ata),
@@ -770,7 +993,16 @@ const WithdrawModal: FC<{
       ]);
       if (!i0) tx.add(createAssociatedTokenAccountIdempotentInstruction(publicKey, token0Ata, publicKey, mint0Pk, t0Prog));
       if (!i1) tx.add(createAssociatedTokenAccountIdempotentInstruction(publicKey, token1Ata, publicKey, mint1Pk, t1Prog));
-      tx.add(ix);
+      tx.add(correctedIx);
+
+      // ── Unwrap wSOL → native XNT after withdraw ──────────────────────────
+      // If either side of the pool is wXNT, the user receives wSOL into a
+      // wXNT ATA. Close the ATA to unwrap it back to native lamports.
+      const isMint0Native = pool.state.token0Mint === WXNT_MINT;
+      const isMint1Native = pool.state.token1Mint === WXNT_MINT;
+      if (isMint0Native) tx.add(createCloseAccountInstruction(token0Ata, publicKey, publicKey));
+      if (isMint1Native) tx.add(createCloseAccountInstruction(token1Ata, publicKey, publicKey));
+
 
       setStatus('Waiting for wallet approval…');
       const signed = await signTransaction(tx);
@@ -782,6 +1014,7 @@ const WithdrawModal: FC<{
         if (st?.value?.err) throw new Error(JSON.stringify(st.value.err));
         if (st?.value?.confirmationStatus === 'confirmed' || st?.value?.confirmationStatus === 'finalized') {
           setStatus(`✅ Withdrawn!`);
+          invalidateWalletCache(publicKey.toBase58());
           setTxSig(sig);
           setTimeout(() => { onDone(); onClose(); }, 3000);
           return;
@@ -911,23 +1144,66 @@ const DepositModal: FC<{
   const dec0 = pool.dec0 || 9;
   const dec1 = pool.dec1 || 9;
 
-  // Fetch wallet balances on open
+  // Fetch wallet balances on open. Tries XDEX API first (one HTTP call gets
+  // ALL token balances), falls back to direct RPC reads if the API is
+  // unreachable. The XDEX API returns native XNT under mint "111...111";
+  // getBalanceFromWalletTokens handles the wXNT→native sentinel mapping.
   useEffect(() => {
     if (!pool.state) return;
+    let cancelled = false;
     const fetchBals = async () => {
+      const mint0 = pool.state!.token0Mint;
+      const mint1 = pool.state!.token1Mint;
+
+      // ── Strategy 1: XDEX API (1 HTTP call, no RPC pressure) ──────────────
+      const tokens = await fetchWalletTokensViaApi(publicKey.toBase58());
+      if (!cancelled && tokens) {
+        const b0 = getBalanceFromWalletTokens(tokens, mint0);
+        const b1 = getBalanceFromWalletTokens(tokens, mint1);
+        setBal0(b0.ui);
+        setBal1(b1.ui);
+        return;
+      }
+
+      // ── Strategy 2 (fallback): direct RPC reads ──────────────────────────
       try {
         const t0Prog = new PublicKey(pool.state!.token0Prog);
         const t1Prog = new PublicKey(pool.state!.token1Prog);
-        const mint0  = new PublicKey(pool.state!.token0Mint);
-        const mint1  = new PublicKey(pool.state!.token1Mint);
-        const ata0   = getAssociatedTokenAddressSync(mint0, publicKey, false, t0Prog);
-        const ata1   = getAssociatedTokenAddressSync(mint1, publicKey, false, t1Prog);
-        const [i0, i1] = await Promise.all([connection.getAccountInfo(ata0), connection.getAccountInfo(ata1)]);
-        if (i0) { const d = new Uint8Array(i0.data); setBal0(Number(readU64(d, 64)) / Math.pow(10, dec0)); }
-        if (i1) { const d = new Uint8Array(i1.data); setBal1(Number(readU64(d, 64)) / Math.pow(10, dec1)); }
+        const m0Pk   = new PublicKey(mint0);
+        const m1Pk   = new PublicKey(mint1);
+        const isT0Native = mint0 === WXNT_MINT;
+        const isT1Native = mint1 === WXNT_MINT;
+
+        const fetchOne = async (
+          isNative: boolean,
+          mint: PublicKey,
+          prog: PublicKey,
+          decimals: number,
+        ): Promise<number> => {
+          if (isNative) {
+            try {
+              const lamports = await connection.getBalance(publicKey);
+              return Number(lamports) / Math.pow(10, decimals);
+            } catch { return 0; }
+          }
+          try {
+            const ata = getAssociatedTokenAddressSync(mint, publicKey, false, prog);
+            const info = await connection.getAccountInfo(ata);
+            if (!info) return 0;
+            const d = new Uint8Array(info.data);
+            return Number(readU64(d, 64)) / Math.pow(10, decimals);
+          } catch { return 0; }
+        };
+
+        const [b0, b1] = await Promise.all([
+          fetchOne(isT0Native, m0Pk, t0Prog, dec0),
+          fetchOne(isT1Native, m1Pk, t1Prog, dec1),
+        ]);
+        if (!cancelled) { setBal0(b0); setBal1(b1); }
       } catch {}
     };
     fetchBals();
+    return () => { cancelled = true; };
   }, [pool.state, publicKey]);
 
   const ratio = pool.vault0Bal > 0n && pool.vault1Bal > 0n
@@ -962,8 +1238,44 @@ const DepositModal: FC<{
       const raw0 = BigInt(Math.floor(p0 * Math.pow(10, dec0)));
       const raw1 = BigInt(Math.floor(p1 * Math.pow(10, dec1)));
 
+      // ── Compute LP tokens to mint ─────────────────────────────────────────
+      // For an existing pool: lp_minted = min(raw0 * supply / vault0,
+      //                                       raw1 * supply / vault1)
+      //
+      // We take the MIN so we don't ask for more LP than either side of the
+      // deposit can buy. The XDEX program will then enforce this exactly,
+      // taking the proportional amounts from each side.
+      //
+      // Safety margin: we shave 1% off the computed amount as a buffer. The
+      // pool's reserves can shift between when we read them and when the tx
+      // lands; if we ask for the exact theoretical max, even a tiny price
+      // movement causes ZeroTradingTokens (0x1776). Asking for slightly less
+      // gives us room to actually mint something.
+      //
+      // The user pays at most raw0 / raw1 (we set those as the max slippage
+      // bounds in the next 16 bytes), so they'll never be charged more than
+      // they typed in.
       const supply = pool.state.lpSupply;
-      const lpAmt  = supply > 0n ? raw0 * supply / pool.vault0Bal : raw0;
+      let lpAmt: bigint;
+      if (supply > 0n && pool.vault0Bal > 0n && pool.vault1Bal > 0n) {
+        const lp0 = raw0 * supply / pool.vault0Bal;
+        const lp1 = raw1 * supply / pool.vault1Bal;
+        const lpMin = lp0 < lp1 ? lp0 : lp1;
+        // Subtract 1% as safety margin (or 1 unit, whichever is greater)
+        const margin = lpMin / 100n;
+        lpAmt = lpMin > (margin + 1n) ? lpMin - margin : lpMin;
+        if (lpAmt === 0n) {
+          throw new Error(
+            `Deposit too small for this pool. With current liquidity, you need to deposit at least ` +
+            `${(Number(pool.vault0Bal) / Math.pow(10, dec0) / Number(supply) * 100).toFixed(6)} ${pool.sym0} or more. ` +
+            `Try a larger amount.`
+          );
+        }
+      } else {
+        // First deposit into an empty pool — lpAmt = sqrt(raw0 * raw1)
+        // is the standard formula, but we'll just use raw0 as a rough guess.
+        lpAmt = raw0;
+      }
 
       const programPk   = new PublicKey(XDEX_PROGRAM);
       const authorityPk = new PublicKey(XDEX_LP_AUTH);
@@ -982,8 +1294,12 @@ const DepositModal: FC<{
       const data = Buffer.alloc(8 + 8 + 8 + 8);
       d.copy(data, 0);
       data.writeBigUInt64LE(lpAmt, 8);
-      data.writeBigUInt64LE(raw0 * 101n / 100n, 16);
-      data.writeBigUInt64LE(raw1 * 101n / 100n, 24);
+      // Max token amounts user is willing to spend — 5% slippage tolerance.
+      // The actual deposit will be ~99% of raw0/raw1 (since lpAmt was shaved
+      // 1% above), so 5% gives plenty of headroom for vault drift between
+      // when we read the reserves and when the tx lands.
+      data.writeBigUInt64LE(raw0 * 105n / 100n, 16);
+      data.writeBigUInt64LE(raw1 * 105n / 100n, 24);
 
       const keys = [
         { pubkey: publicKey,                             isSigner: true,  isWritable: false },
@@ -1001,17 +1317,54 @@ const DepositModal: FC<{
         { pubkey: lpMintPk,                              isSigner: false, isWritable: true  },
       ];
 
-      const ix = new TransactionInstruction({ programId: programPk, keys, data });
+      // ── Determine LP mint program (cached, dynamic) ───────────────────────
+      // The XDEX LP-mint program isn't predictable from the pool's token
+      // programs (e.g. LB/BRAINS uses standard Token for LP even though
+      // LB itself is Token-2022). We detect once via getLpProgram, which
+      // caches in localStorage so subsequent loads are zero-RPC.
+      const lpProg = await getLpProgram(pool.lpMint);
+      // Recompute LP ATA with the correct program (different program → different PDA)
+      const ownerLpAtaCorrect = getAssociatedTokenAddressSync(lpMintPk, publicKey, false, lpProg);
+
       const { blockhash } = await connection.getLatestBlockhash('confirmed');
       const tx = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash });
+
+      const ix = new TransactionInstruction({ programId: programPk, keys: keys.map(k =>
+        k.pubkey.toBase58() === ownerLpAta.toBase58()
+          ? { ...k, pubkey: ownerLpAtaCorrect }
+          : k
+      ), data });
+
       const [lp, i0, i1] = await Promise.all([
-        connection.getAccountInfo(ownerLpAta),
+        connection.getAccountInfo(ownerLpAtaCorrect),
         connection.getAccountInfo(token0Ata),
         connection.getAccountInfo(token1Ata),
       ]);
-      if (!lp) tx.add(createAssociatedTokenAccountIdempotentInstruction(publicKey, ownerLpAta, publicKey, lpMintPk, TOKEN_PROGRAM_ID));
+      if (!lp) tx.add(createAssociatedTokenAccountIdempotentInstruction(publicKey, ownerLpAtaCorrect, publicKey, lpMintPk, lpProg));
       if (!i0) tx.add(createAssociatedTokenAccountIdempotentInstruction(publicKey, token0Ata, publicKey, mint0Pk, t0Prog));
       if (!i1) tx.add(createAssociatedTokenAccountIdempotentInstruction(publicKey, token1Ata, publicKey, mint1Pk, t1Prog));
+
+      // ── Wrap native XNT into wSOL ATA if needed ────────────────────────────
+      // When one side of the pool is the wXNT mint (So111...112), the user's
+      // XNT lives as native lamports — not in any token account. The deposit
+      // instruction reads from the wXNT ATA, which would be empty without
+      // these two instructions:
+      //   1. SystemProgram.transfer:  move lamports → wXNT ATA
+      //   2. createSyncNativeInstruction: tell the SPL Token program to
+      //      update the ATA's recorded balance to match the lamports it now
+      //      holds. Without this, the ATA's `amount` field stays at 0 and
+      //      the deposit fails with InsufficientFunds (0x1).
+      const isMint0Native = pool.state.token0Mint === WXNT_MINT;
+      const isMint1Native = pool.state.token1Mint === WXNT_MINT;
+      if (isMint0Native) {
+        tx.add(SystemProgram.transfer({ fromPubkey: publicKey, toPubkey: token0Ata, lamports: Number(raw0) }));
+        tx.add(createSyncNativeInstruction(token0Ata));
+      }
+      if (isMint1Native) {
+        tx.add(SystemProgram.transfer({ fromPubkey: publicKey, toPubkey: token1Ata, lamports: Number(raw1) }));
+        tx.add(createSyncNativeInstruction(token1Ata));
+      }
+
       tx.add(ix);
 
       setStatus('Waiting for wallet approval…');
@@ -1024,6 +1377,7 @@ const DepositModal: FC<{
         if (st?.value?.err) throw new Error(JSON.stringify(st.value.err));
         if (st?.value?.confirmationStatus === 'confirmed' || st?.value?.confirmationStatus === 'finalized') {
           setStatus(`✅ Deposited! You received LP tokens.`);
+          invalidateWalletCache(publicKey.toBase58());
           setTxSig(sig);
           setTimeout(() => { onDone(); onClose(); }, 3000);
           return;
@@ -1286,27 +1640,70 @@ const SwapModal: FC<{
   const outUsd     = outUi * priceOut;
   const priceImpact = resIn > 0n ? Number(rawIn * 10_000n / (resIn + rawIn)) / 100 : 0;
 
-  // Fetch wallet balances on open
+  // Fetch wallet balances on open. ONLY refire when pool or wallet changes,
+  // NOT when sellIdx (direction toggle) flips — toggling direction doesn't
+  // change either balance, so refetching is wasted work that creates a
+  // visible flicker. Also tries XDEX API first (one HTTP call vs N RPC calls).
   useEffect(() => {
     if (!pool.state) return;
+    let cancelled = false;
     const fetchBals = async () => {
+      const mint0 = pool.state!.token0Mint;
+      const mint1 = pool.state!.token1Mint;
+
+      // ── Strategy 1: XDEX API (1 HTTP call, no RPC pressure) ──────────────
+      const tokens = await fetchWalletTokensViaApi(publicKey.toBase58());
+      if (!cancelled && tokens) {
+        const b0 = getBalanceFromWalletTokens(tokens, mint0);
+        const b1 = getBalanceFromWalletTokens(tokens, mint1);
+        setBal0(b0.ui);
+        setBal1(b1.ui);
+        return;
+      }
+
+      // ── Strategy 2 (fallback): direct RPC reads ──────────────────────────
       try {
         const t0Prog = new PublicKey(pool.state!.token0Prog);
         const t1Prog = new PublicKey(pool.state!.token1Prog);
-        const mint0  = new PublicKey(pool.state!.token0Mint);
-        const mint1  = new PublicKey(pool.state!.token1Mint);
-        const ata0   = getAssociatedTokenAddressSync(mint0, publicKey, false, t0Prog);
-        const ata1   = getAssociatedTokenAddressSync(mint1, publicKey, false, t1Prog);
-        const [i0, i1] = await Promise.all([
-          connection.getAccountInfo(ata0),
-          connection.getAccountInfo(ata1),
+        const m0Pk   = new PublicKey(mint0);
+        const m1Pk   = new PublicKey(mint1);
+        const isT0Native = mint0 === WXNT_MINT;
+        const isT1Native = mint1 === WXNT_MINT;
+
+        const fetchOne = async (
+          isNative: boolean,
+          mint: PublicKey,
+          prog: PublicKey,
+          decimals: number,
+        ): Promise<number> => {
+          if (isNative) {
+            try {
+              const lamports = await connection.getBalance(publicKey);
+              return Number(lamports) / Math.pow(10, decimals);
+            } catch { return 0; }
+          }
+          try {
+            const ata = getAssociatedTokenAddressSync(mint, publicKey, false, prog);
+            const info = await connection.getAccountInfo(ata);
+            if (!info) return 0;
+            const d = new Uint8Array(info.data);
+            return Number(readU64(d, 64)) / Math.pow(10, decimals);
+          } catch { return 0; }
+        };
+
+        const [b0, b1] = await Promise.all([
+          fetchOne(isT0Native, m0Pk, t0Prog, dec0),
+          fetchOne(isT1Native, m1Pk, t1Prog, dec1),
         ]);
-        if (i0) { const d = new Uint8Array(i0.data); setBal0(Number(readU64(d, 64)) / Math.pow(10, dec0)); }
-        if (i1) { const d = new Uint8Array(i1.data); setBal1(Number(readU64(d, 64)) / Math.pow(10, dec1)); }
+        if (!cancelled) {
+          setBal0(b0);
+          setBal1(b1);
+        }
       } catch {}
     };
     fetchBals();
-  }, [pool.state, publicKey, sellIdx]);
+    return () => { cancelled = true; };
+  }, [pool.state, publicKey]);
 
   const handleSwap = async () => {
     if (!pool.state || rawIn === 0n) return;
@@ -1354,7 +1751,32 @@ const SwapModal: FC<{
       const tx = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash });
       const outInfo = await connection.getAccountInfo(outputAta);
       if (!outInfo) tx.add(createAssociatedTokenAccountIdempotentInstruction(publicKey, outputAta, publicKey, outputMint, outputProg));
+
+      // ── Wrap native XNT into wSOL ATA when input is wXNT ───────────────────
+      // See DepositModal for full explanation. Without this, the swap
+      // instruction reads from an empty wXNT ATA → InsufficientFunds (0x1).
+      const isInputNative  = pool.state.token0Mint === WXNT_MINT && sellIdx === 0
+                          || pool.state.token1Mint === WXNT_MINT && sellIdx === 1;
+      const isOutputNative = pool.state.token0Mint === WXNT_MINT && sellIdx === 1
+                          || pool.state.token1Mint === WXNT_MINT && sellIdx === 0;
+      if (isInputNative) {
+        // Make sure the wXNT ATA exists before we transfer to it
+        const inInfo = await connection.getAccountInfo(inputAta);
+        if (!inInfo) tx.add(createAssociatedTokenAccountIdempotentInstruction(publicKey, inputAta, publicKey, inputMint, inputProg));
+        tx.add(SystemProgram.transfer({ fromPubkey: publicKey, toPubkey: inputAta, lamports: Number(rawIn) }));
+        tx.add(createSyncNativeInstruction(inputAta));
+      }
+
       tx.add(ix);
+
+      // ── Unwrap wSOL → native XNT when output is wXNT ──────────────────────
+      // After the swap, the user receives wSOL into their wXNT ATA. Close
+      // the ATA to convert it back to native lamports — otherwise the user
+      // will see wSOL in their wallet instead of XNT.
+      if (isOutputNative) {
+        tx.add(createCloseAccountInstruction(outputAta, publicKey, publicKey));
+      }
+
       setStatus('Waiting for wallet approval…');
       const signed = await signTransaction(tx);
       const sig    = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false });
@@ -1365,6 +1787,7 @@ const SwapModal: FC<{
         if (st?.value?.err) throw new Error(JSON.stringify(st.value.err));
         if (st?.value?.confirmationStatus === 'confirmed' || st?.value?.confirmationStatus === 'finalized') {
           setStatus(`✅ Swapped!`);
+          invalidateWalletCache(publicKey.toBase58());
           setTxSig(sig);
           setTimeout(() => { onDone(); onClose(); }, 3000);
           return;
@@ -1918,8 +2341,13 @@ const PoolsTab: FC = () => {
         // Background-fetch any missing — fills cache for next render.
         const metaA = _metaCache.get(rec.tokenAMint) ?? KNOWN_META[rec.tokenAMint] ?? null;
         const metaB = _metaCache.get(rec.tokenBMint) ?? KNOWN_META[rec.tokenBMint] ?? null;
-        if (!metaA?.logo) { fetchTokenMeta(rec.tokenAMint).catch(() => {}); }
-        if (!metaB?.logo) { fetchTokenMeta(rec.tokenBMint).catch(() => {}); }
+        // Only kick off background fetches for tokens with NO real symbol yet.
+        // If we already have a symbol but no logo, that's fine — logo can
+        // backfill later. This prevents 20+ concurrent RPC calls every render.
+        const hasRealSymA = metaA && metaA.symbol && metaA.symbol !== rec.tokenAMint.slice(0, 4).toUpperCase();
+        const hasRealSymB = metaB && metaB.symbol && metaB.symbol !== rec.tokenBMint.slice(0, 4).toUpperCase();
+        if (!hasRealSymA) { scheduleMetaFetch(rec.tokenAMint); }
+        if (!hasRealSymB) { scheduleMetaFetch(rec.tokenBMint); }
 
         // Token ordering: PoolRecord stores tokenA/B but XDEX sorts lexicographically
         const t0IsA = state.token0Mint === rec.tokenAMint;
@@ -2049,16 +2477,28 @@ const PoolsTab: FC = () => {
         window.dispatchEvent(new CustomEvent('xbrains-tvl', { detail: { totalTvl: ecosystemTvl } }));
       }
 
-      // Background logo refresh — fetchTokenMeta may have returned without a logo on first call
-      // (Token-2022 URI fetch can be slow). Re-fetch all mints and patch logos into state.
+      // Background logo refresh — fetchTokenMeta may have returned without a
+      // logo on first call (URI fetch can be slow). Schedule re-fetches
+      // through the throttled queue to avoid hammering RPC. State will get
+      // patched on the next pool reload (cached logos will be picked up).
       const allMints = [...new Set(views.flatMap(v => [v.tokenAMint, v.tokenBMint]))];
-      Promise.allSettled(allMints.map(m => fetchTokenMeta(m))).then(() => {
+      for (const m of allMints) {
+        const cached = _metaCache.get(m);
+        if (!cached?.logo) {
+          // Reset the seen flag so the queue will re-process this mint
+          _metaFetchSeen.delete(m);
+          scheduleMetaFetch(m);
+        }
+      }
+      // Patch logos into state once after a brief delay (give queue time
+      // to resolve a few). Doesn't fire 20 RPC calls — uses cache values.
+      setTimeout(() => {
         setPools(prev => prev.map(p => ({
           ...p,
           logo0: _metaCache.get(p.state?.token0Mint ?? p.tokenAMint)?.logo ?? p.logo0,
           logo1: _metaCache.get(p.state?.token1Mint ?? p.tokenBMint)?.logo ?? p.logo1,
         })));
-      });
+      }, 5000);
     } catch (e) {
       console.error('Failed to load pools:', e);
     } finally {

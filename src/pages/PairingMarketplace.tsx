@@ -337,8 +337,64 @@ async function fetchXdexPrice(mint: string): Promise<TokenPrice | null> {
 
 interface TokenMeta { symbol: string; name: string; logo?: string; decimals: number; source: 'token2022ext' | 'metaplex' | 'xdex' | 'fallback' }
 
+// ─── Resilient RPC helper with retry on 429/5xx ─────────────────────────────
+// X1 public RPC throttles aggressively. This helper retries up to 3 times
+// with exponential backoff (250ms, 500ms, 1000ms) so transient rate-limits
+// don't break the swap/marketplace flow.
+async function rpcCall(method: string, params: any[], maxRetries = 3): Promise<any> {
+  let lastErr: any = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 250 * Math.pow(2, attempt - 1)));
+    try {
+      const r = await fetch(RPC, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      });
+      if (r.status === 429 || r.status >= 500) { lastErr = new Error(`HTTP ${r.status}`); continue; }
+      const j = await r.json();
+      if (j.error) throw new Error(j.error.message);
+      return j.result;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr ?? new Error('rpcCall failed after retries');
+}
+
+// ─── Token metadata cache: in-memory + localStorage (7-day TTL) ─────────────
+// Symbols/decimals/logos for a mint never change in practice, so caching them
+// across page loads is essential. Without this, every refresh re-runs the
+// 3-layer 30+-call fetch from scratch.
 const _metaCache = new Map<string, TokenMeta>();
 const _metaInflight = new Map<string, Promise<TokenMeta>>();
+const META_CACHE_KEY = 'x1brains:tokenMeta:v2';
+const META_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+
+// Hydrate cache from localStorage on module load
+(() => {
+  try {
+    const raw = localStorage.getItem(META_CACHE_KEY);
+    if (!raw) return;
+    const cached = JSON.parse(raw) as { ts: number; metas: Record<string, TokenMeta> };
+    if (Date.now() - cached.ts < META_CACHE_TTL && cached.metas) {
+      for (const [mint, meta] of Object.entries(cached.metas)) {
+        _metaCache.set(mint, meta);
+      }
+    }
+  } catch {}
+})();
+
+let _metaPersistTimer: any = null;
+function persistMetaCache() {
+  try {
+    const metas: Record<string, TokenMeta> = {};
+    for (const [k, v] of _metaCache.entries()) metas[k] = v;
+    localStorage.setItem(META_CACHE_KEY, JSON.stringify({ ts: Date.now(), metas }));
+  } catch {}
+}
+function schedulePersist() {
+  if (_metaPersistTimer) return;
+  _metaPersistTimer = setTimeout(() => { _metaPersistTimer = null; persistMetaCache(); }, 1000);
+}
 
 // Symbol/decimals only — NO logo here so fetchTokenMeta still runs the full fetch
 const HARDCODED_META: Record<string, { symbol: string; name: string; decimals: number }> = {
@@ -351,9 +407,9 @@ const HARDCODED_META: Record<string, { symbol: string; name: string; decimals: n
 
 async function fetchToken2022Meta(mint: string): Promise<TokenMeta | null> {
   try {
-    const conn = new Connection(RPC, 'confirmed');
-    const info = await conn.getParsedAccountInfo(new PublicKey(mint));
-    const parsed = (info?.value?.data as any)?.parsed?.info;
+    // Use rpcCall (retry on 429) instead of fresh Connection.
+    const res = await rpcCall('getAccountInfo', [mint, { encoding: 'jsonParsed' }]);
+    const parsed = (res?.value?.data as any)?.parsed?.info;
     if (!parsed) return null;
     const decimals = parsed.decimals ?? 9;
     const extensions = parsed.extensions as any[] | undefined;
@@ -376,22 +432,30 @@ async function fetchToken2022Meta(mint: string): Promise<TokenMeta | null> {
 
 async function fetchMetaplexMeta(mint: string): Promise<TokenMeta | null> {
   try {
-    const METADATA_PROGRAM = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
-    const [metadataPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('metadata'), METADATA_PROGRAM.toBuffer(), new PublicKey(mint).toBuffer()],
-      METADATA_PROGRAM
+    const META_PROGRAM = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s';
+    const [pda] = PublicKey.findProgramAddressSync(
+      [Buffer.from('metadata'), new PublicKey(META_PROGRAM).toBuffer(), new PublicKey(mint).toBuffer()],
+      new PublicKey(META_PROGRAM),
     );
-    const conn = new Connection(RPC, 'confirmed');
-    const info = await conn.getParsedAccountInfo(metadataPda);
-    if (!info?.value) return null;
-    const data = info.value.data as Buffer;
-    if (!Buffer.isBuffer(data) || data.length < 1) return null;
+    // Read RAW base64 — Metaplex Metadata is custom-encoded, NOT parseable
+    // by jsonParsed. Previous code called getParsedAccountInfo and tried
+    // `data as Buffer`, which silently returned undefined; this layer was
+    // dead. Use base64 + manual offset parsing instead.
+    const res = await rpcCall('getAccountInfo', [pda.toBase58(), { encoding: 'base64' }]);
+    if (!res?.value?.data?.[0]) return null;
+    const data = Buffer.from(res.value.data[0], 'base64');
+    if (data.length < 1 + 32 + 32 + 4) return null;
     let offset = 1 + 32 + 32;
     const nameLen = data.readUInt32LE(offset); offset += 4;
-    const name = data.slice(offset, offset + nameLen).toString('utf8').replace(/\0/g, '').trim(); offset += nameLen;
+    if (offset + nameLen + 4 > data.length) return null;
+    const name = data.slice(offset, offset + nameLen).toString('utf8').replace(/\0/g, '').trim();
+    offset += nameLen;
     const symLen = data.readUInt32LE(offset); offset += 4;
-    const symbol = data.slice(offset, offset + symLen).toString('utf8').replace(/\0/g, '').trim(); offset += symLen;
+    if (offset + symLen + 4 > data.length) return null;
+    const symbol = data.slice(offset, offset + symLen).toString('utf8').replace(/\0/g, '').trim();
+    offset += symLen;
     const uriLen = data.readUInt32LE(offset); offset += 4;
+    if (offset + uriLen > data.length) return null;
     const uri = data.slice(offset, offset + uriLen).toString('utf8').replace(/\0/g, '').trim();
     if (!symbol && !name) return null;
     let logo: string | undefined;
@@ -402,9 +466,15 @@ async function fetchMetaplexMeta(mint: string): Promise<TokenMeta | null> {
         logo = j?.image || j?.logo || j?.icon;
       } catch {}
     }
-    const conn2 = new Connection(RPC, 'confirmed');
-    const mintInfo = await conn2.getParsedAccountInfo(new PublicKey(mint));
-    const decimals = (mintInfo?.value?.data as any)?.parsed?.info?.decimals ?? 9;
+    // Decimals: read from the mint account itself (offset 44)
+    let decimals = 9;
+    try {
+      const mintRes = await rpcCall('getAccountInfo', [mint, { encoding: 'base64' }]);
+      if (mintRes?.value?.data?.[0]) {
+        const mintData = Buffer.from(mintRes.value.data[0], 'base64');
+        if (mintData.length > 44) decimals = mintData[44];
+      }
+    } catch {}
     return { symbol: symbol || mint.slice(0,6), name: name || mint.slice(0,6), logo, decimals, source: 'metaplex' };
   } catch { return null; }
 }
@@ -429,24 +499,27 @@ async function fetchXdexMeta(mint: string): Promise<TokenMeta | null> {
 
 async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
   // Cache hit with logo — return immediately
-  if (_metaCache.has(mint) && _metaCache.get(mint)!.logo) return _metaCache.get(mint)!;
-  // Cache hit without logo — still re-fetch to get logo
-  // (HARDCODED_META tokens like BRAINS need their logo fetched from Token-2022 URI)
+  const cached = _metaCache.get(mint);
+  if (cached?.logo) return cached;
+  // Cache hit with real symbol but no logo — return cached, logo can backfill later
+  const cachedIsRealSymbol = cached && cached.symbol && cached.symbol !== mint.slice(0, 4).toUpperCase();
+  if (cachedIsRealSymbol && cached) return cached;
 
   // Deduplicate in-flight
   if (_metaInflight.has(mint)) return _metaInflight.get(mint)!;
 
   const promise = (async (): Promise<TokenMeta> => {
     const t22 = await fetchToken2022Meta(mint);
-    if (t22) { _metaCache.set(mint, t22); return t22; }
+    if (t22) { _metaCache.set(mint, t22); schedulePersist(); return t22; }
     const mpx = await fetchMetaplexMeta(mint);
-    if (mpx) { _metaCache.set(mint, mpx); return mpx; }
+    if (mpx) { _metaCache.set(mint, mpx); schedulePersist(); return mpx; }
     const xdex = await fetchXdexMeta(mint);
-    if (xdex) { _metaCache.set(mint, xdex); return xdex; }
+    if (xdex) { _metaCache.set(mint, xdex); schedulePersist(); return xdex; }
     // Use hardcoded symbol/decimals if available, just no logo
     const hc = HARDCODED_META[mint];
     const fb: TokenMeta = { symbol: hc?.symbol ?? mint.slice(0,4).toUpperCase(), name: hc?.name ?? mint.slice(0,8), decimals: hc?.decimals ?? 9, source: 'fallback' };
     _metaCache.set(mint, fb);
+    if (hc) schedulePersist(); // Don't persist truncated-address fallbacks
     return fb;
   })().finally(() => _metaInflight.delete(mint));
 
