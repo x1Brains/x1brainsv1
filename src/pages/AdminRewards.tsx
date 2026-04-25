@@ -1262,7 +1262,7 @@ const AdminRewards:FC=()=>{
   const isPaused=w.status==='paused';
   const isLocked=isActive; // When active, everything is locked — must pause to edit
 
-  const tabs=[{k:'weekly',l:'⚡ WEEK',c:'#39ff88'},{k:'prizes',l:'🏆 PRIZES',c:'#ffd700'},{k:'winners',l:'🏅 WINNERS',c:'#ff9933'},{k:'control',l:'🎮 CONTROL',c:'#ff4466'},{k:'send',l:'💸 SEND',c:'#ff9933'},{k:'labwork',l:'🧪 LAB WORK',c:'#00ccff'},{k:'announce',l:'📢 NEWS',c:'#ffcc55'},{k:'logs',l:'📜 LOGS',c:'#cc88ff'},{k:'database',l:'🗄️ DATABASE',c:'#bf5af2'},{k:'analytics',l:'📊 ANALYTICS',c:'#39ff88'}];
+  const tabs=[{k:'weekly',l:'⚡ WEEK',c:'#39ff88'},{k:'prizes',l:'🏆 PRIZES',c:'#ffd700'},{k:'winners',l:'🏅 WINNERS',c:'#ff9933'},{k:'control',l:'🎮 CONTROL',c:'#ff4466'},{k:'send',l:'💸 SEND',c:'#ff9933'},{k:'labwork',l:'🧪 LAB WORK',c:'#00ccff'},{k:'announce',l:'📢 NEWS',c:'#ffcc55'},{k:'logs',l:'📜 LOGS',c:'#cc88ff'},{k:'database',l:'🗄️ DATABASE',c:'#bf5af2'},{k:'analytics',l:'📊 ANALYTICS',c:'#39ff88'},{k:'bot',l:'🤖 BOT',c:'#0088ff'}];
 
   return(
     <div style={{minHeight:'100vh',background:'#080c10',padding:isMobile?'70px 10px 40px':'90px 24px 40px',position:'relative',overflow:'hidden'}}>
@@ -2201,6 +2201,43 @@ const AdminRewards:FC=()=>{
               >
                 📊 OPEN ANALYTICS DASHBOARD ↗
               </button>
+            </div>
+          </div>
+
+        </div>}
+
+        {tab==='bot'&&<div style={{animation:'adm-fade .3s ease both'}}>
+          <Tl i="🤖" t="TELEGRAM BOT" c="#0088ff" />
+
+          <div style={{...pan('rgba(0,136,255,.15)'),textAlign:'center',padding:'36px 24px'}}>
+            <GridBg />
+            <div style={{position:'relative',zIndex:1}}>
+              <div style={{fontSize:56,marginBottom:16,filter:'drop-shadow(0 0 20px rgba(0,136,255,.4))'}}>🤖</div>
+              <div style={{fontFamily:'Orbitron,monospace',fontSize:isMobile?16:22,fontWeight:900,letterSpacing:3,marginBottom:10,background:'linear-gradient(135deg,#0088ff,#39ff88,#bf5af2)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>
+                X1BRAINS TELEGRAM BOT
+              </div>
+              <div style={{fontFamily:'Sora,sans-serif',fontSize:13,color:'#8899aa',maxWidth:520,margin:'0 auto 24px',lineHeight:1.7}}>
+                Configure the @x1brains buy bot — set the Telegram token, choose the broadcast group, auto-detect pool vaults, tune event filters and thresholds, and upload banners for BRAINS and LB alerts.
+              </div>
+
+              <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center',marginBottom:28}}>
+                {['🟢 Buys','🔥 Burns','💧 LP Pairs','🌾 Stakes','📤 Unstakes','💰 Claims','🐋 Whale Tiers','🖼️ Banners'].map(f=>(
+                  <span key={f} style={{fontFamily:'Orbitron,monospace',fontSize:8,color:'#0088ff',padding:'4px 10px',background:'rgba(0,136,255,.06)',border:'1px solid rgba(0,136,255,.15)',borderRadius:20,letterSpacing:1}}>{f}</span>
+                ))}
+              </div>
+
+              <button
+                onClick={()=>window.open('/x9b7r41ns/bot','_blank')}
+                style={{padding:'14px 40px',background:'linear-gradient(135deg,#0088ff,#0066cc)',border:'none',borderRadius:12,color:'#fff',fontFamily:'Orbitron,monospace',fontSize:12,fontWeight:900,letterSpacing:3,cursor:'pointer',boxShadow:'0 4px 24px rgba(0,136,255,.3)',transition:'all .2s'}}
+                onMouseEnter={e=>{(e.currentTarget as HTMLButtonElement).style.transform='translateY(-2px)';(e.currentTarget as HTMLButtonElement).style.boxShadow='0 8px 32px rgba(0,136,255,.45)';}}
+                onMouseLeave={e=>{(e.currentTarget as HTMLButtonElement).style.transform='translateY(0)';(e.currentTarget as HTMLButtonElement).style.boxShadow='0 4px 24px rgba(0,136,255,.3)';}}
+              >
+                🤖 OPEN BOT CONSOLE ↗
+              </button>
+
+              <div style={{marginTop:20,fontFamily:'monospace',fontSize:9,color:'#5577aa',letterSpacing:1}}>
+                Telegram token stored encrypted in Supabase · service-key only · never reaches your browser
+              </div>
             </div>
           </div>
 

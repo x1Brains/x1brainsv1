@@ -1,0 +1,34 @@
+# fly.toml — X1 Brains Buy Bot
+#
+# Free tier specs:
+#   - shared-cpu-1x VM (256 MB)
+#   - 3 GB persistent volume (we don't even need it — bot is stateless)
+#   - Always-on, no auto-stop (essential for a poller)
+#   - 3 free VMs total — this uses 1
+#
+# After running `fly launch` interactively the first time, this is the
+# config that should result. You can also run `fly launch --copy-config`
+# to use this file directly.
+
+app = "x1brains-bot"
+primary_region = "iad"   # Ashburn, VA — change to closest region
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PYTHONUNBUFFERED = "1"
+
+# CRITICAL: keep the bot always-on. The defaults try to be clever and
+# stop machines when idle, which would silently kill our poller.
+[[services]]
+  internal_port = 8080      # not actually used; bot has no HTTP server
+  protocol = "tcp"
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256

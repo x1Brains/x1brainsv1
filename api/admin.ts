@@ -33,6 +33,7 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import { handleBotAction, isBotAction } from './_bot-actions';
 
 const SUPABASE_URL      = process.env.SUPABASE_URL      || '';
 const SUPABASE_SERVICE  = process.env.SUPABASE_SERVICE_KEY || '';
@@ -65,6 +66,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE);
   const { action, payload } = req.body as { action: string; payload?: any };
+
+  // ── Bot actions (delegated to _bot-actions.ts) ──────────────
+  if (isBotAction(action)) {
+    const result = await handleBotAction(action, payload, wallet);
+    return res.status(result.success ? 200 : 400).json(result);
+  }
 
   try {
     switch (action) {

@@ -14,6 +14,7 @@ import RewardsSeason       from './pages/RewardsSeason';
 import AdminRewards        from './pages/AdminRewards';
 import IncineratorEngine   from './pages/IncineratorEngine';
 import AnalyticsDashboard  from './pages/AnalyticsDashboard';
+import BotAdmin            from './pages/BotAdmin';
 import LabWorkDefi         from './pages/LabWorkDefi';
 import LpFarms             from './pages/LpFarms';
 import { usePageView }     from './hooks/usePageView';
@@ -34,6 +35,7 @@ const AppInner: FC = () => {
       <Route path="/rewards"               element={<RewardsSeason />} />
       <Route path="/x9b7r41ns/ctrl"         element={<AdminRewards />} />
       <Route path="/x9b7r41ns/analytics"    element={<AnalyticsDashboard />} />
+      <Route path="/x9b7r41ns/bot"          element={<BotAdmin />} />
       <Route path="*"                       element={<Navigate to="/" replace />} />
     </Routes>
   );
