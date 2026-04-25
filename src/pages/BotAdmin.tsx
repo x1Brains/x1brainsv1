@@ -15,7 +15,7 @@
 
 import React, { FC, useState, useEffect, useCallback, useRef } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { TopBar, PageBackground, Footer } from '../components/UI';
 import {
   setAdminWallet,
@@ -41,6 +41,7 @@ const EVENT_DEFS: { key: EventKey; icon: string; label: string; desc: string }[]
 
 const BotAdmin: FC = () => {
   const { publicKey, connected } = useWallet();
+  const { setVisible } = useWalletModal();
   const isAdminWallet = publicKey?.toBase58() === ADMIN_WALLET;
 
   const [settings, setSettings] = useState<BotSettings | null>(null);
@@ -176,25 +177,38 @@ const BotAdmin: FC = () => {
   // ─────────────────────────────────────────────────────────────────────────
   if (!connected) {
     return (
-      <PageBackground>
+      <div style={{ minHeight: '100vh', background: '#080c10',
+        padding: '90px 24px 40px', position: 'relative', overflow: 'hidden' }}>
         <TopBar />
+        <PageBackground />
         <GateScreen icon="🔒" color="#ff8c00" title="ADMIN ACCESS REQUIRED"
           subtitle="Connect the X1 Brains admin wallet to manage the @x1brains buy bot.">
-          <div style={{ marginTop: 24 }}><WalletMultiButton /></div>
+          <div style={{ marginTop: 24 }}>
+            <button onClick={() => setVisible(true)}
+              style={{ padding: '12px 32px', background: 'linear-gradient(135deg,#ff8c00,#ffb700)',
+                border: 'none', borderRadius: 10, color: '#04060f',
+                fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 800,
+                letterSpacing: 2, cursor: 'pointer',
+                boxShadow: '0 4px 20px rgba(255,140,0,0.3)' }}>
+              CONNECT WALLET
+            </button>
+          </div>
           <div style={{ marginTop: 28, fontFamily: 'monospace', fontSize: 9,
             color: '#5c7a90', letterSpacing: 1, opacity: 0.7 }}>
             ADMIN: {ADMIN_WALLET.slice(0, 10)}…{ADMIN_WALLET.slice(-8)}
           </div>
         </GateScreen>
         <Footer />
-      </PageBackground>
+      </div>
     );
   }
 
   if (!isAdminWallet) {
     return (
-      <PageBackground>
+      <div style={{ minHeight: '100vh', background: '#080c10',
+        padding: '90px 24px 40px', position: 'relative', overflow: 'hidden' }}>
         <TopBar />
+        <PageBackground />
         <GateScreen icon="⛔" color="#ff4466" title="UNAUTHORIZED WALLET"
           subtitle="Connected wallet does not match admin wallet.">
           <div style={{ marginTop: 18, padding: '14px 18px',
@@ -207,7 +221,7 @@ const BotAdmin: FC = () => {
           </div>
         </GateScreen>
         <Footer />
-      </PageBackground>
+      </div>
     );
   }
 
@@ -219,9 +233,12 @@ const BotAdmin: FC = () => {
         + (settings[`lb_${e.key}` as keyof BotSettings] ? 1 : 0), 0) : 0;
 
   return (
-    <PageBackground>
+    <div style={{ minHeight: '100vh', background: '#080c10',
+      padding: '90px 24px 40px', position: 'relative', overflow: 'hidden' }}>
       <TopBar />
-      <div style={{ maxWidth: 1100, margin: '32px auto 80px', padding: '0 16px' }}>
+      <PageBackground />
+      <div style={{ maxWidth: 1100, margin: '0 auto 80px', padding: '0 16px',
+        position: 'relative', zIndex: 1 }}>
 
         {/* HERO */}
         <div style={{ position: 'relative', marginBottom: 28, padding: '24px 28px',
@@ -331,7 +348,7 @@ const BotAdmin: FC = () => {
         @keyframes admFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
       <Footer />
-    </PageBackground>
+    </div>
   );
 };
 
