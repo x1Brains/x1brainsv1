@@ -153,7 +153,7 @@ async def main_loop():
     while True:
         try:
             if not storage.is_connection_complete():
-                log.info("⏸  Waiting for admin to finish setup at /bot-admin…")
+                log.info("⏸  Waiting for admin to finish setup at /x9b7r41ns/bot…")
                 await asyncio.sleep(15)
                 continue
 
