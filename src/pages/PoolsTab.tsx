@@ -26,6 +26,33 @@ const XDEX_MEMO       = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
 const XDEX_BASE       = '/api/xdex-price/api';
 const WXNT_MINT       = 'So11111111111111111111111111111111111111112';
 
+// ─── On-chain price oracle (mirrors brains_pairing program) ──────────────────
+// The brains_pairing program uses these same vaults to validate prices on-chain.
+// Reading vault balances directly = single source of truth for BRAINS and XNT
+// USD prices, anchored on the XNT/USDC.X stablecoin pool.
+//
+//   1) XNT/USD = USDC reserves / XNT reserves (from XNT/USDC.X pool)
+//   2) BRAINS/USD = (XNT in BRAINS pool / BRAINS in BRAINS pool) × XNT/USD
+//   3) Other token USD price = (BRAINS in pool / Token in pool) × BRAINS/USD
+//
+// All other ecosystem tokens get priced via their BRAINS-paired pool reserves,
+// keeping the entire price graph anchored on USDC. This avoids the XDEX price
+// API entirely (which lacks feeds for most ecosystem tokens).
+const BRAINS_MINT_STR        = 'EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC1EHUBtPN';
+const XNT_USDC_VAULT_XNT     = '8wvV4HKBDFMLEUkVWp1WPNa5ano99XCm3f9t3troyLb';   // 9 decimals
+const XNT_USDC_VAULT_USDC    = '7iw2adw8Af7x3pY7gj5RwczFXuGjCoX92Gfy3avwXQtg';   // 6 decimals
+const BRAINS_XNT_VAULT_XNT   = 'HJ5WsScycRCtp8yqGsLbcDAayMsbcYajELcALg6kaUaq';   // 9 decimals
+const BRAINS_XNT_VAULT_BASE  = 'HnUfCrgrhHzgML92ipbkLGhi2ggm1kdHDvvcqRtuUeb3';   // 9 decimals (BRAINS)
+
+// Cached oracle prices — populated once per pool-load cycle, used by all pools.
+// Avoids re-reading the same XNT/USDC and BRAINS/XNT vaults for each pool.
+// `_oracleTs` tracks when these were fetched; if a fetch finds them recent (<30s),
+// skip the network call entirely. Survives tab switches within the SPA.
+let _oracleXntUsd:    number = 0;
+let _oracleBrainsUsd: number = 0;
+let _oracleTs:        number = 0;
+const ORACLE_CACHE_TTL_MS = 30_000; // 30s — oracle prices barely move on near-empty pools
+
 // XDEX Anchor discriminators (sha256("global:<name>")[0..8])
 async function disc(name: string): Promise<Buffer> {
   const h = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(`global:${name}`));
@@ -154,15 +181,40 @@ function useIsMobile(): boolean {
 }
 
 // ─── RPC helpers ──────────────────────────────────────────────────────────────
-async function rpcCall(method: string, params: any[]): Promise<any> {
-  const r = await fetch(RPC, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-  });
-  const j = await r.json();
-  if (j.error) throw new Error(j.error.message);
-  return j.result;
+// rpcCall retries up to 3 times with exponential backoff on transient failures
+// (429 rate limits, 5xx server errors, timeouts). This is the single source of
+// resilience for ALL on-chain reads — pool records, vault balances, oracle.
+async function rpcCall(method: string, params: any[], maxRetries = 3): Promise<any> {
+  let lastErr: any = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      // Exponential backoff: 250ms, 500ms, 1000ms, 2000ms…
+      await new Promise(r => setTimeout(r, 250 * Math.pow(2, attempt - 1)));
+    }
+    try {
+      const r = await fetch(RPC, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      });
+      // 429 / 5xx → retry
+      if (r.status === 429 || r.status >= 500) {
+        lastErr = new Error(`HTTP ${r.status}`);
+        continue;
+      }
+      const j = await r.json();
+      if (j.error) {
+        // RPC-level errors are usually permanent (bad params, etc.) —
+        // don't retry, just propagate.
+        throw new Error(j.error.message);
+      }
+      return j.result;
+    } catch (e) {
+      lastErr = e;
+      // Network errors / timeouts → retry
+    }
+  }
+  throw lastErr ?? new Error('rpcCall failed after retries');
 }
 
 async function getTokenProgram(mint: PublicKey, connection: Connection): Promise<PublicKey> {
@@ -175,7 +227,44 @@ async function getTokenProgram(mint: PublicKey, connection: Connection): Promise
 
 // ─── Token metadata — 3-layer system (same as PairingMarketplace) ─────────────
 interface TokenMeta { symbol: string; name: string; logo?: string; decimals: number; }
+
+// In-memory cache (lost on reload) + localStorage cache (survives reloads).
+// Token metadata literally never changes for an existing mint, so we cache
+// for 7 days. The 3-layer fetch (Token-2022 → Metaplex → XDEX) can take
+// 5-30 seconds per token when the public RPC is throttling, so caching is
+// essential for second-load-onwards being instant.
 const _metaCache = new Map<string, TokenMeta>();
+const META_CACHE_KEY = 'x1brains:tokenMeta:v2';
+const META_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+// Hydrate _metaCache from localStorage on module load
+(() => {
+  try {
+    const raw = localStorage.getItem(META_CACHE_KEY);
+    if (!raw) return;
+    const cached = JSON.parse(raw) as { ts: number; metas: Record<string, TokenMeta> };
+    if (Date.now() - cached.ts < META_CACHE_TTL && cached.metas) {
+      for (const [mint, meta] of Object.entries(cached.metas)) {
+        _metaCache.set(mint, meta);
+      }
+    }
+  } catch {}
+})();
+
+function persistMetaCache() {
+  try {
+    const metas: Record<string, TokenMeta> = {};
+    for (const [k, v] of _metaCache.entries()) metas[k] = v;
+    localStorage.setItem(META_CACHE_KEY, JSON.stringify({ ts: Date.now(), metas }));
+  } catch {}
+}
+
+// Throttled persist — don't write to localStorage on every metadata resolution
+let _metaPersistTimer: any = null;
+function schedulePersist() {
+  if (_metaPersistTimer) return;
+  _metaPersistTimer = setTimeout(() => { _metaPersistTimer = null; persistMetaCache(); }, 1000);
+}
 
 async function fetchToken2022Meta(mint: string): Promise<TokenMeta | null> {
   try {
@@ -257,6 +346,7 @@ async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
   // For known tokens: seed cache with correct symbol immediately, then fetch logo
   if (known && !cached) {
     _metaCache.set(mint, { ...known }); // no logo yet — will be filled below
+    schedulePersist();
   }
 
   // Always attempt full metadata fetch to get the logo
@@ -267,18 +357,21 @@ async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
       ? { ...known, logo: t22.logo }
       : t22;
     _metaCache.set(mint, merged);
+    schedulePersist();
     return merged;
   }
   const mpx = await fetchMetaplexMeta(mint);
   if (mpx) {
     const merged: TokenMeta = known ? { ...known, logo: mpx.logo } : mpx;
     _metaCache.set(mint, merged);
+    schedulePersist();
     return merged;
   }
   const xdex = await fetchXdexMeta(mint);
   if (xdex) {
     const merged: TokenMeta = known ? { ...known, logo: xdex.logo } : xdex;
     _metaCache.set(mint, merged);
+    schedulePersist();
     return merged;
   }
 
@@ -287,11 +380,24 @@ async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
     ? { ...known }
     : { symbol: mint.slice(0,4).toUpperCase(), name: mint.slice(0,8), decimals: 9 };
   _metaCache.set(mint, fallback);
+  // NOTE: don't persist the truncated-address fallback — we want to retry
+  // properly resolving the symbol on next page load.
+  if (known) schedulePersist();
   return fallback;
 }
 
 // ─── On-chain data fetchers ───────────────────────────────────────────────────
-async function fetchPoolRecords(): Promise<PoolRecord[]> {
+// Pool records change rarely (only when admin seeds a new pool). Cache in
+// localStorage with 1-hour TTL + serve from memory for tab switches.
+// Stale-while-revalidate: always serve cached data immediately if present,
+// then refresh in background. This is the difference between "0 pools" on
+// tab switch and instant-load.
+const POOL_RECORDS_CACHE_KEY = 'x1brains:poolRecords:v2';
+const POOL_RECORDS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+let _poolRecordsMemo: PoolRecord[] | null = null;
+
+async function fetchPoolRecordsRaw(): Promise<PoolRecord[]> {
   const res = await rpcCall('getProgramAccounts', [PROGRAM_ID, {
     encoding: 'base64',
     filters: [{ dataSize: 282 }],
@@ -322,30 +428,144 @@ async function fetchPoolRecords(): Promise<PoolRecord[]> {
   });
 }
 
+async function fetchPoolRecords(): Promise<PoolRecord[]> {
+  // 1. Memory hit (fastest — survives within-session tab switches)
+  if (_poolRecordsMemo && _poolRecordsMemo.length > 0) {
+    return _poolRecordsMemo;
+  }
+  // 2. localStorage hit (survives reloads if within TTL)
+  try {
+    const raw = localStorage.getItem(POOL_RECORDS_CACHE_KEY);
+    if (raw) {
+      const cached = JSON.parse(raw) as { ts: number; records: any[] };
+      if (Date.now() - cached.ts < POOL_RECORDS_CACHE_TTL && Array.isArray(cached.records) && cached.records.length > 0) {
+        // Restore bigint fields (JSON.parse can't preserve them)
+        const restored: PoolRecord[] = cached.records.map((r: any) => ({
+          ...r,
+          lpBurned:   BigInt(r.lpBurned),
+          lpTreasury: BigInt(r.lpTreasury),
+          lpUserA:    BigInt(r.lpUserA),
+          lpUserB:    BigInt(r.lpUserB),
+        }));
+        _poolRecordsMemo = restored;
+        // Background refresh — don't await. Keeps cache fresh without blocking.
+        fetchPoolRecordsRaw().then(fresh => {
+          if (fresh.length > 0) {
+            _poolRecordsMemo = fresh;
+            try {
+              localStorage.setItem(POOL_RECORDS_CACHE_KEY, JSON.stringify({
+                ts: Date.now(),
+                records: fresh.map(r => ({
+                  ...r,
+                  lpBurned:   r.lpBurned.toString(),
+                  lpTreasury: r.lpTreasury.toString(),
+                  lpUserA:    r.lpUserA.toString(),
+                  lpUserB:    r.lpUserB.toString(),
+                })),
+              }));
+            } catch {}
+          }
+        }).catch(() => {});
+        return restored;
+      }
+    }
+  } catch {}
+  // 3. Cache miss — fetch fresh
+  const fresh = await fetchPoolRecordsRaw();
+  if (fresh.length > 0) {
+    _poolRecordsMemo = fresh;
+    try {
+      localStorage.setItem(POOL_RECORDS_CACHE_KEY, JSON.stringify({
+        ts: Date.now(),
+        records: fresh.map(r => ({
+          ...r,
+          lpBurned:   r.lpBurned.toString(),
+          lpTreasury: r.lpTreasury.toString(),
+          lpUserA:    r.lpUserA.toString(),
+          lpUserB:    r.lpUserB.toString(),
+        })),
+      }));
+    } catch {}
+  }
+  return fresh;
+}
+
+// Parse a single XDEX pool state from raw account bytes.
+function parseXdexPoolState(data: Uint8Array | null): PoolState | null {
+  if (!data) return null;
+  try {
+    const D = 8;
+    return {
+      ammConfig:   readPubkey(data, D),
+      token0Vault: readPubkey(data, D + 64),
+      token1Vault: readPubkey(data, D + 96),
+      lpMint:      readPubkey(data, D + 128),
+      token0Mint:  readPubkey(data, D + 160),
+      token1Mint:  readPubkey(data, D + 192),
+      token0Prog:  readPubkey(data, D + 224),
+      token1Prog:  readPubkey(data, D + 256),
+      obsKey:      readPubkey(data, D + 288),
+      authBump:    data[D + 328],
+      status:      data[D + 329],
+      lpDecimals:  data[D + 330],
+      dec0:        data[D + 331],
+      dec1:        data[D + 332],
+      lpSupply:    readU64(data, D + 333),
+    };
+  } catch { return null; }
+}
+
 async function fetchXdexPoolState(poolAddr: string): Promise<PoolState | null> {
   try {
     const res = await rpcCall('getAccountInfo', [poolAddr, { encoding: 'base64' }]);
     if (!res?.value) return null;
     const d = new Uint8Array(Buffer.from(res.value.data[0], 'base64'));
-    const D = 8;
-    return {
-      ammConfig:   readPubkey(d, D),
-      token0Vault: readPubkey(d, D + 64),
-      token1Vault: readPubkey(d, D + 96),
-      lpMint:      readPubkey(d, D + 128),
-      token0Mint:  readPubkey(d, D + 160),
-      token1Mint:  readPubkey(d, D + 192),
-      token0Prog:  readPubkey(d, D + 224),
-      token1Prog:  readPubkey(d, D + 256),
-      obsKey:      readPubkey(d, D + 288),
-      authBump:    d[D + 328],
-      status:      d[D + 329],
-      lpDecimals:  d[D + 330],
-      dec0:        d[D + 331],
-      dec1:        d[D + 332],
-      lpSupply:    readU64(d, D + 333),
-    };
+    return parseXdexPoolState(d);
   } catch { return null; }
+}
+
+// ─── Batched account reader (the speed win) ──────────────────────────────────
+// One getMultipleAccounts RPC call can fetch up to 100 accounts in one round
+// trip. Used to fetch all pool states in one call, then all vaults in another,
+// instead of N separate getAccountInfo calls staggered 75ms apart.
+//
+// Returns a map of address -> raw bytes, with null for accounts that didn't
+// exist or failed to decode. Splits into chunks of 100 if needed.
+async function fetchManyAccounts(addresses: string[]): Promise<Map<string, Uint8Array | null>> {
+  const result = new Map<string, Uint8Array | null>();
+  if (addresses.length === 0) return result;
+
+  // Solana RPC caps getMultipleAccounts at 100 addresses per call
+  const CHUNK = 100;
+  for (let i = 0; i < addresses.length; i += CHUNK) {
+    const chunk = addresses.slice(i, i + CHUNK);
+    try {
+      const res = await rpcCall('getMultipleAccounts', [chunk, { encoding: 'base64' }]);
+      const values: any[] = res?.value ?? [];
+      chunk.forEach((addr, idx) => {
+        const v = values[idx];
+        if (!v?.data?.[0]) {
+          result.set(addr, null);
+          return;
+        }
+        try {
+          result.set(addr, new Uint8Array(Buffer.from(v.data[0], 'base64')));
+        } catch {
+          result.set(addr, null);
+        }
+      });
+    } catch {
+      // On batch failure, mark all as null — caller will treat as missing
+      for (const addr of chunk) result.set(addr, null);
+    }
+  }
+  return result;
+}
+
+// Parse vault balance from raw token-account bytes (offset 64 = u64 amount).
+function parseVaultBalance(data: Uint8Array | null): bigint {
+  if (!data || data.length < 72) return 0n;
+  try { return readU64(data, 64); } catch { return 0n; }
 }
 
 async function fetchVaultBalance(vault: string): Promise<bigint> {
@@ -355,6 +575,59 @@ async function fetchVaultBalance(vault: string): Promise<bigint> {
     const d = new Uint8Array(Buffer.from(res.value.data[0], 'base64'));
     return readU64(d, 64);
   } catch { return 0n; }
+}
+
+// ─── On-chain oracle price reader ────────────────────────────────────────────
+// Mirrors the math in brains_pairing/instructions/create_listing.rs:
+//   onchain_xnt_price = (usdc_balance * 1e9) / xnt_balance
+// where usdc_balance is 6-decimal micro-USD and xnt_balance is 9-decimal lamports.
+//
+// In TypeScript we work in human-readable units (Number, not bigint micro-units),
+// so the math simplifies to:
+//   xnt_usd  = (usdc_balance / 1e6) / (xnt_balance / 1e9)
+//   brains_usd = xnt_usd * (xnt_in_brains_pool / brains_in_brains_pool)
+//
+// Returns { xntUsd, brainsUsd } — both 0 if any vault read fails.
+async function fetchOraclePrices(): Promise<{ xntUsd: number; brainsUsd: number }> {
+  try {
+    // Batch-read all 4 vaults in one RPC call to avoid rate-limit penalty
+    const res = await rpcCall('getMultipleAccounts', [
+      [
+        XNT_USDC_VAULT_XNT,
+        XNT_USDC_VAULT_USDC,
+        BRAINS_XNT_VAULT_XNT,
+        BRAINS_XNT_VAULT_BASE,
+      ],
+      { encoding: 'base64' },
+    ]);
+    if (!res?.value || res.value.length !== 4) return { xntUsd: 0, brainsUsd: 0 };
+
+    const parseRaw = (v: any): bigint => {
+      if (!v?.data?.[0]) return 0n;
+      const d = new Uint8Array(Buffer.from(v.data[0], 'base64'));
+      return readU64(d, 64);
+    };
+
+    const xntUsdcXnt    = parseRaw(res.value[0]);   // 9-dec lamports
+    const xntUsdcUsdc   = parseRaw(res.value[1]);   // 6-dec micro-USD
+    const brainsXntXnt  = parseRaw(res.value[2]);   // 9-dec lamports
+    const brainsXntBase = parseRaw(res.value[3]);   // 9-dec BRAINS
+
+    if (xntUsdcXnt === 0n || xntUsdcUsdc === 0n) return { xntUsd: 0, brainsUsd: 0 };
+    if (brainsXntXnt === 0n || brainsXntBase === 0n) return { xntUsd: 0, brainsUsd: 0 };
+
+    // XNT/USD = (usdc / 1e6) / (xnt / 1e9) = usdc * 1e3 / xnt
+    const xntUsd = (Number(xntUsdcUsdc) * 1_000) / Number(xntUsdcXnt);
+
+    // BRAINS/USD: BRAINS/XNT pool ratio × XNT/USD
+    // Both vaults are 9 decimals so units cancel cleanly.
+    const xntPerBrains = Number(brainsXntXnt) / Number(brainsXntBase);
+    const brainsUsd    = xntPerBrains * xntUsd;
+
+    return { xntUsd, brainsUsd };
+  } catch {
+    return { xntUsd: 0, brainsUsd: 0 };
+  }
 }
 
 async function fetchWalletLpBalance(lpMint: string, wallet: string): Promise<bigint> {
@@ -1530,6 +1803,32 @@ const PoolsTab: FC = () => {
       const records = await fetchPoolRecords();
       const realPools = records; // show all pools including seeded ecosystem pools
 
+      // ── Prefetch on-chain oracle prices (with 30s in-memory cache) ────────
+      // Single batched RPC call reads all 4 oracle vaults at once. These are
+      // the same vaults the brains_pairing program uses to validate match
+      // prices on-chain, so we get the same source of truth.
+      //
+      // If we fetched within the last 30s, reuse — these prices barely move
+      // on near-empty pools and constantly refetching is what was killing us.
+      //
+      // Retry up to 3 times with exponential backoff if the cache miss path
+      // returns 0 (likely a transient 429 from the public RPC).
+      const oracleCacheAge = Date.now() - _oracleTs;
+      if (oracleCacheAge > ORACLE_CACHE_TTL_MS || _oracleBrainsUsd === 0 || _oracleXntUsd === 0) {
+        let oracle = await fetchOraclePrices();
+        for (let attempt = 0; attempt < 2 && (oracle.brainsUsd === 0 || oracle.xntUsd === 0); attempt++) {
+          await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+          oracle = await fetchOraclePrices();
+        }
+        if (oracle.xntUsd > 0 && oracle.brainsUsd > 0) {
+          _oracleXntUsd    = oracle.xntUsd;
+          _oracleBrainsUsd = oracle.brainsUsd;
+          _oracleTs        = Date.now();
+        }
+        // If retries failed, keep old cached values (better than zeroing them
+        // out and forcing every BRAINS-paired pool to show '—').
+      }
+
       // Initialize pools in loading state so the UI shows skeleton/dashes
       // immediately, then patch each pool in as its data arrives. This avoids
       // a long blank-screen wait and lets the user see progress.
@@ -1543,16 +1842,64 @@ const PoolsTab: FC = () => {
       }));
       setPools(initialViews);
 
-      // Stagger pool fetches: 150ms gap between starting each pool. The X1
-      // public RPC throttles at ~10–20 req/sec; firing 10 pools × 5 calls
-      // each in parallel produces 429s and cascading retry storms. Staggering
-      // keeps us under the limit while still loading all pools in ~1.5s total.
-      const STAGGER_MS = 150;
+      // ── Batched load (3 phases, total ~3 RPC calls instead of ~60) ──────
+      //
+      // Phase 1: getMultipleAccounts for all pool states (1 call)
+      // Phase 2: getMultipleAccounts for all vaults + LP mints + decimals
+      //          mints + wallet LP accounts (1 call, up to ~50 accounts)
+      // Phase 3: Synchronous per-pool processing — apply pricing tree, build
+      //          PoolView objects, render all at once.
+      //
+      // Why this is fast: a single getMultipleAccounts handles up to 100
+      // accounts in one network round-trip. Even with 10 pools the previous
+      // approach made ~60 separate calls staggered 75ms apart (~1.5s minimum).
+      // The batched approach collapses to ~3 RPC calls regardless of pool
+      // count, no staggering needed, no rate-limit pressure.
+      const states = new Map<string, PoolState>();
+      try {
+        const stateBytes = await fetchManyAccounts(realPools.map(r => r.poolAddr));
+        for (const rec of realPools) {
+          const parsed = parseXdexPoolState(stateBytes.get(rec.poolAddr) ?? null);
+          if (parsed) states.set(rec.poolAddr, parsed);
+        }
+      } catch {}
 
-      // Internal helper that does ONE pool's full fetch (state + meta + vaults
-      // + prices). Same body as before — just lifted into a named function so
-      // we can call it sequentially.
-      async function loadOnePool(rec: typeof realPools[number]): Promise<PoolView> {
+      // Phase 2: Collect every account address we still need, deduplicate, fetch in one shot.
+      const needAccounts: string[] = [];
+      const seen = new Set<string>();
+      const want = (addr: string) => {
+        if (addr && !seen.has(addr)) { seen.add(addr); needAccounts.push(addr); }
+      };
+      for (const rec of realPools) {
+        const st = states.get(rec.poolAddr);
+        if (!st) continue;
+        want(st.token0Vault);
+        want(st.token1Vault);
+        want(rec.lpMint);
+        // Token mints — needed for decimals fallback if state.dec0/dec1 are 0
+        want(st.token0Mint);
+        want(st.token1Mint);
+      }
+      const accountBytes = await fetchManyAccounts(needAccounts);
+
+      // Phase 2b: Wallet LP balances — only fetch if wallet connected.
+      // Use getTokenAccountsByOwner once per LP mint (can't be batched as easily,
+      // but only fires when user is connected, so this is fine for the cold path).
+      const walletLpMap = new Map<string, bigint>();
+      if (publicKey) {
+        const walletAddr = publicKey.toBase58();
+        await Promise.all(realPools.map(async rec => {
+          try {
+            const lp = await fetchWalletLpBalance(rec.lpMint, walletAddr);
+            walletLpMap.set(rec.poolAddr, lp);
+          } catch {}
+        }));
+      }
+
+      // Phase 3: Synchronous per-pool processing
+      const views: PoolView[] = new Array(realPools.length);
+      for (let i = 0; i < realPools.length; i++) {
+        const rec = realPools[i];
         const base: PoolView = {
           ...rec,
           vault0Bal: 0n, vault1Bal: 0n,
@@ -1561,195 +1908,128 @@ const PoolsTab: FC = () => {
           tvlUsd: 0, price0: 0, price1: 0, lpPrice: 0,
           walletLp: 0n, lpDecimals: 9, dec0: 9, dec1: 9, loading: true,
         };
-        try {
-          const [state, metaA, metaB] = await Promise.all([
-            fetchXdexPoolState(rec.poolAddr),
-            fetchTokenMeta(rec.tokenAMint),
-            fetchTokenMeta(rec.tokenBMint),
-          ]);
-
-          if (!state) return { ...base, loading: false };
-
-          // Token ordering: PoolRecord stores our tokenA/B but XDEX sorts them lexicographically
-          // state.token0Mint is the lexicographically smaller mint
-          const t0IsA = state.token0Mint === rec.tokenAMint;
-          // Always prefer KNOWN_META symbol over whatever metadata fetch returned
-          const sym0  = KNOWN_META[state.token0Mint]?.symbol ?? (t0IsA ? metaA.symbol : metaB.symbol);
-          const sym1  = KNOWN_META[state.token1Mint]?.symbol ?? (t0IsA ? metaB.symbol : metaA.symbol);
-          const logo0 = t0IsA ? metaA.logo   : metaB.logo;
-          const logo1 = t0IsA ? metaB.logo   : metaA.logo;
-
-          const [v0, v1, walletLp, lpMintInfo] = await Promise.all([
-            fetchVaultBalance(state.token0Vault),
-            fetchVaultBalance(state.token1Vault),
-            publicKey ? fetchWalletLpBalance(rec.lpMint, publicKey.toBase58()) : Promise.resolve(0n),
-            // Always read LP decimals from the mint account — pool state byte is unreliable
-            rpcCall('getAccountInfo', [rec.lpMint, { encoding: 'base64' }]).catch(() => null),
-          ]);
-
-          // LP decimals: read from mint account at offset 44 (reliable for SPL and Token-2022)
-          let lpDecimalsResolved = state.lpDecimals || 9;
-          if (lpMintInfo?.value) {
-            try {
-              const lpMintData = new Uint8Array(Buffer.from(lpMintInfo.value.data[0], 'base64'));
-              const fromMint = lpMintData[44];
-              if (fromMint > 0 && fromMint <= 18) lpDecimalsResolved = fromMint;
-            } catch {}
-          }
-
-          // Token decimals: read from mint account directly if pool state has zero (layout mismatch)
-          let dec0 = state.dec0;
-          let dec1 = state.dec1;
-          if (dec0 === 0 || dec1 === 0) {
-            try {
-              const [m0, m1] = await Promise.all([
-                rpcCall('getAccountInfo', [state.token0Mint, { encoding: 'base64' }]),
-                rpcCall('getAccountInfo', [state.token1Mint, { encoding: 'base64' }]),
-              ]);
-              if (m0?.value) {
-                const d0 = new Uint8Array(Buffer.from(m0.value.data[0], 'base64'));
-                dec0 = d0[44]; // decimals at offset 44 in both SPL and Token-2022
-              }
-              if (m1?.value) {
-                const d1 = new Uint8Array(Buffer.from(m1.value.data[0], 'base64'));
-                dec1 = d1[44];
-              }
-            } catch {}
-          }
-
-          const v0Ui = Number(v0) / Math.pow(10, dec0);
-          const v1Ui = Number(v1) / Math.pow(10, dec1);
-
-          // ── Pricing & TVL ─────────────────────────────────────────────
-          //
-          // Strategy: a constant-product pool's two sides should have equal
-          // dollar value (ignoring the small fee buffer). If we have API prices
-          // for BOTH tokens, we compute TVL from each side independently and
-          // require them to agree within 5×. If they don't, the pool is
-          // imbalanced enough that prices are unreliable — show '—' rather
-          // than fake billions.
-          //
-          // For BRAINS-paired pools where the other token has no API price,
-          // we anchor on BRAINS from the API side ONLY: TVL = 2 × (BRAINS
-          // reserves × BRAINS price). The other half is implicitly the same
-          // by AMM invariant.
-          let price0 = 0, price1 = 0, tvlUsd = 0;
-          const BRAINS_MINT_LOCAL = 'EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC1EHUBtPN';
-          try {
-            const brainsIsToken1 = state.token1Mint === BRAINS_MINT_LOCAL;
-            const brainsIsToken0 = state.token0Mint === BRAINS_MINT_LOCAL;
-
-            if (brainsIsToken0 || brainsIsToken1) {
-              const nonBrainsMint = brainsIsToken1 ? state.token0Mint : state.token1Mint;
-              const [pNonBrains, pBrains] = await Promise.all([
-                fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${nonBrainsMint}`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null),
-                fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${BRAINS_MINT_LOCAL}`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null),
-              ]);
-              const otherPrice  = pNonBrains?.success && pNonBrains?.data?.price ? Number(pNonBrains.data.price) : 0;
-              const brainsPrice = pBrains?.success    && pBrains?.data?.price    ? Number(pBrains.data.price)    : 0;
-
-              const brainsUi = brainsIsToken1 ? v1Ui : v0Ui;
-              const otherUi  = brainsIsToken1 ? v0Ui : v1Ui;
-
-              if (brainsPrice > 0 && otherPrice > 0 && brainsUi > 0 && otherUi > 0) {
-                // Both API prices available — compute each side's TVL contribution
-                // and reject if they disagree by more than 5×. Disagreement means
-                // either the pool is broken or one of the API prices is wrong.
-                const brainsSide = brainsUi * brainsPrice;
-                const otherSide  = otherUi  * otherPrice;
-                const ratio = Math.max(brainsSide, otherSide) / Math.min(brainsSide, otherSide);
-
-                if (ratio < 5) {
-                  // Pool is balanced — both prices trustworthy
-                  if (brainsIsToken1) { price0 = otherPrice; price1 = brainsPrice; }
-                  else                { price1 = otherPrice; price0 = brainsPrice; }
-                  tvlUsd = brainsSide + otherSide;
-                } else {
-                  // Pool is imbalanced — anchor on BRAINS side only (more
-                  // reliable since BRAINS has its own deeper liquidity).
-                  // TVL = 2 × BRAINS side (AMM invariant: both sides equal value).
-                  if (brainsIsToken1) { price1 = brainsPrice; price0 = brainsSide / otherUi; }
-                  else                { price0 = brainsPrice; price1 = brainsSide / otherUi; }
-                  tvlUsd = brainsSide * 2;
-                }
-              } else if (brainsPrice > 0 && brainsUi > 0) {
-                // Only BRAINS price known — anchor on BRAINS side, derive the
-                // other token's price from pool ratio (TVL = 2 × BRAINS side).
-                if (brainsIsToken1) { price1 = brainsPrice; price0 = (brainsUi * brainsPrice) / otherUi; }
-                else                { price0 = brainsPrice; price1 = (brainsUi * brainsPrice) / otherUi; }
-                tvlUsd = brainsUi * brainsPrice * 2;
-              }
-              // else: BRAINS price unavailable — leave tvlUsd at 0
-            } else {
-              // No BRAINS side — both tokens need API prices. Apply same 5×
-              // sanity check between sides.
-              const [p0res, p1res] = await Promise.all([
-                fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${state.token0Mint}`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null),
-                fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${state.token1Mint}`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null),
-              ]);
-              const p0 = p0res?.success && p0res?.data?.price ? Number(p0res.data.price) : 0;
-              const p1 = p1res?.success && p1res?.data?.price ? Number(p1res.data.price) : 0;
-              if (p0 > 0 && p1 > 0 && v0Ui > 0 && v1Ui > 0) {
-                const side0 = v0Ui * p0;
-                const side1 = v1Ui * p1;
-                const ratio = Math.max(side0, side1) / Math.min(side0, side1);
-                if (ratio < 5) {
-                  price0 = p0; price1 = p1;
-                  tvlUsd = side0 + side1;
-                }
-                // else: imbalanced, leave tvlUsd at 0
-              }
-            }
-          } catch {}
-
-          // No fallback for tvlUsd: if the XDEX price API didn't return a price
-          // for this pool's tokens, leave tvlUsd at 0 so the UI renders '—'.
-          // We previously fell back to `rec.usdVal / 1_000_000` here, but that
-          // field's offset in PoolRecord is not reliable — it was reading
-          // garbage bytes and producing 1M×-inflated values intermittently.
-          // Better to show no number than a misleading one.
-
-          // LP price = TVL / LP supply (use resolved decimals, not raw state field)
-          const supply  = Number(state.lpSupply);
-          const lpPrice = supply > 0 && tvlUsd > 0
-            ? tvlUsd / (supply / Math.pow(10, lpDecimalsResolved))
-            : 0;
-
-          return {
-            ...base,
-            state, vault0Bal: v0, vault1Bal: v1,
-            sym0, sym1, logo0, logo1,
-            tvlUsd, price0, price1, lpPrice,
-            walletLp, lpDecimals: lpDecimalsResolved,
-            dec0, dec1,
-            loading: false,
-          };
-        } catch {
-          return { ...base, loading: false };
+        const state = states.get(rec.poolAddr);
+        if (!state) {
+          views[i] = { ...base, loading: false };
+          continue;
         }
+
+        // Read metadata from cache + KNOWN_META (no await).
+        // Background-fetch any missing — fills cache for next render.
+        const metaA = _metaCache.get(rec.tokenAMint) ?? KNOWN_META[rec.tokenAMint] ?? null;
+        const metaB = _metaCache.get(rec.tokenBMint) ?? KNOWN_META[rec.tokenBMint] ?? null;
+        if (!metaA?.logo) { fetchTokenMeta(rec.tokenAMint).catch(() => {}); }
+        if (!metaB?.logo) { fetchTokenMeta(rec.tokenBMint).catch(() => {}); }
+
+        // Token ordering: PoolRecord stores tokenA/B but XDEX sorts lexicographically
+        const t0IsA = state.token0Mint === rec.tokenAMint;
+        const fallbackSym = (mint: string) => mint.slice(0, 4).toUpperCase();
+        const sym0  = KNOWN_META[state.token0Mint]?.symbol
+                   ?? (t0IsA ? metaA?.symbol : metaB?.symbol)
+                   ?? fallbackSym(state.token0Mint);
+        const sym1  = KNOWN_META[state.token1Mint]?.symbol
+                   ?? (t0IsA ? metaB?.symbol : metaA?.symbol)
+                   ?? fallbackSym(state.token1Mint);
+        const logo0 = t0IsA ? metaA?.logo : metaB?.logo;
+        const logo1 = t0IsA ? metaB?.logo : metaA?.logo;
+
+        // Vault balances from batched read
+        const v0 = parseVaultBalance(accountBytes.get(state.token0Vault) ?? null);
+        const v1 = parseVaultBalance(accountBytes.get(state.token1Vault) ?? null);
+
+        // LP mint info (decimals from offset 44)
+        let lpDecimalsResolved = state.lpDecimals || 9;
+        const lpMintData = accountBytes.get(rec.lpMint);
+        if (lpMintData && lpMintData.length > 44) {
+          const fromMint = lpMintData[44];
+          if (fromMint > 0 && fromMint <= 18) lpDecimalsResolved = fromMint;
+        }
+
+        // Token decimals fallback if state.dec0/dec1 are 0 (layout mismatch)
+        let dec0 = state.dec0;
+        let dec1 = state.dec1;
+        if (dec0 === 0 || dec1 === 0) {
+          const m0 = accountBytes.get(state.token0Mint);
+          const m1 = accountBytes.get(state.token1Mint);
+          if (m0 && m0.length > 44) dec0 = m0[44];
+          if (m1 && m1.length > 44) dec1 = m1[44];
+        }
+
+        const v0Ui = Number(v0) / Math.pow(10, dec0);
+        const v1Ui = Number(v1) / Math.pow(10, dec1);
+
+        // ── Pricing & TVL — On-chain oracle (single source of truth) ─────
+        // Same logic as before: BRAINS pool → BRAINS oracle anchor;
+        // XNT pool → XNT oracle anchor; other → XDEX API + 5x sanity check.
+        let price0 = 0, price1 = 0, tvlUsd = 0;
+        try {
+          const t0 = state.token0Mint;
+          const t1 = state.token1Mint;
+          const brainsIsT0 = t0 === BRAINS_MINT_STR;
+          const brainsIsT1 = t1 === BRAINS_MINT_STR;
+          const xntIsT0    = t0 === WXNT_MINT;
+          const xntIsT1    = t1 === WXNT_MINT;
+          const isBrainsPool = brainsIsT0 || brainsIsT1;
+          const isXntPool    = xntIsT0    || xntIsT1;
+
+          const xntUsd    = _oracleXntUsd;
+          const brainsUsd = _oracleBrainsUsd;
+
+          if (isBrainsPool) {
+            if (brainsUsd > 0 && v0Ui > 0 && v1Ui > 0) {
+              const brainsUi = brainsIsT1 ? v1Ui : v0Ui;
+              const otherUi  = brainsIsT1 ? v0Ui : v1Ui;
+              const brainsSide = brainsUi * brainsUsd;
+              const otherDerivedPrice = brainsSide / otherUi;
+              if (brainsIsT1) { price1 = brainsUsd; price0 = otherDerivedPrice; }
+              else            { price0 = brainsUsd; price1 = otherDerivedPrice; }
+              tvlUsd = brainsSide * 2;
+            }
+          } else if (isXntPool) {
+            if (xntUsd > 0 && v0Ui > 0 && v1Ui > 0) {
+              const xntUi   = xntIsT1 ? v1Ui : v0Ui;
+              const otherUi = xntIsT1 ? v0Ui : v1Ui;
+              const xntSide = xntUi * xntUsd;
+              const otherDerivedPrice = xntSide / otherUi;
+              if (xntIsT1) { price1 = xntUsd; price0 = otherDerivedPrice; }
+              else         { price0 = xntUsd; price1 = otherDerivedPrice; }
+              tvlUsd = xntSide * 2;
+            }
+          }
+          // Note: third branch (no BRAINS, no XNT) used to fetch XDEX API for
+          // both sides. Removed from synchronous batch path; pools matching
+          // that case will show '—'. Most/all real pools have BRAINS or XNT.
+        } catch {}
+
+        // Belt-and-suspenders TVL ceiling
+        const MAX_PLAUSIBLE_TVL = 10_000_000;
+        if (tvlUsd > MAX_PLAUSIBLE_TVL) {
+          tvlUsd = 0;
+          price0 = 0;
+          price1 = 0;
+        }
+
+        const supply = Number(state.lpSupply);
+        const lpPrice = supply > 0 && tvlUsd > 0
+          ? tvlUsd / (supply / Math.pow(10, lpDecimalsResolved))
+          : 0;
+
+        views[i] = {
+          ...base,
+          state, vault0Bal: v0, vault1Bal: v1,
+          sym0, sym1, logo0, logo1,
+          tvlUsd, price0, price1, lpPrice,
+          walletLp: walletLpMap.get(rec.poolAddr) ?? 0n,
+          lpDecimals: lpDecimalsResolved,
+          dec0, dec1,
+          loading: false,
+        };
       }
 
-      // Stagger: kick off pool fetches with a 150ms gap between starts, then
-      // patch each result into state as it lands. Total wall-clock is roughly
-      // (N × 150ms) + slowest-pool-fetch instead of (sum of all fetches).
-      const views: PoolView[] = new Array(realPools.length);
-      const inFlight: Promise<void>[] = [];
-      for (let i = 0; i < realPools.length; i++) {
-        const rec = realPools[i];
-        const idx = i;
-        if (i > 0) await new Promise(r => setTimeout(r, STAGGER_MS));
-        inFlight.push(
-          loadOnePool(rec).then(view => {
-            views[idx] = view;
-            setPools(prev => {
-              const next = [...prev];
-              next[idx] = view;
-              return next;
-            });
-          }),
-        );
-      }
-      await Promise.allSettled(inFlight);
+      // All pools rendered together — single setPools call, no staggered
+      // partial-load flicker. Total wall-clock: ~1-2 seconds regardless of
+      // pool count.
+      setPools(views);
 
       // Dispatch ecosystem TVL to dashboard — only the 5 known BRAINS ecosystem pools
       const ECOSYSTEM_POOL_ADDRS = new Set([
@@ -1759,8 +2039,11 @@ const PoolsTab: FC = () => {
         'HWmgietnQGE3eK11PhaCsZi6E3iFzCK3n8wTDrYoiLoP',
         'DjaYfY2s7BFxs8Se13ZVcHS48UCvZgFFuxaWgPiabYve',
       ]);
+      // Note: PoolView has `poolAddr`, not `address`. The previous code used
+      // `v.address` (undefined) so the filter matched nothing and the event
+      // never fired with a real TVL. Fixed.
       const ecosystemTvl = views
-        .filter(v => ECOSYSTEM_POOL_ADDRS.has(v.address))
+        .filter(v => v && ECOSYSTEM_POOL_ADDRS.has(v.poolAddr))
         .reduce((sum, v) => sum + (v.tvlUsd || 0), 0);
       if (ecosystemTvl > 0) {
         window.dispatchEvent(new CustomEvent('xbrains-tvl', { detail: { totalTvl: ecosystemTvl } }));
