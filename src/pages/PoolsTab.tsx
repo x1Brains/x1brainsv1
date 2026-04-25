@@ -46,7 +46,6 @@ interface PoolRecord {
   lpUserB:    bigint;
   creatorA:   string;
   creatorB:   string;
-  usdVal:     number;
   createdAt:  number;
   seeded:     boolean;
 }
@@ -313,7 +312,10 @@ async function fetchPoolRecords(): Promise<PoolRecord[]> {
       lpUserB:    readU64(d, D + 178),
       creatorA:   readPubkey(d, D + 186),
       creatorB:   readPubkey(d, D + 218),
-      usdVal:     Number(readU64(d, D + 250)),
+      // Note: bytes 250..258 used to hold a `usd_val` field. Either the on-chain
+      // program no longer populates it, or its layout shifted — reading it back
+      // now produces garbage. Removed from this parser to avoid misuse.
+      // TVL is now computed exclusively from XDEX vault reserves × token prices.
       createdAt:  Number(readU64(d, D + 258)),  // i64 but safe as number for timestamps
       seeded:     d[D + 266] === 1,
     };
@@ -1332,7 +1334,11 @@ const PoolCard: FC<{
               </div>
             )}
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 13 : 15, fontWeight: 900, color: '#00d4ff' }}>
-              {fmtUSD(pool.tvlUsd)}
+              {pool.loading
+                ? <span style={{ color: '#4a6a8a' }}>…</span>
+                : pool.tvlUsd > 0
+                  ? fmtUSD(pool.tvlUsd)
+                  : <span style={{ color: '#4a6a8a' }}>—</span>}
             </div>
             <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#4a6a8a', marginTop: 2 }}>TVL</div>
           </div>
@@ -1341,9 +1347,9 @@ const PoolCard: FC<{
         {/* Stats row */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
           {[
-            { label: pool.sym0 + ' PRICE', val: pool.price0 > 0 ? fmtUSD(pool.price0) : '—' },
-            { label: pool.sym1 + ' PRICE', val: pool.price1 > 0 ? fmtUSD(pool.price1) : '—' },
-            { label: 'LIQUIDITY',           val: pool.tvlUsd > 0 ? fmtUSD(pool.tvlUsd) : '—' },
+            { label: pool.sym0 + ' PRICE', val: pool.loading ? '…' : pool.price0 > 0 ? fmtUSD(pool.price0) : '—' },
+            { label: pool.sym1 + ' PRICE', val: pool.loading ? '…' : pool.price1 > 0 ? fmtUSD(pool.price1) : '—' },
+            { label: 'LIQUIDITY',           val: pool.loading ? '…' : pool.tvlUsd > 0 ? fmtUSD(pool.tvlUsd) : '—' },
           ].map(s => (
             <div key={s.label} style={{ background: 'rgba(255,255,255,.02)', borderRadius: 8, padding: '8px 10px' }}>
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#3a5a6a', letterSpacing: .5, marginBottom: 4 }}>{s.label}</div>
@@ -1524,8 +1530,29 @@ const PoolsTab: FC = () => {
       const records = await fetchPoolRecords();
       const realPools = records; // show all pools including seeded ecosystem pools
 
-      // Load all pool states, vault balances, metadata, LP balances in parallel
-      const views = await Promise.all(realPools.map(async (rec): Promise<PoolView> => {
+      // Initialize pools in loading state so the UI shows skeleton/dashes
+      // immediately, then patch each pool in as its data arrives. This avoids
+      // a long blank-screen wait and lets the user see progress.
+      const initialViews: PoolView[] = realPools.map((rec) => ({
+        ...rec,
+        vault0Bal: 0n, vault1Bal: 0n,
+        sym0: rec.tokenAMint.slice(0, 4).toUpperCase(),
+        sym1: rec.tokenBMint.slice(0, 4).toUpperCase(),
+        tvlUsd: 0, price0: 0, price1: 0, lpPrice: 0,
+        walletLp: 0n, lpDecimals: 9, dec0: 9, dec1: 9, loading: true,
+      }));
+      setPools(initialViews);
+
+      // Stagger pool fetches: 150ms gap between starting each pool. The X1
+      // public RPC throttles at ~10–20 req/sec; firing 10 pools × 5 calls
+      // each in parallel produces 429s and cascading retry storms. Staggering
+      // keeps us under the limit while still loading all pools in ~1.5s total.
+      const STAGGER_MS = 150;
+
+      // Internal helper that does ONE pool's full fetch (state + meta + vaults
+      // + prices). Same body as before — just lifted into a named function so
+      // we can call it sequentially.
+      async function loadOnePool(rec: typeof realPools[number]): Promise<PoolView> {
         const base: PoolView = {
           ...rec,
           vault0Bal: 0n, vault1Bal: 0n,
@@ -1593,50 +1620,94 @@ const PoolsTab: FC = () => {
           const v0Ui = Number(v0) / Math.pow(10, dec0);
           const v1Ui = Number(v1) / Math.pow(10, dec1);
 
-          // Get real USD prices for BOTH tokens from XDEX API
-          // For BRAINS: API returns stale price — derive from this pool's vault ratio using token0 price
+          // ── Pricing & TVL ─────────────────────────────────────────────
+          //
+          // Strategy: a constant-product pool's two sides should have equal
+          // dollar value (ignoring the small fee buffer). If we have API prices
+          // for BOTH tokens, we compute TVL from each side independently and
+          // require them to agree within 5×. If they don't, the pool is
+          // imbalanced enough that prices are unreliable — show '—' rather
+          // than fake billions.
+          //
+          // For BRAINS-paired pools where the other token has no API price,
+          // we anchor on BRAINS from the API side ONLY: TVL = 2 × (BRAINS
+          // reserves × BRAINS price). The other half is implicitly the same
+          // by AMM invariant.
           let price0 = 0, price1 = 0, tvlUsd = 0;
           const BRAINS_MINT_LOCAL = 'EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC1EHUBtPN';
           try {
-            // Determine which side is BRAINS
             const brainsIsToken1 = state.token1Mint === BRAINS_MINT_LOCAL;
             const brainsIsToken0 = state.token0Mint === BRAINS_MINT_LOCAL;
-            const nonBrainsMint  = brainsIsToken1 ? state.token0Mint : brainsIsToken0 ? state.token1Mint : null;
 
-            if (nonBrainsMint) {
-              // Pool has BRAINS on one side — fetch only the non-BRAINS token price
-              const pRes = await fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${nonBrainsMint}`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null);
-              const refPrice = pRes?.success && pRes?.data?.price ? Number(pRes.data.price) : 0;
-              if (refPrice > 0 && v0Ui > 0 && v1Ui > 0) {
-                if (brainsIsToken1) {
-                  price0 = refPrice;
-                  price1 = refPrice * (v0Ui / v1Ui); // BRAINS = token0_price × (vault0/vault1)
+            if (brainsIsToken0 || brainsIsToken1) {
+              const nonBrainsMint = brainsIsToken1 ? state.token0Mint : state.token1Mint;
+              const [pNonBrains, pBrains] = await Promise.all([
+                fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${nonBrainsMint}`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null),
+                fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${BRAINS_MINT_LOCAL}`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null),
+              ]);
+              const otherPrice  = pNonBrains?.success && pNonBrains?.data?.price ? Number(pNonBrains.data.price) : 0;
+              const brainsPrice = pBrains?.success    && pBrains?.data?.price    ? Number(pBrains.data.price)    : 0;
+
+              const brainsUi = brainsIsToken1 ? v1Ui : v0Ui;
+              const otherUi  = brainsIsToken1 ? v0Ui : v1Ui;
+
+              if (brainsPrice > 0 && otherPrice > 0 && brainsUi > 0 && otherUi > 0) {
+                // Both API prices available — compute each side's TVL contribution
+                // and reject if they disagree by more than 5×. Disagreement means
+                // either the pool is broken or one of the API prices is wrong.
+                const brainsSide = brainsUi * brainsPrice;
+                const otherSide  = otherUi  * otherPrice;
+                const ratio = Math.max(brainsSide, otherSide) / Math.min(brainsSide, otherSide);
+
+                if (ratio < 5) {
+                  // Pool is balanced — both prices trustworthy
+                  if (brainsIsToken1) { price0 = otherPrice; price1 = brainsPrice; }
+                  else                { price1 = otherPrice; price0 = brainsPrice; }
+                  tvlUsd = brainsSide + otherSide;
                 } else {
-                  price1 = refPrice;
-                  price0 = refPrice * (v1Ui / v0Ui); // BRAINS = token1_price × (vault1/vault0)
+                  // Pool is imbalanced — anchor on BRAINS side only (more
+                  // reliable since BRAINS has its own deeper liquidity).
+                  // TVL = 2 × BRAINS side (AMM invariant: both sides equal value).
+                  if (brainsIsToken1) { price1 = brainsPrice; price0 = brainsSide / otherUi; }
+                  else                { price0 = brainsPrice; price1 = brainsSide / otherUi; }
+                  tvlUsd = brainsSide * 2;
                 }
-                tvlUsd = price0 * v0Ui + price1 * v1Ui;
+              } else if (brainsPrice > 0 && brainsUi > 0) {
+                // Only BRAINS price known — anchor on BRAINS side, derive the
+                // other token's price from pool ratio (TVL = 2 × BRAINS side).
+                if (brainsIsToken1) { price1 = brainsPrice; price0 = (brainsUi * brainsPrice) / otherUi; }
+                else                { price0 = brainsPrice; price1 = (brainsUi * brainsPrice) / otherUi; }
+                tvlUsd = brainsUi * brainsPrice * 2;
               }
+              // else: BRAINS price unavailable — leave tvlUsd at 0
             } else {
-              // No BRAINS side — fetch both prices independently
+              // No BRAINS side — both tokens need API prices. Apply same 5×
+              // sanity check between sides.
               const [p0res, p1res] = await Promise.all([
                 fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${state.token0Mint}`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null),
                 fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${state.token1Mint}`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => null),
               ]);
-              if (p0res?.success && p0res?.data?.price) price0 = Number(p0res.data.price);
-              if (p1res?.success && p1res?.data?.price) price1 = Number(p1res.data.price);
-              if (price0 > 0 && price1 > 0) tvlUsd = price0 * v0Ui + price1 * v1Ui;
-              else if (price0 > 0) { price1 = price0 * (v0Ui / v1Ui); tvlUsd = price0 * v0Ui + price1 * v1Ui; }
-              else if (price1 > 0) { price0 = price1 * (v1Ui / v0Ui); tvlUsd = price0 * v0Ui + price1 * v1Ui; }
+              const p0 = p0res?.success && p0res?.data?.price ? Number(p0res.data.price) : 0;
+              const p1 = p1res?.success && p1res?.data?.price ? Number(p1res.data.price) : 0;
+              if (p0 > 0 && p1 > 0 && v0Ui > 0 && v1Ui > 0) {
+                const side0 = v0Ui * p0;
+                const side1 = v1Ui * p1;
+                const ratio = Math.max(side0, side1) / Math.min(side0, side1);
+                if (ratio < 5) {
+                  price0 = p0; price1 = p1;
+                  tvlUsd = side0 + side1;
+                }
+                // else: imbalanced, leave tvlUsd at 0
+              }
             }
           } catch {}
 
-          // Fallback to stored usdVal if API fails
-          if (tvlUsd === 0) {
-            tvlUsd = rec.usdVal / 1_000_000;
-            price0 = v0Ui > 0 ? (tvlUsd / 2) / v0Ui : 0;
-            price1 = v1Ui > 0 ? (tvlUsd / 2) / v1Ui : 0;
-          }
+          // No fallback for tvlUsd: if the XDEX price API didn't return a price
+          // for this pool's tokens, leave tvlUsd at 0 so the UI renders '—'.
+          // We previously fell back to `rec.usdVal / 1_000_000` here, but that
+          // field's offset in PoolRecord is not reliable — it was reading
+          // garbage bytes and producing 1M×-inflated values intermittently.
+          // Better to show no number than a misleading one.
 
           // LP price = TVL / LP supply (use resolved decimals, not raw state field)
           const supply  = Number(state.lpSupply);
@@ -1656,9 +1727,29 @@ const PoolsTab: FC = () => {
         } catch {
           return { ...base, loading: false };
         }
-      }));
+      }
 
-      setPools(views);
+      // Stagger: kick off pool fetches with a 150ms gap between starts, then
+      // patch each result into state as it lands. Total wall-clock is roughly
+      // (N × 150ms) + slowest-pool-fetch instead of (sum of all fetches).
+      const views: PoolView[] = new Array(realPools.length);
+      const inFlight: Promise<void>[] = [];
+      for (let i = 0; i < realPools.length; i++) {
+        const rec = realPools[i];
+        const idx = i;
+        if (i > 0) await new Promise(r => setTimeout(r, STAGGER_MS));
+        inFlight.push(
+          loadOnePool(rec).then(view => {
+            views[idx] = view;
+            setPools(prev => {
+              const next = [...prev];
+              next[idx] = view;
+              return next;
+            });
+          }),
+        );
+      }
+      await Promise.allSettled(inFlight);
 
       // Dispatch ecosystem TVL to dashboard — only the 5 known BRAINS ecosystem pools
       const ECOSYSTEM_POOL_ADDRS = new Set([

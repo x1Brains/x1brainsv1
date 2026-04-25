@@ -17,6 +17,8 @@ import {
   createAssociatedTokenAccountIdempotentInstruction,
 } from '@solana/spl-token';
 import { TopBar, PageBackground, Footer } from '../components/UI';
+import { parseFarmError, UNKNOWN_ERROR_FALLBACK } from '../utils/parseError';
+import { resolveClaimTooSoon, formatDuration as fmtFriendlyDuration, type FarmErrorInfo } from '../utils/brainsFarmErrors';
 
 // ═════════════════════════════════════════════════════════════════════════════
 // PROGRAM CONSTANTS — MIRROR brains_farm/src/constants.rs EXACTLY
@@ -591,7 +593,12 @@ async function fetchPositions(
         const penaltyAmount = (amount * BigInt(penaltyBps)) / 10_000n;
 
         const nextClaimAt = lastClaimTs + CLAIM_COOLDOWN_SEC;
-        const canClaim = now >= nextClaimAt && earnedNow > 0n;
+        // Match on-chain claim.rs gates exactly:
+        //   require!(now > grace_end_ts)            ← grace block
+        //   require!(now >= last_claim_ts + 86400)  ← cooldown
+        const pastGrace = now > graceEndTs;
+        const pastCooldown = now >= nextClaimAt;
+        const canClaim = pastGrace && pastCooldown && earnedNow > 0n;
         const nextClaimInSec = Math.max(0, nextClaimAt - now);
 
         results.push({
@@ -1111,10 +1118,19 @@ const FarmCard: FC<{
         {LOCK_TIERS.map((tier, i) => {
           const apr = [apr30, apr90, apr365][i];
           return (
-            <div key={tier.id} style={{
+            <div key={tier.id}
+              title={
+                'Current realized APR — calculated from the live emission rate, current TVL, ' +
+                "and the average lock multiplier across all stakers. Your personal APR depends " +
+                'on the TVL and tier mix at the moment you stake. On a small farm, a large new ' +
+                'stake will lower the displayed number for everyone (including you). ' +
+                'The ratio updates live as positions are opened and closed.'
+              }
+              style={{
               background: `${tier.color}06`,
               border: `1px solid ${tier.color}22`,
               borderRadius: 7, padding: '9px 8px', textAlign: 'center',
+              cursor: 'help',
             }}>
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7,
                 letterSpacing: 1, color: tier.color, marginBottom: 3, fontWeight: 700 }}>
@@ -1126,7 +1142,7 @@ const FarmCard: FC<{
               </div>
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#4a6a8a', marginTop: 3,
                 letterSpacing: .5 }}>
-                APR · {tier.multDisplay}
+                APR · {tier.multDisplay} ⓘ
               </div>
             </div>
           );
@@ -1293,9 +1309,18 @@ const PositionCard: FC<{
             background: position.canClaim ? 'rgba(0,201,141,.12)' : 'rgba(255,255,255,.03)',
             border: `1px solid ${position.canClaim ? 'rgba(0,201,141,.4)' : 'rgba(255,255,255,.08)'}`,
             fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 900,
-            color: position.canClaim ? '#00c98d' : '#4a6a8a', letterSpacing: 1 }}>
+            color: position.canClaim ? '#00c98d' : '#4a6a8a', letterSpacing: 1 }}
+          title={
+            isInGrace
+              ? `3-day grace period — claim opens in ${fmtFriendlyDuration(position.graceEndTs - now + 1)}. Free exit window with no penalty.`
+              : !position.canClaim
+              ? `Claim every 24 hours. Next claim in ${fmtFriendlyDuration(position.nextClaimInSec)}.`
+              : ''
+          }>
           {position.canClaim
             ? '💰 CLAIM'
+            : isInGrace
+            ? `🛡️ GRACE · ${fmtFriendlyDuration(position.graceEndTs - now + 1)}`
             : `⏱ CLAIM IN ${hoursToClaim}h ${minsToClaim}m`}
         </button>
         <button onClick={onUnstake}
@@ -1435,7 +1460,8 @@ const StakeModal: FC<{
       }
       throw new Error('Confirmation timeout');
     } catch (e: any) {
-      setStatus('❌ ' + (e?.message ?? String(e)).slice(0, 200));
+      const friendly = friendlyError(e);
+      setStatus(`❌ ${friendly.title} — ${friendly.message}`);
     } finally { setPending(false); }
   };
 
@@ -1519,14 +1545,17 @@ const StakeModal: FC<{
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9,
             color: '#8899aa', letterSpacing: 1, marginBottom: 10 }}>PROJECTION</div>
           {[
-            { label: 'EFFECTIVE APR',       val: apr > 0 ? `${apr < 10_000 ? apr.toFixed(2) : fmtNum(apr, 0)}%` : '—', color: tier.color },
-            { label: 'YEARLY REWARD (est)', val: projYearReward > 0 ? `${fmtNum(projYearReward, 2)} ${farm.rewardSymbol}` : '—', color: '#00c98d' },
-            { label: 'UNLOCK DATE',         val: `${tier.days} days from now`, color: '#d0dde8' },
-            { label: 'STAKE FEE',            val: `${feeXnt} XNT`, color: '#ff8c00' },
+            { label: 'EFFECTIVE APR',       val: apr > 0 ? `${apr < 10_000 ? apr.toFixed(2) : fmtNum(apr, 0)}%` : '—', color: tier.color, tip: 'Current realized APR for this tier — based on the live rate and existing stakers. Your actual APR will shift slightly as your stake joins the pool: if you commit a large amount relative to current TVL, the displayed number drops for everyone (you included). Updates live.' },
+            { label: 'YEARLY REWARD (est)', val: projYearReward > 0 ? `${fmtNum(projYearReward, 2)} ${farm.rewardSymbol}` : '—', color: '#00c98d', tip: 'Estimated rewards over a full year at the current rate. Actual amount depends on TVL changes and your stake size relative to the pool.' },
+            { label: 'UNLOCK DATE',         val: `${tier.days} days from now`, color: '#d0dde8', tip: '' },
+            { label: 'STAKE FEE',            val: `${feeXnt} XNT`, color: '#ff8c00', tip: 'Flat fee paid to the protocol treasury on stake. One-time, charged in XNT.' },
           ].map(r => (
-            <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between',
-              padding: '4px 0', fontFamily: 'Orbitron,monospace', fontSize: 10 }}>
-              <span style={{ color: '#8899aa', letterSpacing: .5 }}>{r.label}</span>
+            <div key={r.label}
+              title={r.tip || undefined}
+              style={{ display: 'flex', justifyContent: 'space-between',
+              padding: '4px 0', fontFamily: 'Orbitron,monospace', fontSize: 10,
+              cursor: r.tip ? 'help' : 'default' }}>
+              <span style={{ color: '#8899aa', letterSpacing: .5 }}>{r.label}{r.tip ? ' ⓘ' : ''}</span>
               <span style={{ color: r.color, fontWeight: 700 }}>{r.val}</span>
             </div>
           ))}
@@ -1682,7 +1711,8 @@ const ClaimModal: FC<{
       }
       throw new Error('Confirmation timeout');
     } catch (e: any) {
-      setStatus('❌ ' + (e?.message ?? String(e)).slice(0, 200));
+      const friendly = friendlyClaimError(e, position);
+      setStatus(`❌ ${friendly.title} — ${friendly.message}`);
     } finally { setPending(false); }
   };
 
@@ -1874,7 +1904,8 @@ const UnstakeModal: FC<{
       }
       throw new Error('Confirmation timeout');
     } catch (e: any) {
-      setStatus('❌ ' + (e?.message ?? String(e)).slice(0, 200));
+      const friendly = friendlyError(e);
+      setStatus(`❌ ${friendly.title} — ${friendly.message}`);
     } finally { setPending(false); }
   };
 
