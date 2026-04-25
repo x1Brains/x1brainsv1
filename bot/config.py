@@ -19,7 +19,7 @@ EXPLORER_URL = "https://explorer.x1.xyz"
 # Bot calls XDEX price API directly (api.xdex.xyz). The frontend goes
 # through /api/xdex-price which Vercel rewrites to api.xdex.xyz, but the
 # bot lives on Fly.io — no need to round-trip through Vercel.
-XDEX_PRICE_BASE = "https://api.xdex.xyz"
+XDEX_PRICE_BASE = "https://api.xdex.xyz/api"
 
 # ═══════════════════════════════════════════════════════════
 # SUPABASE
