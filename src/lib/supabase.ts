@@ -696,3 +696,100 @@ export async function migrateAllToSupabase(): Promise<{ labwork: number; config:
 
   return { labwork, config, logs, announcements, submissions, errors };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BOT ADMIN — append these to your existing src/lib/supabase.ts
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// These functions wrap your existing adminFetch() helper to talk to the
+// bot-management actions on /api/admin. The Telegram token is never
+// exposed to the browser — only a masked preview comes back.
+//
+// Paste the block below at the bottom of your existing supabase.ts.
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+export interface BotSettings {
+  brains_buys: boolean;   brains_burns: boolean;   brains_lp: boolean;
+  brains_stake: boolean;  brains_unstake: boolean; brains_claim: boolean;
+  lb_buys: boolean;       lb_burns: boolean;       lb_lp: boolean;
+  lb_stake: boolean;      lb_unstake: boolean;     lb_claim: boolean;
+  min_buy_usd: number;    min_burn_tokens: number; min_lp_usd: number;
+  min_stake_lp: number;   min_claim_usd: number;
+  tier_big_usd: number;   tier_whale_usd: number;
+}
+
+export interface BotConnection {
+  telegram_token_masked: string;
+  chat_id: string;
+  chat_title: string;
+  vaults: {
+    BRAINS: { vault_token: string; vault_quote: string };
+    LB:     { vault_token: string; vault_quote: string };
+  };
+  mints: Record<string, { mint: string; pool: string }>;
+  complete: boolean;
+}
+
+export interface BotChat {
+  id: number | string;
+  title: string;
+  type: string;
+  username?: string;
+}
+
+// ─── Settings ────────────────────────────────────────────────────────────────
+export async function botGetSettings(): Promise<BotSettings | null> {
+  const r = await adminFetch('bot_get_settings');
+  return r.success ? (r.data as BotSettings) : null;
+}
+
+export async function botSaveSettings(updates: Partial<BotSettings>) {
+  return adminFetch('bot_save_settings', updates);
+}
+
+// ─── Connection ──────────────────────────────────────────────────────────────
+export async function botGetConnection(): Promise<BotConnection | null> {
+  const r = await adminFetch('bot_get_connection');
+  return r.success ? (r.data as BotConnection) : null;
+}
+
+export async function botSaveTelegramToken(token: string) {
+  return adminFetch('bot_save_telegram_token', { token });
+}
+
+export async function botSaveChat(chat_id: string, chat_title: string) {
+  return adminFetch('bot_save_chat', { chat_id, chat_title });
+}
+
+export async function botTestTelegram() {
+  return adminFetch('bot_test_telegram');
+}
+
+export async function botDetectChats(): Promise<BotChat[]> {
+  const r = await adminFetch('bot_detect_chats');
+  return r.success ? (r.data?.chats ?? []) : [];
+}
+
+export async function botDetectVaults(token: 'BRAINS' | 'LB') {
+  return adminFetch('bot_detect_vaults', { token });
+}
+
+export async function botSendTestMessage(token: 'BRAINS' | 'LB') {
+  return adminFetch('bot_send_test_message', { token });
+}
+
+export async function botUploadBanner(token: 'BRAINS' | 'LB', file: File): Promise<{ success: boolean; error?: string; data?: { url: string } }> {
+  // Convert file → data URL
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error('file read failed'));
+    reader.readAsDataURL(file);
+  });
+  return adminFetch('bot_upload_banner', { token, dataUrl, filename: file.name });
+}
+
+export async function botGetBannerUrl(token: 'BRAINS' | 'LB'): Promise<string | null> {
+  const r = await adminFetch('bot_get_banner_url', { token });
+  return r.success ? (r.data?.url ?? null) : null;
+}
