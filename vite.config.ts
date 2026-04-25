@@ -54,6 +54,8 @@ export default defineConfig({
           "https://arweave.net",
           "https://*.arweave.net",
           "https://x1punks.xyz",
+          "https://files.catbox.moe",
+          "https://x1factory.xyz",
           "https://moltlab.vercel.app",
           "https://agentid-app.vercel.app",
           "https://apexfaucet.xyz",
