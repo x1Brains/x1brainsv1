@@ -41,7 +41,7 @@ TOKENS = {
         "emoji": "🧠",
         "is_token_2022": True,
         "pool": "7deZorr98nLdZhpmSdUgu8WY4NAjSpeLDGxHzaTAxrUg",
-        "lp_mint": "3B6oAfmL7aGVAbBdu7zW3jqEVWK6o1nwFiufuSuFV6tN",
+        "lp_mint": "FSFjPXo9vAvVsjh6YuuNTjetZ6oZBgfYA6TLcWTYmwq3",
     },
     "LB": {
         "mint": "Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6",
