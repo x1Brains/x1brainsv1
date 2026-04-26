@@ -144,35 +144,161 @@ def detect_burn(tx: dict, token_cfg: dict) -> Optional[dict]:
             "burner": _signer(tx), "method": method}
 
 
-def detect_lp_pair_created(tx: dict) -> Optional[dict]:
-    pids = _program_ids_in_tx(tx)
-    if config.PROGRAMS["PAIRING"] not in pids: return None
+# XDEX (raydium_cp_swap) Anchor instruction discriminators — first 8 bytes of
+# sha256("global:<name>"). These tell us which XDEX op a tx performed even when
+# the call came via CPI from your brains_pairing wrapper.
+_XDEX_DISC = {
+    "initialize": bytes.fromhex("afaf6d1f0d989bed"),  # new pool created
+    "deposit":    bytes.fromhex("f223c68952e1f2b6"),  # liquidity added
+    "withdraw":   bytes.fromhex("b712469c946da122"),  # liquidity removed
+}
 
-    token_symbol = None
-    token_amount = Decimal(0)
-    for sym, cfg in config.TOKENS.items():
-        delta = _balance_delta_for_owner_and_mint(tx, _signer(tx) or "", cfg["mint"])
-        if delta is not None and delta < 0:
-            if abs(delta) > token_amount:
-                token_symbol = sym
-                token_amount = abs(delta) / Decimal(10 ** cfg["decimals"])
+# Tiny base58 decoder so we don't need a third Python dep. Solana uses the
+# Bitcoin alphabet. We only need the first 8 bytes (the discriminator) but
+# decoding the whole string is just as cheap.
+_B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_B58_INDEX = {c: i for i, c in enumerate(_B58_ALPHABET)}
 
-    if not token_symbol: return None
 
-    burn_amt = Decimal(0)
+def _b58decode(s: str) -> bytes:
+    if not s:
+        return b""
+    n = 0
+    for c in s:
+        v = _B58_INDEX.get(c)
+        if v is None:
+            raise ValueError(f"Invalid base58 char: {c!r}")
+        n = n * 58 + v
+    body = n.to_bytes((n.bit_length() + 7) // 8, "big") if n else b""
+    leading_zeros = 0
+    for c in s:
+        if c == "1":
+            leading_zeros += 1
+        else:
+            break
+    return b"\x00" * leading_zeros + body
+
+
+def _xdex_op_in_tx(tx: dict) -> Optional[str]:
+    """Returns 'initialize' / 'deposit' / 'withdraw' if the tx invoked that
+    XDEX instruction (top-level OR via CPI), else None. swapBaseInput/Output
+    are intentionally ignored — buys are detected via vault-delta logic."""
+    xdex_pid = config.PROGRAMS["XDEX"]
     for ix in _all_instructions(tx):
-        parsed = ix.get("parsed", {})
-        if not isinstance(parsed, dict): continue
-        if parsed.get("type") in ("burn", "burnChecked"):
-            info = parsed.get("info", {}) or {}
-            if info.get("mint") == config.TOKENS[token_symbol]["mint"]:
-                amt = info.get("amount") or info.get("tokenAmount", {}).get("amount")
-                if amt:
-                    burn_amt += Decimal(amt) / Decimal(10 ** config.TOKENS[token_symbol]["decimals"])
+        if ix.get("programId") != xdex_pid:
+            continue
+        data = ix.get("data")
+        if not isinstance(data, str):
+            continue
+        try:
+            raw = _b58decode(data)
+        except Exception:
+            continue
+        if len(raw) < 8:
+            continue
+        head = raw[:8]
+        for op, disc in _XDEX_DISC.items():
+            if head == disc:
+                return op
+    return None
 
-    return {"type": "lp_pair", "token": token_symbol,
-            "amount": token_amount, "burned": burn_amt,
+
+def _vault_token_delta(tx: dict) -> Optional[tuple[str, Decimal]]:
+    """Looks at the pool's TOKEN vault (BRAINS or LB) and returns the change.
+    Reads vault addresses from on-chain config (not signer ATAs), so it's
+    immune to RPCs that don't fill the `owner` field on token balance entries.
+    Returns (symbol, signed_delta_ui), or None if no recognized pool was touched.
+    Positive delta = tokens flowed INTO pool (lp_add / initialize)
+    Negative delta = tokens flowed OUT of pool (lp_remove)"""
+    # Vaults are loaded fresh per-loop in bot.py via get_active_token_cfg(),
+    # but events.py is stateless — it can only see config.TOKENS, which carries
+    # static info. The vault address gets injected at classify-time via
+    # `vault_token` field on the token_cfg passed in. We don't have that here,
+    # so we instead do a sweep: find any account whose post-token-balance mint
+    # matches BRAINS or LB and whose balance changed; the larger one wins.
+    meta = tx.get("meta", {}) or {}
+    pre = meta.get("preTokenBalances", []) or []
+    post = meta.get("postTokenBalances", []) or []
+
+    # Build (idx -> sym) map from the BRAINS/LB mints we know about
+    mint_to_sym = {cfg["mint"]: sym for sym, cfg in config.TOKENS.items()}
+
+    # Sum balance change per account, filtered to our token mints
+    pre_by_idx, post_by_idx, idx_to_sym = {}, {}, {}
+    for b in pre:
+        sym = mint_to_sym.get(b.get("mint"))
+        if not sym: continue
+        idx = b.get("accountIndex")
+        pre_by_idx[idx] = Decimal(b.get("uiTokenAmount", {}).get("amount", "0"))
+        idx_to_sym[idx] = sym
+    for b in post:
+        sym = mint_to_sym.get(b.get("mint"))
+        if not sym: continue
+        idx = b.get("accountIndex")
+        post_by_idx[idx] = Decimal(b.get("uiTokenAmount", {}).get("amount", "0"))
+        idx_to_sym[idx] = sym
+
+    # Pick the largest absolute delta — that's the pool vault, not the user ATA
+    # (the pool vault holds 100k+ tokens; user accounts might hold a few hundred,
+    # and the deposit/withdraw amounts are equal in magnitude on both sides, so
+    # we need a different tie-break). Use largest POST balance instead — pool
+    # vaults hold orders of magnitude more than user wallets.
+    if not post_by_idx:
+        return None
+    pool_idx = max(post_by_idx, key=lambda i: post_by_idx.get(i, Decimal(0)))
+    sym = idx_to_sym.get(pool_idx)
+    if not sym:
+        return None
+    delta_raw = post_by_idx.get(pool_idx, Decimal(0)) - pre_by_idx.get(pool_idx, Decimal(0))
+    if delta_raw == 0:
+        return None
+    decimals = config.TOKENS[sym]["decimals"]
+    return sym, delta_raw / Decimal(10 ** decimals)
+
+
+def detect_lp_pair_created(tx: dict) -> Optional[dict]:
+    """New pool created via XDEX `initialize` for BRAINS / LB."""
+    if _xdex_op_in_tx(tx) != "initialize":
+        return None
+    res = _vault_token_delta(tx)
+    if not res:
+        return None
+    sym, delta_ui = res
+    if delta_ui <= 0:
+        return None  # initialize must add tokens to pool
+    return {"type": "lp_pair", "token": sym,
+            "amount": delta_ui, "burned": Decimal(0),
             "creator": _signer(tx)}
+
+
+def detect_lp_add(tx: dict) -> Optional[dict]:
+    """Liquidity added to existing pool via XDEX `deposit`."""
+    if _xdex_op_in_tx(tx) != "deposit":
+        return None
+    res = _vault_token_delta(tx)
+    if not res:
+        return None
+    sym, delta_ui = res
+    if delta_ui <= 0:
+        return None  # deposit must add tokens to pool
+    return {"type": "lp_add", "token": sym,
+            "amount": delta_ui,
+            "provider": _signer(tx)}
+
+
+def detect_lp_remove(tx: dict) -> Optional[dict]:
+    """Liquidity removed from existing pool via XDEX `withdraw`."""
+    if _xdex_op_in_tx(tx) != "withdraw":
+        return None
+    res = _vault_token_delta(tx)
+    if not res:
+        return None
+    sym, delta_ui = res
+    if delta_ui >= 0:
+        return None  # withdraw must remove tokens from pool
+    return {"type": "lp_remove", "token": sym,
+            "amount": abs(delta_ui),
+            "provider": _signer(tx)}
 
 
 def detect_farm_action(tx: dict) -> Optional[dict]:
@@ -223,6 +349,12 @@ def classify(tx: dict) -> list[dict]:
         if e: events.append(e)
 
     e = detect_lp_pair_created(tx)
+    if e: events.append(e)
+
+    e = detect_lp_add(tx)
+    if e: events.append(e)
+
+    e = detect_lp_remove(tx)
     if e: events.append(e)
 
     e = detect_farm_action(tx)
