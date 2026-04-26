@@ -9,12 +9,28 @@ import requests
 
 log = logging.getLogger("rpc")
 
+# Reset the underlying requests.Session() after this many consecutive failures.
+# Prevents a wedged connection pool from silently killing the bot during
+# upstream RPC outages — once the upstream recovers, the next call gets a
+# fresh session and resumes working without a manual restart.
+SESSION_RESET_AFTER = 10
+
 
 class RPC:
     def __init__(self, url: str):
         self.url = url
         self.session = requests.Session()
         self._id = 0
+        self._consecutive_failures = 0
+
+    def _reset_session(self) -> None:
+        try:
+            self.session.close()
+        except Exception:
+            pass
+        self.session = requests.Session()
+        self._consecutive_failures = 0
+        log.warning("RPC session reset after %d consecutive failures", SESSION_RESET_AFTER)
 
     def call(self, method: str, params: list, retries: int = 2) -> Any:
         self._id += 1
@@ -27,9 +43,13 @@ class RPC:
                 data = r.json()
                 if "error" in data:
                     raise RuntimeError(f"RPC {method} error: {data['error']}")
+                self._consecutive_failures = 0
                 return data.get("result")
             except Exception as e:
                 last_err = e
+                self._consecutive_failures += 1
+                if self._consecutive_failures >= SESSION_RESET_AFTER:
+                    self._reset_session()
                 if attempt < retries:
                     time.sleep(0.5 * (attempt + 1))
         raise last_err  # type: ignore

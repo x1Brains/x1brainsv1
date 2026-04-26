@@ -150,6 +150,15 @@ async def main_loop():
     last_token = ""
     processed: set[str] = set()
 
+    # --- Heartbeat state -------------------------------------------------
+    # Tracks consecutive cycles where every account 503'd (or otherwise
+    # failed). Once we cross the threshold we post one warning to TG;
+    # when we get our first successful cycle after that, we post a recovery.
+    HEARTBEAT_THRESHOLD = 5  # consecutive fully-failed cycles before alerting
+    failed_cycles = 0
+    rpc_alerted = False
+    # ---------------------------------------------------------------------
+
     while True:
         try:
             if not storage.is_connection_complete():
@@ -179,11 +188,15 @@ async def main_loop():
                     log.warning(f"Seed {acc[:8]}…: {e}")
 
             new_tx_sigs: dict[str, dict] = {}
+            cycle_ok = 0
+            cycle_fail = 0
             for acc in accounts:
                 last = storage.get_last_sig(acc)
                 try:
                     sigs = rpc.get_signatures_for_address(acc, limit=config.SIG_BATCH_SIZE)
+                    cycle_ok += 1
                 except Exception as e:
+                    cycle_fail += 1
                     log.warning(f"sigs for {acc[:8]}…: {e}"); continue
 
                 fresh = []
@@ -199,6 +212,33 @@ async def main_loop():
                     sig = s["signature"]
                     if sig in processed or sig in new_tx_sigs: continue
                     new_tx_sigs[sig] = {"sig": sig, "account": acc}
+
+            # --- Heartbeat alert logic -----------------------------------
+            if cycle_ok == 0 and cycle_fail > 0:
+                failed_cycles += 1
+                if failed_cycles == HEARTBEAT_THRESHOLD and not rpc_alerted and bot is not None:
+                    try:
+                        await bot.send_message(
+                            chat_id=conn["chat_id"],
+                            text="⚠️ X1 RPC unavailable — buy/event alerts may be delayed.",
+                        )
+                        rpc_alerted = True
+                        log.warning(f"Posted RPC-degraded heartbeat after {failed_cycles} failed cycles")
+                    except Exception as e:
+                        log.warning(f"Failed to post RPC-degraded heartbeat: {e}")
+            elif cycle_ok > 0:
+                if rpc_alerted and bot is not None:
+                    try:
+                        await bot.send_message(
+                            chat_id=conn["chat_id"],
+                            text="✅ X1 RPC recovered — alerts are flowing again.",
+                        )
+                        log.info("Posted RPC-recovered heartbeat")
+                    except Exception as e:
+                        log.warning(f"Failed to post RPC-recovered heartbeat: {e}")
+                failed_cycles = 0
+                rpc_alerted = False
+            # -------------------------------------------------------------
 
             if new_tx_sigs:
                 log.info(f"Found {len(new_tx_sigs)} new tx(s)")
