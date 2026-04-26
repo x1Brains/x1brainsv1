@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>X1 Brains · Bot Admin · Preview</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;800;900&family=Sora:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #02040a;
+    background-image:
+      radial-gradient(circle at 20% 30%, rgba(255,140,0,0.06), transparent 50%),
+      radial-gradient(circle at 80% 70%, rgba(0,212,255,0.04), transparent 50%),
+      radial-gradient(circle at 50% 50%, rgba(140,60,255,0.03), transparent 50%);
+    min-height: 100vh; font-family: 'Sora', sans-serif; color: #d4e0ec;
+    padding: 32px 16px 80px;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+  .preview-note {
+    max-width: 1100px; margin: 0 auto 24px; padding: 12px 18px; border-radius: 10px;
+    background: rgba(255,183,0,0.08); border: 1px solid rgba(255,183,0,0.3);
+    color: #ffb700; font-family: 'Sora', sans-serif; font-size: 12px;
+  }
+  .preview-note b {
+    font-family: 'Orbitron', monospace; font-size: 10px;
+    letter-spacing: 2px; margin-right: 8px;
+  }
+
+  .grid-bg {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0.6;
+    background-image: linear-gradient(rgba(255,140,0,0.04) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255,140,0,0.04) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  @keyframes admPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+  @keyframes admFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .pulse { animation: admPulse 2s ease infinite; }
+
+  /* HERO */
+  .hero {
+    position: relative; overflow: hidden; margin-bottom: 28px; padding: 24px 28px;
+    background: linear-gradient(160deg, #040810 0%, #0a0612 50%, #08040e 100%);
+    border: 1px solid rgba(255,140,0,0.2);
+    border-top: 2px solid rgba(255,140,0,0.45);
+    border-radius: 18px;
+    box-shadow: 0 0 40px rgba(255,140,0,0.06);
+  }
+  .hero-orb {
+    position: absolute; top: -80px; right: -80px; width: 240px; height: 240px;
+    border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle, rgba(255,140,0,0.18), transparent 70%);
+  }
+  .hero-content { position: relative; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .hero-icon { font-size: 44px; filter: drop-shadow(0 0 16px rgba(255,140,0,0.6)); }
+  .hero-titles { flex: 1; min-width: 200px; }
+  .hero-eyebrow { font-family: 'Orbitron', monospace; font-size: 8px; font-weight: 700;
+    letter-spacing: 4px; color: rgba(255,140,0,0.6); margin-bottom: 4px; }
+  .hero-title { font-family: 'Orbitron', monospace; font-size: 26px; font-weight: 900;
+    letter-spacing: 4px; color: #fff; text-shadow: 0 0 20px rgba(255,140,0,0.4); }
+  .hero-sub { font-family: 'Sora', sans-serif; font-size: 12px; color: #7a9ab8;
+    margin-top: 6px; line-height: 1.5; }
+
+  .pills { display: flex; flex-direction: column; gap: 8px; min-width: 200px; }
+  .pill { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 8px; }
+  .pill-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .pill-text { flex: 1; }
+  .pill-label { font-family: 'Orbitron', monospace; font-size: 7px; letter-spacing: 2px; margin-bottom: 2px; }
+  .pill-value { font-family: 'Orbitron', monospace; font-size: 11px; font-weight: 800; letter-spacing: 1.5px; }
+  .pill-green  { background: rgba(57,255,136,0.1); border: 1px solid rgba(57,255,136,0.3); }
+  .pill-green .pill-dot, .pill-green .pill-value { background: #39ff88; color: #39ff88; }
+  .pill-green .pill-label { color: rgba(57,255,136,0.7); }
+  .pill-blue   { background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.3); }
+  .pill-blue .pill-dot, .pill-blue .pill-value { background: #00d4ff; color: #00d4ff; }
+  .pill-blue .pill-label { color: rgba(0,212,255,0.7); }
+  .pill-purple { background: rgba(191,90,242,0.1); border: 1px solid rgba(191,90,242,0.3); }
+  .pill-purple .pill-dot, .pill-purple .pill-value { background: #bf5af2; color: #bf5af2; }
+  .pill-purple .pill-label { color: rgba(191,90,242,0.7); }
+
+  /* CONNECTION PANEL */
+  .conn-panel {
+    position: relative; overflow: hidden; margin-bottom: 24px;
+    background: linear-gradient(160deg, #040810, #0a0612, #08040e);
+    border: 1px solid rgba(57,255,136,0.18);
+    border-top: 2px solid rgba(57,255,136,0.5);
+    border-radius: 16px; padding: 22px 24px;
+    box-shadow: 0 0 30px rgba(57,255,136,0.05);
+    animation: admFadeUp 0.4s ease both;
+  }
+  .conn-panel .grid-bg {
+    background-image: linear-gradient(rgba(57,255,136,0.04) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(57,255,136,0.04) 1px, transparent 1px);
+  }
+  .conn-orb {
+    position: absolute; top: -50px; right: -50px; width: 180px; height: 180px;
+    border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle, rgba(57,255,136,0.10), transparent 70%);
+  }
+  .conn-header { display: flex; align-items: center; gap: 12px; margin-bottom: 6px;
+    position: relative; }
+  .conn-icon { font-size: 28px; filter: drop-shadow(0 0 12px rgba(57,255,136,0.6)); }
+  .conn-title { font-family: 'Orbitron', monospace; font-size: 16px; font-weight: 900;
+    letter-spacing: 3px; color: #39ff88; }
+  .conn-sub { font-family: 'Sora', sans-serif; font-size: 11px; color: #7a9ab8; }
+  .conn-ready-badge {
+    font-family: 'Orbitron', monospace; font-size: 9px; font-weight: 800;
+    color: #39ff88; background: rgba(57,255,136,0.1);
+    border: 1px solid rgba(57,255,136,0.3);
+    padding: 5px 10px; border-radius: 6px; letter-spacing: 1.5px;
+  }
+  .conn-divider { height: 1px; margin: 14px 0 16px;
+    background: linear-gradient(90deg, transparent, rgba(57,255,136,0.4), transparent); }
+
+  .conn-step { margin-bottom: 18px; position: relative; }
+  .conn-step-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .conn-step-num {
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Orbitron', monospace; font-size: 10px; font-weight: 900;
+    background: #39ff88; color: #0a0e14; border: 1px solid #39ff88;
+    box-shadow: 0 0 10px rgba(57,255,136,0.4);
+  }
+  .conn-step-title { font-family: 'Orbitron', monospace; font-size: 11px;
+    font-weight: 800; letter-spacing: 2px; color: #39ff88; }
+  .conn-step-body { margin-left: 32px; }
+  .conn-row { display: flex; align-items: center; gap: 12px; }
+  .conn-saved {
+    flex: 1; padding: 10px 14px;
+    background: rgba(57,255,136,0.06);
+    border: 1px solid rgba(57,255,136,0.2);
+    border-radius: 8px;
+    font-family: monospace; font-size: 12px; color: #9abacf;
+  }
+  .chat-saved {
+    flex: 1; padding: 10px 14px;
+    background: rgba(57,255,136,0.06);
+    border: 1px solid rgba(57,255,136,0.2);
+    border-radius: 8px;
+    font-family: 'Sora', sans-serif; font-size: 12px;
+  }
+  .chat-saved-title { color: #d4e0ec; font-weight: 600; }
+  .chat-saved-id { font-family: monospace; font-size: 10px; color: #7a9ab8; margin-top: 2px; }
+
+  .conn-btn {
+    padding: 9px 14px; border-radius: 8px; cursor: pointer;
+    font-family: 'Orbitron', monospace; font-size: 9px; font-weight: 800;
+    letter-spacing: 1.5px; border: 1px solid; transition: all 0.15s;
+  }
+  .conn-btn.cyan {
+    background: linear-gradient(135deg, rgba(0,212,255,0.25), rgba(0,212,255,0.08));
+    border-color: rgba(0,212,255,0.4); color: #00d4ff;
+  }
+  .conn-btn.ghost {
+    background: rgba(255,183,0,0.04);
+    border-color: rgba(255,183,0,0.18); color: rgba(255,183,0,0.8);
+  }
+
+  /* Vault rows */
+  .vault-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  .vault-card { padding: 12px 14px; border-radius: 10px; }
+  .vault-brains { background: rgba(255,140,0,0.05); border: 1px solid rgba(255,140,0,0.25); }
+  .vault-lb { background: rgba(0,201,141,0.05); border: 1px solid rgba(0,201,141,0.25); }
+  .vault-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .vault-label-brains { font-family: 'Orbitron', monospace; font-size: 11px; font-weight: 700;
+    color: #ff8c00; letter-spacing: 1.5px; }
+  .vault-label-lb { font-family: 'Orbitron', monospace; font-size: 11px; font-weight: 700;
+    color: #00c98d; letter-spacing: 1.5px; }
+  .vault-status { margin-left: auto; font-family: 'Orbitron', monospace; font-size: 8px;
+    letter-spacing: 1.5px; color: #39ff88; }
+  .vault-pool { font-family: monospace; font-size: 9px; color: #5c7a90; margin-bottom: 8px; }
+  .vault-info { font-family: monospace; font-size: 9px; color: #9abacf;
+    background: rgba(0,0,0,0.25); padding: 8px 10px; border-radius: 6px; margin-bottom: 8px; }
+  .vault-info > div { line-height: 1.5; }
+  .vault-btn-ghost-brains { background: rgba(255,140,0,0.04); border: 1px solid rgba(255,140,0,0.18);
+    color: rgba(255,140,0,0.8); padding: 9px 14px; border-radius: 8px; cursor: pointer;
+    font-family: 'Orbitron', monospace; font-size: 9px; font-weight: 800; letter-spacing: 1.5px; }
+  .vault-btn-ghost-lb { background: rgba(0,201,141,0.04); border: 1px solid rgba(0,201,141,0.18);
+    color: rgba(0,201,141,0.8); padding: 9px 14px; border-radius: 8px; cursor: pointer;
+    font-family: 'Orbitron', monospace; font-size: 9px; font-weight: 800; letter-spacing: 1.5px; }
+
+  /* TOKEN PANELS */
+  .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 20px; margin-bottom: 24px; }
+  .panel { position: relative; overflow: hidden; padding: 22px 24px; border-radius: 16px;
+    background: linear-gradient(160deg, #040810, #0a0612, #08040e);
+    animation: admFadeUp 0.5s ease both; }
+  .panel.brains { border: 1px solid rgba(255,140,0,0.18); border-top: 2px solid rgba(255,140,0,0.5);
+    box-shadow: 0 0 30px rgba(255,140,0,0.05); }
+  .panel.lb { border: 1px solid rgba(0,201,141,0.18); border-top: 2px solid rgba(0,201,141,0.5);
+    box-shadow: 0 0 30px rgba(0,201,141,0.05); animation-delay: 0.1s; }
+  .panel-orb { position: absolute; top: -50px; right: -50px; width: 180px; height: 180px;
+    border-radius: 50%; pointer-events: none; }
+  .panel.brains .panel-orb { background: radial-gradient(circle, rgba(255,140,0,0.12), transparent 70%); }
+  .panel.lb .panel-orb { background: radial-gradient(circle, rgba(0,201,141,0.12), transparent 70%); }
+  .panel-content { position: relative; }
+  .panel-header { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+  .panel-icon { font-size: 30px; }
+  .brains .panel-icon { filter: drop-shadow(0 0 12px rgba(255,140,0,0.6)); }
+  .lb .panel-icon { filter: drop-shadow(0 0 12px rgba(0,201,141,0.6)); }
+  .panel-titles { flex: 1; }
+  .panel-name { font-family: 'Orbitron', monospace; font-size: 18px; font-weight: 900;
+    letter-spacing: 3px; }
+  .brains .panel-name { color: #ff8c00; }
+  .lb .panel-name { color: #00c98d; }
+  .panel-desc { font-family: 'Sora', sans-serif; font-size: 10px; color: #7a9ab8; }
+  .badge { font-family: 'Orbitron', monospace; font-size: 9px; font-weight: 800;
+    padding: 5px 10px; border-radius: 6px; letter-spacing: 1.5px; }
+  .brains .badge { color: #ffb700; background: rgba(255,140,0,0.1); border: 1px solid rgba(255,140,0,0.3); }
+  .lb .badge { color: #39ff88; background: rgba(0,201,141,0.1); border: 1px solid rgba(0,201,141,0.3); }
+  .divider { height: 1px; margin: 14px 0 16px; }
+  .brains .divider { background: linear-gradient(90deg, transparent, rgba(255,140,0,0.4), transparent); }
+  .lb .divider { background: linear-gradient(90deg, transparent, rgba(0,201,141,0.4), transparent); }
+
+  .toggles { display: flex; flex-direction: column; gap: 6px; }
+  .toggle-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+    border-radius: 8px; cursor: pointer; transition: all 0.15s; border: 1px solid; }
+  .toggle-row.off { background: rgba(255,255,255,0.02); border-color: rgba(255,255,255,0.06); }
+  .brains .toggle-row.on { background: rgba(255,140,0,0.08); border-color: rgba(255,140,0,0.3); }
+  .lb .toggle-row.on { background: rgba(0,201,141,0.08); border-color: rgba(0,201,141,0.3); }
+  .toggle-icon { font-size: 16px; }
+  .toggle-row.off .toggle-icon { opacity: 0.4; filter: grayscale(60%); }
+  .toggle-text { flex: 1; min-width: 0; }
+  .toggle-label { font-family: 'Orbitron', monospace; font-size: 10px; font-weight: 700; letter-spacing: 1.5px; }
+  .brains .toggle-row.on .toggle-label { color: #ff8c00; }
+  .lb .toggle-row.on .toggle-label { color: #00c98d; }
+  .toggle-row.off .toggle-label { color: #7a9ab8; }
+  .toggle-desc { font-family: 'Sora', sans-serif; font-size: 9px; color: #5c7a90; margin-top: 1px; }
+  .toggle-switch { width: 36px; height: 20px; border-radius: 12px; position: relative;
+    flex-shrink: 0; border: 1px solid; transition: all 0.2s; }
+  .toggle-row.off .toggle-switch { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.15); }
+  .brains .toggle-row.on .toggle-switch { background: #ff8c00; border-color: #ff8c00; box-shadow: 0 0 12px rgba(255,140,0,0.4); }
+  .lb .toggle-row.on .toggle-switch { background: #00c98d; border-color: #00c98d; box-shadow: 0 0 12px rgba(0,201,141,0.4); }
+  .toggle-knob { position: absolute; top: 1px; width: 16px; height: 16px; border-radius: 50%;
+    transition: left 0.2s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  .toggle-row.off .toggle-knob { left: 1px; background: #9abacf; }
+  .toggle-row.on .toggle-knob { left: 17px; background: #0a0e14; }
+
+  .banner { margin-top: 18px; padding: 14px 16px; border-radius: 10px; }
+  .brains .banner { background: rgba(255,140,0,0.04); border: 1px solid rgba(255,140,0,0.15); }
+  .lb .banner { background: rgba(0,201,141,0.04); border: 1px solid rgba(0,201,141,0.15); }
+  .banner-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .banner-label { font-family: 'Orbitron', monospace; font-size: 9px; font-weight: 700; letter-spacing: 2px; margin-bottom: 3px; }
+  .brains .banner-label { color: #ffb700; }
+  .lb .banner-label { color: #39ff88; }
+  .banner-file { font-family: monospace; font-size: 10px; color: #7a9ab8; }
+  .banner-preview { width: 48px; height: 48px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; overflow: hidden; font-size: 24px; }
+  .brains .banner-preview { background: rgba(255,140,0,0.1); border: 1px solid rgba(255,140,0,0.2); }
+  .lb .banner-preview { background: rgba(0,201,141,0.1); border: 1px solid rgba(0,201,141,0.2); }
+  .btns { display: flex; gap: 8px; }
+  .btn { flex: 1; padding: 9px 14px; border-radius: 8px; cursor: pointer;
+    font-family: 'Orbitron', monospace; font-size: 9px; font-weight: 800; letter-spacing: 1.5px;
+    transition: all 0.15s; border: 1px solid; }
+  .brains .btn-primary { background: linear-gradient(135deg, rgba(255,140,0,0.25), rgba(255,140,0,0.08));
+    border-color: rgba(255,140,0,0.4); color: #ff8c00; }
+  .lb .btn-primary { background: linear-gradient(135deg, rgba(0,201,141,0.25), rgba(0,201,141,0.08));
+    border-color: rgba(0,201,141,0.4); color: #00c98d; }
+  .brains .btn-ghost { background: rgba(255,140,0,0.04); border-color: rgba(255,140,0,0.18); color: rgba(255,140,0,0.8); }
+  .lb .btn-ghost { background: rgba(0,201,141,0.04); border-color: rgba(0,201,141,0.18); color: rgba(0,201,141,0.8); }
+
+  /* THRESHOLDS */
+  .thresholds { position: relative; overflow: hidden; padding: 22px 24px; border-radius: 16px;
+    background: linear-gradient(160deg, #040810, #0a0612, #08040e);
+    border: 1px solid rgba(140,60,255,0.18); border-top: 2px solid rgba(140,60,255,0.5);
+    animation: admFadeUp 0.5s ease 0.2s both; }
+  .thresholds .grid-bg { background-image:
+    linear-gradient(rgba(140,60,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(140,60,255,0.04) 1px, transparent 1px); }
+  .thr-header { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; position: relative; }
+  .thr-icon { font-size: 26px; filter: drop-shadow(0 0 12px rgba(204,136,255,0.6)); }
+  .thr-title { font-family: 'Orbitron', monospace; font-size: 16px; font-weight: 900; letter-spacing: 3px; color: #cc88ff; }
+  .thr-sub { font-family: 'Sora', sans-serif; font-size: 11px; color: #7a9ab8; }
+  .thr-divider { height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(204,136,255,0.4), transparent);
+    margin: 16px 0 14px; position: relative; }
+  .thr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; position: relative; }
+  .thr-card { border-radius: 10px; padding: 12px 14px; }
+  .thr-card.blue   { background: rgba(0,212,255,0.05);   border: 1px solid rgba(0,212,255,0.25); }
+  .thr-card.red    { background: rgba(255,68,34,0.05);   border: 1px solid rgba(255,68,34,0.25); }
+  .thr-card.green  { background: rgba(0,201,141,0.05);   border: 1px solid rgba(0,201,141,0.25); }
+  .thr-card.amber  { background: rgba(255,183,0,0.05);   border: 1px solid rgba(255,183,0,0.25); }
+  .thr-card.gold   { background: rgba(255,215,0,0.05);   border: 1px solid rgba(255,215,0,0.25); }
+  .thr-card.purple { background: rgba(191,90,242,0.05);  border: 1px solid rgba(191,90,242,0.25); }
+  .thr-card.orange { background: rgba(255,140,0,0.05);   border: 1px solid rgba(255,140,0,0.25); }
+  .thr-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .thr-label { font-family: 'Orbitron', monospace; font-size: 8px; font-weight: 700; letter-spacing: 1.5px; }
+  .thr-card.blue   .thr-label { color: #00d4ff; }
+  .thr-card.red    .thr-label { color: #ff4422; }
+  .thr-card.green  .thr-label { color: #00c98d; }
+  .thr-card.amber  .thr-label { color: #ffb700; }
+  .thr-card.gold   .thr-label { color: #ffd700; }
+  .thr-card.purple .thr-label { color: #bf5af2; }
+  .thr-card.orange .thr-label { color: #ff8c00; }
+  .thr-input-row { display: flex; align-items: center; gap: 8px; }
+  .thr-input { flex: 1; padding: 8px 12px; background: #04030a; border-radius: 6px;
+    outline: none; font-family: monospace; font-size: 13px; color: #fff; border: 1px solid; }
+  .thr-card.blue   .thr-input { border-color: rgba(0,212,255,0.2); }
+  .thr-card.red    .thr-input { border-color: rgba(255,68,34,0.2); }
+  .thr-card.green  .thr-input { border-color: rgba(0,201,141,0.2); }
+  .thr-card.amber  .thr-input { border-color: rgba(255,183,0,0.2); }
+  .thr-card.gold   .thr-input { border-color: rgba(255,215,0,0.2); }
+  .thr-card.purple .thr-input { border-color: rgba(191,90,242,0.2); }
+  .thr-card.orange .thr-input { border-color: rgba(255,140,0,0.2); }
+  .thr-unit { font-family: 'Orbitron', monospace; font-size: 8px; color: #7a9ab8;
+    letter-spacing: 1.5px; width: 50px; text-align: right; }
+  .thr-desc { font-family: 'Sora', sans-serif; font-size: 9px; color: #5c7a90; margin-top: 6px; }
+  .thr-foot { margin-top: 14px; font-family: 'Orbitron', monospace; font-size: 8px;
+    color: #5c7a90; letter-spacing: 2px; text-align: center; position: relative; }
+
+  .info-block { margin-top: 30px; padding: 18px 22px;
+    background: rgba(140,60,255,0.04); border: 1px solid rgba(140,60,255,0.15);
+    border-radius: 12px; font-family: 'Sora', sans-serif; font-size: 11px;
+    color: #9abacf; line-height: 1.7; }
+  .info-label { font-family: 'Orbitron', monospace; font-size: 9px; color: #cc88ff;
+    letter-spacing: 2px; margin-bottom: 8px; }
+  code { background: rgba(140,60,255,0.1); border: 1px solid rgba(140,60,255,0.2);
+    border-radius: 4px; padding: 1px 6px; font-family: monospace; font-size: 10px; color: #cc88ff; }
+</style>
+</head>
+<body>
+
+<div class="preview-note">
+  <b>📐 PREVIEW</b> Live mockup of <code style="background:rgba(255,183,0,0.15);border:1px solid rgba(255,183,0,0.3);color:#ffb700;">BotAdmin.tsx</code> — open in browser, click toggles, see how the real React version will look.
+</div>
+
+<div class="container">
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="grid-bg"></div>
+    <div class="hero-orb"></div>
+    <div class="hero-content">
+      <div class="hero-icon">🤖</div>
+      <div class="hero-titles">
+        <div class="hero-eyebrow">X1 BRAINS · TELEGRAM CONSOLE</div>
+        <div class="hero-title">BOT ADMIN</div>
+        <div class="hero-sub">Configure event filters, banners, and posting thresholds for the @x1brains buy bot.</div>
+      </div>
+      <div class="pills">
+        <div class="pill pill-green"><div class="pill-dot pulse"></div>
+          <div class="pill-text"><div class="pill-label">CONNECTION</div><div class="pill-value">CONFIGURED</div></div></div>
+        <div class="pill pill-blue"><div class="pill-dot"></div>
+          <div class="pill-text"><div class="pill-label">EVENTS ENABLED</div><div class="pill-value">11/12</div></div></div>
+        <div class="pill pill-purple"><div class="pill-dot pulse"></div>
+          <div class="pill-text"><div class="pill-label">ADMIN WALLET</div><div class="pill-value">VERIFIED</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONNECTION (showing complete state) -->
+  <div class="conn-panel">
+    <div class="grid-bg"></div>
+    <div class="conn-orb"></div>
+    <div style="position: relative;">
+      <div class="conn-header">
+        <div class="conn-icon">🔌</div>
+        <div style="flex: 1;">
+          <div class="conn-title">CONNECTION</div>
+          <div class="conn-sub">All systems wired — bot is broadcasting to your group.</div>
+        </div>
+        <div class="conn-ready-badge">✓ READY</div>
+      </div>
+      <div class="conn-divider"></div>
+
+      <div class="conn-step">
+        <div class="conn-step-header">
+          <div class="conn-step-num">✓</div>
+          <div class="conn-step-title">TELEGRAM BOT TOKEN</div>
+        </div>
+        <div class="conn-step-body">
+          <div class="conn-row">
+            <div class="conn-saved">8295xx…kAL4</div>
+            <button class="conn-btn ghost">✏️ CHANGE</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="conn-step">
+        <div class="conn-step-header">
+          <div class="conn-step-num">✓</div>
+          <div class="conn-step-title">TELEGRAM GROUP / CHANNEL</div>
+        </div>
+        <div class="conn-step-body">
+          <div class="conn-row">
+            <div class="chat-saved">
+              <div class="chat-saved-title">X1 Brains Community</div>
+              <div class="chat-saved-id">ID: -1001234567890</div>
+            </div>
+            <button class="conn-btn cyan">📨 TEST POST</button>
+            <button class="conn-btn ghost">🔍 RE-DETECT</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="conn-step">
+        <div class="conn-step-header">
+          <div class="conn-step-num">✓</div>
+          <div class="conn-step-title">POOL VAULTS</div>
+        </div>
+        <div class="conn-step-body">
+          <div class="vault-grid">
+            <div class="vault-card vault-brains">
+              <div class="vault-row">
+                <span style="font-size: 16px;">🧠</span>
+                <div class="vault-label-brains">$BRAINS/XNT POOL</div>
+                <div class="vault-status">✓ DETECTED</div>
+              </div>
+              <div class="vault-pool">Pool: 7deZorr9…awXQtg</div>
+              <div class="vault-info">
+                <div>token vault: 9aB7cD1eFg…kL3mN9</div>
+                <div>quote vault: Hj8K2lMnPq…Qr5sT2</div>
+              </div>
+              <button class="vault-btn-ghost-brains">🔍 RE-DETECT</button>
+            </div>
+            <div class="vault-card vault-lb">
+              <div class="vault-row">
+                <span style="font-size: 16px;">🧪</span>
+                <div class="vault-label-lb">$LB/XNT POOL</div>
+                <div class="vault-status">✓ DETECTED</div>
+              </div>
+              <div class="vault-pool">Pool: CKtXmX82…awXQtg</div>
+              <div class="vault-info">
+                <div>token vault: P3qRsTuVwX…yZ1aB5</div>
+                <div>quote vault: Cd6EfGhIjK…lMn7Op</div>
+              </div>
+              <button class="vault-btn-ghost-lb">🔍 RE-DETECT</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOKEN PANELS -->
+  <div class="panels">
+    <div class="panel brains">
+      <div class="grid-bg"></div>
+      <div class="panel-orb"></div>
+      <div class="panel-content">
+        <div class="panel-header">
+          <div class="panel-icon">🧠</div>
+          <div class="panel-titles">
+            <div class="panel-name">$BRAINS</div>
+            <div class="panel-desc">X1 Brains · Token-2022</div>
+          </div>
+          <div class="badge">6/6 ACTIVE</div>
+        </div>
+        <div class="divider"></div>
+        <div class="toggles">
+          <div class="toggle-row on"><div class="toggle-icon">🟢</div><div class="toggle-text"><div class="toggle-label">BUYS</div><div class="toggle-desc">XDEX swap into the token</div></div><div class="toggle-switch"><div class="toggle-knob"></div></div></div>
+          <div class="toggle-row on"><div class="toggle-icon">🔥</div><div class="toggle-text"><div class="toggle-label">BURNS</div><div class="toggle-desc">Token-2022 burn or → incinerator</div></div><div class="toggle-switch"><div class="toggle-knob"></div></div></div>
+          <div class="toggle-row on"><div class="toggle-icon">💧</div><div class="toggle-text"><div class="toggle-label">LP PAIRS</div><div class="toggle-desc">New LP created via pairing program</div></div><div class="toggle-switch"><div class="toggle-knob"></div></div></div>
+          <div class="toggle-row on"><div class="toggle-icon">🌾</div><div class="toggle-text"><div class="toggle-label">STAKES</div><div class="toggle-desc">LP locked into farm</div></div><div class="toggle-switch"><div class="toggle-knob"></div></div></div>
+          <div class="toggle-row on"><div class="toggle-icon">📤</div><div class="toggle-text"><div class="toggle-label">UNSTAKES</div><div class="toggle-desc">LP withdrawn from farm</div></div><div class="toggle-switch"><div class="toggle-knob"></div></div></div>
+          <div class="toggle-row on"><div class="toggle-icon">💰</div><div class="toggle-text"><div class="toggle-label">CLAIMS</div><div class="toggle-desc">Farm rewards harvested</div></div><div class="toggle-switch"><div class="toggle-knob"></div></div></div>
+        </div>
+        <div class="banner">
+          <div class="banner-row">
+            <div>
+              <div class="banner-label">BANNER IMAGE</div>
+              <div class="banner-file">uploaded</div>
+            </div>
+            <div class="banner-preview">🧠</div>
+          </div>
+          <div class="btns">
+            <button class="btn btn-primary">📤 UPLOAD NEW</button>
+            <button class="btn btn-ghost">📨 TEST POST</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel lb">
+      <div class="grid-bg"></div>
+      <div class="panel-orb"></div>
+      <div class="panel-content">
+        <div class="panel-header">
+          <div class="panel-icon">🧪</div>
+          <div class="panel-titles">
+            <div class="panel-name">$LB</div>
+            <div class="panel-desc">Lab Work · SPL Token</div>
+          </div>
+          <div class="badge">5/6 ACTIVE</div>
+        </div>
+        <div class="divider"></div>
+        <div class="toggles">
+          <div class="toggle-row on"><div class="toggle-icon">🟢</div><div class="toggle-text"><div class="toggle-label">BUYS</div><div class="toggle-desc">XDEX swap into the token</div></div><div class="toggle-switch"><div class="toggle-knob"></div></div></div>
+          <div class="toggle-row on"><div class="toggle-icon">🔥</div><div class="toggle-text"><div class="toggle-label">BURNS</div><div class="toggle-desc">Token-2022 burn or → incinerator</div></div><div class="toggle-switch"><div class="toggle-knob"></div></div></div>
+          <div class="toggle-row on"><div class="toggle-icon">💧</div><div class="toggle-text"><div class="toggle-label">LP PAIRS</div><div class="toggle-desc">New LP created via pairing program</div></div><div class="toggle-switch"><div class="toggle-knob"></div></div></div>
+          <div class="toggle-row on"><div class="toggle-icon">🌾</div><div class="toggle-text"><div class="toggle-label">STAKES</div><div class="toggle-desc">LP locked into farm</div></div><div class="toggle-switch"><div class="toggle-knob"></div></div></div>
+          <div class="toggle-row off"><div class="toggle-icon">📤</div><div class="toggle-text"><div class="toggle-label">UNSTAKES</div><div class="toggle-desc">LP withdrawn from farm</div></div><div class="toggle-switch"><div class="toggle-knob"></div></div></div>
+          <div class="toggle-row on"><div class="toggle-icon">💰</div><div class="toggle-text"><div class="toggle-label">CLAIMS</div><div class="toggle-desc">Farm rewards harvested</div></div><div class="toggle-switch"><div class="toggle-knob"></div></div></div>
+        </div>
+        <div class="banner">
+          <div class="banner-row">
+            <div>
+              <div class="banner-label">BANNER IMAGE</div>
+              <div class="banner-file">uploaded</div>
+            </div>
+            <div class="banner-preview">🧪</div>
+          </div>
+          <div class="btns">
+            <button class="btn btn-primary">📤 UPLOAD NEW</button>
+            <button class="btn btn-ghost">📨 TEST POST</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- THRESHOLDS -->
+  <div class="thresholds">
+    <div class="grid-bg"></div>
+    <div class="thr-header">
+      <div class="thr-icon">⚙️</div>
+      <div>
+        <div class="thr-title">THRESHOLDS</div>
+        <div class="thr-sub">Filter out small actions and tune the buy-tier hype levels.</div>
+      </div>
+    </div>
+    <div class="thr-divider"></div>
+    <div class="thr-grid">
+      <div class="thr-card blue"><div class="thr-row"><span style="font-size:14px;">💵</span><div class="thr-label">MIN BUY THRESHOLD</div></div><div class="thr-input-row"><input class="thr-input" type="number" value="5"><div class="thr-unit">USD</div></div><div class="thr-desc">Buys below this are ignored</div></div>
+      <div class="thr-card red"><div class="thr-row"><span style="font-size:14px;">🔥</span><div class="thr-label">MIN BURN AMOUNT</div></div><div class="thr-input-row"><input class="thr-input" type="number" value="1"><div class="thr-unit">TOKENS</div></div><div class="thr-desc">Burns below this are ignored</div></div>
+      <div class="thr-card green"><div class="thr-row"><span style="font-size:14px;">💧</span><div class="thr-label">MIN LP VALUE</div></div><div class="thr-input-row"><input class="thr-input" type="number" value="1"><div class="thr-unit">USD</div></div><div class="thr-desc">LP creations below this are ignored</div></div>
+      <div class="thr-card amber"><div class="thr-row"><span style="font-size:14px;">🌾</span><div class="thr-label">MIN STAKE SIZE</div></div><div class="thr-input-row"><input class="thr-input" type="number" value="0"><div class="thr-unit">LP</div></div><div class="thr-desc">Stakes below this are ignored</div></div>
+      <div class="thr-card gold"><div class="thr-row"><span style="font-size:14px;">💰</span><div class="thr-label">MIN CLAIM VALUE</div></div><div class="thr-input-row"><input class="thr-input" type="number" value="1"><div class="thr-unit">USD</div></div><div class="thr-desc">Reward claims below this are ignored</div></div>
+      <div class="thr-card purple"><div class="thr-row"><span style="font-size:14px;">🚀</span><div class="thr-label">BIG BUY 🚀 TIER</div></div><div class="thr-input-row"><input class="thr-input" type="number" value="100"><div class="thr-unit">USD</div></div><div class="thr-desc">Buys ≥ this size get the BIG vibe</div></div>
+      <div class="thr-card orange"><div class="thr-row"><span style="font-size:14px;">🐋</span><div class="thr-label">WHALE BUY 🐋 TIER</div></div><div class="thr-input-row"><input class="thr-input" type="number" value="1000"><div class="thr-unit">USD</div></div><div class="thr-desc">Buys ≥ this size get whale alerts</div></div>
+    </div>
+    <div class="thr-foot">↳ CLICK OUT OR PRESS ENTER TO SAVE</div>
+  </div>
+
+  <div class="info-block">
+    <div class="info-label">ⓘ HOW IT WORKS</div>
+    Token + chat config are stored in Supabase, never in your repo or browser bundle. The bot loop runs on Fly.io and pulls config on each poll. Your existing <code>/api/admin</code> proxy gates all writes via wallet check.
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.toggle-row').forEach(row => {
+    row.addEventListener('click', () => {
+      row.classList.toggle('on');
+      row.classList.toggle('off');
+      const panel = row.closest('.panel');
+      const active = panel.querySelectorAll('.toggle-row.on').length;
+      panel.querySelector('.badge').textContent = `${active}/6 ACTIVE`;
+      const total = document.querySelectorAll('.toggle-row.on').length;
+      const enabledPill = document.querySelectorAll('.pill-blue .pill-value');
+      if (enabledPill.length) enabledPill[0].textContent = `${total}/12`;
+    });
+  });
+</script>
+
+</body>
+</html>
