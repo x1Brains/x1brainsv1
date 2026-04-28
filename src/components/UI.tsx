@@ -81,13 +81,14 @@ export const TopBar: FC = () => {
   const isPortfolio    = location.pathname === '/portfolio';
   const isLabWork      = location.pathname === '/labwork';
   const isLabWorkDefi  = location.pathname === '/labworkdefi';
+  const isLpFarms      = location.pathname === '/lpfarms';
   const isBurnHistory  = location.pathname === '/burn-history';
   const isRewards      = location.pathname === '/rewards';
   const isAdminRewards = location.pathname === '/x9b7r41ns/ctrl';
   const isIncinerator  = location.pathname === '/incinerator-engine';
   const isCyberdyne    = location.pathname === '/cyberdyne';
 
-  const isSubPage = isPortfolio || isLabWork || isLabWorkDefi || isBurnHistory || isRewards || isAdminRewards || isIncinerator || isCyberdyne;
+  const isSubPage = isPortfolio || isLabWork || isLabWorkDefi || isLpFarms || isBurnHistory || isRewards || isAdminRewards || isIncinerator || isCyberdyne;
 
   return (
     <>
@@ -103,6 +104,12 @@ export const TopBar: FC = () => {
         }
         @media (max-width: 768px) {
           [data-topbar-nav] .tb-hide-mobile { display: none !important; }
+        }
+        @media (max-width: 1050px) {
+          [data-topbar-nav] .tb-hide-narrow { display: none !important; }
+        }
+        @media (max-width: 1200px) {
+          [data-topbar-nav] .tb-hide-extra { display: none !important; }
         }
       `}</style>
 
@@ -187,8 +194,8 @@ export const TopBar: FC = () => {
           style={{
             background: 'rgba(191,90,242,0.06)',
             border: '1px solid rgba(191,90,242,0.25)',
-            borderRadius: 8, padding: '7px 12px', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: 6,
+            borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 5,
             backdropFilter: 'blur(12px)', transition: 'all 0.2s',
           }}
           onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(191,90,242,0.18)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(191,90,242,0.6)'; }}
@@ -206,8 +213,8 @@ export const TopBar: FC = () => {
           style={{
             background: 'rgba(0,201,141,0.06)',
             border: '1px solid rgba(0,201,141,0.25)',
-            borderRadius: 8, padding: '7px 12px', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: 6,
+            borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 5,
             backdropFilter: 'blur(12px)', transition: 'all 0.2s',
           }}
           onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,201,141,0.18)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(0,201,141,0.6)'; }}
@@ -219,6 +226,45 @@ export const TopBar: FC = () => {
           <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#00c98d', background: 'rgba(0,201,141,0.15)', border: '1px solid rgba(0,201,141,0.4)', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NEW</span>
         </button>
         )}
+
+        {/* LP FARMS — top nav button (hidden on narrow viewports; always in dropdown) */}
+        {!isLpFarms && (
+        <button className="tb-hide-mobile tb-hide-narrow" onClick={() => navigate('/lpfarms')}
+          style={{
+            background: 'rgba(255,183,0,0.06)',
+            border: '1px solid rgba(255,183,0,0.25)',
+            borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 5,
+            backdropFilter: 'blur(12px)', transition: 'all 0.2s',
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,183,0,0.18)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,183,0,0.6)'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,183,0,0.06)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,183,0,0.25)'; }}
+        >
+          <span style={{ fontSize: 12 }}>🌾</span>
+          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#ffb700', letterSpacing: 2, fontWeight: 700 }}>LP FARMS</span>
+          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#0a0e14', background: '#ffb700', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>STAKE</span>
+          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#ffb700', background: 'rgba(255,183,0,0.15)', border: '1px solid rgba(255,183,0,0.4)', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NEW</span>
+        </button>
+        )}
+
+        {/* X1.CITY — external link to the open-world city site */}
+        <a className="tb-hide-mobile tb-hide-narrow"
+          href="https://x1.city" target="_blank" rel="noopener noreferrer"
+          style={{
+            background: 'rgba(0,212,255,0.06)',
+            border: '1px solid rgba(0,212,255,0.25)',
+            borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 5,
+            backdropFilter: 'blur(12px)', transition: 'all 0.2s',
+            textDecoration: 'none',
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(0,212,255,0.18)'; (e.currentTarget as HTMLAnchorElement).style.borderColor = 'rgba(0,212,255,0.6)'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(0,212,255,0.06)'; (e.currentTarget as HTMLAnchorElement).style.borderColor = 'rgba(0,212,255,0.25)'; }}
+        >
+          <span style={{ fontSize: 12 }}>🌆</span>
+          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#00d4ff', letterSpacing: 2, fontWeight: 700 }}>X1.CITY</span>
+          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#0a0e14', background: '#00d4ff', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>UE5</span>
+        </a>
 
 
         {/* Mobile nav menu dropdown */}
@@ -296,6 +342,20 @@ export const TopBar: FC = () => {
                 {isLabWorkDefi && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#00c98d' }} />}
               </button>
 
+              {/* LP FARMS */}
+              <button
+                onClick={() => { navigate('/lpfarms'); setNavOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isLpFarms ? 'rgba(255,183,0,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,183,0,0.1)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isLpFarms ? 'rgba(255,183,0,0.1)' : 'transparent'; }}
+              >
+                <span style={{ fontSize: 14 }}>🌾</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ffb700', letterSpacing: 1.5, fontWeight: 700 }}>LP FARMS</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#0a0e14', background: '#ffb700', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>STAKE</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#ffb700', background: 'rgba(255,183,0,0.15)', border: '1px solid rgba(255,183,0,0.4)', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NEW</span>
+                {isLpFarms && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#ffb700' }} />}
+              </button>
+
               {/* CYBERDYNE */}
               <button
                 onClick={() => { navigate('/cyberdyne'); setNavOpen(false); }}
@@ -343,6 +403,25 @@ export const TopBar: FC = () => {
                 <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ffcc00', letterSpacing: 1.5, fontWeight: 700 }}>REWARDS</span>
                 {isRewards && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#ffcc00' }} />}
               </button>
+
+              {/* ── External links ── */}
+              <div style={{ borderTop: '1px solid #1e3050', margin: '6px 8px 4px', paddingTop: 6 }}>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 7, color: '#5c7a90', letterSpacing: 3, padding: '0 4px' }}>EXTERNAL</span>
+              </div>
+
+              {/* X1.CITY — external open-world city site */}
+              <a
+                href="https://x1.city" target="_blank" rel="noopener noreferrer"
+                onClick={() => setNavOpen(false)}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s', textDecoration: 'none' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(0,212,255,0.1)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent'; }}
+              >
+                <span style={{ fontSize: 14 }}>🌆</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#00d4ff', letterSpacing: 1.5, fontWeight: 700 }}>X1.CITY</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#0a0e14', background: '#00d4ff', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>UE5</span>
+                <span style={{ marginLeft: 'auto', fontSize: 9, color: '#5c7a90' }}>↗</span>
+              </a>
             </div>
           )}
         </div>
@@ -368,8 +447,8 @@ function navPillStyle(active: boolean): React.CSSProperties {
       ? 'linear-gradient(135deg, rgba(255,140,0,0.2), rgba(255,183,0,0.1))'
       : 'rgba(13,21,32,0.92)',
     border: `1px solid ${active ? '#ff8c00' : '#1e3050'}`,
-    borderRadius: 8, padding: '7px 12px', cursor: 'pointer',
-    display: 'flex', alignItems: 'center', gap: 6,
+    borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', gap: 5,
     backdropFilter: 'blur(12px)', transition: 'all 0.2s',
   };
 }
@@ -377,8 +456,8 @@ function navPillStyleMint(): React.CSSProperties {
   return {
     background: 'rgba(191,90,242,0.08)',
     border: '1px solid rgba(191,90,242,0.35)',
-    borderRadius: 8, padding: '7px 12px', cursor: 'pointer',
-    display: 'flex', alignItems: 'center', gap: 6,
+    borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', gap: 5,
     backdropFilter: 'blur(12px)', transition: 'all 0.2s',
   };
 }
@@ -386,8 +465,8 @@ function navPillStyleBurn(): React.CSSProperties {
   return {
     background: 'rgba(255,80,0,0.08)',
     border: '1px solid rgba(255,80,0,0.35)',
-    borderRadius: 8, padding: '7px 12px', cursor: 'pointer',
-    display: 'flex', alignItems: 'center', gap: 6,
+    borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', gap: 5,
     backdropFilter: 'blur(12px)', transition: 'all 0.2s',
   };
 }
@@ -630,6 +709,7 @@ export const PipelineBar: FC<{ text: string }> = ({ text }) => (
 export const Footer: FC = () => (
   <footer style={{ marginTop: 48, paddingTop: 20, borderTop: '1px solid #1e3050', display: 'flex', justifyContent: 'center', gap: 24, flexWrap: 'wrap' }}>
     {[
+      { label: 'X1.City',   href: 'https://x1.city' },
       { label: 'X1.Ninja',  href: 'https://x1.ninja' },
       { label: 'X1 Brains', href: 'https://x1brains.xyz' },
       { label: 'XDex',      href: 'https://app.xdex.xyz' },

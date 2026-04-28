@@ -372,7 +372,100 @@ const Home: FC = () => {
               </div>
               <span style={{ color: '#00c98d', fontSize: 11, opacity: 0.7 }}>→</span>
             </button>
+
+            {/* LP Farms sub-button */}
+            <button
+              onClick={e => { e.stopPropagation(); navigate('/lpfarms'); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                background: 'rgba(255,183,0,0.06)', border: '1px solid rgba(255,183,0,0.18)',
+                borderRadius: 10, padding: '12px 14px', cursor: 'pointer',
+                transition: 'all 0.2s', textAlign: 'left', marginTop: 10,
+                position: 'relative', overflow: 'hidden',
+              }}
+              onMouseEnter={e => { const el = e.currentTarget; el.style.background = 'rgba(255,183,0,0.14)'; el.style.borderColor = 'rgba(255,183,0,0.45)'; el.style.transform = 'translateX(3px)'; }}
+              onMouseLeave={e => { const el = e.currentTarget; el.style.background = 'rgba(255,183,0,0.06)'; el.style.borderColor = 'rgba(255,183,0,0.18)'; el.style.transform = 'translateX(0)'; }}
+            >
+              <span style={{ fontSize: 22, flexShrink: 0 }}>🌾</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                  <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#ffb700' }}>LP FARMS</span>
+                  <span style={{
+                    fontFamily: 'Orbitron, monospace', fontSize: 7, fontWeight: 900, letterSpacing: 1,
+                    color: '#0a0e14', background: '#ffb700', borderRadius: 4, padding: '1px 6px',
+                  }}>STAKE</span>
+                  <span style={{
+                    fontFamily: 'Orbitron, monospace', fontSize: 7, fontWeight: 900, letterSpacing: 1,
+                    color: '#ffb700', background: 'rgba(255,183,0,0.15)', border: '1px solid rgba(255,183,0,0.4)', borderRadius: 4, padding: '1px 6px',
+                  }}>NEW</span>
+                </div>
+                <div style={{ fontFamily: 'Sora, sans-serif', fontSize: 9, color: '#5c7a90' }}>Stake LP · 30 / 90 / 365-day locks · Earn BRAINS or LB</div>
+              </div>
+              <span style={{ color: '#ffb700', fontSize: 11, opacity: 0.7 }}>→</span>
+            </button>
           </div>
+
+          {/* ── X1.CITY — External: Open World Unreal Engine 5 ── */}
+          <a
+            href="https://x1.city" target="_blank" rel="noopener noreferrer"
+            style={{
+              position: 'relative',
+              background: 'linear-gradient(135deg, #0d1520, #0a1018)',
+              border: '1px solid #00d4ff30',
+              borderRadius: 16,
+              padding: '28px 24px',
+              cursor: 'pointer',
+              animation: 'fadeUp 0.5s ease 0.25s both',
+              overflow: 'hidden',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              textDecoration: 'none',
+              display: 'block',
+            }}
+            onMouseEnter={e => { const el = e.currentTarget as HTMLAnchorElement; el.style.borderColor = '#00d4ff'; el.style.transform = 'translateY(-6px)'; el.style.boxShadow = '0 16px 50px rgba(0,0,0,0.5), 0 0 30px #00d4ff20'; }}
+            onMouseLeave={e => { const el = e.currentTarget as HTMLAnchorElement; el.style.borderColor = '#00d4ff30'; el.style.transform = 'translateY(0)'; el.style.boxShadow = 'none'; }}
+          >
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, transparent, #00d4ff, transparent)', opacity: 0.6 }} />
+            <div style={{ position: 'absolute', top: -40, right: -40, width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle, #00d4ff12 0%, transparent 70%)', pointerEvents: 'none' }} />
+
+            {/* External / UE5 badge */}
+            <div style={{
+              position: 'absolute', top: 14, right: 14,
+              background: 'linear-gradient(135deg, #00d4ff, #00d4ffbb)',
+              color: '#0a0e14', fontFamily: 'Orbitron, monospace',
+              fontSize: 8, fontWeight: 900, letterSpacing: 2,
+              padding: '3px 10px', borderRadius: 6,
+            }}>UE5</div>
+
+            <div style={{ fontSize: 40, marginBottom: 18, display: 'block', filter: 'drop-shadow(0 0 12px #00d4ff60)' }}>🌆</div>
+
+            <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 16, fontWeight: 900, letterSpacing: 3, color: '#00d4ff', marginBottom: 6, textTransform: 'uppercase' }}>
+              X1.CITY
+            </div>
+
+            <p style={{ fontSize: 13, color: '#7a9ab8', lineHeight: 1.7, marginBottom: 16 }}>
+              The X1 open world. Unreal Engine 5 cityscape on X1 mainnet — own land, lease buildings, host protocols. <strong style={{ color: '#00d4ff' }}>x1brains.io</strong> is the city's Financial Quarter.
+            </p>
+
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+              {[
+                { text: '🏙 OPEN WORLD',  color: '#00d4ff' },
+                { text: '🏘 LAND NFTs',   color: '#bf5af2' },
+                { text: '🏢 PROPERTY',    color: '#ffb700' },
+                { text: '🤖 AI AGENTS',   color: '#00c98d' },
+              ].map(tag => (
+                <span key={tag.text} style={{
+                  fontFamily: 'Orbitron, monospace', fontSize: 7, fontWeight: 700, letterSpacing: 1,
+                  color: tag.color, background: `${tag.color}10`, border: `1px solid ${tag.color}20`,
+                  borderRadius: 5, padding: '3px 8px',
+                }}>{tag.text}</span>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#00d4ff', letterSpacing: 2, fontWeight: 700 }}>VISIT</span>
+              <span style={{ color: '#00d4ff', fontSize: 12 }}>↗</span>
+            </div>
+          </a>
 
           {/* ── CYBERDYNE UNLIMITED ── */}
           <div
