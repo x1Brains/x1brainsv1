@@ -65,10 +65,10 @@ pub const XBLK_LB_PER_TOKEN: u64 = 8;
 // Hardcoded tier rates — cannot be changed without redeploying (more secure)
 // (brains_per_lb, xnt_lamports_per_lb)
 const TIERS: [(u64, u64); 4] = [
-    (8,  500_000_000),
-    (18, 750_000_000),
-    (26, 1_000_000_000),
-    (33, 1_500_000_000),
+    (8,  1_110_000_000),
+    (18, 2_220_000_000),
+    (26, 3_330_000_000),
+    (33, 4_440_000_000),
 ];
 
 pub const STATE_SEED:     &[u8] = b"lb_state";

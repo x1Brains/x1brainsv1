@@ -184,12 +184,14 @@ const MintLabWork: FC = () => {
   const [xuniPrice,    setXuniPrice]    = useState<number | null>(null);
   const [xblkPrice,    setXblkPrice]    = useState<number | null>(null);
 
-  // Tier rates hardcoded — match program constants exactly
+  // Tier rates hardcoded — MUST match TIERS in programs/lb_mint/src/lib.rs.
+  // XNT fees raised April 2026 after a mint-and-dump arb event.
+  // BRAINS rates unchanged — the deflationary burn schedule stays on plan.
   const tierRates = [
-    { brains: 8,  xntLamports: 500_000_000  },
-    { brains: 18, xntLamports: 750_000_000  },
-    { brains: 26, xntLamports: 1_000_000_000 },
-    { brains: 33, xntLamports: 1_500_000_000 },
+    { brains: 8,  xntLamports: 1_110_000_000 },  // TIER I:   1.11 XNT
+    { brains: 18, xntLamports: 2_220_000_000 },  // TIER II:  2.22 XNT
+    { brains: 26, xntLamports: 3_330_000_000 },  // TIER III: 3.33 XNT
+    { brains: 33, xntLamports: 4_440_000_000 },  // TIER IV:  4.44 XNT
   ];
 
   // Balances

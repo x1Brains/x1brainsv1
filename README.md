@@ -47,12 +47,12 @@ X1 Brains is a deflationary DeFi platform built on the X1 blockchain. The Lab Wo
 
 | Tier | LB Range | BRAINS / LB | XNT Fee / LB |
 |---|---|---|---|
-| Tier I | 1 – 25,000 | 8 | 0.50 XNT |
-| Tier II | 25,001 – 50,000 | 18 | 0.75 XNT |
-| Tier III | 50,001 – 75,000 | 26 | 1.00 XNT |
-| Tier IV | 75,001 – 100,000 | 33 | 1.50 XNT |
+| Tier I | 1 – 25,000 | 8 | 1.11 XNT |
+| Tier II | 25,001 – 50,000 | 18 | 2.22 XNT |
+| Tier III | 50,001 – 75,000 | 26 | 3.33 XNT |
+| Tier IV | 75,001 – 100,000 | 33 | 4.44 XNT |
 
-XNT fee applies to **total LB minted** (base + Xenblocks bonus).
+XNT fee applies to **total LB minted** (base + Xenblocks bonus). XNT fees were raised April 2026 after a mint-and-dump arb event; BRAINS burn rates unchanged.
 
 ### BRAINS Burn
 - 100% of BRAINS burned permanently on every mint
@@ -124,6 +124,7 @@ XNT fee applies to **total LB minted** (base + Xenblocks bonus).
 | March 2026 | Upgrade authority rotated to secure keypair |
 | March 2026 | LB/XNT liquidity pool created on XDEX |
 | March 2026 | 7 holders, organic trading activity on XDEX |
+| April 2026 | XNT mint fees tripled (1.11/2.22/3.33/4.44) after mint-and-dump arb event — BRAINS rates unchanged |
 
 ---
 
