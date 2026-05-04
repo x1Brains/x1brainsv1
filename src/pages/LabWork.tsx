@@ -18,7 +18,7 @@ import {
   createBurnCheckedInstruction,
   getMint,
 } from '@solana/spl-token';
-import { TopBar, PageBackground, Footer } from '../components/UI';
+import { TopBar, PageBackground, Footer, NfaConsentModal } from '../components/UI';
 import { BurnedBrainsBar, walletBurnStats } from '../components/BurnedBrainsBar';
 import { PLATFORM_WALLET_STRING, BRAINS_MINT as BRAINS_MINT_STR } from '../constants';
 import { supabase, getLabWorkPtsForWallet, triggerLabWorkRefresh, labWorkSignal } from '../lib/supabase';
@@ -1081,6 +1081,7 @@ const LabWork: FC = () => {
       {/* BurnedBrainsBar hidden — mounts to trigger walletBurnStats scan for MY NFTs stats */}
       <div style={{ display:'none' }} aria-hidden="true"><BurnedBrainsBar /></div>
       <PageBackground />
+      <NfaConsentModal />
       <div style={{ position:'fixed', top:'20%', left:'10%', width:600, height:600, borderRadius:'50%',
         background:'radial-gradient(circle,rgba(0,212,255,0.04) 0%,transparent 60%)', pointerEvents:'none', zIndex:0 }} />
       <div style={{ position:'fixed', top:'60%', right:'5%', width:500, height:500, borderRadius:'50%',

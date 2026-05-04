@@ -16,7 +16,7 @@ import {
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountIdempotentInstruction,
 } from '@solana/spl-token';
-import { TopBar, PageBackground, Footer } from '../components/UI';
+import { TopBar, PageBackground, Footer, NfaConsentModal } from '../components/UI';
 import { parseFarmError, UNKNOWN_ERROR_FALLBACK } from '../utils/parseError';
 import { resolveClaimTooSoon, formatDuration as fmtFriendlyDuration, type FarmErrorInfo } from '../utils/brainsFarmErrors';
 
@@ -616,6 +616,30 @@ async function fetchPositions(
   } catch (e) {
     console.error('fetchPositions error:', e);
     return [];
+  }
+}
+
+// ─── Network-wide stats (all stakers, not just `owner`) ──────────────────────
+// Counts unique staker wallets across every farm by scanning Position accounts.
+// Uses dataSlice to only fetch the 32-byte owner field per account — keeps RPC
+// bandwidth flat regardless of how many positions exist.
+async function fetchTotalStakers(
+  connection: Connection,
+): Promise<{ uniqueStakers: number; totalPositions: number }> {
+  try {
+    const programPk = new PublicKey(FARM_PROGRAM_ID);
+    const accounts = await connection.getProgramAccounts(programPk, {
+      filters: [{ dataSize: 158 }],
+      dataSlice: { offset: 8, length: 32 },
+    });
+    const owners = new Set<string>();
+    for (const { account } of accounts) {
+      owners.add(new PublicKey(account.data).toBase58());
+    }
+    return { uniqueStakers: owners.size, totalPositions: accounts.length };
+  } catch (e) {
+    console.error('fetchTotalStakers error:', e);
+    return { uniqueStakers: 0, totalPositions: 0 };
   }
 }
 
@@ -2176,6 +2200,207 @@ const DonateModal: FC<{
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
+// HUD DASHBOARD — single-frame readout panel, multi-section
+// ═════════════════════════════════════════════════════════════════════════════
+// One outer frame (corner brackets, scanline backdrop) wraps multiple stacked
+// sections. Each section has a bracketed header with a hairline divider and a
+// row of cells separated by thin vertical rules — like a single instrument
+// panel rather than a grid of chiclets. Cyberpunk + monochrome aesthetic.
+
+interface HudCell {
+  label: string;
+  value: string;
+  sub: string;
+  /** Optional brand accent — colors the leading tick + a thin top strip. */
+  accent?: string;
+  /** Optional override for the value text color (defaults to off-white). */
+  valueColor?: string;
+}
+interface HudSection { header: string; cells: HudCell[]; live?: boolean; }
+
+// LP Farms page theme: orange brand accent for the outer frame and section
+// brackets; cyan as the default "data" accent inside cells.
+const FRAME_ACCENT  = '#ff8c00';                    // page-level identity (orange)
+const BRACKET_COLOR = 'rgba(110, 170, 200, .55)';   // muted phosphor cyan — internal default
+const VALUE_COLOR   = '#e8eef5';
+const LABEL_COLOR   = 'rgba(180, 210, 230, .55)';
+const SUB_COLOR     = 'rgba(180, 210, 230, .32)';
+const HEADER_COLOR  = 'rgba(255, 178, 100, .75)';   // warm white-amber, ties to FRAME_ACCENT
+const FRAME_BG      = '#070b12';
+const FRAME_BORDER  = 'rgba(255, 140, 0, .18)';     // faint orange edge
+const RULE_COLOR    = 'rgba(255, 140, 0, .12)';     // separator hairlines pick up the orange too
+
+// Per-cell accents that match the existing LP Farms color structure.
+export const HUD_ACCENT = {
+  brains:  '#ff8c00',  // BRAINS orange (matches isHot color in farm cards)
+  lb:      '#00c98d',  // LB green
+  reward:  '#bf5af2',  // "My" / claimable purple
+  data:    '#00d4ff',  // generic data cyan
+} as const;
+
+const CornerBracket: FC<{ corner: 'tl' | 'tr' | 'bl' | 'br'; size?: number; color?: string }> = ({ corner, size = 11, color = FRAME_ACCENT }) => {
+  const base: React.CSSProperties = { position: 'absolute', width: size, height: size, pointerEvents: 'none' };
+  const styles: Record<typeof corner, React.CSSProperties> = {
+    tl: { top: -1, left: -1,  borderTop: `1px solid ${color}`, borderLeft:  `1px solid ${color}` },
+    tr: { top: -1, right: -1, borderTop: `1px solid ${color}`, borderRight: `1px solid ${color}` },
+    bl: { bottom: -1, left: -1,  borderBottom: `1px solid ${color}`, borderLeft:  `1px solid ${color}` },
+    br: { bottom: -1, right: -1, borderBottom: `1px solid ${color}`, borderRight: `1px solid ${color}` },
+  };
+  return <div style={{ ...base, ...styles[corner] }} />;
+};
+
+const HudDashboard: FC<{
+  isMobile: boolean;
+  refreshing?: boolean;
+  sections: HudSection[];
+}> = ({ isMobile, refreshing = false, sections }) => (
+  <div
+    style={{
+      position: 'relative',
+      width: '100%', maxWidth: 920, margin: '0 auto',
+      background: FRAME_BG,
+      border: `1px solid ${FRAME_BORDER}`,
+      // subtle CRT scanline backdrop
+      backgroundImage: `repeating-linear-gradient(
+        0deg,
+        rgba(110,170,200,.022) 0,
+        rgba(110,170,200,.022) 1px,
+        transparent 1px,
+        transparent 3px
+      )`,
+      animation: 'fadeUp 0.5s ease 0.22s both',
+    }}
+  >
+    <style>{`
+      @keyframes hud-pulse { 0%,100%{ opacity: .35 } 50%{ opacity: 1 } }
+    `}</style>
+    <CornerBracket corner="tl" />
+    <CornerBracket corner="tr" />
+    <CornerBracket corner="bl" />
+    <CornerBracket corner="br" />
+
+    {sections.map((sec, idx) => {
+      const colCount = sec.cells.length;
+      // Mobile: 2 cols if 4 cells, 1 col if 3 cells, else fit. Desktop: one col per cell.
+      const gridCols = isMobile
+        ? (colCount >= 4 ? 'repeat(2, minmax(0,1fr))' : `repeat(${Math.min(colCount, 2)}, minmax(0,1fr))`)
+        : `repeat(${colCount}, minmax(0,1fr))`;
+
+      return (
+        <div key={sec.header}>
+          {/* Section divider (between sections) */}
+          {idx > 0 && (
+            <div style={{
+              height: 1,
+              margin: 0,
+              background: `linear-gradient(90deg, transparent, ${RULE_COLOR}, ${RULE_COLOR}, transparent)`,
+            }} />
+          )}
+
+          {/* Section header bar */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: isMobile ? '10px 14px 8px' : '14px 18px 10px',
+            fontFamily: 'Orbitron, monospace',
+            fontSize: isMobile ? 8 : 9,
+            letterSpacing: 2,
+            color: HEADER_COLOR,
+            textTransform: 'uppercase',
+          }}>
+            <span style={{ color: FRAME_ACCENT }}>[</span>
+            <span>{sec.header}</span>
+            <span style={{ color: FRAME_ACCENT }}>]</span>
+            <span style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${FRAME_ACCENT}66, transparent)` }} />
+            {sec.live && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                fontSize: isMobile ? 7 : 8, letterSpacing: 1.2,
+                color: refreshing ? '#00d4ff' : 'rgba(110,170,200,.45)',
+                fontWeight: 600,
+              }}>
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: refreshing ? '#00d4ff' : 'rgba(110,170,200,.4)',
+                  animation: refreshing ? 'hud-pulse 1.2s ease-in-out infinite' : 'none',
+                  boxShadow: refreshing ? '0 0 6px rgba(0,212,255,.6)' : 'none',
+                }} />
+                {refreshing ? 'SYNC' : 'IDLE'}
+              </span>
+            )}
+          </div>
+
+          {/* Cells row — vertical hairline rules between cells, no individual borders */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: gridCols,
+            padding: isMobile ? '4px 4px 14px' : '4px 8px 18px',
+          }}>
+            {sec.cells.map((cell, i) => {
+              const tick = cell.accent ?? BRACKET_COLOR;
+              return (
+              <div
+                key={cell.label}
+                style={{
+                  position: 'relative',
+                  // vertical separator on cells > 0 in the same row.
+                  // On mobile with 2 cols, only every-other cell gets the rule.
+                  borderLeft: (isMobile ? i % 2 !== 0 : i > 0) ? `1px solid ${RULE_COLOR}` : 'none',
+                  padding: isMobile ? '12px 12px 8px' : '14px 18px 10px',
+                  minWidth: 0,
+                }}
+              >
+                {/* Subtle top accent strip when the cell carries a brand color */}
+                {cell.accent && (
+                  <div style={{
+                    position: 'absolute', top: 0, left: 0, right: 0, height: 1,
+                    background: `linear-gradient(90deg, ${cell.accent}, ${cell.accent}55, transparent)`,
+                    pointerEvents: 'none',
+                  }} />
+                )}
+                <div style={{
+                  fontFamily: 'Orbitron, monospace',
+                  fontSize: isMobile ? 8 : 9,
+                  letterSpacing: 1.4,
+                  color: LABEL_COLOR,
+                  marginBottom: isMobile ? 7 : 9,
+                  textTransform: 'uppercase',
+                  fontWeight: 500,
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                  <span style={{ color: tick, fontSize: isMobile ? 7 : 8 }}>▸</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{cell.label}</span>
+                </div>
+                <div style={{
+                  fontFamily: 'Orbitron, monospace',
+                  fontSize: isMobile ? 15 : 22,
+                  fontWeight: 600,
+                  color: cell.valueColor ?? VALUE_COLOR,
+                  letterSpacing: 0.3,
+                  lineHeight: 1.05,
+                  fontVariantNumeric: 'tabular-nums',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>{cell.value}</div>
+                <div style={{
+                  marginTop: isMobile ? 6 : 8,
+                  fontFamily: 'Sora, sans-serif',
+                  fontSize: isMobile ? 9 : 10,
+                  color: SUB_COLOR,
+                  letterSpacing: 0.3,
+                  fontVariantNumeric: 'tabular-nums',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>{cell.sub}</div>
+              </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    })}
+  </div>
+);
+
+// ═════════════════════════════════════════════════════════════════════════════
 // MAIN PAGE
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -2189,6 +2414,13 @@ const LpFarms: FC = () => {
   const [positions, setPositions]  = useState<PositionOnChain[]>([]);
   const [loading, setLoading]      = useState(true);    // only on first-ever load
   const [refreshing, setRefreshing] = useState(false);  // background poll; does not hide UI
+
+  // Network-wide stats (independent of wallet connection)
+  const [uniqueStakers, setUniqueStakers] = useState(0);
+  const [brainsSupplyUi, setBrainsSupplyUi] = useState(0);
+  const [lbSupplyUi, setLbSupplyUi] = useState(0);
+  const [brainsPriceUsd, setBrainsPriceUsd] = useState(0);
+  const [lbPriceUsd, setLbPriceUsd] = useState(0);
   const [stakeTarget, setStakeTarget]     = useState<FarmOnChain | null>(null);
   const [donateTarget, setDonateTarget]   = useState<FarmOnChain | null>(null);
   const [claimTarget, setClaimTarget]     = useState<PositionOnChain | null>(null);
@@ -2202,6 +2434,22 @@ const LpFarms: FC = () => {
     try {
       const fs = await fetchFarms(connection);
       setFarms(fs);
+
+      // Network-wide stats — fire all five in parallel so refresh stays cheap.
+      // None of these depend on wallet connection.
+      const [stakers, brainsSupplyRes, lbSupplyRes, brainsPx, lbPx] = await Promise.all([
+        fetchTotalStakers(connection),
+        connection.getTokenSupply(new PublicKey(BRAINS_MINT)).then(r => r.value.uiAmount ?? 0).catch(() => 0),
+        connection.getTokenSupply(new PublicKey(LB_MINT)).then(r => r.value.uiAmount ?? 0).catch(() => 0),
+        fetchPrice(BRAINS_MINT).catch(() => 0),
+        fetchPrice(LB_MINT).catch(() => 0),
+      ]);
+      setUniqueStakers(stakers.uniqueStakers);
+      setBrainsSupplyUi(brainsSupplyRes);
+      setLbSupplyUi(lbSupplyRes);
+      setBrainsPriceUsd(brainsPx);
+      setLbPriceUsd(lbPx);
+
       if (publicKey) {
         const allPos: PositionOnChain[] = [];
         for (const f of fs) {
@@ -2260,6 +2508,7 @@ const LpFarms: FC = () => {
 
       <TopBar />
       <PageBackground />
+      <NfaConsentModal />
 
       {/* Background orbs */}
       <div style={{ position: 'fixed', top: '20%', left: '10%', width: 600, height: 600,
@@ -2306,38 +2555,39 @@ const LpFarms: FC = () => {
             borderRadius: 2,
             boxShadow: '0 0 12px rgba(255,140,0,.4), 0 0 24px rgba(255,140,0,.15)' }} />
 
-          {/* Stat cards */}
-          <div style={{ width: '100%', maxWidth: 900, margin: '0 auto',
-            animation: 'fadeUp 0.5s ease 0.22s both',
-            display: 'grid',
-            gridTemplateColumns: isMobile ? 'repeat(2, minmax(0,1fr))' : 'repeat(4, minmax(0,1fr))',
-            gap: 8 }}>
-            {[
-              { label: 'Active Farms',   value: String(farms.filter(f => !f.closed).length), sub: 'running',            color: '#ff8c00' },
-              { label: 'Total Vault',    value: totalVaultUsd > 0 ? fmtUSD(totalVaultUsd) : '—', sub: 'rewards locked', color: '#00c98d' },
-              { label: 'Total TVL',      value: totalTvlUsd > 0 ? fmtUSD(totalTvlUsd) : '—',     sub: 'lp staked',       color: '#00d4ff' },
-              { label: 'My Rewards',     value: myPendingUsd > 0 ? fmtUSD(myPendingUsd) : '—',   sub: 'claimable',        color: '#bf5af2' },
-            ].map(({ label, value, sub, color }) => (
-              <div key={label} style={{
-                background: '#0d1520', border: '1px solid rgba(255,255,255,.07)',
-                borderRadius: 14, padding: isMobile ? '14px' : '18px 20px',
-                position: 'relative', overflow: 'hidden',
-              }}>
-                <div style={{ position: 'absolute', top: -24, right: -24,
-                  width: 90, height: 90, borderRadius: '50%', background: color,
-                  opacity: 0.12, filter: 'blur(28px)', pointerEvents: 'none' }} />
-                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1,
-                  background: `linear-gradient(90deg,${color}55,transparent)` }} />
-                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: isMobile ? 8 : 10,
-                  letterSpacing: 1, color: 'rgba(255,255,255,.3)', marginBottom: isMobile ? 6 : 10,
-                  textTransform: 'uppercase' }}>{label}</div>
-                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 14 : 20,
-                  fontWeight: 700, color, letterSpacing: 0.5, lineHeight: 1 }}>{value}</div>
-                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10,
-                  color: 'rgba(255,255,255,.18)', marginTop: 6 }}>{sub}</div>
-              </div>
-            ))}
-          </div>
+          {/* ── HUD DASHBOARD — single frame, two internal sections ──────── */}
+          <HudDashboard
+            isMobile={isMobile}
+            refreshing={refreshing}
+            sections={[
+              {
+                header: 'NETWORK · LIVE',
+                live: true,
+                cells: [
+                  { label: 'Active Farms',   value: String(farms.filter(f => !f.closed).length),                                              sub: 'running',              accent: HUD_ACCENT.brains },
+                  { label: 'LP Farms TVL',   value: totalTvlUsd > 0 ? fmtUSD(totalTvlUsd) : '—',                                              sub: 'platform · lp staked', accent: HUD_ACCENT.data },
+                  { label: 'Total Vault',    value: totalVaultUsd > 0 ? fmtUSD(totalVaultUsd) : '—',                                          sub: 'rewards locked',       accent: HUD_ACCENT.lb },
+                  { label: 'Total Stakers',  value: uniqueStakers > 0 ? String(uniqueStakers) : '—',                                          sub: 'unique wallets',       accent: HUD_ACCENT.reward },
+                ],
+              },
+              {
+                header: 'POSITION · DATA',
+                cells: [
+                  { label: 'BRAINS MC',      value: brainsPriceUsd > 0 && brainsSupplyUi > 0 ? fmtUSD(brainsSupplyUi * brainsPriceUsd) : '—', sub: brainsPriceUsd > 0 ? `@ $${brainsPriceUsd < 0.01 ? brainsPriceUsd.toFixed(6) : brainsPriceUsd.toFixed(4)}` : 'market cap', accent: HUD_ACCENT.brains },
+                  { label: 'LB MC',          value: lbPriceUsd     > 0 && lbSupplyUi     > 0 ? fmtUSD(lbSupplyUi     * lbPriceUsd)     : '—', sub: lbPriceUsd     > 0 ? `@ $${lbPriceUsd     < 0.01 ? lbPriceUsd.toFixed(6)     : lbPriceUsd.toFixed(4)}`     : 'market cap', accent: HUD_ACCENT.lb },
+                  // My Rewards only shows when a wallet is connected — otherwise the cell is omitted
+                  // and the section renders with 2 cells instead of 3.
+                  ...(publicKey ? [{
+                    label: 'My Rewards',
+                    value: myPendingUsd > 0 ? fmtUSD(myPendingUsd) : '$0.00',
+                    sub: 'claimable',
+                    accent: HUD_ACCENT.reward,
+                    valueColor: '#ff8c00',
+                  }] : []),
+                ],
+              },
+            ]}
+          />
         </div>
 
         {/* ── TAB SWITCHER ─────────────────────────────────────────────── */}
@@ -2438,24 +2688,98 @@ const LpFarms: FC = () => {
             </div>
           ) : (
             <>
-              {/* Summary card */}
-              <div style={{ background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-                border: '1px solid rgba(255,140,0,.15)', borderRadius: 14,
-                padding: isMobile ? '16px' : '20px 24px', marginBottom: 16,
-                display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)', gap: 14 }}>
-                {[
-                  { label: 'POSITIONS',      val: String(positions.length),       color: '#e0f0ff' },
-                  { label: 'TOTAL STAKED',   val: fmtUSD(myTotalStakedUsd),        color: '#00d4ff' },
-                  { label: 'CLAIMABLE NOW',  val: fmtUSD(myPendingUsd),            color: '#00c98d' },
-                ].map(s => (
-                  <div key={s.label}>
-                    <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8,
-                      letterSpacing: 1, color: '#8899aa', marginBottom: 4 }}>{s.label}</div>
-                    <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 18,
-                      fontWeight: 800, color: s.color }}>{s.val}</div>
+              {/* ── My Stakes HUD dashboard — overview + tier breakdown + timing ── */}
+              {(() => {
+                // Bucket positions by lock tier
+                const byTier = {
+                  locked30:  positions.filter(p => p.lockType === 'locked30'),
+                  locked90:  positions.filter(p => p.lockType === 'locked90'),
+                  locked365: positions.filter(p => p.lockType === 'locked365'),
+                };
+                const tierUsd = (ps: PositionOnChain[]) => ps.reduce((s, p) => {
+                  const f = farms.find(fa => fa.pubkey === p.farm);
+                  if (!f) return s;
+                  return s + (Number(p.amount) / pow10(f.lpDecimals)) * f.lpPriceUsd;
+                }, 0);
+
+                // Soonest unlock + value-weighted average lock-remaining
+                const now = Math.floor(Date.now() / 1000);
+                const futureUnlocks = positions.filter(p => p.unlockTs > now);
+                const nextUnlockSec = futureUnlocks.length
+                  ? Math.min(...futureUnlocks.map(p => p.unlockTs - now))
+                  : 0;
+                const totalWeight = positions.reduce((s, p) => {
+                  const f = farms.find(fa => fa.pubkey === p.farm);
+                  return f ? s + (Number(p.amount) / pow10(f.lpDecimals)) * f.lpPriceUsd : s;
+                }, 0);
+                const avgLockRemainSec = totalWeight > 0
+                  ? positions.reduce((s, p) => {
+                      const f = farms.find(fa => fa.pubkey === p.farm);
+                      if (!f) return s;
+                      const w = (Number(p.amount) / pow10(f.lpDecimals)) * f.lpPriceUsd;
+                      const rem = Math.max(0, p.unlockTs - now);
+                      return s + w * rem;
+                    }, 0) / totalWeight
+                  : 0;
+                const fmtDur = (sec: number): string => {
+                  if (sec <= 0) return 'unlocked';
+                  const d = Math.floor(sec / 86400);
+                  if (d >= 1) return `${d}d`;
+                  const h = Math.floor(sec / 3600);
+                  if (h >= 1) return `${h}h`;
+                  return `${Math.max(1, Math.floor(sec / 60))}m`;
+                };
+                const tierCell = (label: string, ps: PositionOnChain[], boost: string) => ({
+                  label,
+                  value: ps.length > 0 ? `${ps.length} · ${fmtUSD(tierUsd(ps))}` : '—',
+                  sub: ps.length > 0 ? boost : 'no positions',
+                });
+
+                return (
+                  <div style={{ marginBottom: 16 }}>
+                    <HudDashboard
+                      isMobile={isMobile}
+                      refreshing={refreshing}
+                      sections={[
+                        {
+                          header: 'POSITION · OVERVIEW',
+                          live: true,
+                          cells: [
+                            { label: 'Active',       value: String(positions.length),  sub: 'open positions',      accent: HUD_ACCENT.brains },
+                            { label: 'Total Locked', value: fmtUSD(myTotalStakedUsd),   sub: 'lp value · usd',      accent: HUD_ACCENT.data },
+                            { label: 'Claimable',    value: fmtUSD(myPendingUsd),       sub: 'unclaimed rewards',   accent: HUD_ACCENT.reward, valueColor: '#ff8c00' },
+                          ],
+                        },
+                        {
+                          header: 'TIER · BREAKDOWN',
+                          cells: [
+                            { ...tierCell('30D Lock',  byTier.locked30,  '1× boost'),  accent: HUD_ACCENT.data },
+                            { ...tierCell('90D Lock',  byTier.locked90,  '3× boost'),  accent: HUD_ACCENT.brains },
+                            { ...tierCell('365D Lock', byTier.locked365, '8× boost'),  accent: HUD_ACCENT.reward },
+                          ],
+                        },
+                        {
+                          header: 'TIMING · UNLOCK',
+                          cells: [
+                            {
+                              label: 'Next Unlock',
+                              value: nextUnlockSec > 0 ? fmtDur(nextUnlockSec) : (positions.length > 0 ? 'unlocked' : '—'),
+                              sub: nextUnlockSec > 0 ? 'soonest position' : (positions.length > 0 ? 'all unlocked' : 'no positions'),
+                              accent: HUD_ACCENT.lb,
+                            },
+                            {
+                              label: 'Avg Remaining',
+                              value: avgLockRemainSec > 0 ? fmtDur(Math.floor(avgLockRemainSec)) : '—',
+                              sub: 'weighted by value',
+                              accent: HUD_ACCENT.data,
+                            },
+                          ],
+                        },
+                      ]}
+                    />
                   </div>
-                ))}
-              </div>
+                );
+              })()}
 
               {positions.map(p => {
                 const farm = farms.find(f => f.pubkey === p.farm);
@@ -2476,6 +2800,9 @@ const LpFarms: FC = () => {
             <TokenomicsPanel isMobile={isMobile} />
           </div>
         )}
+
+        {/* ── FOOTER + NFA DISCLAIMER ──────────────────────────────────── */}
+        <Footer />
       </div>
 
       {/* ── MODALS ────────────────────────────────────────────────── */}

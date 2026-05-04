@@ -151,8 +151,64 @@ create trigger trg_bot_state_updated
   for each row execute function bot_set_updated_at();
 
 -- ──────────────────────────────────────────────────────────────────────────────
+-- 7. NFA ACCEPTANCE LOG — durable record of users who accepted the NFA modal
+-- ──────────────────────────────────────────────────────────────────────────────
+-- Each row is one click of the "I ACCEPT" button on the NFA consent modal.
+-- The modal is shown on Home / LP Farms / LabWork / LabWork DeFi pages and
+-- INSERTs here via the anon-key Supabase client.
+--
+-- RLS: anon can ONLY insert; cannot read, update, or delete. Service role
+-- (admin proxy) can read for legal/audit purposes. This means:
+--   - Public clients can append acceptances but never see anyone else's
+--   - Admin can pull the full ledger for evidence in a dispute
+--
+-- Bumping the modal's NFA_VERSION constant on the frontend invalidates prior
+-- acceptances client-side; the on-chain (here in pg) record stays forever.
+
+create table if not exists nfa_acceptances (
+  id           uuid primary key default gen_random_uuid(),
+  version      text not null,                        -- e.g. '1.0' — matches frontend NFA_VERSION
+  page         text not null,                        -- 'home' | 'lpfarms' | 'labwork' | 'labworkdefi' (window.location.pathname based)
+  wallet       text,                                 -- base58 pubkey if a wallet is connected at accept time, else null
+  user_agent   text,                                 -- raw navigator.userAgent — useful for fingerprinting in disputes
+  accepted_at  timestamptz not null default now(),   -- server-truth timestamp; the modal also sends a client ts but server wins
+  created_at   timestamptz not null default now()
+);
+
+create index if not exists idx_nfa_wallet  on nfa_acceptances(wallet) where wallet is not null;
+create index if not exists idx_nfa_created on nfa_acceptances(created_at desc);
+create index if not exists idx_nfa_version on nfa_acceptances(version);
+
+alter table nfa_acceptances enable row level security;
+
+-- Anon: insert only. Cannot read other users' acceptances.
+drop policy if exists "anon insert nfa acceptance" on nfa_acceptances;
+create policy "anon insert nfa acceptance"
+  on nfa_acceptances for insert
+  to anon
+  with check (
+    -- Defensive guard: enforce sane payload shape to prevent abuse via the
+    -- public anon key. Version + page + user_agent are required and must
+    -- be reasonably-sized strings; wallet is optional.
+    char_length(version)    between 1 and 16
+    and char_length(page)   between 1 and 64
+    and char_length(coalesce(user_agent, '')) between 0 and 1024
+    and char_length(coalesce(wallet, ''))     between 0 and 64
+  );
+
+-- Service role (admin / cron) can read the full audit log. Already implicit
+-- via service-role RLS bypass, but a policy is documented here for clarity.
+drop policy if exists "service role read nfa acceptances" on nfa_acceptances;
+create policy "service role read nfa acceptances"
+  on nfa_acceptances for select
+  to service_role
+  using (true);
+
+-- ──────────────────────────────────────────────────────────────────────────────
 -- DONE. Verify with:
 --   select * from bot_connection;     -- should show 1 row, all NULLs except id
 --   select * from bot_settings;       -- should show 1 row with default config
 --   select id from storage.buckets where id='bot-banners';
+--   select count(*) from nfa_acceptances;          -- ledger row count
+--   select wallet, count(*) from nfa_acceptances group by wallet order by 2 desc limit 20;
 -- ──────────────────────────────────────────────────────────────────────────────

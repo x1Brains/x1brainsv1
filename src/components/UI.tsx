@@ -1,6 +1,8 @@
-import React, { FC, useState } from 'react';
+import React, { FC, useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { supabase } from '../lib/supabase';
 
 // ─── XENBLOCKS TOKEN ICONS ───────────────────────────────────────────────────
 // Primary: real PNGs from explorer.xenblocks.io
@@ -707,20 +709,56 @@ export const PipelineBar: FC<{ text: string }> = ({ text }) => (
 // FOOTER
 // ─────────────────────────────────────────────
 export const Footer: FC = () => (
-  <footer style={{ marginTop: 48, paddingTop: 20, borderTop: '1px solid #1e3050', display: 'flex', justifyContent: 'center', gap: 24, flexWrap: 'wrap' }}>
-    {[
-      { label: 'X1.City',   href: 'https://x1.city' },
-      { label: 'X1.Ninja',  href: 'https://x1.ninja' },
-      { label: 'X1 Brains', href: 'https://x1brains.xyz' },
-      { label: 'XDex',      href: 'https://app.xdex.xyz' },
-      { label: 'Explorer',  href: 'https://explorer.mainnet.x1.xyz' },
-    ].map(link => (
-      <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer"
-        style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, letterSpacing: 2, color: '#5c7a90', textDecoration: 'none', textTransform: 'uppercase', transition: 'color 0.2s' }}
-        onMouseEnter={e => (e.currentTarget as HTMLAnchorElement).style.color = '#ff8c00'}
-        onMouseLeave={e => (e.currentTarget as HTMLAnchorElement).style.color = '#5c7a90'}
-      >{link.label}</a>
-    ))}
+  <footer style={{ marginTop: 48, paddingTop: 20, borderTop: '1px solid #1e3050' }}>
+    {/* ── NFA disclaimer ─────────────────────────────────────────────── */}
+    <div
+      role="note"
+      aria-label="Not financial advice"
+      style={{
+        maxWidth: 880, margin: '0 auto 18px',
+        padding: '0 16px',
+        fontFamily: 'Sora, sans-serif',
+        fontSize: 10, lineHeight: 1.55,
+        color: '#5c7a90', letterSpacing: 0.2,
+        textAlign: 'center',
+      }}
+    >
+      <span
+        style={{
+          fontFamily: 'Orbitron, monospace',
+          fontSize: 9, fontWeight: 700,
+          color: '#ff8c00', letterSpacing: 1.5,
+          marginRight: 8, whiteSpace: 'nowrap',
+        }}
+      >
+        NOT FINANCIAL ADVICE
+      </span>
+      X1 Brains is an independent, experimental DeFi platform on the X1
+      Blockchain. Nothing on this site is investment, financial, legal, or
+      tax advice. Cryptocurrency and DeFi protocols carry substantial risk —
+      you can lose 100% of deposited funds due to smart-contract bugs, oracle
+      failure, market volatility, or operator error. Smart contracts are
+      unaudited unless explicitly stated. Past performance does not predict
+      future results. Always do your own research (DYOR). By using this
+      site you accept full responsibility for your actions.
+    </div>
+
+    {/* ── External links ─────────────────────────────────────────────── */}
+    <div style={{ display: 'flex', justifyContent: 'center', gap: 24, flexWrap: 'wrap' }}>
+      {[
+        { label: 'X1.City',   href: 'https://x1.city' },
+        { label: 'X1.Ninja',  href: 'https://x1.ninja' },
+        { label: 'X1 Brains', href: 'https://x1brains.xyz' },
+        { label: 'XDex',      href: 'https://app.xdex.xyz' },
+        { label: 'Explorer',  href: 'https://explorer.mainnet.x1.xyz' },
+      ].map(link => (
+        <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer"
+          style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, letterSpacing: 2, color: '#5c7a90', textDecoration: 'none', textTransform: 'uppercase', transition: 'color 0.2s' }}
+          onMouseEnter={e => (e.currentTarget as HTMLAnchorElement).style.color = '#ff8c00'}
+          onMouseLeave={e => (e.currentTarget as HTMLAnchorElement).style.color = '#5c7a90'}
+        >{link.label}</a>
+      ))}
+    </div>
   </footer>
 );
 
@@ -742,3 +780,263 @@ export const AddressBar: FC<{ address: string }> = ({ address }) => (
     <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#00c98d', flexShrink: 0, animation: 'pulse-orange 2s ease infinite' }} />
   </div>
 );
+
+// ═════════════════════════════════════════════════════════════════════════════
+// NFA CONSENT MODAL — one-time legal acceptance gate
+// ═════════════════════════════════════════════════════════════════════════════
+// Renders a blocking modal the first time a user visits a covered page.
+// Once accepted, an entry with { version, acceptedAt, userAgent } is written
+// to localStorage so the modal won't appear on future visits or other covered
+// pages. Bumping NFA_VERSION invalidates prior acceptances and re-prompts
+// every user — use this if the disclaimer text is materially updated.
+//
+// Usage: drop `<NfaConsentModal />` once on each covered page. The modal is
+// fixed-positioned and self-managed; no props required.
+
+const NFA_STORAGE_KEY = 'x1brains.nfa.accepted.v1';
+const NFA_VERSION = '1.0';
+
+interface NfaAcceptance {
+  version: string;
+  acceptedAt: string;
+  userAgent: string;
+}
+
+function readNfaAcceptance(): NfaAcceptance | null {
+  try {
+    const raw = localStorage.getItem(NFA_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as NfaAcceptance;
+    if (parsed?.version !== NFA_VERSION) return null;
+    return parsed;
+  } catch { return null; }
+}
+
+const NfaCornerBracket: FC<{ corner: 'tl' | 'tr' | 'bl' | 'br' }> = ({ corner }) => {
+  const c = '#ff8c00';
+  const size = 14;
+  const base: React.CSSProperties = { position: 'absolute', width: size, height: size, pointerEvents: 'none' };
+  const styles: Record<typeof corner, React.CSSProperties> = {
+    tl: { top: -1, left: -1,  borderTop: `1px solid ${c}`, borderLeft:  `1px solid ${c}` },
+    tr: { top: -1, right: -1, borderTop: `1px solid ${c}`, borderRight: `1px solid ${c}` },
+    bl: { bottom: -1, left: -1,  borderBottom: `1px solid ${c}`, borderLeft:  `1px solid ${c}` },
+    br: { bottom: -1, right: -1, borderBottom: `1px solid ${c}`, borderRight: `1px solid ${c}` },
+  };
+  return <div style={{ ...base, ...styles[corner] }} />;
+};
+
+export const NfaConsentModal: FC = () => {
+  const [accepted, setAccepted] = useState<boolean>(() => !!readNfaAcceptance());
+  const [agreed, setAgreed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const { publicKey } = useWallet();
+  const location = useLocation();
+
+  // Lock body scroll while modal is open — prevents background page interaction.
+  useEffect(() => {
+    if (accepted) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [accepted]);
+
+  if (accepted) return null;
+
+  const handleAccept = async () => {
+    if (!agreed || submitting) return;
+    setSubmitting(true);
+
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 1024) : '';
+    const wallet = publicKey?.toBase58() ?? null;
+    // Normalize the page slug from the current path: '/lpfarms' → 'lpfarms', '/' → 'home'.
+    const path = (location?.pathname || '/').toLowerCase();
+    const page = path === '/' || path === '' ? 'home' : path.replace(/^\/+/, '').split('/')[0].slice(0, 64);
+
+    // Server-side log first — this is the durable evidence. Best-effort: if
+    // Supabase is unreachable or RLS blocks the row, we still let the user
+    // through (the localStorage fallback below proves intent client-side).
+    if (supabase) {
+      try {
+        await supabase.from('nfa_acceptances').insert({
+          version: NFA_VERSION,
+          page,
+          wallet,
+          user_agent: ua,
+        });
+      } catch {
+        // Network / RLS error — non-fatal. The localStorage record below is
+        // the fallback proof if the server log is unavailable.
+      }
+    }
+
+    // Local cache so the modal doesn't re-prompt on the next page load.
+    try {
+      const record: NfaAcceptance = {
+        version: NFA_VERSION,
+        acceptedAt: new Date().toISOString(),
+        userAgent: ua,
+      };
+      localStorage.setItem(NFA_STORAGE_KEY, JSON.stringify(record));
+    } catch { /* private mode — proceed anyway */ }
+
+    setSubmitting(false);
+    setAccepted(true);
+  };
+
+  const bullets: string[] = [
+    'X1 Brains is an EXPERIMENTAL DeFi platform on the X1 Blockchain. Smart contracts are open-source and unaudited unless explicitly stated, and may contain bugs that cause partial or total loss of deposited funds.',
+    'Cryptocurrency markets are highly volatile. You can lose 100% of any tokens you commit through staking, pairing, listings, or trades. Past performance does not predict future results.',
+    'Nothing on this site is investment, financial, legal, or tax advice. Information is provided "AS IS" for educational purposes only. Always do your own research (DYOR) and consult qualified professionals before making any financial decision.',
+    'The X1 Brains team makes no guarantees about availability, security, or yield. There is no recourse, refund, or insurance for funds lost to smart-contract bugs, exploits, oracle failure, market crashes, or operator error.',
+    'You are solely responsible for the security of your wallet, private keys, and seed phrases. The platform never holds custody of your assets.',
+    'You confirm that using this site is permitted under the laws of your jurisdiction, and that you are not a resident of any region where it would be illegal.',
+  ];
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="nfa-modal-title"
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: 'rgba(0,0,0,.86)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 16,
+        animation: 'fadeUp 0.3s ease both',
+      }}
+    >
+      <div style={{
+        position: 'relative',
+        maxWidth: 640, width: '100%',
+        maxHeight: '92vh', overflowY: 'auto',
+        background: '#070b12',
+        border: '1px solid rgba(255,140,0,.4)',
+        boxShadow: '0 0 80px rgba(255,140,0,.18), 0 0 32px rgba(0,0,0,.6)',
+        padding: '32px 28px 24px',
+        // CRT scanline overlay
+        backgroundImage: `repeating-linear-gradient(
+          0deg,
+          rgba(255,140,0,.015) 0,
+          rgba(255,140,0,.015) 1px,
+          transparent 1px,
+          transparent 3px
+        )`,
+      }}>
+        <NfaCornerBracket corner="tl" />
+        <NfaCornerBracket corner="tr" />
+        <NfaCornerBracket corner="bl" />
+        <NfaCornerBracket corner="br" />
+
+        {/* Header */}
+        <div style={{
+          fontFamily: 'Orbitron, monospace',
+          fontSize: 9, letterSpacing: 2, color: 'rgba(255,178,100,.65)',
+          marginBottom: 6, textTransform: 'uppercase',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <span style={{ color: '#ff8c00' }}>[</span>
+          <span>X1 BRAINS · LEGAL DISCLAIMER</span>
+          <span style={{ color: '#ff8c00' }}>]</span>
+          <span style={{ flex: 1, height: 1, background: 'linear-gradient(90deg, rgba(255,140,0,.5), transparent)' }} />
+          <span style={{ color: 'rgba(255,178,100,.45)' }}>v{NFA_VERSION}</span>
+        </div>
+
+        <h2 id="nfa-modal-title" style={{
+          fontFamily: 'Orbitron, monospace',
+          fontSize: 20, fontWeight: 900,
+          letterSpacing: 2, color: '#ff8c00',
+          margin: '4px 0 18px', textTransform: 'uppercase',
+        }}>
+          Not Financial Advice
+        </h2>
+
+        {/* Body bullets */}
+        <ol style={{
+          listStyle: 'none', padding: 0, margin: 0,
+          display: 'flex', flexDirection: 'column', gap: 12,
+          fontFamily: 'Sora, sans-serif',
+          fontSize: 12, lineHeight: 1.6,
+          color: '#c4d2dc',
+        }}>
+          {bullets.map((text, i) => (
+            <li key={i} style={{ display: 'flex', gap: 10 }}>
+              <span style={{ color: '#ff8c00', fontFamily: 'Orbitron, monospace', fontSize: 11, flexShrink: 0 }}>▸</span>
+              <span>{text}</span>
+            </li>
+          ))}
+        </ol>
+
+        <div style={{
+          marginTop: 18, padding: '12px 14px',
+          background: 'rgba(255,140,0,.05)',
+          border: '1px solid rgba(255,140,0,.18)',
+          fontFamily: 'Sora, sans-serif', fontSize: 11, lineHeight: 1.55,
+          color: '#d6e0e8',
+        }}>
+          By checking the box and clicking <strong style={{ color: '#ff8c00' }}>I ACCEPT</strong> you agree to all of
+          the above and waive any claim against the X1 Brains team for losses
+          incurred while using this site.
+        </div>
+
+        {/* Checkbox */}
+        <label style={{
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+          marginTop: 16, cursor: 'pointer',
+          fontFamily: 'Sora, sans-serif', fontSize: 12,
+          color: '#d0dde8', userSelect: 'none',
+        }}>
+          <input
+            type="checkbox"
+            checked={agreed}
+            onChange={e => setAgreed(e.target.checked)}
+            style={{
+              width: 16, height: 16, marginTop: 2, flexShrink: 0,
+              cursor: 'pointer', accentColor: '#ff8c00',
+            }}
+          />
+          <span>
+            I have read, understood, and accept the disclaimer above. I am
+            using this site at my own risk.
+          </span>
+        </label>
+
+        {/* Action button */}
+        <button
+          type="button"
+          onClick={handleAccept}
+          disabled={!agreed || submitting}
+          style={{
+            display: 'block', width: '100%',
+            marginTop: 18, padding: '14px 24px',
+            fontFamily: 'Orbitron, monospace',
+            fontSize: 12, fontWeight: 900, letterSpacing: 2,
+            textTransform: 'uppercase',
+            color: agreed ? '#0a0a0a' : '#5c7a90',
+            background: agreed
+              ? 'linear-gradient(135deg, #ff8c00, #ffb700)'
+              : 'rgba(255,255,255,.04)',
+            border: agreed
+              ? '1px solid #ff8c00'
+              : '1px solid rgba(255,255,255,.08)',
+            cursor: agreed && !submitting ? 'pointer' : 'not-allowed',
+            opacity: submitting ? 0.7 : 1,
+            boxShadow: agreed ? '0 0 24px rgba(255,140,0,.35)' : 'none',
+            transition: 'all .15s',
+          }}
+        >
+          {submitting ? 'RECORDING…' : agreed ? '✓ I ACCEPT · CONTINUE' : 'CHECK THE BOX TO CONTINUE'}
+        </button>
+
+        <div style={{
+          marginTop: 12, textAlign: 'center',
+          fontFamily: 'Orbitron, monospace', fontSize: 7, letterSpacing: 1.5,
+          color: 'rgba(255,255,255,.25)',
+        }}>
+          ACCEPTANCE LOGGED · TIMESTAMP + VERSION + WALLET RECORDED
+        </div>
+      </div>
+    </div>
+  );
+};

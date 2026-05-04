@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { BRAINS_LOGO, NAV_LINKS } from '../constants';
-import { TopBar, PageBackground, Footer } from '../components/UI';
+import { TopBar, PageBackground, Footer, NfaConsentModal } from '../components/UI';
 
 // ─────────────────────────────────────────────
 // FEATURE CARD
@@ -151,6 +151,7 @@ const Home: FC = () => {
     <div style={{ minHeight: '100vh', background: '#080c0f', padding: '80px 16px 40px', position: 'relative', overflow: 'hidden' }}>
       <TopBar />
       <PageBackground />
+      <NfaConsentModal />
 
       {/* Extra purple blob for home page */}
       <div style={{ position: 'fixed', top: '40%', left: '50%', transform: 'translate(-50%,-50%)', width: 800, height: 800, borderRadius: '50%', background: 'radial-gradient(circle, rgba(191,90,242,0.03) 0%, transparent 60%)', pointerEvents: 'none', zIndex: 0 }} />

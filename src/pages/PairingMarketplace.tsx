@@ -10,7 +10,7 @@ import {
   TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
-import { TopBar, PageBackground, Footer } from '../components/UI';
+import { TopBar, PageBackground, Footer, NfaConsentModal } from '../components/UI';
 import { BurnedBrainsBar } from '../components/BurnedBrainsBar';
 import { BRAINS_MINT as BRAINS_MINT_STR } from '../constants';
 import PoolsTab from './PoolsTab';
@@ -4099,6 +4099,7 @@ const PairingMarketplace: FC = () => {
       <TopBar />
       <div style={{ display: 'none' }} aria-hidden="true"><BurnedBrainsBar /></div>
       <PageBackground />
+      <NfaConsentModal />
 
       <div style={{ position: 'fixed', top: '20%', left: '10%', width: 600, height: 600, borderRadius: '50%',
         background: 'radial-gradient(circle,rgba(0,212,255,0.04) 0%,transparent 60%)', pointerEvents: 'none', zIndex: 0 }} />
