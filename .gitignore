@@ -23,3 +23,14 @@ check*.js
 inspect_*.js
 scripts/force-mature.js
 scripts/check-force-mature-alive.js
+
+# Backup files
+*.bak
+*.old
+*.orig
+
+# Local ops scripts — kept on disk for the operator, not published.
+# These read the admin keypair from disk and run one-off admin tasks.
+collect_lb_fees.js
+manual_delist.js
+seed_brains_pools.js
