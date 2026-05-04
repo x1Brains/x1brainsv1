@@ -15,22 +15,79 @@ export const supabase: SupabaseClient | null = _hasSB ? createClient(SUPABASE_UR
 export function isSupabaseReady(): boolean { return _hasSB; }
 
 // ─────────────────────────────────────────────────────────────────
-// ADMIN API — all write operations go through /api/admin (server-side)
-// The service role key lives there as SUPABASE_SERVICE_KEY (no VITE_ prefix)
-// and is never exposed in the browser bundle.
+// ADMIN API — all write operations go through /api/admin (server-side).
+// Auth: every request carries an Ed25519 signature over a structured
+// message that commits to (action, payloadHash, ts, nonce). The server
+// verifies the signature against ADMIN_WALLET, the timestamp freshness,
+// and that payloadHash matches the actual request body. This is what
+// replaces the old plaintext `x-admin-wallet` header check.
+//
+// The service role key lives on the server as SUPABASE_SERVICE_KEY (no
+// VITE_ prefix) and is never exposed in the browser bundle.
 // ─────────────────────────────────────────────────────────────────
-let _adminWallet = '';
-export function setAdminWallet(w: string) { _adminWallet = w; }
+import bs58 from 'bs58';
+
+type SignMessageFn = (msg: Uint8Array) => Promise<Uint8Array>;
+
+let _adminPubkey = '';
+let _adminSign: SignMessageFn | null = null;
+
+/**
+ * Wire the connected wallet's pubkey + signMessage into the admin API.
+ * Pass `null` on disconnect to clear. The signMessage function is the one
+ * exposed by `@solana/wallet-adapter-react`'s useWallet().
+ */
+export function setAdminAuth(args: { pubkey: string; signMessage: SignMessageFn } | null): void {
+  if (!args) {
+    _adminPubkey = '';
+    _adminSign = null;
+    return;
+  }
+  _adminPubkey = args.pubkey;
+  _adminSign = args.signMessage;
+}
+
+/** Back-compat shim: pubkey-only call clears the signer (legacy callers). */
+export function setAdminWallet(w: string): void {
+  _adminPubkey = w;
+  if (!w) _adminSign = null;
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const buf = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest('SHA-256', buf);
+  const bytes = new Uint8Array(digest);
+  let hex = '';
+  for (const b of bytes) hex += b.toString(16).padStart(2, '0');
+  return hex;
+}
 
 async function adminFetch(action: string, payload?: any): Promise<{ success: boolean; error?: string; data?: any }> {
+  if (!_adminPubkey || !_adminSign) {
+    return { success: false, error: 'Admin signer not configured. Connect wallet first.' };
+  }
   try {
+    const payloadJson = JSON.stringify(payload ?? null);
+    const payloadHash = await sha256Hex(payloadJson);
+    const message = JSON.stringify({
+      action,
+      payloadHash,
+      ts: Date.now(),
+      nonce: crypto.randomUUID(),
+    });
+    const sig = await _adminSign(new TextEncoder().encode(message));
     const r = await fetch('/api/admin', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-admin-wallet': _adminWallet,
-      },
-      body: JSON.stringify({ action, payload }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action,
+        payload,
+        auth: {
+          pubkey: _adminPubkey,
+          message,
+          signature: bs58.encode(sig),
+        },
+      }),
     });
     return await r.json();
   } catch (e: any) {

@@ -18,7 +18,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { TopBar, PageBackground, Footer } from '../components/UI';
 import {
-  setAdminWallet,
+  setAdminAuth,
   botGetSettings, botSaveSettings,
   botGetConnection, botSaveTelegramToken, botSaveChat,
   botTestTelegram, botDetectChats, botDetectVaults, botSendTestMessage,
@@ -40,7 +40,7 @@ const EVENT_DEFS: { key: EventKey; icon: string; label: string; desc: string }[]
 ];
 
 const BotAdmin: FC = () => {
-  const { publicKey, connected } = useWallet();
+  const { publicKey, connected, signMessage } = useWallet();
   const { setVisible } = useWalletModal();
   const isAdminWallet = publicKey?.toBase58() === ADMIN_WALLET;
 
@@ -54,14 +54,16 @@ const BotAdmin: FC = () => {
     setTimeout(() => setStatusMsg(null), type === 'err' ? 8000 : 4000);
   };
 
-  // Wire wallet pubkey into adminFetch's header on every change
+  // Wire wallet signer into adminFetch on every change. The signer signs
+  // every admin request body so the server can verify it via Ed25519 — no
+  // more "trust the header" auth.
   useEffect(() => {
-    if (publicKey && isAdminWallet) {
-      setAdminWallet(publicKey.toBase58());
+    if (publicKey && isAdminWallet && signMessage) {
+      setAdminAuth({ pubkey: publicKey.toBase58(), signMessage });
     } else {
-      setAdminWallet('');
+      setAdminAuth(null);
     }
-  }, [publicKey, isAdminWallet]);
+  }, [publicKey, isAdminWallet, signMessage]);
 
   const loadAll = useCallback(async () => {
     setBusy(true);

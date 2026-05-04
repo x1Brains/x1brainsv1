@@ -847,10 +847,17 @@ const AdminRewards:FC=()=>{
   const navigate=useNavigate();const{connection}=useConnection();const wallet=useWallet();const{setVisible}=useWalletModal();
   const wa=wallet.publicKey?.toBase58()||'';const isAdmin=wa===ADMIN_WALLET;
 
-  // Register wallet with adminFetch so it sends x-admin-wallet header on every write
+  // Wire the wallet signer into adminFetch so every admin write is signed
+  // (Ed25519) and the server can verify identity + payload integrity.
   useEffect(()=>{
-    import('../lib/supabase').then(sb=>{ if(sb.setAdminWallet) sb.setAdminWallet(wa); }).catch(()=>{});
-  },[wa]);
+    import('../lib/supabase').then(sb=>{
+      if (isAdmin && wallet.publicKey && wallet.signMessage) {
+        sb.setAdminAuth?.({ pubkey: wa, signMessage: wallet.signMessage });
+      } else {
+        sb.setAdminAuth?.(null);
+      }
+    }).catch(()=>{});
+  },[wa, isAdmin, wallet.publicKey, wallet.signMessage]);
   const[isMobile,setIsMobile]=useState(window.innerWidth<768);
   useEffect(()=>{const h=()=>setIsMobile(window.innerWidth<768);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[]);
   const[tab,setTab]=useState('weekly');const[saved,setSaved]=useState('');const show=(m:string)=>{setSaved(m);setTimeout(()=>setSaved(''),2500);};

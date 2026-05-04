@@ -162,9 +162,11 @@ async function snapshotWallet(
 
 // ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Security — Vercel cron jobs send this header
+  // Security — Vercel cron jobs send Authorization: Bearer <CRON_SECRET>.
+  // Default-deny: if CRON_SECRET is not configured on the deployment, we
+  // refuse the request rather than fall open (previous bug — see audit).
   const cronSecret = req.headers['authorization'];
-  if (process.env.CRON_SECRET && cronSecret !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!process.env.CRON_SECRET || cronSecret !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 

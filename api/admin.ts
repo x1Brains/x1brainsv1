@@ -4,10 +4,13 @@
 // The service role key lives here as SUPABASE_SERVICE_KEY (no VITE_ prefix)
 // so it is NEVER bundled into client-side JS.
 //
-// Auth: every request must include x-admin-wallet header matching ADMIN_WALLET.
-// This is a simple shared-secret style check — the wallet address is not
-// truly secret, but it prevents casual abuse. For stronger auth, require a
-// signed message from the wallet (future upgrade).
+// Auth: every request must include an `auth` blob in the JSON body with an
+// Ed25519 signature over a structured message that commits to (action,
+// payloadHash, ts, nonce). The signed message's action and payloadHash must
+// match the request body — so a captured signature can't be replayed against
+// a different action or payload. The signing pubkey must equal ADMIN_WALLET.
+// Timestamps must fall within ±60s; nonces are tracked in-memory to block
+// replays within that window.
 //
 // Allowed actions (POST /api/admin):
 //   { action: 'award_lbp',          payload: { address, lb_points, reason, category, week_id } }
@@ -33,11 +36,111 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import { createHash } from 'node:crypto';
+import nacl from 'tweetnacl';
+import bs58 from 'bs58';
 import { handleBotAction, isBotAction } from './_bot-actions';
 
 const SUPABASE_URL      = process.env.SUPABASE_URL      || '';
 const SUPABASE_SERVICE  = process.env.SUPABASE_SERVICE_KEY || '';
 const ADMIN_WALLET      = process.env.ADMIN_WALLET || '2nVaSvCqrsdskcbtn47uquNDL7Q69To1k45FpYBvWnuC';
+
+// Replay window — signed messages older/newer than this are rejected.
+const SIG_MAX_SKEW_MS = 60_000;
+
+// In-memory nonce cache to block within-window replays. Bounded LRU; survives
+// cold starts only by the freshness check above (a cold-start nonce that was
+// already used will pass uniqueness but still has to fall within ±60s of now,
+// limiting damage to one-shot replay during the warm window).
+const SEEN_NONCES = new Map<string, number>();
+function rememberNonce(nonce: string, ts: number): boolean {
+  // returns true if nonce is fresh (not previously seen)
+  if (SEEN_NONCES.has(nonce)) return false;
+  SEEN_NONCES.set(nonce, ts);
+  // Evict anything older than the skew window
+  if (SEEN_NONCES.size > 1024) {
+    const cutoff = Date.now() - SIG_MAX_SKEW_MS;
+    for (const [k, t] of SEEN_NONCES) {
+      if (t < cutoff) SEEN_NONCES.delete(k);
+    }
+  }
+  return true;
+}
+
+function sha256Hex(s: string): string {
+  return createHash('sha256').update(s).digest('hex');
+}
+
+interface AdminAuth {
+  pubkey: string;       // base58 ed25519 pubkey
+  message: string;      // signed JSON: { action, payloadHash, ts, nonce }
+  signature: string;    // base58 ed25519 signature
+}
+
+interface SignedMessage {
+  action: string;
+  payloadHash: string;
+  ts: number;
+  nonce: string;
+}
+
+/**
+ * Verify the signed admin auth blob. Returns null on success, error string
+ * on failure. The signature must commit to (action, payloadHash, ts, nonce)
+ * and the message's action/payloadHash must match the request body so a
+ * captured signature for one action can't be replayed against another.
+ */
+function verifyAdminAuth(
+  auth: AdminAuth | undefined,
+  bodyAction: string,
+  bodyPayload: unknown,
+): string | null {
+  if (!auth || typeof auth !== 'object') return 'Missing auth';
+  if (typeof auth.pubkey !== 'string' || typeof auth.message !== 'string' || typeof auth.signature !== 'string') {
+    return 'Malformed auth';
+  }
+  if (auth.pubkey !== ADMIN_WALLET) return 'Unauthorized signer';
+
+  let pubBytes: Uint8Array;
+  let sigBytes: Uint8Array;
+  try {
+    pubBytes = bs58.decode(auth.pubkey);
+    sigBytes = bs58.decode(auth.signature);
+  } catch {
+    return 'Bad base58 in auth';
+  }
+  if (pubBytes.length !== 32) return 'Bad pubkey length';
+  if (sigBytes.length !== 64) return 'Bad signature length';
+
+  const msgBytes = new TextEncoder().encode(auth.message);
+  if (!nacl.sign.detached.verify(msgBytes, sigBytes, pubBytes)) {
+    return 'Signature verification failed';
+  }
+
+  let parsed: SignedMessage;
+  try {
+    parsed = JSON.parse(auth.message) as SignedMessage;
+  } catch {
+    return 'Signed message not JSON';
+  }
+  if (typeof parsed.action !== 'string' || typeof parsed.payloadHash !== 'string'
+      || typeof parsed.ts !== 'number' || typeof parsed.nonce !== 'string') {
+    return 'Signed message missing fields';
+  }
+
+  // Freshness — guards against signature replay outside a tight window.
+  const skew = Math.abs(Date.now() - parsed.ts);
+  if (skew > SIG_MAX_SKEW_MS) return 'Signed message expired';
+
+  // Body binding — signature commits to action + payload, not just identity.
+  if (parsed.action !== bodyAction) return 'Action mismatch';
+  const expectedHash = sha256Hex(JSON.stringify(bodyPayload ?? null));
+  if (parsed.payloadHash !== expectedHash) return 'Payload hash mismatch';
+
+  if (!rememberNonce(parsed.nonce, parsed.ts)) return 'Nonce replay';
+
+  return null;
+}
 
 function ok(res: VercelResponse, data?: any) {
   return res.status(200).json({ success: true, data: data ?? null });
@@ -50,26 +153,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS — only allow from x1brains.io
   res.setHeader('Access-Control-Allow-Origin', 'https://x1brains.io');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-admin-wallet');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return err(res, 'Method not allowed', 405);
-
-  // Auth check
-  const wallet = req.headers['x-admin-wallet'] as string;
-  if (!wallet || wallet !== ADMIN_WALLET) {
-    return err(res, 'Unauthorized', 403);
-  }
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE) {
     return err(res, 'Supabase not configured on server', 500);
   }
 
+  const { action, payload, auth } = req.body as {
+    action: string;
+    payload?: any;
+    auth?: AdminAuth;
+  };
+
+  // Verify Ed25519-signed auth blob (pubkey, msg, signature). The signature
+  // commits to action + payload + timestamp + nonce so a captured signature
+  // can't be replayed against a different action or payload.
+  const authErr = verifyAdminAuth(auth, action, payload);
+  if (authErr) return err(res, authErr, 403);
+
   const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE);
-  const { action, payload } = req.body as { action: string; payload?: any };
 
   // ── Bot actions (delegated to _bot-actions.ts) ──────────────
   if (isBotAction(action)) {
-    const result = await handleBotAction(action, payload, wallet);
+    const result = await handleBotAction(action, payload, ADMIN_WALLET);
     return res.status(result.success ? 200 : 400).json(result);
   }
 
