@@ -2337,14 +2337,28 @@ const HudDashboard: FC<{
           }}>
             {sec.cells.map((cell, i) => {
               const tick = cell.accent ?? BRACKET_COLOR;
+              // On mobile (2-col grid): if this is the last cell AND the
+              // total cell count is odd, it would otherwise sit alone on the
+              // left of its own row — span it across both columns + center
+              // its contents so the orphan looks intentional rather than
+              // off-balance.
+              const isMobileOrphanLast = isMobile
+                && i === sec.cells.length - 1
+                && sec.cells.length % 2 === 1
+                && i > 0;
               return (
               <div
                 key={cell.label}
                 style={{
                   position: 'relative',
                   // vertical separator on cells > 0 in the same row.
-                  // On mobile with 2 cols, only every-other cell gets the rule.
-                  borderLeft: (isMobile ? i % 2 !== 0 : i > 0) ? `1px solid ${RULE_COLOR}` : 'none',
+                  // On mobile with 2 cols, only every-other cell gets the rule;
+                  // a spanned orphan cell (full-width on mobile) gets none.
+                  borderLeft: isMobileOrphanLast ? 'none'
+                    : (isMobile ? i % 2 !== 0 : i > 0) ? `1px solid ${RULE_COLOR}` : 'none',
+                  // Center-align spanned orphan + reach across both columns.
+                  gridColumn: isMobileOrphanLast ? '1 / -1' : 'auto',
+                  textAlign: isMobileOrphanLast ? 'center' : 'left',
                   padding: isMobile ? '12px 12px 8px' : '14px 18px 10px',
                   minWidth: 0,
                 }}
@@ -2366,6 +2380,7 @@ const HudDashboard: FC<{
                   textTransform: 'uppercase',
                   fontWeight: 500,
                   display: 'flex', alignItems: 'center', gap: 5,
+                  justifyContent: isMobileOrphanLast ? 'center' : 'flex-start',
                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 }}>
                   <span style={{ color: tick, fontSize: isMobile ? 7 : 8 }}>▸</span>
