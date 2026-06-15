@@ -32,6 +32,12 @@ logging.basicConfig(
 )
 log = logging.getLogger("bot")
 
+# sym -> (telegram_file_id, banner_version). Lets us send buy-alert banners by
+# file_id instead of re-fetching the image from Supabase on every alert — the
+# difference between ~one Supabase fetch per banner upload and one per buy.
+# In-memory only: a restart costs one URL-send per symbol, then it's cached again.
+_banner_file_ids: dict[str, tuple[str, str]] = {}
+
 
 def watched_accounts() -> list[str]:
     accounts: list[str] = []
@@ -100,18 +106,40 @@ async def send_event(bot: Bot, event: dict, rpc: RPC, settings: dict, conn: dict
         return
 
     msg = messages.build_message(event, metrics, lb_tier, xnt_usd, settings)
-    banner_url = storage.banner_url(sym)
+    banner_ref = storage.banner_ref(sym)
     chat_id = conn.get("chat_id")
     if not chat_id:
         log.warning("Skipping send — no chat_id"); return
 
     try:
-        if banner_url:
-            # Telegram fetches the URL itself — no need to download then upload
-            await bot.send_photo(
-                chat_id=chat_id, photo=banner_url, caption=msg,
-                parse_mode=ParseMode.MARKDOWN,
-            )
+        if banner_ref:
+            b_url, b_ver = banner_ref
+            cached = _banner_file_ids.get(sym)
+            # EGRESS FIX: reuse Telegram's stored copy via file_id. Passing the
+            # Supabase URL makes Telegram re-download the banner on every alert;
+            # a file_id makes Telegram serve its own copy and never hit Supabase.
+            # Fall back to the URL only on the first send per banner version
+            # (fresh upload or bot restart).
+            photo = cached[0] if (cached and cached[1] == b_ver) else b_url
+            try:
+                sent = await bot.send_photo(
+                    chat_id=chat_id, photo=photo, caption=msg,
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            except Exception as e:
+                # A stale/invalid file_id can be rejected — retry once with the URL.
+                if photo != b_url:
+                    log.warning(f"send_photo by file_id failed ({e}); retrying with URL")
+                    _banner_file_ids.pop(sym, None)
+                    sent = await bot.send_photo(
+                        chat_id=chat_id, photo=b_url, caption=msg,
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+                else:
+                    raise
+            # Capture the file_id so subsequent alerts skip Supabase entirely.
+            if sent and getattr(sent, "photo", None):
+                _banner_file_ids[sym] = (sent.photo[-1].file_id, b_ver)
         else:
             await bot.send_message(
                 chat_id=chat_id, text=msg,

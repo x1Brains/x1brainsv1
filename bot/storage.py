@@ -147,20 +147,25 @@ def update_last_sig(account: str, sig: str) -> None:
 # ─────────────────────────────────────────────────────────────
 # BANNERS (Supabase Storage public URLs)
 # ─────────────────────────────────────────────────────────────
-_banner_cache: dict[str, tuple[str, float]] = {}
+# sym -> (public_url, version, fetched_at). `version` = the storage object's
+# updated_at (changes on re-upload) so callers can cache a Telegram file_id and
+# only re-fetch the image bytes when the banner actually changes.
+_banner_cache: dict[str, tuple[str, str, float]] = {}
 _BANNER_TTL = 60  # seconds
 
 
-def banner_url(token_symbol: str) -> Optional[str]:
+def banner_ref(token_symbol: str) -> Optional[tuple[str, str]]:
     """
-    Returns a public URL for the token's banner, or None if not uploaded.
-    Cached for 60s to avoid hammering the storage API.
+    Returns (public_url, version) for the token's banner, or None if not uploaded.
+    `version` changes whenever the banner is re-uploaded — callers use it to
+    invalidate a cached Telegram file_id. Cached for 60s to avoid hammering the
+    storage list API.
     """
     import time
     sym = token_symbol.upper()
     cached = _banner_cache.get(sym)
-    if cached and time.time() - cached[1] < _BANNER_TTL:
-        return cached[0] or None
+    if cached and time.time() - cached[2] < _BANNER_TTL:
+        return (cached[0], cached[1]) if cached[0] else None
 
     try:
         # List bot-banners files matching banner_<sym>.*
@@ -171,13 +176,24 @@ def banner_url(token_symbol: str) -> Optional[str]:
         files = r.json()
         match = next((f for f in files if f.get("name", "").startswith(f"banner_{sym.lower()}.")), None)
         if not match:
-            _banner_cache[sym] = ("", time.time())
+            _banner_cache[sym] = ("", "", time.time())
             return None
         public_url = (
             f"{config.SUPABASE_URL}/storage/v1/object/public/bot-banners/{match['name']}"
         )
-        _banner_cache[sym] = (public_url, time.time())
-        return public_url
+        version = str(
+            match.get("updated_at")
+            or match.get("metadata", {}).get("eTag")
+            or match["name"]
+        )
+        _banner_cache[sym] = (public_url, version, time.time())
+        return (public_url, version)
     except Exception as e:
-        log.warning(f"banner_url({sym}) failed: {e}")
+        log.warning(f"banner_ref({sym}) failed: {e}")
         return None
+
+
+def banner_url(token_symbol: str) -> Optional[str]:
+    """Backward-compatible URL-only accessor (see banner_ref for the versioned form)."""
+    ref = banner_ref(token_symbol)
+    return ref[0] if ref else None
