@@ -679,3 +679,28 @@ api.x1.city, x1city, r2.dev, x1pups/punks, corsproxy/allorigins, all IPFS gatewa
 - **cf-worker (separate repo `x1city-react/cf-worker`)**: corrected Brains Elites mint price to
   **linear 33→444 XNT** (edition #1=33 … #444=444) for XT0 + X1B; deployed (worker `75ad0492`).
   Also fixed X1B `IDENTITY.md` (had wrong 50→222).
+
+### 13.9 Evening polish + mobile hardening (2026-06-15 PM, all pushed)
+- **Boost LB option**: tiers **200/444/888 BRAINS** OR **0.05/1/1.11 LB** (24h/3d/7d), BRAINS|LB
+  toggle in V2BoostModal (LB is Token-2022, same burnChecked). Points stay tier-based; LB rows
+  `source:'boost-lb'`. (§13.5)
+- **Brand orange softened site-wide**: `#ff8c00` → **`#f29030`** + `rgba(255,140,0,…)` →
+  `rgba(242,144,48,…)` (sed across all src). Tunable — change those two values.
+- **Home strips** (`.l-ticker`, `.l-spot` in V2Home injected CSS) = **softer teal**
+  (`rgba(0,207,198,.035/.07/.16…)`). The other `.f8`/bstat teal elements untouched.
+- **Featured banner image (LabWork `.lw-hero`)**: `stableHeroImg` state holds the last-good
+  image and never reverts to empty during enrichment (was disappearing); mobile uses
+  `object-fit:contain` (no crop).
+- **Mobile (Backpack WebView) hardening — App.css `@media (max-width:760px)` block at the very end:**
+  `.main { zoom: 0.9 }` (whole app ~10% smaller); `overflow-x:hidden` kills sideways scroll;
+  price ticker hidden; header `padding-left:72px` clears the menu toggle; `lf9` tables (LP Farms/
+  Pairing) + Mint tier table → stacked cards; burn/tx rows get `min-width:0`+ellipsis; 3-up stat
+  grids → 2-up. **All CSS-only, NOT render-tested on Backpack — verify on device.**
+- **API build fix** (Vercel node16, unblocked the deploy): `api/admin.ts` import `./_bot-actions.js`;
+  `api/cron-snapshot.ts` `getParsedTokenAccountsByOwner(..., 'confirmed')` (string, not object).
+- **Marketplace card hover** = border-color only (no lift/move). `.lf9-stat` value font 22→18px
+  toward Portfolio density.
+
+> **Open tweak knobs** (one-value changes if needed): mobile `zoom` (0.9), softened orange
+> `#f29030`, softer-teal alphas, header `padding-left:72px`. Still TODO from §0: run
+> `SUPABASE_NFT_METADATA.sql` + `SUPABASE_MARKET_STATS.sql`; verify Vercel env vars.
