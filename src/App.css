@@ -3782,7 +3782,9 @@
   /* Header: the price ticker ran off-screen (the sideways scroll) — drop it;
      give the page title room past the menu toggle */
   .price-ticker { display: none; }
-  .header { padding: 0 12px 0 56px; }
+  /* clear the menu toggle (it ends ~56px) — give the title a real gap */
+  .header { padding: 0 12px 0 72px; }
+  .header-left { gap: 10px; }
   .header-left h2 { font-size: 14px; line-height: 1.05; }
 
   /* LabWork featured banner — show the WHOLE image (contain, not cropped) */
