@@ -46,6 +46,13 @@ const GLOBAL_CSS = `
   }
   .wallet-adapter-modal { z-index: 99999 !important; position: fixed !important; }
   .wallet-adapter-modal-overlay { z-index: 99998 !important; position: fixed !important; }
+  /* Rebrand the modal title — the lib hardcodes "Connect a wallet on Solana to
+     continue". Collapse the original text node and inject our own. */
+  .wallet-adapter-modal-title { font-size: 0 !important; line-height: 0 !important; }
+  .wallet-adapter-modal-title::before {
+    content: "Connect your X1 Blockchain Wallet to continue";
+    font-size: 18px; line-height: 1.5; font-weight: 600; display: block;
+  }
   .wallet-adapter-dropdown { position: relative !important; z-index: 9020 !important; }
   .wallet-adapter-dropdown-list {
     z-index: 9021 !important;
