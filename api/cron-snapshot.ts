@@ -69,7 +69,7 @@ async function fetchWalletTokens(
       const accts = await connection.getParsedTokenAccountsByOwner(
         pubkey,
         { programId: new PublicKey(programId) },
-        { commitment: 'confirmed' as const },
+        'confirmed',
       );
       for (const { account } of accts.value) {
         const info = (account.data as any).parsed?.info;

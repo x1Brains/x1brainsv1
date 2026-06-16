@@ -23,7 +23,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
-import { handleBotAction, isBotAction } from './_bot-actions';
+import { handleBotAction, isBotAction } from './_bot-actions.js';
 
 const SUPABASE_URL      = process.env.SUPABASE_URL      || '';
 const SUPABASE_SERVICE  = process.env.SUPABASE_SERVICE_KEY || '';
