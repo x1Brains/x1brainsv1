@@ -1057,10 +1057,10 @@ export default function V2LabWork() {
   // Featured collection (Brains Elites) for the hero banner — real floor +
   // listing count from the live collection stats; supply is the locked 444.
   const featuredBE = collectionStats.find(c => c.key === 'brains_elites');
-  // Stable banner image: starts with the bundled Brains Elites banner, upgrades
-  // to a live collection image once one resolves, and NEVER reverts to empty
-  // (featuredBE.image briefly goes undefined during enrichment → image vanished).
-  const [stableHeroImg, setStableHeroImg] = useState('/brains-elites-banner.jpg');
+  // Banner image = the live Brains Elites listing image ONLY (no bundled promo
+  // placeholder). Starts empty (shows the dark frame) and, once a real image
+  // resolves, holds it and NEVER reverts to empty during enrichment.
+  const [stableHeroImg, setStableHeroImg] = useState('');
   useEffect(() => { if (featuredBE?.image) setStableHeroImg(featuredBE.image); }, [featuredBE?.image]);
   // Other collections (excluding Brains Elites — it's the banner subject) shown
   // as compact story-circles in the banner's top-right corner. Cap at 3.
@@ -1114,8 +1114,10 @@ export default function V2LabWork() {
         {/* ── Featured banner (Brains Elites) — minimal-mono (preview 11) style ── */}
         <div className="lw-hero">
           <div className="lw-hero-art">
-            <img src={stableHeroImg} alt="Brains Elites"
-              onError={(e) => { const el = e.currentTarget as HTMLImageElement; if (!el.src.includes('brains-elites-banner')) el.src = '/brains-elites-banner.jpg'; }} />
+            {stableHeroImg
+              ? <img src={stableHeroImg} alt="Brains Elites"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+              : <div className="art-fallback">X1</div>}
           </div>
           <div className="lw-hero-info">
             <div className="lw-hero-top">
@@ -1257,17 +1259,18 @@ export default function V2LabWork() {
                 }}
                 style={{
                   flex: isBrowse ? 1.4 : 1,
-                  padding: isMobile ? '10px 6px' : '12px 16px',
+                  minWidth: 0,
+                  padding: isMobile ? '9px 4px' : '12px 16px',
                   background: active
                     ? 'linear-gradient(135deg, #f29030, #ffb340)'
                     : 'transparent',
                   border: 'none',
                   borderRadius: 10,
                   cursor: 'pointer',
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: isMobile ? 4 : 7,
                   fontFamily: 'Orbitron, monospace',
                   fontSize: isMobile ? 9 : 10, fontWeight: 800,
-                  letterSpacing: 1.8,
+                  letterSpacing: isMobile ? 0.5 : 1.8,
                   color: active ? '#0a0e14' : 'var(--text-muted)',
                   boxShadow: active ? '0 6px 22px rgba(242,144,48,.35)' : 'none',
                   transition: 'background .18s, color .18s, box-shadow .18s',

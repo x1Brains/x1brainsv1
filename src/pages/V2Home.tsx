@@ -1934,6 +1934,15 @@ function injectStyles() {
       .f8 .f8ngrid { grid-template-columns: 1fr 1fr; }
       .f8 .f8ngrid .nc:nth-child(2n) { border-right: none; }
       .f8 .f8ngrid .nc:nth-child(-n+2) { border-bottom: 1px solid #141d29; }
+      /* boost carousel — the title/price were huge on phones */
+      .l-overlay { padding: 13px; }
+      .l-nm { font-size: 16px; letter-spacing: .4px; }
+      .l-pr { font-size: 12px; }
+      .l-tag { font-size: 8px; letter-spacing: 2px; margin-bottom: 5px; }
+      .l-cta { gap: 6px; margin-top: 10px; }
+      .l-cta a { padding: 7px 11px; font-size: 8.5px; }
+      .l-arrow { width: 28px; height: 28px; font-size: 15px; }
+      .l-live, .l-clk { font-size: 7px; padding: 3px 7px; }
     }
   `;
   document.head.appendChild(s);

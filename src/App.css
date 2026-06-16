@@ -3787,11 +3787,19 @@
   .header-left { gap: 10px; }
   .header-left h2 { font-size: 14px; line-height: 1.05; }
 
-  /* LabWork featured banner — show the WHOLE image (contain, not cropped) */
-  .v2lw-v3 .lw-hero { grid-template-columns: 1fr; }
-  .v2lw-v3 .lw-hero-art { width: 100%; height: 170px; min-height: 0; background: #0a0e15; }
-  .v2lw-v3 .lw-hero-art img { object-fit: contain; }
-  .v2lw-v3 .lw-mkstat { padding-right: 16px; margin-right: 16px; }
+  /* LabWork featured banner — image LEFT (cover, no black bars) · text RIGHT.
+     The base .lw-hero-art img is already object-fit:cover, so the narrow art
+     column fills cleanly without the contain letterboxing. */
+  .v2lw-v3 .lw-hero { grid-template-columns: 92px 1fr; }
+  .v2lw-v3 .lw-hero-art { width: 100%; min-height: 150px; background: #0a0e15; }
+
+  /* NFT marketplace stat row — centered + wraps (no cut-off) */
+  .v2lw-v3 .lw-mkstatrow { justify-content: center; gap: 14px 18px; }
+  .v2lw-v3 .lw-mkstat { padding-right: 0; margin-right: 0; align-items: center; text-align: center; }
+
+  /* Marketplace tab toolbar + filter pills wrap so nothing is cut off */
+  .market-toolbar { flex-wrap: wrap; }
+  .market-filters { flex-wrap: wrap; }
 
   /* ── lf9 data tables (LP Farms · LP Pairing) → stacked cards ──
      The 5–6 column grids collide on a phone, so on mobile each row becomes a
