@@ -3785,9 +3785,10 @@
   .header { padding: 0 12px 0 56px; }
   .header-left h2 { font-size: 14px; line-height: 1.05; }
 
-  /* LabWork featured banner — keep the artwork inside the screen */
+  /* LabWork featured banner — show the WHOLE image (contain, not cropped) */
   .v2lw-v3 .lw-hero { grid-template-columns: 1fr; }
-  .v2lw-v3 .lw-hero-art { width: 100%; height: 160px; min-height: 0; }
+  .v2lw-v3 .lw-hero-art { width: 100%; height: 170px; min-height: 0; background: #0a0e15; }
+  .v2lw-v3 .lw-hero-art img { object-fit: contain; }
   .v2lw-v3 .lw-mkstat { padding-right: 16px; margin-right: 16px; }
 
   /* ── lf9 data tables (LP Farms · LP Pairing) → stacked cards ──
