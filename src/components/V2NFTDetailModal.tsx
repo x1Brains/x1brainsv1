@@ -9,7 +9,7 @@ import { FC, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import V2NFTImage from './V2NFTImage';
 import type { NFTData } from './LBComponents';
-import { fetchNFTMeta } from './LBComponents';
+import { fetchNFTMeta, enrichNFTFromMint } from './LBComponents';
 import { fetchSolarisNft } from '../lib/solarisIndexer';
 import { upsertNftMetadata } from '../lib/supabase';
 import { resolveGateway } from '../utils/nft';
@@ -39,6 +39,9 @@ function rarityColor(r: string): string {
 type Props = {
   nft: NFTData;
   isMobile: boolean;
+  /** Solana connection — used to authoritatively resolve the per-edition image
+      from chain (metaUri JSON) when Solaris only has a collection fallback. */
+  connection?: any;
   onClose: () => void;
   /** Connected wallet owns this NFT and it has no active listing.        */
   onListThis?: (nft: NFTData) => void;
@@ -51,7 +54,7 @@ type Props = {
 };
 
 const V2NFTDetailModal: FC<Props> = ({
-  nft, isMobile, onClose,
+  nft, isMobile, connection, onClose,
   onListThis, onBuyThis, onEditPrice, onDelist, onBoost,
 }) => {
   const [copied, setCopied] = useState(false);
@@ -109,12 +112,21 @@ const V2NFTDetailModal: FC<Props> = ({
     // SITE link comes only from the metaUri JSON.
     if (!haveSite) metaP.then(m => { if (alive && m?.site) setFetchedSite(m.site); });
 
-    // IMAGE — prefer Solaris (already resolved + proxy-safe), then metaUri JSON.
+    // IMAGE — resolve the REAL per-edition art. metaUri JSON first (authoritative),
+    // then chain-derived (enrichNFTFromMint reads the metaUri off the Metaplex PDA
+    // when the listing arrived without one), and only THEN Solaris. Solaris is last
+    // because for some collections (Brains Elites) it has no per-NFT image and
+    // returns the COLLECTION portrait as a fallback — using it first would show the
+    // wrong art. See solarisIndexer.ts image fallback.
     if (!haveImg) (async () => {
-      const sol = await solP;
-      if (alive && sol?.image) { setFetchedImg(sol.image); return; }
       const m = await metaP;
-      if (alive && m?.image) setFetchedImg(m.image);
+      if (alive && m?.image) { setFetchedImg(m.image); return; }
+      if (connection) {
+        const chain = await enrichNFTFromMint(connection, nft.mint).catch(() => null);
+        if (alive && chain?.image) { setFetchedImg(chain.image); return; }
+      }
+      const sol = await solP;
+      if (alive && sol?.image) setFetchedImg(sol.image);
     })();
 
     // NAME — metaUri JSON authoritative, else Solaris.
@@ -163,7 +175,7 @@ const V2NFTDetailModal: FC<Props> = ({
       }
     })();
     return () => { alive = false; };
-  }, [nft.mint, nft.metaUri, nft.logoUri, nft.attributes, nft.externalUrl, nft.image, nft.name, nft.collection]);
+  }, [nft.mint, nft.metaUri, nft.logoUri, nft.attributes, nft.externalUrl, nft.image, nft.name, nft.collection, connection]);
 
   const effectiveAttrs = (nft.attributes && nft.attributes.length > 0) ? nft.attributes : (fetchedAttrs ?? []);
   const siteUrl = nft.externalUrl || fetchedSite || '';

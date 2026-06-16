@@ -1973,6 +1973,7 @@ export default function V2LabWork() {
           <V2NFTDetailModal
             nft={detailNft}
             isMobile={isMobile}
+            connection={connection}
             onClose={() => setDetailNft(null)}
             onBuyThis={ctxBuy}
             onListThis={ctxList}
