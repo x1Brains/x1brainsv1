@@ -3765,3 +3765,48 @@
 .v2-pagehead { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
 .v2-pagehead .ph-title { font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 16px; letter-spacing: .8px; line-height: 1; color: var(--text-primary); }
 .v2-pagehead .ph-title span { display: block; font-family: 'Sora', sans-serif; font-weight: 500; font-size: 9px; letter-spacing: 2.5px; color: var(--text-muted); margin-top: 4px; }
+
+/* ═══════════ Mobile hardening — Backpack in-app browser (2026-06-15) ═══════════ */
+@media (max-width: 760px) {
+  /* Scale the WHOLE app down on mobile (images · text · titles · banners).
+     zoom is supported in Backpack's Chromium (Android) + WebKit (iOS) WebViews.
+     Modals/chat are portaled to <body> (outside .main) so they keep their own
+     sizing. */
+  .main { zoom: 0.9; }
+
+  /* Only vertical scrolling — kill all sideways page scroll */
+  html, body { overflow-x: hidden; }
+  .content { overflow-x: hidden; }
+  .content > * { min-width: 0; }
+
+  /* Header: the price ticker ran off-screen (the sideways scroll) — drop it;
+     give the page title room past the menu toggle */
+  .price-ticker { display: none; }
+  .header { padding: 0 12px 0 56px; }
+  .header-left h2 { font-size: 14px; line-height: 1.05; }
+
+  /* LabWork featured banner — keep the artwork inside the screen */
+  .v2lw-v3 .lw-hero { grid-template-columns: 1fr; }
+  .v2lw-v3 .lw-hero-art { width: 100%; height: 160px; min-height: 0; }
+  .v2lw-v3 .lw-mkstat { padding-right: 16px; margin-right: 16px; }
+
+  /* ── lf9 data tables (LP Farms · LP Pairing) → stacked cards ──
+     The 5–6 column grids collide on a phone, so on mobile each row becomes a
+     vertical card and the column header is dropped. */
+  .lf9-panel { padding: 16px 14px; }
+  .lf9-thead, .lf9-pthead, .lf9-pairtable .lf9-thead { display: none; }
+  .lf9-row, .lf9-prow {
+    display: flex; flex-direction: column; align-items: flex-start;
+    gap: 8px; padding: 14px;
+  }
+  .lf9-row > *, .lf9-prow > * {
+    width: 100%; min-width: 0; max-width: 100%;
+    text-align: left; justify-content: flex-start;
+  }
+  .lf9-pair, .lf9-pair-txt { min-width: 0; max-width: 100%; }
+  .lf9-pair-txt .name { white-space: normal; word-break: break-word; }
+  .lf9-actions { flex-direction: row; gap: 8px; justify-content: flex-start; }
+  .lf9-actions button, .lf9-actions a { flex: 1; }
+  .lf9-stat { min-width: 45%; padding: 0 10px; }
+  .lf9-stat .v { font-size: 15px; }
+}
