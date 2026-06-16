@@ -16,7 +16,7 @@ import {
 import V2NFTImage from './V2NFTImage';
 import { fmtNum, shortAddr } from '../utils/v2format';
 import { supabase } from '../lib/supabase';
-import { BRAINS_MINT } from '../constants';
+import { BRAINS_MINT, LB_MINT } from '../constants';
 
 export type BoostTierId = 'spark' | 'godslayer' | 'incinerator';
 
@@ -25,10 +25,12 @@ export type BoostTierId = 'spark' | 'godslayer' | 'incinerator';
 // and the V2Home carousel (which renders straight off loadActiveBoosts()).
 export const BOOST_SLOTS = 8;
 
-export const BOOST_TIERS: readonly { id: BoostTierId; label: string; brains: number; days: number; desc: string }[] = [
-  { id: 'spark',       label: '⚡ SPARK',       brains: 200, days: 1, desc: '24 hours spotlight' },
-  { id: 'godslayer',   label: '⚔️ GODSLAYER',  brains: 444, days: 3, desc: '3 days of dominance' },
-  { id: 'incinerator', label: '🔥 INCINERATOR', brains: 888, days: 7, desc: '7 days, maximum burn' },
+export type BoostCurrency = 'BRAINS' | 'LB';
+
+export const BOOST_TIERS: readonly { id: BoostTierId; label: string; brains: number; lb: number; days: number; desc: string }[] = [
+  { id: 'spark',       label: '⚡ SPARK',       brains: 200, lb: 0.05, days: 1, desc: '24 hours spotlight' },
+  { id: 'godslayer',   label: '⚔️ GODSLAYER',  brains: 444, lb: 1,    days: 3, desc: '3 days of dominance' },
+  { id: 'incinerator', label: '🔥 INCINERATOR', brains: 888, lb: 1.11, days: 7, desc: '7 days, maximum burn' },
 ] as const;
 
 export interface BoostRecord {
@@ -132,16 +134,18 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
   const { publicKey, signTransaction } = useWallet();
 
   const [tier,      setTier]      = useState<BoostTierId>('spark');
+  const [cur,       setCur]       = useState<BoostCurrency>('BRAINS');
   const [status,    setStatus]    = useState('');
   const [pending,   setPending]   = useState(false);
   const [sig,       setSig]       = useState('');
-  const [balance,   setBalance]   = useState<number | null>(null);
+  const [balance,   setBalance]   = useState<number | null>(null);   // BRAINS
+  const [lbBalance, setLbBalance] = useState<number | null>(null);   // LB
   const [slotsUsed, setSlotsUsed] = useState<number | null>(null);
 
   // Reset whenever target changes (so reopening a different listing is clean)
   useEffect(() => {
-    setTier('spark'); setStatus(''); setPending(false); setSig('');
-    setBalance(null); setSlotsUsed(null);
+    setTier('spark'); setCur('BRAINS'); setStatus(''); setPending(false); setSig('');
+    setBalance(null); setLbBalance(null); setSlotsUsed(null);
   }, [target?.listingPda]);
 
   // Esc-to-close (idle only)
@@ -163,6 +167,12 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
         if (alive) setBalance(bal);
       } catch { if (alive) setBalance(0); }
       try {
+        const lbAta = getAssociatedTokenAddressSync(new PublicKey(LB_MINT), publicKey, false, TOKEN_2022_PROGRAM_ID);
+        const lacc  = await connection.getParsedAccountInfo(lbAta);
+        const lbal  = (lacc?.value?.data as any)?.parsed?.info?.tokenAmount?.uiAmount ?? 0;
+        if (alive) setLbBalance(lbal);
+      } catch { if (alive) setLbBalance(0); }
+      try {
         const active = await loadActiveBoosts();
         if (alive) setSlotsUsed(active.length);
       } catch { if (alive) setSlotsUsed(0); }
@@ -173,9 +183,15 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
   if (!target) return null;
 
   const selected   = BOOST_TIERS.find(t => t.id === tier)!;
-  const canAfford  = balance !== null && balance >= selected.brains;
+  const isLb        = cur === 'LB';
+  const amount      = isLb ? selected.lb : selected.brains;
+  const curMint     = isLb ? LB_MINT : BRAINS_MINT;
+  const bal         = isLb ? lbBalance : balance;
+  const amountLabel = isLb ? `${amount} LB` : `${amount.toLocaleString()} BRAINS`;
+  const canAfford  = bal !== null && bal >= amount;
   const slotsAvail = slotsUsed !== null && slotsUsed < BOOST_SLOTS;
   const slotsLoading = slotsUsed === null;
+  // Points are tier-based (same boost regardless of which token paid for it).
   const labworkPts = Math.round(selected.brains * 1.888 * 100) / 100;
   const priceXnt   = target.priceLamports / 1e9;
 
@@ -189,19 +205,19 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
     // the only thing that surfaces the boost. If Supabase isn't reachable, refuse
     // to burn — otherwise the citizen destroys BRAINS for nothing.
     if (!supabase) {
-      setStatus('⚠️ Boost recording is offline (Supabase not configured). Burning now would destroy your BRAINS without registering the boost — burn blocked. Contact admin or try again later.');
+      setStatus('⚠️ Boost recording is offline (Supabase not configured). Burning now would destroy your tokens without registering the boost — burn blocked. Contact admin or try again later.');
       return;
     }
     setPending(true); setStatus('Preparing burn…'); setSig('');
     try {
-      const brainsPk = new PublicKey(BRAINS_MINT);
-      const mintInfo = await getMint(connection, brainsPk, 'confirmed', TOKEN_2022_PROGRAM_ID);
+      const mintPk   = new PublicKey(curMint);
+      const mintInfo = await getMint(connection, mintPk, 'confirmed', TOKEN_2022_PROGRAM_ID);
       const decimals = mintInfo.decimals;
-      const burnRaw  = BigInt(Math.floor(selected.brains * 10 ** decimals));
-      const fromAta  = getAssociatedTokenAddressSync(brainsPk, publicKey, false, TOKEN_2022_PROGRAM_ID);
+      const burnRaw  = BigInt(Math.round(amount * 10 ** decimals));
+      const fromAta  = getAssociatedTokenAddressSync(mintPk, publicKey, false, TOKEN_2022_PROGRAM_ID);
 
       const burnIx = createBurnCheckedInstruction(
-        fromAta, brainsPk, publicKey, burnRaw, decimals, [], TOKEN_2022_PROGRAM_ID,
+        fromAta, mintPk, publicKey, burnRaw, decimals, [], TOKEN_2022_PROGRAM_ID,
       );
       const { blockhash } = await connection.getLatestBlockhash('confirmed');
       const tx = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash }).add(burnIx);
@@ -240,7 +256,7 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
           wallet:        publicKey.toBase58(),
           brains_burned: selected.brains,
           points:        labworkPts,
-          source:        'boost',
+          source:        isLb ? 'boost-lb' : 'boost',
           tier,
           tx_sig:        txSig,
         }),
@@ -250,17 +266,17 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
       // on-chain, but if the boost didn't land in Supabase the landing
       // carousel won't pick it up. We want the citizen to know.
       if (!boostRes.ok) {
-        setStatus(`⚠️ Burn confirmed, but boost record FAILED: ${boostRes.error}. BRAINS were burned but the listing won't appear in the spotlight. Contact admin.`);
+        setStatus(`⚠️ Burn confirmed, but boost record FAILED: ${boostRes.error}. ${amountLabel} were burned but the listing won't appear in the spotlight. Contact admin.`);
         return;
       }
       if (!ptsRes.ok) {
         // Points failure is non-fatal for the showcase — show a softer warning.
-        setStatus(`✅ Boost active · ${selected.brains.toLocaleString()} BRAINS burned · ${selected.days}d featured. (Labwork points record failed: ${ptsRes.error})`);
+        setStatus(`✅ Boost active · ${amountLabel} burned · ${selected.days}d featured. (Labwork points record failed: ${ptsRes.error})`);
         setTimeout(() => { onDone(); onClose(); }, 4000);
         return;
       }
 
-      setStatus(`✅ Boost active · ${selected.brains.toLocaleString()} BRAINS burned · +${labworkPts.toLocaleString()} labwork pts · ${selected.days}d featured`);
+      setStatus(`✅ Boost active · ${amountLabel} burned · +${labworkPts.toLocaleString()} labwork pts · ${selected.days}d featured`);
       setTimeout(() => { onDone(); onClose(); }, 2200);
     } catch (e: any) {
       setStatus(`❌ ${e?.message?.slice(0, 140) ?? 'Boost failed'}`);
@@ -348,23 +364,46 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
               {shortAddr(target.nftMint, 5, 5)} · {fmtNum(priceXnt, 4)} XNT listed
             </div>
           </div>
-          {balance !== null && (
+          {bal !== null && (
             <div style={{ textAlign: 'right' as const, flexShrink: 0 }}>
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700, color: ACCENT }}>
-                {fmtNum(balance, 0)}
+                {isLb ? fmtNum(bal, 2) : fmtNum(bal, 0)}
               </div>
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: DIM, letterSpacing: 1 }}>
-                BRAINS
+                {cur}
               </div>
             </div>
           )}
+        </div>
+
+        {/* Currency toggle — pay with BRAINS or LB */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+          {(['BRAINS', 'LB'] as BoostCurrency[]).map(c => {
+            const on = cur === c;
+            const cbal = c === 'LB' ? lbBalance : balance;
+            return (
+              <button
+                key={c} type="button" disabled={pending}
+                onClick={() => setCur(c)}
+                style={{
+                  flex: 1, padding: '7px 0', borderRadius: 8,
+                  background: on ? `${ACCENT}1a` : 'rgba(255,255,255,.03)',
+                  border: `1px solid ${on ? `${ACCENT}66` : 'rgba(255,255,255,.08)'}`,
+                  color: on ? ACCENT : MUTED, cursor: pending ? 'not-allowed' : 'pointer',
+                  fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 800, letterSpacing: 1,
+                }}
+              >
+                {c}{cbal !== null ? ` · ${c === 'LB' ? fmtNum(cbal, 2) : fmtNum(cbal, 0)}` : ''}
+              </button>
+            );
+          })}
         </div>
 
         {/* Tier selector */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
           {BOOST_TIERS.map(t => {
             const active = tier === t.id;
-            const afford = balance !== null && balance >= t.brains;
+            const afford = bal !== null && bal >= (isLb ? t.lb : t.brains);
             const pts    = Math.round(t.brains * 1.888);
             return (
               <button
@@ -392,7 +431,7 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
                 </div>
                 <div style={{ textAlign: 'right' as const, flexShrink: 0 }}>
                   <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700, color: ACCENT }}>
-                    {t.brains.toLocaleString()} BRAINS
+                    {isLb ? `${t.lb} LB` : `${t.brains.toLocaleString()} BRAINS`}
                   </div>
                   <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: DIM, letterSpacing: 1, marginTop: 1 }}>
                     +{pts.toLocaleString()} PTS
@@ -464,7 +503,7 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
                 animation: 'spin 0.8s linear infinite',
               }} />
             )}
-            {pending ? 'WORKING…' : `BURN ${selected.brains.toLocaleString()} BRAINS`}
+            {pending ? 'WORKING…' : `BURN ${amountLabel}`}
           </button>
         </div>
       </div>
