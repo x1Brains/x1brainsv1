@@ -26,9 +26,9 @@ export type BoostTierId = 'spark' | 'godslayer' | 'incinerator';
 export const BOOST_SLOTS = 8;
 
 export const BOOST_TIERS: readonly { id: BoostTierId; label: string; brains: number; days: number; desc: string }[] = [
-  { id: 'spark',       label: '⚡ SPARK',       brains: 1_000, days: 1, desc: '24 hours spotlight' },
-  { id: 'godslayer',   label: '⚔️ GODSLAYER',  brains: 2_500, days: 3, desc: '3 days of dominance' },
-  { id: 'incinerator', label: '🔥 INCINERATOR', brains: 5_000, days: 7, desc: '7 days, maximum burn' },
+  { id: 'spark',       label: '⚡ SPARK',       brains: 200, days: 1, desc: '24 hours spotlight' },
+  { id: 'godslayer',   label: '⚔️ GODSLAYER',  brains: 444, days: 3, desc: '3 days of dominance' },
+  { id: 'incinerator', label: '🔥 INCINERATOR', brains: 888, days: 7, desc: '7 days, maximum burn' },
 ] as const;
 
 export interface BoostRecord {
