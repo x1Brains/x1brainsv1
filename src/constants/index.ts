@@ -81,7 +81,7 @@ export const NAV_LINKS = [
 
 export const APP_ROUTES = [
   { label: 'Portfolio',  path: '/portfolio',  icon: '💼' },
-  { label: 'Lab Work',   path: '/labwork',    icon: '🔬' },
+  { label: 'LabWork',   path: '/labwork',    icon: '🔬' },
   { label: 'Cyberdyne',  path: '/cyberdyne',  icon: '⚔️'  },
 ];
 

@@ -1178,7 +1178,7 @@ const LabWork: FC = () => {
                 WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text',
                 animation:'hdr-shimmer 3s linear infinite', display:'inline',
                 marginLeft: isMobile ? 6 : 10,
-              }}>{isMobile ? 'Lab Work' : 'Lab Work'}</span>
+              }}>{isMobile ? 'LabWork' : 'LabWork'}</span>
               <span style={{ WebkitTextFillColor:'initial', backgroundClip:'initial', background:'none',
                 marginLeft: isMobile ? 6 : 10, fontSize: isMobile ? 18 : 36,
                 display:'inline-block', animation:'hdr-float 2.5s ease-in-out infinite',
@@ -1238,7 +1238,7 @@ const LabWork: FC = () => {
           borderRadius:14, padding:4, border:'1px solid rgba(255,255,255,.06)', animation:'fadeUp 0.4s ease 0.12s both' }}>
           {([
             { id:'market',  label:'🛒 MARKETPLACE',   sub: listings.length > 0 ? `${listings.length} listed` : 'list & buy NFTs' },
-            { id:'mint',    label:'🔥 MINT LAB WORK', sub: 'burn BRAINS → get LB' },
+            { id:'mint',    label:'🔥 MINT LABWORK', sub: 'burn BRAINS → get LB' },
             { id:'gallery', label:'🧪 MY NFTs',       sub: nfts.length > 0 ? `${nfts.length} found` : 'view your collection' },
           ] as { id:PageMode; label:string; sub:string }[]).map(m => {
             const isMintTab = m.id === 'mint';

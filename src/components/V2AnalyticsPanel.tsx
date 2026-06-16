@@ -31,7 +31,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/':                        'Home',
   '/portfolio':               'Portfolio',
   '/burn-history':            'Burn History',
-  '/labwork':                 'Lab Work',
+  '/labwork':                 'LabWork',
   '/mint-labwork':            'Mint LabWork',
   '/lpfarms':                 'LP Farms',
   '/labworkdefi':             'LP Pairing',

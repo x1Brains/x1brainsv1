@@ -473,7 +473,7 @@ async function resolveTokenMeta(
   const xdex = tryXdexRegistry(xdexRegistry, mint);
   if (xdex) return override ? { ...xdex, ...override } : xdex;
   if (mint === BRAINS_MINT) return { name: 'Brains', symbol: 'BRAINS', logoUri: BRAINS_LOGO, metaSource: 'xdex' };
-  if (mint === LB_MINT)     return { name: 'Lab Work', symbol: 'LB', logoUri: await getLbLogo(), metaSource: 'xdex' };
+  if (mint === LB_MINT)     return { name: 'LabWork', symbol: 'LB', logoUri: await getLbLogo(), metaSource: 'xdex' };
   if (override) return { name: override.name, symbol: override.symbol, logoUri: XNT_INFO.logoUri, metaSource: 'xdex' };
   const mplex = await tryMetaplexPDA(connection, mint);
   if (mplex) return mplex;
@@ -880,11 +880,11 @@ const BurnCelebrationPortfolio: FC<{ amount: string; newPts: number; totalPts: n
         </div>
       </div>
 
-      {/* Lab Work + Tier row */}
+      {/* LabWork + Tier row */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
         {labWorkPts > 0 && (
           <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 7 : 9, color: '#00ccff', background: 'rgba(0,204,255,.08)', border: '1px solid rgba(0,204,255,.2)', borderRadius: 6, padding: mob ? '3px 8px' : '4px 10px' }}>
-            🧪 {fP(labWorkPts)} LAB WORK
+            🧪 {fP(labWorkPts)} LABWORK
           </div>
         )}
         <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 7 : 9, color: '#ffaa44', background: 'rgba(255,170,68,.08)', border: '1px solid rgba(255,170,68,.2)', borderRadius: 6, padding: mob ? '3px 8px' : '4px 10px' }}>
@@ -1505,7 +1505,7 @@ const Portfolio: FC = () => {
                       </>
                     )}
 
-                    {/* LB (Lab Work) token card */}
+                    {/* LB (LabWork) token card */}
                     {lbToken && (
                       <>
                         <div style={{
@@ -1516,7 +1516,7 @@ const Portfolio: FC = () => {
                           textTransform: 'uppercase',
                         }}>
                           <span>🧪</span>
-                          <span>Lab Work Token</span>
+                          <span>LabWork Token</span>
                           <span style={{
                             fontSize: 7, padding: '2px 7px', borderRadius: 5,
                             background: 'rgba(0,201,141,.10)', border: '1px solid rgba(0,201,141,.30)',
@@ -1704,7 +1704,7 @@ const Portfolio: FC = () => {
                           letterSpacing: 2, color: '#00c98d', textTransform: 'uppercase',
                         }}>
                           <span>🧪</span>
-                          <span>Lab Work Token</span>
+                          <span>LabWork Token</span>
                           <span style={{
                             fontSize: 7, padding: '2px 7px', borderRadius: 5,
                             background: 'rgba(0,201,141,.10)', border: '1px solid rgba(0,201,141,.30)',

@@ -1,5 +1,5 @@
 // V2XdexPoolsList — every xDEX pool containing BRAINS or LB, rendered in the
-// same rich card layout as PoolsTab's Lab Work Pools section.
+// same rich card layout as PoolsTab's LabWork Pools section.
 //
 // Each card shows:
 //   • Pair logos + name + ECOSYSTEM/STD tag + TVL header

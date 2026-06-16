@@ -2047,9 +2047,9 @@ export default function V2LabWork() {
           <div
             className="market-tile-col"
             onClick={() => openDetail(it)}
-            title={it.collection || 'Lab Work'}
+            title={it.collection || 'LabWork'}
           >
-            {it.collection || 'Lab Work'}{it.verified ? ' ★' : ''}
+            {it.collection || 'LabWork'}{it.verified ? ' ★' : ''}
           </div>
           <div
             className="market-tile-name"

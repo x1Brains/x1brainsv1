@@ -1,6 +1,6 @@
 // src/pages/MintLabWork.tsx
 // ─────────────────────────────────────────────────────────────────────────────
-// MINT LAB WORK — inline component rendered inside LabWork.tsx
+// MINT LABWORK — inline component rendered inside LabWork.tsx
 // Reads tier rates dynamically from on-chain GlobalState
 // Xenblocks assets are Token-2022 (XNM, XUNI, XBLK)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1021,7 +1021,7 @@ const MintLabWork: FC = () => {
               <div style={{ marginLeft:'auto', fontFamily:'Orbitron,monospace', fontSize: isMobile ? 8 : 9, color:'#00c98d', background:'rgba(0,201,141,.1)', border:'1px solid rgba(0,201,141,.3)', borderRadius:6, padding:'4px 12px' }}>LIVE</div>
             </div>
             <div style={{ fontFamily:'Sora,sans-serif', fontSize: isMobile ? 11 : 13, color:'#9abacf', lineHeight:1.7, marginBottom:16 }}>
-              A standard mint burns BRAINS and receives LB at the current tier rate. A combo mint burns BRAINS <em>plus</em> Xenblocks assets and receives bonus LB on top — dramatically more Lab Work for the same BRAINS cost. Bonus scales with how much you put in. Minimum bundle gives <span style={{ color:'#ffaa00', fontWeight:700 }}>+{MIN_COMBO_BONUS} LB</span>.
+              A standard mint burns BRAINS and receives LB at the current tier rate. A combo mint burns BRAINS <em>plus</em> Xenblocks assets and receives bonus LB on top — dramatically more LabWork for the same BRAINS cost. Bonus scales with how much you put in. Minimum bundle gives <span style={{ color:'#ffaa00', fontWeight:700 }}>+{MIN_COMBO_BONUS} LB</span>.
             </div>
           </div>
 
@@ -1102,7 +1102,7 @@ const MintLabWork: FC = () => {
         <div style={{ display:'flex', flexDirection:'column', gap: isMobile ? 12 : 16, animation:'fadeUp .3s ease both' }}>
           {[
             { icon:'🔥', title:'THE CORE MECHANISM', color:'#ff6a6a', rgb:'255,106,106',
-              body:'To mint LB, you burn BRAINS. Every Lab Work token represents BRAINS that no longer exist. The relationship is permanent and one-directional — BRAINS go in, they never come back, LB comes out.' },
+              body:'To mint LB, you burn BRAINS. Every LabWork token represents BRAINS that no longer exist. The relationship is permanent and one-directional — BRAINS go in, they never come back, LB comes out.' },
             { icon:'📈', title:'4 PROGRESSIVE TIERS', color:'#00d4ff', rgb:'0,212,255',
               body:'100,000 LB is divided into 4 tranches of 25,000 LB each. Each tier has a higher BRAINS burn rate and XNT fee. Once a tier fills, it closes forever. Early believers pay less. Late arrivals pay more.' },
             { icon:'💎', title:'FIXED SUPPLY — HARD CAP', color:'#00c98d', rgb:'0,201,141',
@@ -1128,7 +1128,7 @@ const MintLabWork: FC = () => {
           <div style={{ background:'linear-gradient(135deg,rgba(0,212,255,.04),rgba(191,90,242,.04))', border:'1px solid rgba(255,255,255,.1)', borderRadius:14, padding: isMobile ? '16px' : '22px 26px' }}>
             <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 9 : 10, fontWeight:900, color:'#9abacf', letterSpacing:2, marginBottom:12 }}>THE NARRATIVE</div>
             <div style={{ fontFamily:'Sora,sans-serif', fontSize: isMobile ? 11 : 13, color:'#8aaac0', lineHeight:1.8, fontStyle:'italic' }}>
-              "Lab Work is not issued. It is not distributed. It is not allocated. It is earned through destruction. Every LB holder burned real BRAINS — gone forever — for the right to hold it. The supply is fixed at 100,000. The cost rises with every tier. Lab Work lives because BRAINS died. That's the whole story."
+              "LabWork is not issued. It is not distributed. It is not allocated. It is earned through destruction. Every LB holder burned real BRAINS — gone forever — for the right to hold it. The supply is fixed at 100,000. The cost rises with every tier. LabWork lives because BRAINS died. That's the whole story."
             </div>
           </div>
         </div>

@@ -114,7 +114,7 @@ type Res = { success: boolean; error?: string };
 function res(error: any): Res { return error ? { success: false, error: error.message } : { success: true }; }
 
 // ═════════════════════════════════════════════
-// 1. LAB WORK REWARDS
+// 1. LABWORK REWARDS
 // ═════════════════════════════════════════════
 export interface LabWorkReward {
   id: string; address: string; lb_points: number; reason: string;
@@ -309,7 +309,7 @@ export async function getCachedAnnouncements(): Promise<any[]> {
 export function invalidateAnnouncementsCache() { _annCache = null; }
 
 // ═════════════════════════════════════════════
-// 5. LAB WORK SUBMISSIONS
+// 5. LABWORK SUBMISSIONS
 // ═════════════════════════════════════════════
 export interface LabWorkSubmission {
   id: string; address: string; category: string; links: string[];
@@ -832,7 +832,7 @@ export async function migrateAllToSupabase(): Promise<{ labwork: number; config:
   let labwork = 0, logs = 0, announcements = 0, submissions = 0;
   let config = false;
 
-  // Lab Work Rewards
+  // LabWork Rewards
   try {
     const raw = localStorage.getItem('brains_labwork_rewards');
     if (raw) {

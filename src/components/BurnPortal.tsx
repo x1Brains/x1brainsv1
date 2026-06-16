@@ -422,7 +422,7 @@ export const BurnPortal: FC<BurnPortalProps> = ({ isMobile, themeName: themeName
           opacity: 1,
           fontWeight: 700,
         }}>
-          X1 BRAINS · 🧪 LAB WORK
+          X1 BRAINS · 🧪 LABWORK
         </div>
 
         {/* Main heading */}

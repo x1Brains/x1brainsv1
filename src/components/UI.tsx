@@ -190,7 +190,7 @@ export const TopBar: FC = () => {
           </button>
         )}
 
-        {/* LAB WORK — top nav button (hidden when on labwork page) */}
+        {/* LABWORK — top nav button (hidden when on labwork page) */}
         {!isLabWork && (
         <button className="tb-hide-mobile" onClick={() => navigate('/labwork')}
           style={{
@@ -204,7 +204,7 @@ export const TopBar: FC = () => {
           onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(191,90,242,0.06)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(191,90,242,0.25)'; }}
         >
           <span style={{ fontSize: 12 }}>🧪</span>
-          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#bf5af2', letterSpacing: 2, fontWeight: 700 }}>LAB WORK</span>
+          <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#bf5af2', letterSpacing: 2, fontWeight: 700 }}>LABWORK</span>
           <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#fff', background: '#bf5af2', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NFT</span>
         </button>
         )}
@@ -317,7 +317,7 @@ export const TopBar: FC = () => {
                 {isPortfolio && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#00c98d' }} />}
               </button>
 
-              {/* LAB WORK */}
+              {/* LABWORK */}
               <button
                 onClick={() => { navigate('/labwork'); setNavOpen(false); }}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isLabWork ? 'rgba(191,90,242,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
@@ -325,7 +325,7 @@ export const TopBar: FC = () => {
                 onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isLabWork ? 'rgba(191,90,242,0.1)' : 'transparent'; }}
               >
                 <span style={{ fontSize: 14 }}>🧪</span>
-                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#bf5af2', letterSpacing: 1.5, fontWeight: 700 }}>LAB WORK</span>
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#bf5af2', letterSpacing: 1.5, fontWeight: 700 }}>LABWORK</span>
                 <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 6, color: '#fff', background: '#bf5af2', borderRadius: 4, padding: '1px 5px', fontWeight: 900, letterSpacing: 1 }}>NFT</span>
                 {isLabWork && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#bf5af2' }} />}
               </button>

@@ -187,7 +187,7 @@ const Home: FC = () => {
           }}>X1 BRAINS</h1>
 
           <p style={{ fontFamily: 'Sora, sans-serif', fontSize: 16, color: '#7a9ab8', lineHeight: 1.7, maxWidth: 600, margin: '0 auto 36px' }}>
-            The exclusive X1 blockchain hub — track your portfolio, see your NFT's, watch your XenBlocks stats and Miner information, burn Brains to earn and ascend while getting the Vaults prizes each week. Promote on any social media platform to earn Lab Work points and use Amplifiers to even earn more 🧪 LB points.
+            The exclusive X1 blockchain hub — track your portfolio, see your NFT's, watch your XenBlocks stats and Miner information, burn Brains to earn and ascend while getting the Vaults prizes each week. Promote on any social media platform to earn LabWork points and use Amplifiers to even earn more 🧪 LB points.
           </p>
 
           {/* Stat pills */}
@@ -289,7 +289,7 @@ const Home: FC = () => {
             )}
           </div>
 
-          {/* ── LAB WORK 🧪 — Split card: NFT Marketplace + LP Pairing ── */}
+          {/* ── LABWORK 🧪 — Split card: NFT Marketplace + LP Pairing ── */}
           <div
             style={{
               position: 'relative',
@@ -309,11 +309,11 @@ const Home: FC = () => {
             <div style={{ fontSize: 40, marginBottom: 12, display: 'block', filter: 'drop-shadow(0 0 12px #ffb70060)' }}>🧪</div>
 
             <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 16, fontWeight: 900, letterSpacing: 3, color: '#ffb700', marginBottom: 6, textTransform: 'uppercase' }}>
-              LAB WORK
+              LABWORK
             </div>
 
             <p style={{ fontSize: 13, color: '#7a9ab8', lineHeight: 1.7, marginBottom: 18 }}>
-              The full X1 Brains Lab Work suite — NFT marketplace and DeFi LP pairing platform on X1 blockchain.
+              The full X1 Brains LabWork suite — NFT marketplace and DeFi LP pairing platform on X1 blockchain.
             </p>
 
             {/* NFT Marketplace sub-button */}
@@ -618,14 +618,14 @@ const Home: FC = () => {
             </div>
 
             <p style={{ fontSize: 13, color: '#7a9ab8', lineHeight: 1.7, marginBottom: 16 }}>
-              Weekly burn challenges with prize vaults, Lab Work submissions for bonus LB Points, live leaderboards, and AMP stacking rewards.
+              Weekly burn challenges with prize vaults, LabWork submissions for bonus LB Points, live leaderboards, and AMP stacking rewards.
             </p>
 
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
               {[
                 { text: '🏆 PRIZES', color: '#bf5af2' },
                 { text: '🔥 CHALLENGES', color: '#f29030' },
-                { text: '🧪 LAB WORK', color: '#00c98d' },
+                { text: '🧪 LABWORK', color: '#00c98d' },
               ].map(tag => (
                 <span key={tag.text} style={{
                   fontFamily: 'Orbitron, monospace', fontSize: 7, fontWeight: 700, letterSpacing: 1,

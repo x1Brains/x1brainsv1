@@ -1,5 +1,5 @@
 // src/pages/PoolsTab.tsx
-// X1 Brains Lab Work — LP Pools Tab
+// X1 Brains LabWork — LP Pools Tab
 // Shows all pools created by the brains_pairing program.
 // Allows deposit, withdraw, and swap directly via XDEX CP-Swap CPI.
 // Used as a tab inside PairingMarketplace.tsx
@@ -359,7 +359,7 @@ async function fetchXdexMeta(mint: string): Promise<TokenMeta | null> {
 const KNOWN_META: Record<string, { symbol: string; name: string; decimals: number }> = {
   'So11111111111111111111111111111111111111112':     { symbol: 'XNT',    name: 'X1 Native Token',  decimals: 9 },
   'EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC1EHUBtPN': { symbol: 'BRAINS', name: 'X1 Brains',        decimals: 9 },
-  'Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6': { symbol: 'LB',     name: 'Lab Work',         decimals: 2 },
+  'Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6': { symbol: 'LB',     name: 'LabWork',         decimals: 2 },
   'XNMbEwZFFBKQhqyW3taa8cAUp1xBUHfyzRFJQvZET4m':  { symbol: 'XNM',    name: 'Xenblocks Mining',  decimals: 9 },
   'XUNigZPoe8f657NkRf7KF8tqj9ekouT4SoECsD6G2Bm':  { symbol: 'XUNI',   name: 'Xenblocks Uni',     decimals: 9 },
   'XBLKLmxhADMVX3DsdwymvHyYbBYfKa5eKhtpiQ2kj7T':  { symbol: 'XBLK',   name: 'Xenblocks',         decimals: 9 },
@@ -2007,7 +2007,7 @@ const PoolCard: FC<{
                 <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, letterSpacing: 1,
                   color: '#00c98d', background: 'rgba(0,201,141,.1)',
                   border: '1px solid rgba(0,201,141,.3)', borderRadius: 5, padding: '2px 7px' }}>
-                  ⚗️ LAB WORK
+                  ⚗️ LABWORK
                 </span>
               )}
               {burnPct > 0 && (
@@ -2551,7 +2551,7 @@ const PoolsTab: FC = () => {
         <div>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 11 : 13,
             fontWeight: 900, color: '#fff', letterSpacing: 1.5 }}>
-            🏊 LAB WORK POOLS
+            🏊 LABWORK POOLS
           </div>
           <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82', marginTop: 3 }}>
             {pools.filter(p => !p.seeded).length} protocol pool{pools.filter(p => !p.seeded).length !== 1 ? 's' : ''} · {pools.filter(p => p.seeded).length} ecosystem pool{pools.filter(p => p.seeded).length !== 1 ? 's' : ''} · swap, deposit & withdraw

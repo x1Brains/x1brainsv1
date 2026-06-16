@@ -472,7 +472,7 @@ const BurnHistory: FC = () => {
               {/* top badge */}
               <div style={{ display:'inline-flex', alignItems:'center', gap:8, marginBottom:20, padding:'5px 18px', background:'rgba(150,60,255,.1)', border:'1px solid rgba(150,60,255,.3)', borderRadius:20 }}>
                 <span style={{ width:5, height:5, borderRadius:'50%', background:'#39ff88', boxShadow:'0 0 8px #39ff88', display:'inline-block', animation:'burn-pulse 1.8s ease infinite' }} />
-                <span style={{ fontFamily:'Orbitron, monospace', fontSize:10, color:'#ee99ff', letterSpacing:3, textShadow:'0 0 10px rgba(220,120,255,0.85), 0 0 24px rgba(160,50,255,0.5)', fontWeight:700 }}>BRAINS 🧪 LAB WORK · INCINERATOR PROTOCOL</span>
+                <span style={{ fontFamily:'Orbitron, monospace', fontSize:10, color:'#ee99ff', letterSpacing:3, textShadow:'0 0 10px rgba(220,120,255,0.85), 0 0 24px rgba(160,50,255,0.5)', fontWeight:700 }}>BRAINS 🧪 LABWORK · INCINERATOR PROTOCOL</span>
                 <span style={{ width:5, height:5, borderRadius:'50%', background:'#aa44ff', boxShadow:'0 0 8px #aa44ff', display:'inline-block', animation:'burn-pulse 1.5s ease 0.9s infinite' }} />
               </div>
 
@@ -486,7 +486,7 @@ const BurnHistory: FC = () => {
                 Burn BRAINS. Earn LB Points. Climb the incinerator ranks.<br/>
                 <span style={{ color:'#ffaa44', fontWeight:700 }}>Every BRAIN burned = 1.888 LB Points</span><br/>
                 <span style={{ color:'#39ff88', fontWeight:700 }}>⚡ AMP Bonuses</span><span style={{ color:'#8899aa' }}> — earn stacking multipliers from weekly challenges (up to +19.38%)</span><br/>
-                <span style={{ color:'#00ccff', fontWeight:700 }}>🧪 Lab Work Points</span><span style={{ color:'#8899aa' }}> — promote BRAINS, create content & run raids to earn bonus LB Points</span>
+                <span style={{ color:'#00ccff', fontWeight:700 }}>🧪 LabWork Points</span><span style={{ color:'#8899aa' }}> — promote BRAINS, create content & run raids to earn bonus LB Points</span>
               </div>
 
               {/* Stats row */}
@@ -495,7 +495,7 @@ const BurnHistory: FC = () => {
                   { val:'10',      label:'TIER RANKS',       icon:'🏆', col:'#cc55ff' },
                   { val:'1.888×',  label:'BURN MULTIPLIER',  icon:'🔥', col:'#ff9933' },
                   { val:'+19.38%', label:'MAX AMP STACK',    icon:'⚡', col:'#39ff88' },
-                  { val:'🧪',     label:'LAB WORK PTS',     icon:'',   col:'#00ccff' },
+                  { val:'🧪',     label:'LABWORK PTS',     icon:'',   col:'#00ccff' },
                   { val:'∞',       label:'BURN HISTORY',     icon:'📋', col:'#cc88ff' },
                 ].map((s,i) => (
                   <div key={i} style={{ textAlign:'center', position:'relative' }}>
@@ -521,7 +521,7 @@ const BurnHistory: FC = () => {
                   </span>
                   <span style={{ width:6, height:6, borderRadius:'50%', background:'#aa44ff', display:'inline-block', animation:'burn-pulse 1.5s ease 0.9s infinite' }} />
                 </div>
-                <span style={{ fontFamily:'Sora, sans-serif', fontSize:11, color:'#aabbcc' }}>Your burn history, LB Points, AMP bonuses & Lab Work Points load automatically</span>
+                <span style={{ fontFamily:'Sora, sans-serif', fontSize:11, color:'#aabbcc' }}>Your burn history, LB Points, AMP bonuses & LabWork Points load automatically</span>
               </div>
             </div>
 
@@ -678,7 +678,7 @@ const BurnHistory: FC = () => {
               }}>
                 <span style={{ width:5, height:5, borderRadius:'50%', background:'#39ff88', boxShadow:'0 0 6px #39ff88', display:'inline-block', flexShrink:0, animation:'burn-pulse 2s ease infinite' }} />
                 <div style={{ fontFamily:'Sora, sans-serif', fontSize:isMobile?11:12, color:'#c8d8e8' }}>
-                  <span style={{ color:'#39ff88', fontWeight:700 }}>Burn BRAINS</span> to earn LB Points · <span style={{ color:'#00ccff' }}>🧪 Lab Work</span> & <span style={{ color:'#39ff88' }}>⚡ AMP</span> bonuses stack on your score · Connect wallet above
+                  <span style={{ color:'#39ff88', fontWeight:700 }}>Burn BRAINS</span> to earn LB Points · <span style={{ color:'#00ccff' }}>🧪 LabWork</span> & <span style={{ color:'#39ff88' }}>⚡ AMP</span> bonuses stack on your score · Connect wallet above
                 </div>
               </div>
             </div>
@@ -746,7 +746,7 @@ const BurnHistory: FC = () => {
                   </span>
                   {labWorkPts > 0 && (
                     <span style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:'#00ccff', background:'rgba(0,204,255,.1)', border:'1px solid rgba(0,204,255,.25)', borderRadius:4, padding:'2px 6px' }}>
-                      🧪 +{labWorkPts.toLocaleString()} LAB WORK
+                      🧪 +{labWorkPts.toLocaleString()} LABWORK
                     </span>
                   )}
                 </div>

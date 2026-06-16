@@ -415,7 +415,7 @@ export const BurnedBrainsBar: FC<{ overrideAddress?: string }> = ({ overrideAddr
   const walletAmount = walletBurn.amount ?? 0;
   const walletPct    = INITIAL_SUPPLY > 0 ? (walletAmount / INITIAL_SUPPLY) * 100 : 0;
 
-  // Lab Work + LB Points — fetch from Supabase, fallback to localStorage
+  // LabWork + LB Points — fetch from Supabase, fallback to localStorage
   const walletAddr   = effectiveKey?.toBase58() ?? '';
   const [labWorkPts, setLabWorkPts] = useState(0);
   const [lwRefreshTick, setLwRefreshTick] = useState(0);
@@ -791,7 +791,7 @@ export const BurnedBrainsBar: FC<{ overrideAddress?: string }> = ({ overrideAddr
         </div>
       )}
 
-      {/* ── ROW 5: LB Points · Lab Work · Tier Badge ── */}
+      {/* ── ROW 5: LB Points · LabWork · Tier Badge ── */}
       {effectiveKey && (
         <>
           <div style={{ position:'relative', zIndex:1, margin:'0 14px', height:1, background:'linear-gradient(90deg,transparent,rgba(0,204,255,.18) 25%,rgba(0,204,255,.18) 75%,transparent)' }} />
@@ -809,7 +809,7 @@ export const BurnedBrainsBar: FC<{ overrideAddress?: string }> = ({ overrideAddr
                   <span style={{ fontFamily:'Orbitron, monospace', fontSize:10, fontWeight:900, color:tier.neon, letterSpacing:2 }}>{tier.label}</span>
                 </div>
                 <div style={{ fontFamily:'Orbitron, monospace', fontSize:8, color:'#00ccff', letterSpacing:2, textTransform:'uppercase' }}>
-                  🧪 LAB WORK STATUS
+                  🧪 LABWORK STATUS
                 </div>
               </div>
               {/* Stats grid */}
@@ -827,7 +827,7 @@ export const BurnedBrainsBar: FC<{ overrideAddress?: string }> = ({ overrideAddr
                   </div>
                 </div>
                 <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, background:'rgba(191,90,242,.04)', border:'1px solid rgba(191,90,242,.12)', borderRadius:8, padding:'8px 6px' }}>
-                  <div style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:'#bf5af2', letterSpacing:1.5 }}>🧪 LAB WORK</div>
+                  <div style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:'#bf5af2', letterSpacing:1.5 }}>🧪 LABWORK</div>
                   <div style={{ fontFamily:'Orbitron, monospace', fontSize:16, fontWeight:900, color:'#bf5af2', textShadow:'0 0 10px rgba(191,90,242,.4)', letterSpacing:1 }}>
                     {labWorkPts > 0 ? <AnimatedCounter value={labWorkPts} /> : '0'}
                   </div>
@@ -879,9 +879,9 @@ export const BurnedBrainsBar: FC<{ overrideAddress?: string }> = ({ overrideAddr
                 </div>
               </div>
               <div style={{ width:1, height:36, background:'linear-gradient(to bottom,transparent,rgba(191,90,242,.18),transparent)', marginRight:18 }} />
-              {/* Lab Work pts */}
+              {/* LabWork pts */}
               <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, marginRight:20 }}>
-                <div style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:'#bf5af2', letterSpacing:1.5 }}>🧪 LAB WORK</div>
+                <div style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:'#bf5af2', letterSpacing:1.5 }}>🧪 LABWORK</div>
                 <div style={{ fontFamily:'Orbitron, monospace', fontSize:18, fontWeight:900, color: labWorkPts > 0 ? '#bf5af2' : '#3a2a55', textShadow: labWorkPts > 0 ? '0 0 10px rgba(191,90,242,.35)' : 'none', letterSpacing:1, lineHeight:1 }}>
                   {labWorkPts > 0 ? <AnimatedCounter value={labWorkPts} /> : '0'}
                 </div>

@@ -644,7 +644,7 @@ export async function fetchLeaderboard(
   return final;
 }
 
-// ─── LAB WORK REWARDS — from Supabase (or localStorage fallback) ──
+// ─── LABWORK REWARDS — from Supabase (or localStorage fallback) ──
 function getLabWorkMapLocal(): Map<string, number> {
   // Fallback: read from localStorage if Supabase hasn't loaded yet
   const map = new Map<string, number>();
@@ -663,7 +663,7 @@ function getLabWorkMapLocal(): Map<string, number> {
   return map;
 }
 
-// ─── LAB WORK POINTS (LB PTS) = (burned × 1.888) + AMP bonus + manual Lab Work rewards ──
+// ─── LABWORK POINTS (LB PTS) = (burned × 1.888) + AMP bonus + manual LabWork rewards ──
 export function buildEntries(
   totals: Map<string, { burned: number; txCount: number; events: BurnEvent[] }>,
   ampWindows?: WeekAmpWindow[],
@@ -1067,7 +1067,7 @@ const PodiumPopup: FC<{
             </div>
           </div>}
           {(entry.labWorkPts??0)>0&&<div style={{ padding:'8px 10px', background:'rgba(0,204,255,.04)', border:'1px solid rgba(0,204,255,.15)', borderRadius:8 }}>
-            <div style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:'#00ccff', letterSpacing:2, marginBottom:4 }}>🧪 LAB WORK BONUS</div>
+            <div style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:'#00ccff', letterSpacing:2, marginBottom:4 }}>🧪 LABWORK BONUS</div>
             <div style={{ display:'flex', alignItems:'baseline', gap:6, marginBottom:3 }}>
               <span style={{ fontFamily:'Orbitron, monospace', fontSize:14, fontWeight:900, color:'#00ccff' }}>+{fmtPts(entry.labWorkPts??0)}</span>
               <span style={{ fontFamily:'Orbitron, monospace', fontSize:8, color:'#0099bb' }}>LB PTS</span>
@@ -1732,7 +1732,7 @@ export const BurnLeaderboard: FC<Props> = ({
               </div>
             </div>
             <div>
-              <div style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?9:11, color:'#e8eef4', letterSpacing:3, marginBottom:4, textShadow:isF?'0 0 6px rgba(200,160,80,.15)':undefined }}>X1 BRAINS · 🧪 LAB WORK</div>
+              <div style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?9:11, color:'#e8eef4', letterSpacing:3, marginBottom:4, textShadow:isF?'0 0 6px rgba(200,160,80,.15)':undefined }}>X1 BRAINS · 🧪 LABWORK</div>
               {/* INCINERATOR PROTOCOL — fire mode gets flaming text effect */}
               <div key={`title-${themeName}`} style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?16:22, fontWeight:900, letterSpacing:4, position:'relative', background:isF?'linear-gradient(90deg,#c83838,#c85030,#c87040,#d4a050,#e0d8d0,#d4b860,#c87040)':'linear-gradient(90deg,#5bb8d4,#9070b8,#c07ad4,#d4884f,#d4b84f)', backgroundSize:isF?'200% 100%':undefined, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', filter:isF?'drop-shadow(0 0 6px rgba(255,34,34,.2))':'drop-shadow(0 0 5px rgba(140,60,255,.1))', animation:isF?'lb-grad-shift 6s ease infinite':undefined }}>
                 INCINERATOR PROTOCOL
@@ -2200,7 +2200,7 @@ export const BurnLeaderboard: FC<Props> = ({
         </div>
       )}
 
-      {/* ══ ALL-TIME 🧪 LAB WORK PANEL ══ */}
+      {/* ══ ALL-TIME 🧪 LABWORK PANEL ══ */}
       <div style={heroPanelStyle(20,isF)}>
         <HeroBg intensity={0.5} accent={isF?"#ffbb33":"#39ff88"} />
 {/* Header */}
@@ -2211,7 +2211,7 @@ export const BurnLeaderboard: FC<Props> = ({
               <span style={{ fontFamily:'Orbitron, monospace', fontSize:8, color:isF?'#d4a050':'#78c8a0', letterSpacing:2 }}>LIVE</span>
             </div>
             <div style={{ width:1, height:14, background:isF?'rgba(200,56,56,.08)':'rgba(140,60,255,.12)' }} />
-            <span key={isF?'f':'v'} style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?11:13, fontWeight:700, letterSpacing:3, background:isF?'linear-gradient(90deg,#ffffff,#ff6600)':'linear-gradient(90deg,#ffffff,#cc88ff)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>{showAll ? 'ALL-TIME 🧪 LAB WORK' : 'LB POINTS LEADERBOARD'}</span>
+            <span key={isF?'f':'v'} style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?11:13, fontWeight:700, letterSpacing:3, background:isF?'linear-gradient(90deg,#ffffff,#ff6600)':'linear-gradient(90deg,#ffffff,#cc88ff)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>{showAll ? 'ALL-TIME 🧪 LABWORK' : 'LB POINTS LEADERBOARD'}</span>
             {entries.length > 0 && (
               <span style={{ fontFamily:'Orbitron, monospace', fontSize:8, color:isF?'#d4a050':'#78c8a0', background:'rgba(57,255,136,.06)', border:isF?'1px solid rgba(255,34,34,.12)':'1px solid rgba(57,255,136,.12)', padding:'2px 8px', borderRadius:10 }}>
                 {entries.length} WALLETS
@@ -2234,7 +2234,7 @@ export const BurnLeaderboard: FC<Props> = ({
         {entries.length > 0 && (
           <div style={{ position:'relative', zIndex:2, padding:isMobile?'8px 14px':'10px 22px', display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', borderBottom:isF?'1px solid rgba(255,34,34,.05)':'1px solid rgba(140,60,255,.05)' }}>
             <span style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:isF?'#b8b0c0':'#b0bcc8', letterSpacing:2 }}>VIEW:</span>
-            {([['all','🌐 ALL'],['burners','🔥 BURNERS'],['labwork','🧪 LAB WORK'],['weekly','⚡ WEEKLY']] as const).map(([key, label]) => (
+            {([['all','🌐 ALL'],['burners','🔥 BURNERS'],['labwork','🧪 LABWORK'],['weekly','⚡ WEEKLY']] as const).map(([key, label]) => (
               <button key={key} onClick={() => setLbView(key)} style={{
                 background: lbView===key ? (key==='labwork'?'rgba(0,204,255,.12)':key==='weekly'?'rgba(242,144,48,.12)':isF?'rgba(212,160,80,.08)':'rgba(57,255,136,.12)') : (isF?'rgba(200,56,56,.03)':'rgba(140,60,255,.04)'),
                 border: `1px solid ${lbView===key ? (key==='labwork'?'rgba(0,204,255,.3)':key==='weekly'?'rgba(242,144,48,.3)':isF?'rgba(212,160,80,.2)':'rgba(57,255,136,.3)') : (isF?'rgba(200,56,56,.08)':'rgba(140,60,255,.1)')}`,
@@ -2360,7 +2360,7 @@ export const BurnLeaderboard: FC<Props> = ({
               {showAll && filtered.length > 10 && (
                 <div style={{ textAlign:'center', padding:'14px 0 6px' }}>
                   <span style={{ fontFamily:'Orbitron, monospace', fontSize:8, color:isF?'#b8b0c0':'#b0bcc8', letterSpacing:2 }}>
-                    SHOWING {filtered.length} {lbView==='burners'?'BURNERS':lbView==='labwork'?'LAB WORKERS':lbView==='weekly'?'WEEKLY BURNERS':'WALLETS'} · SORTED BY {lbSort === 'burned' ? 'BRAINS BURNED' : lbSort === 'wallet' ? 'WALLET ADDRESS' : 'LB PTS EARNED'}
+                    SHOWING {filtered.length} {lbView==='burners'?'BURNERS':lbView==='labwork'?'LABWORKERS':lbView==='weekly'?'WEEKLY BURNERS':'WALLETS'} · SORTED BY {lbSort === 'burned' ? 'BRAINS BURNED' : lbSort === 'wallet' ? 'WALLET ADDRESS' : 'LB PTS EARNED'}
                   </span>
                 </div>
               )}
@@ -2390,7 +2390,7 @@ export const BurnLeaderboard: FC<Props> = ({
             <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
               <div style={{ display:'flex', alignItems:'center', gap:5 }}>
                 <span style={{ width:4, height:4, borderRadius:'50%', background:isF?'#ffbb33':'#39ff88', display:'inline-block', animation:isF?'lb-fire-live 2s ease infinite':'lb-green-pulse 2s ease infinite' }} />
-                <span style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?7:8, color:isF?'#d4a050':'#78c8a0' }}>1 BRAIN = 1.888 LB PTS · AMP · 🧪 Lab Work</span>
+                <span style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?7:8, color:isF?'#d4a050':'#78c8a0' }}>1 BRAIN = 1.888 LB PTS · AMP · 🧪 LabWork</span>
               </div>
               <button onClick={() => setTierCollapsed(!tierCollapsed)} style={{
                 background:tierCollapsed?(isF?'rgba(255,34,34,.08)':'rgba(140,60,255,.08)'):(isF?'rgba(255,187,51,.08)':'rgba(57,255,136,.08)'),

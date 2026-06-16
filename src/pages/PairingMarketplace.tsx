@@ -407,7 +407,7 @@ function schedulePersist() {
 const HARDCODED_META: Record<string, { symbol: string; name: string; decimals: number }> = {
   'So11111111111111111111111111111111111111112': { symbol: 'XNT',    name: 'X1 Native Token', decimals: 9  },
   'EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC1EHUBtPN': { symbol: 'BRAINS', name: 'X1 Brains',       decimals: 9  },
-  'Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6': { symbol: 'LB',     name: 'Lab Work',        decimals: 2  },
+  'Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6': { symbol: 'LB',     name: 'LabWork',        decimals: 2  },
 };
 
 // ── Exact original working 3-layer system ─────────────────────────────────────
@@ -4298,7 +4298,7 @@ const PairingMarketplace: FC = () => {
                 </span>
                 <span style={{ color: 'rgba(255,255,255,.15)', margin: isMobile ? '0 6px' : '0 12px', fontWeight: 300 }}>·</span>
                 <span style={{ color: '#e6ebf2' }}>
-                  Lab Work DeFi
+                  LabWork DeFi
                 </span>
               </h1>
             </div>
@@ -4531,7 +4531,7 @@ const PairingMarketplace: FC = () => {
             {([
               { key: 'all',    label: 'ALL LISTINGS' },
               { key: 'brains', label: '🧠 BRAINS'    },
-              { key: 'lb',     label: '⚗️ LAB WORK'  },
+              { key: 'lb',     label: '⚗️ LABWORK'  },
             ] as { key: typeof filter; label: string }[]).map(f => (
               <button key={f.key} onClick={() => setFilter(f.key)}
                 style={{ padding: isMobile ? '6px 12px' : '7px 16px', borderRadius: 8,

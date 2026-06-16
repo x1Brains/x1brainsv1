@@ -20,7 +20,7 @@ type Tick = { symbol: TokenSymbol; price: number; pct: number | null };
 const PAGE_META: Record<string, { title: string; badge: string }> = {
   '/':                   { title: 'X1 BRAINS',   badge: 'LAB · NFTS · DEFI' },
   '/swap':               { title: 'SWAP',        badge: 'xDEX PROTOCOL' },
-  '/labwork':            { title: 'LAB WORK',    badge: 'NFT MARKETPLACE' },
+  '/labwork':            { title: 'LABWORK',    badge: 'NFT MARKETPLACE' },
   '/mint-labwork':       { title: 'MINT LABWORK', badge: 'CREATE · BURN' },
   '/labworkdefi':        { title: 'LP PAIRING',  badge: 'PAIRING MARKET' },
   '/lpfarms':            { title: 'LP FARMS',    badge: 'STAKING' },

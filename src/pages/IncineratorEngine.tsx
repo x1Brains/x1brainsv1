@@ -242,11 +242,11 @@ const BurnCelebration: FC<{ amount: string; newPts: number; totalPts: number; la
         </div>
       </div>
 
-      {/* Lab Work + Tier row */}
+      {/* LabWork + Tier row */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
         {labWorkPts > 0 && (
           <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 7 : 9, color: '#00ccff', background: 'rgba(0,204,255,.08)', border: '1px solid rgba(0,204,255,.2)', borderRadius: 6, padding: mob ? '3px 8px' : '4px 10px' }}>
-            🧪 {fP(labWorkPts)} LAB WORK
+            🧪 {fP(labWorkPts)} LABWORK
           </div>
         )}
         <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 7 : 9, color: getTier(totalPts).neon, background: `${getTier(totalPts).neon}15`, border: `1px solid ${getTier(totalPts).neon}33`, borderRadius: 6, padding: mob ? '3px 8px' : '4px 10px' }}>
@@ -472,7 +472,7 @@ const IncineratorEngine:FC=()=>{
           <div style={{position:'relative',zIndex:2}}>
             {/* Eyebrow */}
             <div style={{fontFamily:'Orbitron,monospace',fontSize:mob?11:14,letterSpacing:mob?4:7,color:isF?'#ff9944':'#cc88ff',textShadow:isF?'0 0 12px rgba(242,144,48,0.6), 0 0 28px rgba(255,102,0,0.3)':'0 0 12px rgba(180,80,255,0.9), 0 0 28px rgba(140,50,255,0.5)',textTransform:'uppercase',marginBottom:mob?8:12,fontWeight:700}}>
-              BRAINS 🧪 LAB WORK · BURN ENGINE
+              BRAINS 🧪 LABWORK · BURN ENGINE
             </div>
             {/* Main title */}
             <div style={{filter:isF?'drop-shadow(0 0 22px rgba(255,102,0,0.7)) drop-shadow(0 0 44px rgba(255,34,34,0.3))':'drop-shadow(0 0 22px rgba(255,120,0,0.95)) drop-shadow(0 0 44px rgba(180,50,255,0.55))',animation:'bp-title-flicker 8s ease-in-out infinite'}}>

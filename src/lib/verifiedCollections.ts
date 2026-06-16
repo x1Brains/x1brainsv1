@@ -102,7 +102,7 @@ export const VERIFIED_COLLECTIONS: VerifiedCollection[] = [
     color: C_YELLOW,
   },
   {
-    id: 'lab_work', name: 'Lab Work',
+    id: 'lab_work', name: 'LabWork',
     hosts: ['moltlab.vercel.app'],
     namePrefixes: ['lab work', 'labwork'],
     color: C_GREEN,
