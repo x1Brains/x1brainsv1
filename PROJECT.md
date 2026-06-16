@@ -11,7 +11,7 @@ Living doc. Anything load-bearing about the project belongs here so it isn't los
 **New since launch (2026-06-15 PM) — run these:**
 | # | Task | Status |
 |---|------|--------|
-| N1 | Run [`SUPABASE_NFT_METADATA.sql`](./SUPABASE_NFT_METADATA.sql) → `nft_metadata` indexer cache (§13.3) | **TODO** |
+| N1 | Run [`SUPABASE_NFT_METADATA.sql`](./SUPABASE_NFT_METADATA.sql) → `nft_metadata` indexer cache (§13.3) | ✅ DONE (operator ran 2026-06-16; verified live: REST 200, anon insert 201 write-through path works) |
 | N2 | Run [`SUPABASE_MARKET_STATS.sql`](./SUPABASE_MARKET_STATS.sql) → `marketplace_stats` cache (§13.7) | ✅ DONE (verified live 2026-06-16: table populated, vol 83.999 XNT / 13 sales) |
 | N3 | After deploy: CSP smoke-test (chat/NFT images+traits/swap/portfolio/mint, console open) — add blocked hosts to `vercel.json` connect-src if any | **TODO** |
 
@@ -737,3 +737,69 @@ Fixes driven by real Backpack-WebView screenshots:
 - **Wallet modal rebrand**: the lib hardcodes "Connect a wallet on Solana to continue" — overrode
   in `utils/globalStyles.ts` (`.wallet-adapter-modal-title { font-size:0 }` + `::before` content
   "Connect your X1 Blockchain Wallet to continue"). Wallet names/"Detected" labels stay (from adapters).
+
+## 14. Session log — 2026-06-16 · NFT-image resolution + FOUC + Supabase verify
+
+Commits (all pushed + deployed to x1brains.io): `f4c6c1d`, `fe15954`, `ab3e561`, `aeab3c3`,
+`3eda8d2`, `ce2a986`.
+
+### 14.1 ⭐ Solaris returns the COLLECTION image as a per-NFT fallback (root cause of 2 bugs)
+`fetchSolarisNft(mint)` (`lib/solarisIndexer.ts`) does **not** have a per-NFT image for every
+collection. For **Brains Elites** specifically, Solaris has NO per-edition image, so its image
+fallback returns the **collection portrait** (the brain-with-hat) for *every* BE mint:
+```
+image: m.image || (c?.image && j.data.listing == null ? undefined : c?.image)   // ← c = collection
+...
+if (!out.image && c.image) out.image = c.image;                                  // ← collection fallback
+```
+This silently poisons any UI that trusts Solaris for a BE image — it shows the same collection art
+for all 444 editions. **The real per-edition art lives in each NFT's metaUri JSON on Arweave.**
+**Rule: to show real per-NFT art, resolve from the metaUri JSON / chain (`enrichNFTFromMint`),
+NOT Solaris. Use Solaris for the image only as a LAST resort, and for traits (it has those).**
+
+### 14.2 Featured banner stuck on the collection portrait (`V2LabWork` `.lw-hero`) — FIXED `3eda8d2`
+The hero art was pinned to `collectionStats[].image`, which is the first listing's image or, when
+none resolved, the Solaris collection art. Because of §14.1 every BE listing resolved to the same
+collection URL, so an earlier rotation attempt (`ab3e561`) deduped 4 identical URLs → 1 → stuck on
+every refresh. Final fix: gather the listed BE **mints** (`it.collectionKey==='brains_elites' &&
+it.listing`), resolve each REAL image via `enrichNFTFromMint(connection, mint)` (chain PDA → uri →
+JSON image), dedupe the distinct images, and **rotate** the hero art on a 4s interval. Falls back to
+the collection portrait only until the first real image resolves; never reverts to empty.
+
+### 14.3 Detail modal: blank/placeholder, then wrong (collection) image — FIXED `f4c6c1d` + `ce2a986`
+Home-carousel **VIEW DETAILS** deep-links to `/labwork?nft=<mint>`; the modal opens the instant the
+mint lands in `merged` — while the listing is still RAW (no image, name = mint-slice placeholder,
+no metaUri). `enrichNFT` bails with no metaUri, so the modal showed `NO IMAGE` / `#ERgVWq` /
+`Uncategorized` even though traits resolved (those came from Solaris by mint).
+- `f4c6c1d`: the modal already fetched `fetchSolarisNft(mint)` for attrs but threw away its image +
+  name. Now it backfills **image, name, collection** too (treats the mint-slice name as a placeholder
+  via `looksPlaceholderName`), and the write-through to `nft_metadata` caches the RESOLVED fields.
+- `ce2a986`: image resolution reordered to **metaUri JSON → chain (`enrichNFTFromMint`) → Solaris
+  last** (per §14.1), so BE shows real art not the collection portrait. Threaded `connection` into
+  the modal (new optional prop) for the chain path.
+- **Known boundary (not yet fixed):** the modal's image backfill only runs when `nft.image` is
+  empty. If a BE arrives already carrying the Solaris collection-fallback as its image (some
+  grid-click paths), the modal keeps it and still shows the collection portrait. To fix later:
+  detect/override a collection-fallback image. Deep-link/carousel case (empty image) IS fixed.
+
+### 14.4 Mobile FOUC — white page + raw unstyled DOM flash — FIXED `aeab3c3`
+`index.html` set no background, so on slow mobile loads the browser painted white + unstyled DOM
+until the bundled CSS (imported in `main.tsx`) fetched. Added **inline critical CSS** (dark
+`--bg-deep #080c0f` + text color, parsed before any fetch) + a pre-mount `#boot` splash inside
+`#root` that React replaces on mount + `<meta name="theme-color">`. First frame is now dark, never
+white. (CSS imported via JS = no render-blocking `<link>` until the bundle parses → this is the fix.)
+
+### 14.5 Supabase tables — both verified LIVE via REST probe (2026-06-16)
+- `marketplace_stats` — was ALREADY run (REST 200, populated: vol 83.999 XNT / 13 sales). `fe15954`.
+- `nft_metadata` — operator ran it this session; verified REST 200 + anon insert 201 (write-through
+  path works). Checklist N1/N2 now both ✅.
+- Probe recipe: `curl "$VITE_SUPABASE_URL/rest/v1/<table>?select=*&limit=1" -H "apikey: $KEY"
+  -H "Authorization: Bearer $KEY"` → 200 = exists, 404 `PGRST205` = missing. Anon has NO delete
+  policy on `nft_metadata` (insert/update/select only), so a stray test row needs SQL-editor delete.
+
+### 14.6 Deploy verification gotcha — check the LAZY route chunk, not the main bundle
+To confirm a deploy of route-level changes (e.g. `V2LabWork`), do NOT compare the live `index-*.js`
+hash to the local build — Vercel bakes its own `VITE_*` env vars in, so the **main** bundle hash
+differs even for identical source. Instead compare the lazy route chunk: fetch the live main bundle,
+grep the `V2LabWork-<hash>.js` it references, and match against local `dist/assets/V2LabWork-*.js`.
+That chunk has no env vars, so identical source → identical hash → proof the deploy landed.
