@@ -12,7 +12,7 @@ Living doc. Anything load-bearing about the project belongs here so it isn't los
 | # | Task | Status |
 |---|------|--------|
 | N1 | Run [`SUPABASE_NFT_METADATA.sql`](./SUPABASE_NFT_METADATA.sql) → `nft_metadata` indexer cache (§13.3) | **TODO** |
-| N2 | Run [`SUPABASE_MARKET_STATS.sql`](./SUPABASE_MARKET_STATS.sql) → `marketplace_stats` cache (§13.7) | **TODO** |
+| N2 | Run [`SUPABASE_MARKET_STATS.sql`](./SUPABASE_MARKET_STATS.sql) → `marketplace_stats` cache (§13.7) | ✅ DONE (verified live 2026-06-16: table populated, vol 83.999 XNT / 13 sales) |
 | N3 | After deploy: CSP smoke-test (chat/NFT images+traits/swap/portfolio/mint, console open) — add blocked hosts to `vercel.json` connect-src if any | **TODO** |
 
 | # | Task | Status |
@@ -703,7 +703,7 @@ api.x1.city, x1city, r2.dev, x1pups/punks, corsproxy/allorigins, all IPFS gatewa
 
 > **Open tweak knobs** (one-value changes if needed): mobile `zoom` (0.9), softened orange
 > `#f29030`, softer-teal alphas, header `padding-left:72px`. Still TODO from §0: run
-> `SUPABASE_NFT_METADATA.sql` + `SUPABASE_MARKET_STATS.sql`; verify Vercel env vars.
+> `SUPABASE_NFT_METADATA.sql` (MARKET_STATS already run — verified live 2026-06-16); verify Vercel env vars.
 
 ### 13.10 Second mobile pass (2026-06-15 late, on-device Backpack feedback)
 Fixes driven by real Backpack-WebView screenshots:
