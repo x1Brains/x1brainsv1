@@ -704,3 +704,20 @@ api.x1.city, x1city, r2.dev, x1pups/punks, corsproxy/allorigins, all IPFS gatewa
 > **Open tweak knobs** (one-value changes if needed): mobile `zoom` (0.9), softened orange
 > `#f29030`, softer-teal alphas, header `padding-left:72px`. Still TODO from §0: run
 > `SUPABASE_NFT_METADATA.sql` + `SUPABASE_MARKET_STATS.sql`; verify Vercel env vars.
+
+### 13.10 Second mobile pass (2026-06-15 late, on-device Backpack feedback)
+Fixes driven by real Backpack-WebView screenshots:
+- **Featured collection banner** (`V2LabWork` `.lw-hero`): `stableHeroImg` now starts `''` (NO
+  bundled `/brains-elites-banner.jpg` promo flash) — shows ONLY the live Brains Elites listing
+  image, holds it, never reverts to empty. Mobile layout = **image LEFT (92px col, object-fit
+  cover → no black letterbox bars) · text RIGHT** (App.css 760px block: `.lw-hero
+  grid-template-columns: 92px 1fr`). NOTE: VIEW ALL / BROWSE LISTINGS buttons sit in the right
+  info column bottom; "full-width buttons below everything" is a DOM tweak if wanted.
+- **Boost carousel** (`V2Home` injected `.l-*`): title `.l-nm` 30→16px, `.l-pr` 20→12px, padding/
+  CTA/arrows shrunk inside the existing `@media (max-width:560px)` block (it's appended to
+  `document.head`, so it wins over App.css — put carousel mobile rules THERE, not App.css).
+- **Marketplace tabs** (inline in V2LabWork): added `minWidth:0` + tighter mobile gap/letter-
+  spacing so BROWSE/MINE/SELL/LOG all fit (LOG was clipped by the overflow-x guard).
+- **Filter pills + toolbar**: `.market-filters`/`.market-toolbar` `flex-wrap:wrap` (were cut off).
+- **NFT marketplace stat row** (`.lw-mkstatrow`/`.lw-mkstat`): centered + wraps on mobile.
+- **Header title clearance**: mobile `.header padding-left:72px` (was flush against the menu toggle).
