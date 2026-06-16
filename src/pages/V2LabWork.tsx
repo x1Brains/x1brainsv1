@@ -8,6 +8,7 @@ import {
   batchEnrichListings,
   enrichListing,
   enrichNFT,
+  enrichNFTFromMint,
   invalidateListingsCache,
   type NFTData,
   type Listing,
@@ -1080,33 +1081,49 @@ export default function V2LabWork() {
   // Featured collection (Brains Elites) for the hero banner — real floor +
   // listing count from the live collection stats; supply is the locked 444.
   const featuredBE = collectionStats.find(c => c.key === 'brains_elites');
-  // Banner art ROTATES through the actual LISTED Brains Elites NFTs — not the
-  // single static collection image. collectionStats only ever held one pick
-  // (first listing, or the Solaris collection art as fallback), so the banner
-  // looked "stuck" on the collection portrait while the other listed pieces
-  // never showed. Gather every listed BE that has a resolved image and cycle.
-  const beListingImgs = useMemo(() => {
+  // Banner art ROTATES through the actual LISTED Brains Elites NFTs. The catch:
+  // Solaris has no per-NFT image for BE, so it returns the COLLECTION portrait
+  // as a fallback (solarisIndexer.ts) — which is why the banner sat stuck on the
+  // brain-with-hat art (every listing resolved to the same image, deduped to 1).
+  // The real per-edition art lives in each NFT's metaUri JSON on Arweave, so we
+  // resolve it authoritatively from the mint via enrichNFTFromMint (chain PDA →
+  // uri → JSON image), bypassing the Solaris collection fallback entirely.
+  const beMints = useMemo(() => {
     const seen = new Set<string>();
-    const out: { mint: string; image: string; name?: string }[] = [];
+    const out: string[] = [];
     for (const it of merged) {
-      if (!it.listing || it.collectionKey !== 'brains_elites') continue;
-      const img = it.image || it.nftData?.image;
-      if (!img || seen.has(img)) continue;
-      seen.add(img);
-      out.push({ mint: it.mint, image: img, name: it.nftData?.name ?? it.name });
+      if (!it.listing || it.collectionKey !== 'brains_elites' || !it.mint) continue;
+      if (!seen.has(it.mint)) { seen.add(it.mint); out.push(it.mint); }
     }
     return out;
   }, [merged]);
+  const beMintsKey = beMints.join(',');
+  const [beImgs, setBeImgs] = useState<string[]>([]);
+  useEffect(() => {
+    if (!beMints.length) { setBeImgs([]); return; }
+    let alive = true;
+    (async () => {
+      const resolved = await Promise.all(
+        beMints.map(m => enrichNFTFromMint(connection, m).then(n => n?.image || '').catch(() => '')),
+      );
+      if (!alive) return;
+      // Distinct real per-edition images only (drops empties + any Solaris
+      // collection-fallback dupes that slipped through).
+      const imgs = Array.from(new Set(resolved.filter(Boolean)));
+      if (imgs.length) setBeImgs(imgs);
+    })();
+    return () => { alive = false; };
+  }, [beMintsKey, connection]);
   const [heroIdx, setHeroIdx] = useState(0);
   useEffect(() => {
-    if (beListingImgs.length < 2) return;
-    const id = setInterval(() => setHeroIdx(i => (i + 1) % beListingImgs.length), 4000);
+    if (beImgs.length < 2) return;
+    const id = setInterval(() => setHeroIdx(i => (i + 1) % beImgs.length), 4000);
     return () => clearInterval(id);
-  }, [beListingImgs.length]);
-  useEffect(() => { if (heroIdx >= beListingImgs.length && beListingImgs.length > 0) setHeroIdx(0); }, [beListingImgs.length, heroIdx]);
+  }, [beImgs.length]);
+  useEffect(() => { if (heroIdx >= beImgs.length && beImgs.length > 0) setHeroIdx(0); }, [beImgs.length, heroIdx]);
   // Hold the last good image; only fall back to the collection portrait until
-  // the first listing image resolves, and NEVER revert to empty mid-rotation.
-  const heroRotImg = beListingImgs[heroIdx]?.image;
+  // the first real listing image resolves, and NEVER revert to empty.
+  const heroRotImg = beImgs[heroIdx];
   const [stableHeroImg, setStableHeroImg] = useState('');
   useEffect(() => {
     const next = heroRotImg || featuredBE?.image;
