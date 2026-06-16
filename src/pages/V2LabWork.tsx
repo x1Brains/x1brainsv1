@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
 import {
@@ -270,6 +271,7 @@ type SortMode = 'newest' | 'priceAsc' | 'priceDesc' | 'name';
 export default function V2LabWork() {
   const { connection } = useConnection();
   const { publicKey, connected } = useWallet();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [walletNfts, setWalletNfts] = useState<NFTData[]>([]);
   const [listings, setListings]     = useState<Listing[]>([]);
@@ -919,6 +921,23 @@ export default function V2LabWork() {
       return tb - ta;
     });
   }, [merged, filter, query, sortMode, collectionKey, latestListTsByMint]);
+
+  // Deep-link: /labwork?nft=<mint> (e.g. the home boosted-listing "VIEW DETAILS")
+  // opens that NFT's detail modal (traits + buy) once it lands in `merged`.
+  const nftParamOpened = useRef<string | null>(null);
+  useEffect(() => {
+    const want = searchParams.get('nft');
+    if (!want) { nftParamOpened.current = null; return; } // reset so re-clicks re-open
+    if (nftParamOpened.current === want) return;
+    const item = merged.find(m => m.mint === want);
+    if (item) {
+      nftParamOpened.current = want;
+      openDetail(item);
+      const next = new URLSearchParams(searchParams);
+      next.delete('nft');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, merged]);
 
   const liveVerifiedCount      = merged.filter(m => m.verified).length;
   const liveListedCount        = merged.filter(m => m.listing).length;

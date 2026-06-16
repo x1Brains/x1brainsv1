@@ -534,7 +534,7 @@ export default function V2Home() {
                 </div>
                 <div className="l-cta">
                   <Link to="/labwork" className="l-cta-p">BROWSE MARKETPLACE</Link>
-                  <Link to="/labwork" className="l-cta-s">VIEW DETAILS</Link>
+                  <Link to={`/labwork?nft=${current.listing.nftMint}`} className="l-cta-s">VIEW DETAILS</Link>
                 </div>
               </div>
             </div>
