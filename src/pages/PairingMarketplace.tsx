@@ -12,7 +12,7 @@ import {
 } from '@solana/spl-token';
 import { TopBar, PageBackground, Footer, NfaConsentModal } from '../components/UI';
 import { BurnedBrainsBar } from '../components/BurnedBrainsBar';
-import { BRAINS_MINT as BRAINS_MINT_STR } from '../constants';
+import { BRAINS_MINT as BRAINS_MINT_STR, BRAINS_LOGO, XNT_LOGO } from '../constants';
 import PoolsTab from './PoolsTab';
 
 // ─── Program Constants — match deployed program exactly ───────────────────────
@@ -20,6 +20,13 @@ const PROGRAM_ID      = 'DNSefSAJ41Fm3ijmEug8tkDYJrHDwYGVtFtn8wwvbgJM';
 const BRAINS_MINT     = BRAINS_MINT_STR; // EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC1EHUBtPN
 const LB_MINT         = 'Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6';
 const WXNT_MINT       = 'So11111111111111111111111111111111111111112';
+
+// LP mints are not tradeable tokens — they're pool shares. Never show them in
+// the swap/pairing token picker. (BRAINS/XNT LP + LB/XNT LP — the only pools.)
+const LP_MINTS = new Set<string>([
+  'FSFjPXo9vAvVsjh6YuuNTjetZ6oZBgfYA6TLcWTYmwq3',
+  '85g2x1AcRyogMTDuWNWKJDPFQ3pTQdBpNWm2tK4YiXci',
+]);
 const TREASURY        = 'CAeTTU2zk2EjWLKVeg4zxYhHu7gba1oRN8NHEDjpK9XF';
 // ── XNT/USDC.X pool for on-chain price oracle (v1.1) ─────────────────────────
 const XNT_USDC_POOL       = 'CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR';
@@ -45,10 +52,10 @@ const LB_DISCOUNT_THRESHOLD = 3_300;     // 33 LB at 2 decimals
 
 // ─── Burn BPS whitelist — matches program VALID_BURN_BPS ─────────────────────
 const BURN_OPTIONS = [
-  { pct: 0,    bps: 0,     label: '0%',   desc: 'No burn · LP split 50/50',     color: '#4a6a8a', eachPct: 50   },
+  { pct: 0,    bps: 0,     label: '0%',   desc: 'No burn · LP split 50/50',     color: '#5a6a82', eachPct: 50   },
   { pct: 25,   bps: 2500,  label: '25%',  desc: '25% burned · 75% split 50/50', color: '#ff8c00', eachPct: 37.5 },
   { pct: 50,   bps: 5000,  label: '50%',  desc: '50% burned · 50% split 50/50', color: '#bf5af2', eachPct: 25   },
-  { pct: 100,  bps: 10000, label: '100%', desc: 'All burned · max LB points',   color: '#ff4444', eachPct: 0    },
+  { pct: 100,  bps: 10000, label: '100%', desc: 'All burned · max LB points',   color: '#ff8c00', eachPct: 0    },
 ] as const;
 
 
@@ -276,7 +283,7 @@ const CopyButton: FC<{ text: string; size?: number }> = ({ text, size = 11 }) =>
   return (
     <button onClick={handleCopy} title={copied ? 'Copied!' : 'Copy address'} style={{
       background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px',
-      color: copied ? '#00c98d' : '#3a5a6a', fontSize: size,
+      color: copied ? '#00c98d' : '#3a4150', fontSize: size,
       lineHeight: 1, borderRadius: 4, flexShrink: 0,
       transition: 'color .15s',
     }}>
@@ -292,7 +299,7 @@ interface TokenPrice {
   priceXNT6: number;  // price in XNT * 1_000_000 (6 dec)
 }
 
-interface ListingOnChain {
+export interface ListingOnChain {
   id:           string; // listing state pubkey
   creator:      string;
   tokenAMint:   string;
@@ -313,9 +320,9 @@ interface ListingOnChain {
 async function fetchXdexPrice(mint: string): Promise<TokenPrice | null> {
   try {
     const [tokenRes, xntRes] = await Promise.all([
-      fetch(`${XDEX_BASE}/token-price/price?network=X1+Mainnet&token_address=${mint}`,
+      fetch(`${XDEX_BASE}/token-price/price?network=X1%20Mainnet&token_address=${mint}`,
         { signal: AbortSignal.timeout(6000) }),
-      fetch(`${XDEX_BASE}/token-price/price?network=X1+Mainnet&token_address=${WXNT_MINT}`,
+      fetch(`${XDEX_BASE}/token-price/price?network=X1%20Mainnet&token_address=${WXNT_MINT}`,
         { signal: AbortSignal.timeout(6000) }),
     ]);
     const [tj, xj] = await Promise.all([tokenRes.json(), xntRes.json()]);
@@ -481,7 +488,7 @@ async function fetchMetaplexMeta(mint: string): Promise<TokenMeta | null> {
 
 async function fetchXdexMeta(mint: string): Promise<TokenMeta | null> {
   try {
-    const r = await fetch(`${XDEX_BASE}/token-price/price?network=X1+Mainnet&token_address=${mint}`,
+    const r = await fetch(`${XDEX_BASE}/token-price/price?network=X1%20Mainnet&token_address=${mint}`,
       { signal: AbortSignal.timeout(6000) });
     const j = await r.json();
     if (j?.success && j?.data) {
@@ -497,7 +504,7 @@ async function fetchXdexMeta(mint: string): Promise<TokenMeta | null> {
   return null;
 }
 
-async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
+export async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
   // Cache hit with logo — return immediately
   const cached = _metaCache.get(mint);
   if (cached?.logo) return cached;
@@ -579,7 +586,7 @@ async function checkPoolExists(tokenMint: string, xntMint: string): Promise<bool
     // Method 2 — if XDEX price API returns a valid price, it has a pool
     (async () => {
       const r = await fetch(
-        `${XDEX_BASE}/token-price/price?network=X1+Mainnet&token_address=${tokenMint}`,
+        `${XDEX_BASE}/token-price/price?network=X1%20Mainnet&token_address=${tokenMint}`,
         { signal: AbortSignal.timeout(6000) }
       );
       const j = await r.json();
@@ -651,8 +658,53 @@ async function fetchPlatformStats(): Promise<{ totalVolume: number; totalPools: 
   }
 }
 
+// ─── Pairing-created pools ─────────────────────────────────────────────────────
+// The pairing program writes a PoolRecord account (dataSize 282) per pool it
+// creates. These pools live on xDEX but are NOT all in xDEX's /pool/list feed
+// (small matched pools aren't indexed), so we read them straight from the
+// records. Layout after the 8-byte disc: pool_address(32) lp_mint(32)
+// tokenA(32) tokenB(32) … usd_val u64 @258 … created_at i64 @266 … seeded bool
+// @274. `seeded`=1 are admin-seeded foundational pools (e.g. the main BRAINS/XNT
+// pool created directly on xDEX) — excluded; we return only pools created by a
+// real listing→match through the LP Pairing marketplace.
+export interface PairingPool {
+  poolAddress: string;
+  lpMint:      string;
+  tokenA:      string;
+  tokenB:      string;
+  usdVal:      number;   // USD value of one matched side
+  createdAt:   number;   // unix seconds
+}
+
+export async function fetchPairingPools(): Promise<PairingPool[]> {
+  try {
+    const conn = new Connection(RPC, 'confirmed');
+    const programPk = new PublicKey(PROGRAM_ID);
+    const records = await conn.getProgramAccounts(programPk, { filters: [{ dataSize: 282 }] });
+    const out: PairingPool[] = [];
+    for (const { account } of records) {
+      const d = account.data;
+      if (d[274] === 1) continue; // skip admin-seeded (direct xDEX) pools
+      try {
+        out.push({
+          poolAddress: new PublicKey(d.subarray(8, 40)).toBase58(),
+          lpMint:      new PublicKey(d.subarray(40, 72)).toBase58(),
+          tokenA:      new PublicKey(d.subarray(72, 104)).toBase58(),
+          tokenB:      new PublicKey(d.subarray(104, 136)).toBase58(),
+          usdVal:      Number(d.readBigUInt64LE(258)) / 1_000_000,
+          createdAt:   Number(d.readBigInt64LE(266)),
+        });
+      } catch { /* skip malformed */ }
+    }
+    return out;
+  } catch (e) {
+    console.error('fetchPairingPools error:', e);
+    return [];
+  }
+}
+
 // ─── Fetch on-chain listings from program ─────────────────────────────────────
-async function fetchOnChainListings(): Promise<ListingOnChain[]> {
+export async function fetchOnChainListings(): Promise<ListingOnChain[]> {
   try {
     const conn = new Connection(RPC, 'confirmed');
     const programPk = new PublicKey(PROGRAM_ID);
@@ -753,21 +805,21 @@ const StatusBox: FC<{ msg: string }> = ({ msg }) => {
   return (
     <div style={{
       padding: '10px 14px', borderRadius: 10, marginBottom: 16,
-      background: isErr ? 'rgba(255,68,68,.08)' : isOk ? 'rgba(0,201,141,.08)' : 'rgba(0,212,255,.06)',
-      border: `1px solid ${isErr ? 'rgba(255,68,68,.25)' : isOk ? 'rgba(0,201,141,.25)' : 'rgba(0,212,255,.15)'}`,
+      background: isErr ? 'rgba(255,140,0,.08)' : isOk ? 'rgba(0,201,141,.08)' : 'rgba(255,140,0,.06)',
+      border: `1px solid ${isErr ? 'rgba(255,140,0,.25)' : isOk ? 'rgba(0,201,141,.25)' : 'rgba(255,140,0,.15)'}`,
       fontFamily: 'Sora,sans-serif', fontSize: 12,
-      color: isErr ? '#ff6666' : isOk ? '#00c98d' : '#9abacf', lineHeight: 1.6,
+      color: isErr ? '#ff8c00' : isOk ? '#00c98d' : '#cdd8e2', lineHeight: 1.6,
     }} dangerouslySetInnerHTML={{ __html: msg }} />
   );
 };
 
-const TxLink: FC<{ sig: string; color?: string }> = ({ sig, color = "#00d4ff" }) => {
+const TxLink: FC<{ sig: string; color?: string }> = ({ sig, color = "#ff8c00" }) => {
   if (!sig) return null;
   const url = `https://explorer.mainnet.x1.xyz/tx/${sig}`;
   return (
     <a href={url} target="_blank" rel="noopener noreferrer" style={{
       display: "block", textAlign: "center", padding: "10px 14px", marginBottom: 16,
-      borderRadius: 10, background: "rgba(0,212,255,.04)",
+      borderRadius: 10, background: "rgba(255,140,0,.04)",
       border: `1px solid ${color}40`, textDecoration: "none",
       fontFamily: "Orbitron,monospace", fontSize: 11, fontWeight: 700,
       color, letterSpacing: 1, transition: "all .15s",
@@ -805,7 +857,7 @@ const TokenLogo: FC<{ mint: string; logo?: string; symbol: string; size?: number
   );
 
   // Gradient fallback — same palette as TokenComponents
-  const COLORS = ['#ff8c00','#ffb700','#00d4ff','#00c98d','#bf5af2'];
+  const COLORS = ['#ff8c00','#ff8c00','#ff8c00','#00c98d','#bf5af2'];
   const ci  = (symbol?.charCodeAt(0) ?? 65) % COLORS.length;
   const ci2 = (ci + 2) % COLORS.length;
   return (
@@ -877,7 +929,7 @@ const ListingCard: FC<{
         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 1,
           background: 'linear-gradient(90deg,transparent,rgba(255,140,0,.25),transparent)' }} />
         <div style={{ position: 'absolute', left: 0, top: '15%', bottom: '15%', width: 2, borderRadius: 2,
-          background: listing.isEcosystem ? 'rgba(0,212,255,.4)' : 'rgba(255,140,0,.4)' }} />
+          background: listing.isEcosystem ? 'rgba(255,140,0,.4)' : 'rgba(255,140,0,.4)' }} />
 
         {/* Row 1 — logo + title + match button */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -885,14 +937,14 @@ const ListingCard: FC<{
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap', overflow: 'hidden' }}>
               <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 900,
-                color: '#e0f0ff', letterSpacing: .3, whiteSpace: 'nowrap', overflow: 'hidden',
+                color: '#e6ebf2', letterSpacing: .3, whiteSpace: 'nowrap', overflow: 'hidden',
                 textOverflow: 'ellipsis', maxWidth: 130 }}>
                 {listing.tokenASymbol} / ANY
               </span>
               <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 8, flexShrink: 0,
-                color: listing.isEcosystem ? 'rgba(0,212,255,.8)' : 'rgba(255,255,255,.4)',
-                background: listing.isEcosystem ? 'rgba(0,212,255,.07)' : 'rgba(255,255,255,.05)',
-                border: `1px solid ${listing.isEcosystem ? 'rgba(0,212,255,.2)' : 'rgba(255,255,255,.1)'}`,
+                color: listing.isEcosystem ? 'rgba(255,140,0,.8)' : 'rgba(255,255,255,.4)',
+                background: listing.isEcosystem ? 'rgba(255,140,0,.07)' : 'rgba(255,255,255,.05)',
+                border: `1px solid ${listing.isEcosystem ? 'rgba(255,140,0,.2)' : 'rgba(255,255,255,.1)'}`,
                 borderRadius: 3, padding: '1px 5px' }}>
                 {listing.isEcosystem ? 'ECO' : 'OPEN'}
               </span>
@@ -904,7 +956,7 @@ const ListingCard: FC<{
                 </span>
               )}
             </div>
-            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#3a5a6a', marginTop: 1 }}>
+            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#3a4150', marginTop: 1 }}>
               by {truncAddr(listing.creator)}
             </div>
           </div>
@@ -913,14 +965,14 @@ const ListingCard: FC<{
             <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
               <button onClick={e => { e.stopPropagation(); onEdit(listing); }}
                 style={{ padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
-                  background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.2)',
-                  fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700, color: '#00d4ff' }}>
+                  background: 'rgba(255,140,0,.06)', border: '1px solid rgba(255,140,0,.2)',
+                  fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700, color: '#ff8c00' }}>
                 EDIT
               </button>
               <button onClick={e => { e.stopPropagation(); onDelist(listing); }}
                 style={{ padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
-                  background: 'rgba(255,68,68,.04)', border: '1px solid rgba(255,68,68,.15)',
-                  fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700, color: '#ff6666' }}>
+                  background: 'rgba(255,140,0,.04)', border: '1px solid rgba(255,140,0,.15)',
+                  fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700, color: '#ff8c00' }}>
                 DELIST
               </button>
             </div>
@@ -929,7 +981,7 @@ const ListingCard: FC<{
               style={{ padding: '7px 14px', borderRadius: 8, cursor: 'pointer', flexShrink: 0,
                 background: 'linear-gradient(135deg,rgba(0,255,128,.15),rgba(0,200,100,.06))',
                 border: '1px solid rgba(0,255,128,.4)',
-                fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 900, color: '#00ff80' }}>
+                fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 900, color: '#00c98d' }}>
               ⚡ MATCH
             </button>
           )}
@@ -958,18 +1010,18 @@ const ListingCard: FC<{
           </div>
           <div style={{ textAlign: 'right', flexShrink: 0 }}>
             <div style={{ fontFamily: 'Orbitron,monospace', fontWeight: 900, fontSize: 12,
-              color: '#e0f0ff', whiteSpace: 'nowrap' }}>
+              color: '#e6ebf2', whiteSpace: 'nowrap' }}>
               {fmtNum(listing.amountUi)} {listing.tokenASymbol}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
-              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#9abacf' }}>
+              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#cdd8e2' }}>
                 {priceLoading ? '…' : fmtUSD(liveUsdVal)}
               </span>
               {!priceLoading && showBadge && (
                 <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 8,
-                  color: priceUp ? '#00c98d' : '#ff4444',
-                  background: priceUp ? 'rgba(0,201,141,.08)' : 'rgba(255,68,68,.08)',
-                  border: `1px solid ${priceUp ? 'rgba(0,201,141,.2)' : 'rgba(255,68,68,.2)'}`,
+                  color: priceUp ? '#00c98d' : '#ff8c00',
+                  background: priceUp ? 'rgba(0,201,141,.08)' : 'rgba(255,140,0,.08)',
+                  border: `1px solid ${priceUp ? 'rgba(0,201,141,.2)' : 'rgba(255,140,0,.2)'}`,
                   borderRadius: 3, padding: '1px 4px' }}>
                   {priceUp ? '▲' : '▼'}{Math.abs(priceDiff).toFixed(1)}%
                 </span>
@@ -1000,7 +1052,7 @@ const ListingCard: FC<{
 
       {/* Left accent bar */}
       <div style={{ position: 'absolute', left: 0, top: '15%', bottom: '15%', width: 2, borderRadius: 2,
-        background: listing.isEcosystem ? 'rgba(0,212,255,.4)' : 'rgba(255,140,0,.4)' }} />
+        background: listing.isEcosystem ? 'rgba(255,140,0,.4)' : 'rgba(255,140,0,.4)' }} />
 
       {/* Logo */}
       <TokenLogo mint={listing.tokenAMint} logo={logo} symbol={listing.tokenASymbol} size={42} />
@@ -1009,13 +1061,13 @@ const ListingCard: FC<{
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
           <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 14,
-            fontWeight: 900, color: '#e0f0ff', letterSpacing: .5 }}>
+            fontWeight: 900, color: '#e6ebf2', letterSpacing: .5 }}>
             {listing.tokenASymbol} / ANY TOKEN
           </span>
           <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 9,
-            color: listing.isEcosystem ? 'rgba(0,212,255,.8)' : 'rgba(255,255,255,.4)',
-            background: listing.isEcosystem ? 'rgba(0,212,255,.07)' : 'rgba(255,255,255,.05)',
-            border: `1px solid ${listing.isEcosystem ? 'rgba(0,212,255,.2)' : 'rgba(255,255,255,.1)'}`,
+            color: listing.isEcosystem ? 'rgba(255,140,0,.8)' : 'rgba(255,255,255,.4)',
+            background: listing.isEcosystem ? 'rgba(255,140,0,.07)' : 'rgba(255,255,255,.05)',
+            border: `1px solid ${listing.isEcosystem ? 'rgba(255,140,0,.2)' : 'rgba(255,255,255,.1)'}`,
             borderRadius: 4, padding: '1px 7px', textTransform: 'uppercase', letterSpacing: .5 }}>
             {listing.isEcosystem ? 'ECOSYSTEM' : 'OPEN'}
           </span>
@@ -1030,7 +1082,7 @@ const ListingCard: FC<{
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#3a5a6a' }}>
+          <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#3a4150' }}>
             by {truncAddr(listing.creator)}
           </span>
           <CopyButton text={listing.creator} />
@@ -1058,26 +1110,26 @@ const ListingCard: FC<{
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontFamily: 'Orbitron,monospace', fontWeight: 900,
-            fontSize: 16, letterSpacing: .5, color: '#e0f0ff', marginBottom: 2 }}>
+            fontSize: 16, letterSpacing: .5, color: '#e6ebf2', marginBottom: 2 }}>
             {fmtNum(listing.amountUi)} {listing.tokenASymbol}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'flex-end' }}>
             <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12,
-              fontWeight: 700, color: '#9abacf' }}>
+              fontWeight: 700, color: '#cdd8e2' }}>
               {priceLoading ? '…' : fmtUSD(liveUsdVal)}
             </span>
             {!priceLoading && showBadge && (
               <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 9,
-                color: priceUp ? '#00c98d' : '#ff4444',
-                background: priceUp ? 'rgba(0,201,141,.08)' : 'rgba(255,68,68,.08)',
-                border: `1px solid ${priceUp ? 'rgba(0,201,141,.2)' : 'rgba(255,68,68,.2)'}`,
+                color: priceUp ? '#00c98d' : '#ff8c00',
+                background: priceUp ? 'rgba(0,201,141,.08)' : 'rgba(255,140,0,.08)',
+                border: `1px solid ${priceUp ? 'rgba(0,201,141,.2)' : 'rgba(255,140,0,.2)'}`,
                 borderRadius: 4, padding: '1px 5px' }}>
                 {priceUp ? '▲' : '▼'}{Math.abs(priceDiff).toFixed(1)}%
               </span>
             )}
           </div>
           {livePrice != null && livePrice > 0 && (
-            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 8, color: '#2a4a5a', marginTop: 2 }}>
+            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 8, color: '#1a1f28', marginTop: 2 }}>
               @ {livePrice < 0.000001 ? livePrice.toExponential(3) : livePrice.toFixed(6)} USD/{listing.tokenASymbol}
             </div>
           )}
@@ -1089,14 +1141,14 @@ const ListingCard: FC<{
             <>
               <button onClick={(e) => { e.stopPropagation(); onEdit(listing); }}
                 style={{ padding: '7px 12px', borderRadius: 8, cursor: 'pointer',
-                  background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.2)',
-                  fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#00d4ff' }}>
+                  background: 'rgba(255,140,0,.06)', border: '1px solid rgba(255,140,0,.2)',
+                  fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#ff8c00' }}>
                 EDIT
               </button>
               <button onClick={(e) => { e.stopPropagation(); onDelist(listing); }}
                 style={{ padding: '7px 12px', borderRadius: 8, cursor: 'pointer',
-                  background: 'rgba(255,68,68,.04)', border: '1px solid rgba(255,68,68,.15)',
-                  fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#ff6666' }}>
+                  background: 'rgba(255,140,0,.04)', border: '1px solid rgba(255,140,0,.15)',
+                  fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#ff8c00' }}>
                 DELIST
               </button>
             </>
@@ -1106,7 +1158,7 @@ const ListingCard: FC<{
                 background: 'linear-gradient(135deg,rgba(0,255,128,.15),rgba(0,200,100,.06))',
                 border: '1px solid rgba(0,255,128,.4)',
                 fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 900,
-                color: '#00ff80', whiteSpace: 'nowrap' }}>
+                color: '#00c98d', whiteSpace: 'nowrap' }}>
               ⚡ MATCH
             </button>
           )}
@@ -1117,7 +1169,7 @@ const ListingCard: FC<{
 });
 
 // ─── Create Listing Modal ──────────────────────────────────────────────────────
-const CreateListingModal: FC<{
+export const CreateListingModal: FC<{
   isMobile: boolean;
   publicKey: PublicKey | null;
   connection: any;
@@ -1440,22 +1492,22 @@ const CreateListingModal: FC<{
       <div onClick={e => e.stopPropagation()} style={{
         width: '100%', maxWidth: isMobile ? '100%' : 520,
         background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-        border: '1px solid rgba(0,212,255,.2)',
+        border: '1px solid rgba(255,140,0,.2)',
         borderRadius: isMobile ? '20px 20px 0 0' : 16,
         padding: isMobile ? '18px 14px 24px' : '22px 24px',
         animation: 'modal-in .22s cubic-bezier(.22,1,.36,1) both',
         maxHeight: isMobile ? '88vh' : 'calc(100vh - 32px)', overflowY: 'auto', position: 'relative',
       }}>
         <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16,
-          width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(0,212,255,.2)',
-          background: 'rgba(8,12,15,.9)', cursor: 'pointer', color: '#00d4ff', fontSize: 16,
+          width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(255,140,0,.2)',
+          background: 'rgba(8,12,15,.9)', cursor: 'pointer', color: '#ff8c00', fontSize: 16,
           display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
 
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 15 : 18,
           fontWeight: 900, color: '#fff', letterSpacing: 1, marginBottom: 4 }}>⚡ CREATE LISTING</div>
         <div style={{ fontFamily: 'Sora,sans-serif', fontSize: isMobile ? 11 : 12,
-          color: '#6a8aaa', marginBottom: 8, lineHeight: 1.6 }}>
-          Program: <span style={{ color: '#3a5a7a', fontSize: 10 }}>{PROGRAM_ID.slice(0,8)}…</span>
+          color: '#8a9ab8', marginBottom: 8, lineHeight: 1.6 }}>
+          Program: <span style={{ color: '#3a4150', fontSize: 10 }}>{PROGRAM_ID.slice(0,8)}…</span>
         </div>
 
         {/* LB discount badge */}
@@ -1470,12 +1522,12 @@ const CreateListingModal: FC<{
         </div>
 
         {/* Token selector */}
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 10 }}>
+        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#5a6a82', marginBottom: 10 }}>
           SELECT TOKEN TO LIST
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
           {[
-            { key: 'brains', label: 'BRAINS', bal: balances.brains, price: prices.brains, color: '#00d4ff' },
+            { key: 'brains', label: 'BRAINS', bal: balances.brains, price: prices.brains, color: '#ff8c00' },
             { key: 'lb',     label: 'LB',     bal: balances.lb,     price: prices.lb,     color: '#00c98d' },
             { key: 'other',  label: 'OTHER',  bal: otherMeta?.balance ?? 0, price: otherMeta?.price ?? 0, color: '#bf5af2' },
           ].map(t => (
@@ -1484,11 +1536,11 @@ const CreateListingModal: FC<{
                 background: tokenA === t.key ? `${t.color}18` : 'rgba(255,255,255,.03)',
                 border: `1px solid ${tokenA === t.key ? t.color + '55' : 'rgba(255,255,255,.08)'}` }}>
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-                color: tokenA === t.key ? t.color : '#8aa0b8', marginBottom: 4 }}>{t.label}</div>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#4a6a8a' }}>
+                color: tokenA === t.key ? t.color : '#8a9ab8', marginBottom: 4 }}>{t.label}</div>
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#5a6a82' }}>
                 {t.key === 'other' ? (otherMeta ? otherMeta.symbol : 'any token') : `BAL: ${fmtNum(t.bal)}`}
               </div>
-              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#4a6a8a', marginTop: 2 }}>
+              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#5a6a82', marginTop: 2 }}>
                 {t.key === 'other' ? 'needs XNT pool' : fmtUSD(t.price)}
               </div>
             </button>
@@ -1498,16 +1550,16 @@ const CreateListingModal: FC<{
         {/* Other token mint input */}
         {tokenA === 'other' && (
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 8 }}>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#5a6a82', marginBottom: 8 }}>
               SELECT FROM YOUR WALLET
             </div>
             {loadingWallet ? (
-              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#4a6a8a',
+              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#5a6a82',
                 marginBottom: 12, padding: '10px 0' }}>
                 Loading your tokens…
               </div>
             ) : walletTokens.length === 0 ? (
-              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa',
+              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#8a9ab8',
                 marginBottom: 12, padding: '10px 14px',
                 background: 'rgba(255,255,255,.03)', borderRadius: 8,
                 border: '1px solid rgba(255,255,255,.06)' }}>
@@ -1532,14 +1584,14 @@ const CreateListingModal: FC<{
                       <TokenLogo mint={t.mint} logo={t.logo} symbol={t.symbol} size={32} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-                          color: isSelected ? '#bf5af2' : '#e0f0ff' }}>{t.symbol}</div>
-                        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#6a8aaa' }}>
+                          color: isSelected ? '#bf5af2' : '#e6ebf2' }}>{t.symbol}</div>
+                        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#8a9ab8' }}>
                           {fmtNum(t.balance)} · {t.price > 0 ? `${fmtUSD(t.price)}/token` : 'no price'}
                         </div>
                       </div>
                       <div style={{ textAlign: 'right', flexShrink: 0 }}>
                         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700,
-                          color: usdVal > 0 ? '#00c98d' : '#4a6a8a' }}>
+                          color: usdVal > 0 ? '#00c98d' : '#5a6a82' }}>
                           {usdVal > 0 ? fmtUSD(usdVal) : '—'}
                         </div>
                       </div>
@@ -1548,14 +1600,14 @@ const CreateListingModal: FC<{
                 })}
               </div>
             )}
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 8 }}>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#5a6a82', marginBottom: 8 }}>
               OR PASTE TOKEN MINT ADDRESS
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <input value={otherMint} onChange={e => setOtherMint(e.target.value)}
                 placeholder="Token mint address…"
                 style={{ flex: 1, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(191,90,242,.3)',
-                  borderRadius: 10, padding: '10px 14px', outline: 'none', color: '#e0f0ff',
+                  borderRadius: 10, padding: '10px 14px', outline: 'none', color: '#e6ebf2',
                   fontFamily: 'Sora,sans-serif', fontSize: 12 }} />
               <button onClick={() => checkOtherToken(otherMint)}
                 style={{ padding: '10px 14px', borderRadius: 10, cursor: 'pointer',
@@ -1566,17 +1618,17 @@ const CreateListingModal: FC<{
             </div>
             {otherMeta && (
               <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 10,
-                background: otherMeta.hasPool ? 'rgba(0,201,141,.06)' : 'rgba(255,68,68,.06)',
-                border: `1px solid ${otherMeta.hasPool ? 'rgba(0,201,141,.25)' : 'rgba(255,68,68,.25)'}` }}>
+                background: otherMeta.hasPool ? 'rgba(0,201,141,.06)' : 'rgba(255,140,0,.06)',
+                border: `1px solid ${otherMeta.hasPool ? 'rgba(0,201,141,.25)' : 'rgba(255,140,0,.25)'}` }}>
                 {otherMeta.checking ? (
-                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a' }}>Checking pool…</div>
+                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82' }}>Checking pool…</div>
                 ) : otherMeta.hasPool ? (
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 900, color: '#00c98d' }}>
                         ✓ {otherMeta.symbol}
                       </div>
-                      <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#6a8aaa', marginTop: 3 }}>
+                      <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#8a9ab8', marginTop: 3 }}>
                         XNT pool verified · {fmtUSD(otherMeta.price)} · BAL: {fmtNum(otherMeta.balance)}
                       </div>
                     </div>
@@ -1585,7 +1637,7 @@ const CreateListingModal: FC<{
                       borderRadius: 6, padding: '4px 10px' }}>ELIGIBLE</div>
                   </div>
                 ) : (
-                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#ff6666' }}>
+                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#ff8c00' }}>
                     ✗ No XNT pool found on XDEX — create one first
                   </div>
                 )}
@@ -1595,10 +1647,10 @@ const CreateListingModal: FC<{
         )}
 
         {/* Amount input */}
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 10 }}>
+        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#5a6a82', marginBottom: 10 }}>
           AMOUNT TO LIST
         </div>
-        <div style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(0,212,255,.18)',
+        <div style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,140,0,.18)',
           borderRadius: 12, padding: '14px 16px', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <TokenLogo mint={selMint} symbol={selSymbol} size={32} />
@@ -1606,14 +1658,14 @@ const CreateListingModal: FC<{
               style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none',
                 fontFamily: 'Orbitron,monospace', fontSize: 24, fontWeight: 900, color: '#fff' }} />
             <button onClick={() => setAmount(String(Math.floor(selBal)))}
-              style={{ background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)',
+              style={{ background: 'rgba(255,140,0,.1)', border: '1px solid rgba(255,140,0,.25)',
                 borderRadius: 7, padding: '5px 12px', cursor: 'pointer',
-                fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#00d4ff' }}>MAX</button>
+                fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#ff8c00' }}>MAX</button>
           </div>
           {amt > 0 && (
             <div style={{ display: 'flex', gap: 14, marginTop: 8 }}>
               <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, color: '#00c98d' }}>{fmtUSD(usdValUi)}</span>
-              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#4a6a8a' }}>
+              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#5a6a82' }}>
                 {(xntValLamp / LAMPORTS_PER_SOL).toFixed(2)} XNT
               </span>
             </div>
@@ -1621,7 +1673,7 @@ const CreateListingModal: FC<{
         </div>
 
         {/* Burn % */}
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 10 }}>
+        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#5a6a82', marginBottom: 10 }}>
           LP TOKEN BURN % (BPS sent to program)
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 12 }}>
@@ -1631,11 +1683,11 @@ const CreateListingModal: FC<{
                 background: burnBps === b.bps ? `${b.color}18` : 'rgba(255,255,255,.03)',
                 border: `1px solid ${burnBps === b.bps ? b.color + '66' : 'rgba(255,255,255,.08)'}` }}>
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900,
-                color: burnBps === b.bps ? b.color : '#8aa0b8' }}>{b.label}</div>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#4a6a8a', marginTop: 3 }}>
+                color: burnBps === b.bps ? b.color : '#8a9ab8' }}>{b.label}</div>
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#5a6a82', marginTop: 3 }}>
                 {b.pct < 100 ? `${eachPct}% ea` : 'max pts'}
               </div>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 6, color: '#3a5a7a', marginTop: 1 }}>
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 6, color: '#3a4150', marginTop: 1 }}>
                 bps={b.bps}
               </div>
             </button>
@@ -1643,40 +1695,40 @@ const CreateListingModal: FC<{
         </div>
         <div style={{ background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.06)',
           borderRadius: 8, padding: '10px 14px', marginBottom: 22,
-          fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa', lineHeight: 1.6 }}>
+          fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#8a9ab8', lineHeight: 1.6 }}>
           {burnOpt.desc}
         </div>
 
         {/* Fee breakdown — shows exact program calculation */}
         <div style={{ background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.06)',
           borderRadius: 10, padding: '14px 16px', marginBottom: 18 }}>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a',
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82',
             letterSpacing: 1, marginBottom: 12 }}>FEE SUMMARY</div>
           {[
             { label: 'LISTING VALUE',
               val: `${fmtUSD(usdValUi)}`,
-              sub: `${usdVal6.toLocaleString()} (6 dec)`, color: '#8aa0b8' },
+              sub: `${usdVal6.toLocaleString()} (6 dec)`, color: '#8a9ab8' },
             { label: `FEE RATE (${hasLbDiscount ? '0.888' : '1.888'}% · BPS=${hasLbDiscount ? FEE_BPS_ECOSYSTEM : FEE_BPS_STANDARD})`,
               val: feeXntUi > 0 ? `${feeXntUi.toFixed(6)} XNT` : '—',
               sub: feeUsdUi > 0 ? fmtUSD(feeUsdUi) : '', color: '#ff8c00' },
             { label: 'MINIMUM FLOOR',
               val: `${(FEE_MINIMUM_XNT / LAMPORTS_PER_SOL).toFixed(3)} XNT`,
-              sub: 'min floor', color: '#4a6a8a' },
+              sub: 'min floor', color: '#5a6a82' },
             { label: 'YOU PAY',
               val: feeLamps > 0 ? `${(feeLamps / LAMPORTS_PER_SOL).toFixed(6)} XNT` : '—',
               sub: feeLamps > 0 ? `${feeLamps.toLocaleString()} lamports` : '',
-              color: xntBal >= feeXntUi ? '#00c98d' : '#ff4444' },
+              color: xntBal >= feeXntUi ? '#00c98d' : '#ff8c00' },
             { label: 'YOUR XNT BALANCE',
               val: `${xntBal.toFixed(4)} XNT`,
-              sub: '', color: xntBal >= feeXntUi ? '#00c98d' : '#ff4444' },
+              sub: '', color: xntBal >= feeXntUi ? '#00c98d' : '#ff8c00' },
           ].map(row => (
             <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between',
               alignItems: 'flex-start', padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
               <div>
-                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#4a6a8a', letterSpacing: .5 }}>
+                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#5a6a82', letterSpacing: .5 }}>
                   {row.label}
                 </div>
-                {row.sub && <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#2a4a5a', marginTop: 1 }}>
+                {row.sub && <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#1a1f28', marginTop: 1 }}>
                   {row.sub}
                 </div>}
               </div>
@@ -1687,21 +1739,21 @@ const CreateListingModal: FC<{
         </div>
 
         <StatusBox msg={status} />
-        <TxLink sig={txSig} color="#00d4ff" />
+        <TxLink sig={txSig} color="#ff8c00" />
 
         <button onClick={handleCreate} disabled={!canSubmit}
           style={{ width: '100%', padding: '15px 0', borderRadius: 12,
             cursor: canSubmit ? 'pointer' : 'not-allowed',
             background: canSubmit
-              ? 'linear-gradient(135deg,rgba(0,212,255,.2),rgba(0,212,255,.08))'
+              ? 'linear-gradient(135deg,rgba(255,140,0,.2),rgba(255,140,0,.08))'
               : 'rgba(255,255,255,.04)',
-            border: `1px solid ${canSubmit ? 'rgba(0,212,255,.5)' : 'rgba(255,255,255,.08)'}`,
+            border: `1px solid ${canSubmit ? 'rgba(255,140,0,.5)' : 'rgba(255,255,255,.08)'}`,
             fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-            color: canSubmit ? '#00d4ff' : '#4a6a8a',
+            color: canSubmit ? '#ff8c00' : '#5a6a82',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           {pending
             ? <><div style={{ width: 14, height: 14, borderRadius: '50%',
-                border: '2px solid rgba(0,212,255,.2)', borderTop: '2px solid #00d4ff',
+                border: '2px solid rgba(255,140,0,.2)', borderTop: '2px solid #ff8c00',
                 animation: 'spin .8s linear infinite' }} />CREATING…</>
             : `⚡ LIST ${fmtNum(amt)} ${selSymbol} · PAY ${feeXntUi.toFixed(4)} XNT`}
         </button>
@@ -1712,7 +1764,7 @@ const CreateListingModal: FC<{
 };
 
 // ─── Match Modal ──────────────────────────────────────────────────────────────
-const MatchModal: FC<{
+export const MatchModal: FC<{
   listing: ListingOnChain;
   isMobile: boolean;
   publicKey: PublicKey;
@@ -2207,12 +2259,12 @@ const MatchModal: FC<{
       }}>
         <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16,
           width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(0,255,128,.2)',
-          background: 'rgba(8,12,15,.9)', cursor: 'pointer', color: '#00ff80', fontSize: 16,
+          background: 'rgba(8,12,15,.9)', cursor: 'pointer', color: '#00c98d', fontSize: 16,
           display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
 
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 15 : 18,
           fontWeight: 900, color: '#fff', letterSpacing: 1, marginBottom: 4 }}>⚡ MATCH LISTING</div>
-        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa', marginBottom: 14, lineHeight: 1.5 }}>
+        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#8a9ab8', marginBottom: 14, lineHeight: 1.5 }}>
           You deposit tokens equal in value to the listing. The program atomically creates an XDEX pool (prepare + execute in one transaction).
         </div>
 
@@ -2222,10 +2274,10 @@ const MatchModal: FC<{
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <TokenLogo mint={listing.tokenAMint} logo={listing.tokenALogo} symbol={listing.tokenASymbol} size={36} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900, color: '#00d4ff' }}>
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900, color: '#ff8c00' }}>
                 {fmtNum(listing.amountUi)} {listing.tokenASymbol}
               </div>
-              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#8a9ab8', display: 'flex', alignItems: 'center', gap: 4 }}>
                 {fmtUSD(liveUsdValUi)} · {listing.burnBps / 100}% burn · by {truncAddr(listing.creator)}
                 <CopyButton text={listing.creator} />
               </div>
@@ -2239,17 +2291,17 @@ const MatchModal: FC<{
         </div>
 
         {/* Wallet tokens — pick one */}
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 10 }}>
+        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#5a6a82', marginBottom: 10 }}>
           SELECT FROM YOUR WALLET
         </div>
         {loadingWallet ? (
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#4a6a8a', marginBottom: 12, padding: '10px 0' }}>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#5a6a82', marginBottom: 12, padding: '10px 0' }}>
             Loading your tokens…
           </div>
         ) : walletTokens.length === 0 ? (
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#ff6666', marginBottom: 12,
-            padding: '10px 14px', background: 'rgba(255,68,68,.06)', borderRadius: 8,
-            border: '1px solid rgba(255,68,68,.15)' }}>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#ff8c00', marginBottom: 12,
+            padding: '10px 14px', background: 'rgba(255,140,0,.06)', borderRadius: 8,
+            border: '1px solid rgba(255,140,0,.15)' }}>
             No eligible tokens found in your wallet. You need tokens with an XNT pool on XDEX.
           </div>
         ) : (
@@ -2276,18 +2328,18 @@ const MatchModal: FC<{
                   <TokenLogo mint={t.mint} logo={t.logo} symbol={t.symbol} size={32} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-                      color: isSelected ? '#00ff80' : '#e0f0ff' }}>{t.symbol}</div>
-                    <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#6a8aaa' }}>
+                      color: isSelected ? '#00c98d' : '#e6ebf2' }}>{t.symbol}</div>
+                    <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#8a9ab8' }}>
                       {fmtNum(t.balance)} · {fmtUSD(t.price)}/token
                     </div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700,
-                      color: usdVal >= liveUsdValUi * 0.995 ? '#00c98d' : usdVal > 0 ? '#ff8c00' : '#4a6a8a' }}>
+                      color: usdVal >= liveUsdValUi * 0.995 ? '#00c98d' : usdVal > 0 ? '#ff8c00' : '#5a6a82' }}>
                       {fmtUSD(usdVal)}
                     </div>
                     {usdVal < liveUsdValUi * 0.995 && usdVal > 0 && (
-                      <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#ff6666' }}>
+                      <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#ff8c00' }}>
                         INSUFFICIENT
                       </div>
                     )}
@@ -2304,27 +2356,27 @@ const MatchModal: FC<{
         )}
 
         {/* Manual paste fallback */}
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 8 }}>
+        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#5a6a82', marginBottom: 8 }}>
           OR PASTE MINT ADDRESS
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: tokenBMeta ? 10 : 16 }}>
           <input value={tokenBMint} onChange={e => setTokenBMint(e.target.value)}
             placeholder="Any token mint with XNT pool…"
             style={{ flex: 1, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(0,255,128,.15)',
-              borderRadius: 10, padding: '10px 14px', outline: 'none', color: '#e0f0ff',
+              borderRadius: 10, padding: '10px 14px', outline: 'none', color: '#e6ebf2',
               fontFamily: 'Sora,sans-serif', fontSize: 11 }} />
           <button onClick={() => checkTokenB(tokenBMint)}
             style={{ padding: '10px 14px', borderRadius: 10, cursor: 'pointer',
               background: 'rgba(0,255,128,.08)', border: '1px solid rgba(0,255,128,.25)',
-              fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#00ff80' }}>
+              fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#00c98d' }}>
             CHECK
           </button>
         </div>
 
         {tokenBMeta && !tokenBMeta.checking && !tokenBMeta.hasPool && (
           <div style={{ marginBottom: 12, padding: '8px 14px', borderRadius: 8,
-            background: 'rgba(255,68,68,.06)', border: '1px solid rgba(255,68,68,.2)' }}>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#ff6666' }}>
+            background: 'rgba(255,140,0,.06)', border: '1px solid rgba(255,140,0,.2)' }}>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#ff8c00' }}>
               ✗ No XNT pool found — create one on XDEX first
             </div>
           </div>
@@ -2333,7 +2385,7 @@ const MatchModal: FC<{
         {/* Amount input */}
         {tokenBMeta?.hasPool && (
           <>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 8 }}>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#5a6a82', marginBottom: 8 }}>
               AMOUNT TO DEPOSIT (must equal ≈{fmtUSD(liveUsdValUi)})
             </div>
             <div style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(0,255,128,.15)',
@@ -2346,15 +2398,15 @@ const MatchModal: FC<{
                 <button onClick={() => setAmount(String(tokenBMeta.balance.toFixed(tokenBMeta.decimals)))}
                   style={{ background: 'rgba(0,255,128,.1)', border: '1px solid rgba(0,255,128,.25)',
                     borderRadius: 7, padding: '5px 12px', cursor: 'pointer',
-                    fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#00ff80' }}>MAX</button>
+                    fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#00c98d' }}>MAX</button>
               </div>
               {amt > 0 && (
                 <div style={{ display: 'flex', gap: 14, marginTop: 8, alignItems: 'center' }}>
                   <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11,
-                    color: priceMatch ? '#00c98d' : '#ff6666' }}>{fmtUSD(usdValB)}</span>
+                    color: priceMatch ? '#00c98d' : '#ff8c00' }}>{fmtUSD(usdValB)}</span>
                   {priceMatch
                     ? <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#00c98d' }}>✓ PRICE MATCH</span>
-                    : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#ff6666' }}>
+                    : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#ff8c00' }}>
                         ✗ needs to be ≈{fmtUSD(liveUsdValUi)} (±0.5%)
                       </span>}
                 </div>
@@ -2365,12 +2417,12 @@ const MatchModal: FC<{
             <div style={{ background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
               borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a' }}>MATCH FEE ({isEcoB || lbRaw >= LB_DISCOUNT_THRESHOLD ? '0.888%' : '1.888%'})</span>
+                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82' }}>MATCH FEE ({isEcoB || lbRaw >= LB_DISCOUNT_THRESHOLD ? '0.888%' : '1.888%'})</span>
                 <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700, color: '#ff8c00' }}>{matchFeeXnt.toFixed(4)} XNT</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a' }}>LP SPLIT</span>
-                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#8aa0b8' }}>
+                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82' }}>LP SPLIT</span>
+                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#8a9ab8' }}>
                   {listing.burnBps < 10000 ? `${(10000 - listing.burnBps) / 2 / 100}% each` : 'All burned'}
                 </span>
               </div>
@@ -2387,7 +2439,7 @@ const MatchModal: FC<{
             background: canMatch ? 'linear-gradient(135deg,rgba(0,255,128,.2),rgba(0,255,128,.06))' : 'rgba(255,255,255,.04)',
             border: `1px solid ${canMatch ? 'rgba(0,255,128,.5)' : 'rgba(255,255,255,.08)'}`,
             fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-            color: canMatch ? '#00ff80' : '#4a6a8a' }}>
+            color: canMatch ? '#00c98d' : '#5a6a82' }}>
           {pending
             ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                 <div style={{ width: 14, height: 14, borderRadius: '50%',
@@ -2525,18 +2577,18 @@ const EditModal: FC<{
       <div onClick={e => e.stopPropagation()} style={{
         width: '100%', maxWidth: isMobile ? '100%' : 460,
         background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-        border: '1px solid rgba(0,212,255,.2)', borderRadius: isMobile ? '20px 20px 0 0' : 16,
+        border: '1px solid rgba(255,140,0,.2)', borderRadius: isMobile ? '20px 20px 0 0' : 16,
         padding: isMobile ? '20px 16px 28px' : '24px 26px',
         maxHeight: isMobile ? '88vh' : 'calc(100vh - 32px)', overflowY: 'auto', position: 'relative',
       }}>
         <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16,
-          width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(0,212,255,.2)',
-          background: 'rgba(8,12,15,.9)', cursor: 'pointer', color: '#00d4ff', fontSize: 16,
+          width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(255,140,0,.2)',
+          background: 'rgba(8,12,15,.9)', cursor: 'pointer', color: '#ff8c00', fontSize: 16,
           display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
 
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 15 : 18,
           fontWeight: 900, color: '#fff', letterSpacing: 1, marginBottom: 4 }}>✏️ EDIT LISTING</div>
-        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa', marginBottom: 16 }}>
+        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#8a9ab8', marginBottom: 16 }}>
           Edit fee: 0.001 XNT flat per edit.
         </div>
 
@@ -2544,23 +2596,23 @@ const EditModal: FC<{
         <div style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)',
           borderRadius: 10, padding: '10px 14px', marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, color: '#8aa0b8' }}>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, color: '#8a9ab8' }}>
               CURRENT: {fmtNum(listing.amountUi)} {listing.tokenASymbol}
             </div>
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, color: '#00c98d' }}>
               {fmtUSD(liveUsdValUi)}
             </div>
           </div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a', marginTop: 4 }}>
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82', marginTop: 4 }}>
             WALLET BAL: {fmtNum(tokenBal + listing.amountUi)} {listing.tokenASymbol}
           </div>
         </div>
 
         {/* New amount */}
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 8 }}>
+        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#5a6a82', marginBottom: 8 }}>
           NEW AMOUNT (leave blank to keep current)
         </div>
-        <div style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(0,212,255,.15)',
+        <div style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,140,0,.15)',
           borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <TokenLogo mint={listing.tokenAMint} logo={listing.tokenALogo} symbol={listing.tokenASymbol} size={28} />
@@ -2569,9 +2621,9 @@ const EditModal: FC<{
               style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none',
                 fontFamily: 'Orbitron,monospace', fontSize: 20, fontWeight: 900, color: '#fff' }} />
             <button onClick={() => setNewAmount(String(Math.floor(tokenBal + listing.amountUi)))}
-              style={{ background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.2)',
+              style={{ background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.2)',
                 borderRadius: 6, padding: '4px 10px', cursor: 'pointer',
-                fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700, color: '#00d4ff' }}>MAX</button>
+                fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700, color: '#ff8c00' }}>MAX</button>
           </div>
           {newAmount && parseFloat(newAmount) > 0 && (
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#00c98d', marginTop: 6 }}>
@@ -2580,7 +2632,7 @@ const EditModal: FC<{
           )}
         </div>
 
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#4a6a8a', marginBottom: 10 }}>
+        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#5a6a82', marginBottom: 10 }}>
           NEW BURN % (current: {listing.burnBps / 100}%)
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 20 }}>
@@ -2590,7 +2642,7 @@ const EditModal: FC<{
                 background: newBurnBps === b.bps ? `${b.color}18` : 'rgba(255,255,255,.03)',
                 border: `1px solid ${newBurnBps === b.bps ? b.color + '66' : 'rgba(255,255,255,.08)'}` }}>
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900,
-                color: newBurnBps === b.bps ? b.color : '#8aa0b8' }}>{b.label}</div>
+                color: newBurnBps === b.bps ? b.color : '#8a9ab8' }}>{b.label}</div>
             </button>
           ))}
         </div>
@@ -2602,14 +2654,14 @@ const EditModal: FC<{
           style={{ width: '100%', padding: '15px 0', borderRadius: 12,
             cursor: (!pending && (newBurnBps !== listing.burnBps || !!newAmount)) ? 'pointer' : 'not-allowed',
             background: (!pending && newBurnBps !== listing.burnBps)
-              ? 'linear-gradient(135deg,rgba(0,212,255,.18),rgba(0,212,255,.06))' : 'rgba(255,255,255,.04)',
-            border: `1px solid ${(!pending && (newBurnBps !== listing.burnBps || !!newAmount)) ? 'rgba(0,212,255,.45)' : 'rgba(255,255,255,.08)'}`,
+              ? 'linear-gradient(135deg,rgba(255,140,0,.18),rgba(255,140,0,.06))' : 'rgba(255,255,255,.04)',
+            border: `1px solid ${(!pending && (newBurnBps !== listing.burnBps || !!newAmount)) ? 'rgba(255,140,0,.45)' : 'rgba(255,255,255,.08)'}`,
             fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-            color: (!pending && (newBurnBps !== listing.burnBps || !!newAmount)) ? '#00d4ff' : '#4a6a8a',
+            color: (!pending && (newBurnBps !== listing.burnBps || !!newAmount)) ? '#ff8c00' : '#5a6a82',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           {pending
             ? <><div style={{ width: 14, height: 14, borderRadius: '50%',
-                border: '2px solid rgba(0,212,255,.2)', borderTop: '2px solid #00d4ff',
+                border: '2px solid rgba(255,140,0,.2)', borderTop: '2px solid #ff8c00',
                 animation: 'spin .8s linear infinite' }} />UPDATING…</>
             : `✏️ UPDATE BURN TO ${newBurnBps / 100}% · PAY 0.001 XNT`}
         </button>
@@ -2620,7 +2672,7 @@ const EditModal: FC<{
 };
 
 // ─── Delist Modal ─────────────────────────────────────────────────────────────
-const DelistModal: FC<{
+export const DelistModal: FC<{
   listing: ListingOnChain;
   isMobile: boolean;
   publicKey: PublicKey;
@@ -2720,31 +2772,31 @@ const DelistModal: FC<{
       <div onClick={e => e.stopPropagation()} style={{
         width: '100%', maxWidth: isMobile ? '100%' : 440,
         background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-        border: '1px solid rgba(255,68,68,.2)', borderRadius: isMobile ? '20px 20px 0 0' : 16,
+        border: '1px solid rgba(255,140,0,.2)', borderRadius: isMobile ? '20px 20px 0 0' : 16,
         padding: isMobile ? '20px 16px 28px' : '24px 26px',
         maxHeight: isMobile ? '88vh' : 'calc(100vh - 32px)', overflowY: 'auto', position: 'relative',
       }}>
         <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16,
-          width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(255,68,68,.2)',
-          background: 'rgba(8,12,15,.9)', cursor: 'pointer', color: '#ff6666', fontSize: 16,
+          width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(255,140,0,.2)',
+          background: 'rgba(8,12,15,.9)', cursor: 'pointer', color: '#ff8c00', fontSize: 16,
           display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
 
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 15 : 18,
           fontWeight: 900, color: '#fff', letterSpacing: 1, marginBottom: 4 }}>🗑️ DELIST</div>
-        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa', marginBottom: 18, lineHeight: 1.5 }}>
+        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#8a9ab8', marginBottom: 18, lineHeight: 1.5 }}>
           Cancel your listing and get your tokens back. A 0.444% fee applies.
         </div>
 
         {/* Listing summary */}
-        <div style={{ background: 'rgba(255,68,68,.04)', border: '1px solid rgba(255,68,68,.15)',
+        <div style={{ background: 'rgba(255,140,0,.04)', border: '1px solid rgba(255,140,0,.15)',
           borderRadius: 12, padding: '16px', marginBottom: 18 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
             <TokenLogo mint={listing.tokenAMint} logo={logo} symbol={listing.tokenASymbol} size={44} />
             <div>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 16, fontWeight: 900, color: '#e0f0ff' }}>
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 16, fontWeight: 900, color: '#e6ebf2' }}>
                 {fmtNum(listing.amountUi)} {listing.tokenASymbol}
               </div>
-              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa', marginTop: 2 }}>
+              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#8a9ab8', marginTop: 2 }}>
                 {fmtUSD(listing.usdValUi)} · {listing.burnBps / 100}% burn
               </div>
             </div>
@@ -2755,16 +2807,16 @@ const DelistModal: FC<{
             { label: 'YOU GET BACK',  val: `${fmtNum(listing.amountUi)} ${listing.tokenASymbol}`, color: '#00c98d' },
             { label: 'DELIST FEE (0.444%)', val: `${delistFeeXnt.toFixed(4)} XNT`, color: '#ff8c00',
               sub: fmtUSD(delistFeeUsd) },
-            { label: 'RENT REFUND',   val: '~0.002 XNT',  color: '#8aa0b8' },
+            { label: 'RENT REFUND',   val: '~0.002 XNT',  color: '#8a9ab8' },
           ].map(row => (
             <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between',
               alignItems: 'center', padding: '6px 0',
               borderTop: '1px solid rgba(255,255,255,.04)' }}>
               <div>
-                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#4a6a8a', letterSpacing: .5 }}>
+                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#5a6a82', letterSpacing: .5 }}>
                   {row.label}
                 </div>
-                {row.sub && <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#2a4a5a' }}>{row.sub}</div>}
+                {row.sub && <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#1a1f28' }}>{row.sub}</div>}
               </div>
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: row.color }}>
                 {row.val}
@@ -2780,20 +2832,20 @@ const DelistModal: FC<{
           <button onClick={onClose}
             style={{ flex: 1, padding: '14px 0', borderRadius: 12, cursor: 'pointer',
               background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)',
-              fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700, color: '#6a8aaa' }}>
+              fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700, color: '#8a9ab8' }}>
             CANCEL
           </button>
           <button onClick={handleDelist} disabled={pending}
             style={{ flex: 2, padding: '14px 0', borderRadius: 12,
               cursor: pending ? 'not-allowed' : 'pointer',
-              background: pending ? 'rgba(255,255,255,.04)' : 'linear-gradient(135deg,rgba(255,68,68,.2),rgba(255,68,68,.06))',
-              border: `1px solid ${pending ? 'rgba(255,255,255,.08)' : 'rgba(255,68,68,.45)'}`,
+              background: pending ? 'rgba(255,255,255,.04)' : 'linear-gradient(135deg,rgba(255,140,0,.2),rgba(255,140,0,.06))',
+              border: `1px solid ${pending ? 'rgba(255,255,255,.08)' : 'rgba(255,140,0,.45)'}`,
               fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-              color: pending ? '#4a6a8a' : '#ff6666',
+              color: pending ? '#5a6a82' : '#ff8c00',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
             {pending
               ? <><div style={{ width: 14, height: 14, borderRadius: '50%',
-                  border: '2px solid rgba(255,68,68,.2)', borderTop: '2px solid #ff6666',
+                  border: '2px solid rgba(255,140,0,.2)', borderTop: '2px solid #ff6666',
                   animation: 'spin .8s linear infinite' }} />DELISTING…</>
               : `🗑️ DELIST · PAY ${delistFeeXnt.toFixed(4)} XNT`}
           </button>
@@ -2807,8 +2859,12 @@ const DelistModal: FC<{
 // ─── SWAP TAB ─────────────────────────────────────────────────────────────────
 // Pinned tokens always shown at top regardless of wallet
 // Known token logos and metadata — hardcoded for pinned/common tokens on X1
-const XNT_TOKEN_DEFAULT: WalletToken    = { mint: 'So11111111111111111111111111111111111111112', symbol: 'XNT',    decimals: 9, logo: undefined, balance: 0, rawBalance: 0n, program: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', pinned: true };
-const BRAINS_TOKEN_DEFAULT: WalletToken = { mint: 'EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC1EHUBtPN', symbol: 'BRAINS', decimals: 9, logo: undefined, balance: 0, rawBalance: 0n, program: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', pinned: true };
+// Pinned defaults carry the hardcoded logos from constants so the swap card
+// shows them even before the xDEX batch logo call returns. The batchFetchLogos
+// effect below only swaps them if it actually gets a value back — it can
+// never blank a known-good logo now.
+const XNT_TOKEN_DEFAULT: WalletToken    = { mint: 'So11111111111111111111111111111111111111112', symbol: 'XNT',    decimals: 9, logo: XNT_LOGO,    balance: 0, rawBalance: 0n, program: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', pinned: true };
+const BRAINS_TOKEN_DEFAULT: WalletToken = { mint: 'EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC1EHUBtPN', symbol: 'BRAINS', decimals: 9, logo: BRAINS_LOGO, balance: 0, rawBalance: 0n, program: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', pinned: true };
 
 interface WalletToken {
   mint: string; symbol: string; decimals: number;
@@ -2816,26 +2872,93 @@ interface WalletToken {
   pinned?: boolean;
 }
 
-const SwapTab: FC<{
+export const SwapTab: FC<{
   isMobile: boolean; publicKey: PublicKey | null;
   connection: Connection; signTransaction: any;
-}> = ({ isMobile, publicKey, connection, signTransaction }) => {
+  /** Optional deep-link override. Either mint may be passed; if provided,
+   * SwapTab boots with that token in the corresponding slot. Used by
+   * V2XdexPoolsList so clicking SWAP on a pool card lands here with the
+   * exact pair pre-selected. */
+  initialFromMint?: string;
+  initialFromSymbol?: string;
+  initialFromDecimals?: number;
+  initialToMint?: string;
+  initialToSymbol?: string;
+  initialToDecimals?: number;
+}> = ({ isMobile, publicKey, connection, signTransaction,
+  initialFromMint, initialFromSymbol, initialFromDecimals,
+  initialToMint, initialToSymbol, initialToDecimals,
+}) => {
   const [walletTokens, setWalletTokens] = useState<WalletToken[]>([]);
   const [loadingWallet, setLoadingWallet] = useState(false);
-  const [tokenIn,  setTokenIn]  = useState<WalletToken>(XNT_TOKEN_DEFAULT);
-  const [tokenOut, setTokenOut] = useState<WalletToken>(BRAINS_TOKEN_DEFAULT);
+  // Allow callers to seed the initial pair. When the mint matches one of our
+  // ecosystem tokens (XNT/BRAINS/LB), hydrate symbol/logo/decimals/program
+  // from the known constants so the deep-linked card paints with the right
+  // brand immediately. For unknown mints the post-mount logo fetch will
+  // backfill once xDex's batch-logo API responds.
+  const makeShim = (mint?: string, sym?: string, dec?: number): WalletToken | null => {
+    if (!mint) return null;
+    if (mint === WXNT_MINT)   return { ...XNT_TOKEN_DEFAULT };
+    if (mint === BRAINS_MINT) return { ...BRAINS_TOKEN_DEFAULT };
+    return {
+      mint,
+      symbol: sym ?? mint.slice(0, 4),
+      decimals: typeof dec === 'number' ? dec : 9,
+      logo: undefined,
+      balance: 0,
+      rawBalance: 0n,
+      // Token program will be detected lazily during pool state read.
+      program: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+    };
+  };
+  const [tokenIn,  setTokenIn]  = useState<WalletToken>(
+    () => makeShim(initialFromMint, initialFromSymbol, initialFromDecimals) ?? XNT_TOKEN_DEFAULT,
+  );
+  const [tokenOut, setTokenOut] = useState<WalletToken>(
+    () => makeShim(initialToMint, initialToSymbol, initialToDecimals) ?? BRAINS_TOKEN_DEFAULT,
+  );
 
-  // Fetch logos for both pinned tokens on mount from XDEX API
+  // Fetch logos on mount — pinned ecosystem tokens (XNT/BRAINS/LB) plus
+  // whatever mints the deep-link landed us with. Apply to whichever side
+  // (in or out) matches the mint, instead of hard-coding "xnt = in, brains = out".
   useEffect(() => {
-    const mints = [WXNT_MINT, BRAINS_MINT];
-    batchFetchLogos(mints).then(logos => {
-      const xntLogo    = logos.get(WXNT_MINT);
-      const brainsLogo = logos.get(BRAINS_MINT);
-      if (xntLogo)    setTokenIn(prev  => prev.mint === WXNT_MINT   ? { ...prev, logo: xntLogo    } : prev);
-      if (brainsLogo) setTokenOut(prev => prev.mint === BRAINS_MINT ? { ...prev, logo: brainsLogo } : prev);
-    });
-  }, []);
+    const mints = new Set<string>([WXNT_MINT, BRAINS_MINT, LB_MINT]);
+    if (initialFromMint) mints.add(initialFromMint);
+    if (initialToMint)   mints.add(initialToMint);
+    batchFetchLogos(Array.from(mints)).then(logos => {
+      const apply = (prev: WalletToken): WalletToken => {
+        if (prev.logo) return prev;             // already has one
+        const found = logos.get(prev.mint);
+        return found ? { ...prev, logo: found } : prev;
+      };
+      setTokenIn(apply);
+      setTokenOut(apply);
+    }).catch(() => {});
+  }, [initialFromMint, initialToMint]);
+
+  // Deep-link DECIMALS correction. makeShim guesses unknown decimals as 9, but
+  // LB is 2 and arbitrary pool tokens vary — wrong decimals corrupt amount math
+  // and quotes. Resolve authoritative decimals for any deep-linked mint via
+  // fetchTokenMeta (LB hardcoded; others read on-chain) and patch the selected
+  // side. Only fills symbol/logo when missing so we don't clobber the link's.
+  useEffect(() => {
+    let alive = true;
+    const fix = async (mint: string | undefined, setter: typeof setTokenIn) => {
+      if (!mint) return;
+      const meta = await fetchTokenMeta(mint).catch(() => null);
+      if (!alive || !meta) return;
+      setter(prev => prev.mint === mint
+        ? { ...prev, decimals: meta.decimals, symbol: prev.symbol || meta.symbol, logo: prev.logo || meta.logo }
+        : prev);
+    };
+    fix(initialFromMint, setTokenIn);
+    fix(initialToMint, setTokenOut);
+    return () => { alive = false; };
+  }, [initialFromMint, initialToMint]);
+
   const [amtIn, setAmtIn]       = useState('');
+  const [amtOut, setAmtOut]     = useState('');               // editable output field
+  const [exactSide, setExactSide] = useState<'in' | 'out'>('in'); // which field the user is driving
   const [poolState, setPoolState] = useState<any>(null);
   const [status, setStatus]     = useState('');
   const [pending, setPending]   = useState(false);
@@ -2871,7 +2994,7 @@ const SwapTab: FC<{
 
   // Fetch XNT price
   useEffect(() => {
-    fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${WXNT_MINT}`, { signal: AbortSignal.timeout(5000) })
+    fetch(`/api/xdex-price/api/token-price/price?network=X1%20Mainnet&token_address=${WXNT_MINT}`, { signal: AbortSignal.timeout(5000) })
       .then(r => r.json()).then(j => { if (j.success && j.data?.price) setXntPriceUsd(Number(j.data.price)); }).catch(() => {});
   }, []);
 
@@ -2880,7 +3003,7 @@ const SwapTab: FC<{
     const fetchPrice = async (mint: string, setter: (p: number) => void) => {
       if (mint === WXNT_MINT) { setter(xntPriceUsd); return; }
       try {
-        const r = await fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${mint}`, { signal: AbortSignal.timeout(5000) });
+        const r = await fetch(`/api/xdex-price/api/token-price/price?network=X1%20Mainnet&token_address=${mint}`, { signal: AbortSignal.timeout(5000) });
         const j = await r.json();
         if (j.success && j.data?.price) setter(Number(j.data.price));
         else setter(0);
@@ -2898,7 +3021,7 @@ const SwapTab: FC<{
     setRefreshing(true);
     try {
       // Refresh XNT price
-      fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${WXNT_MINT}`, { signal: AbortSignal.timeout(5000) })
+      fetch(`/api/xdex-price/api/token-price/price?network=X1%20Mainnet&token_address=${WXNT_MINT}`, { signal: AbortSignal.timeout(5000) })
         .then(r => r.json()).then(j => { if (j.success && j.data?.price) setXntPriceUsd(Number(j.data.price)); }).catch(() => {});
 
       // Refresh vault balances if pool is loaded
@@ -3037,7 +3160,7 @@ const SwapTab: FC<{
           const withoutXnt = prev.filter(t => t.mint !== WXNT_MINT);
           const xntEntry: WalletToken = {
             mint: WXNT_MINT, symbol: 'XNT', decimals: 9,
-            logo: xntNativeMeta?.logo,
+            logo: xntNativeMeta?.logo || XNT_LOGO,
             balance: nativeXntBalance, rawBalance: nativeXntRaw,
             program: TOKEN_PROGRAM_ID.toBase58(),
             pinned: true,
@@ -3056,7 +3179,7 @@ const SwapTab: FC<{
   // ── Find XDEX pool ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!tokenIn?.mint || !tokenOut?.mint || tokenIn.mint === tokenOut.mint) { setPoolState(null); setStatus(''); return; }
-    setLoadingPool(true); setStatus(''); setQuoteOut(0);
+    setLoadingPool(true); setStatus(''); setQuoteOut(0); setAmtOut('');
     (async () => {
       try {
         const [m0, m1] = [tokenIn.mint, tokenOut.mint].sort();
@@ -3210,15 +3333,37 @@ const SwapTab: FC<{
     })();
   }, [tokenIn?.mint, tokenOut?.mint]);
 
-  // ── Compute quote ─────────────────────────────────────────────────────────────
+  // ── Compute quote — bidirectional (the user can drive EITHER field) ────────────
+  // exactSide 'in'  → forward quote: amtIn  drives amtOut (what you'll receive).
+  // exactSide 'out' → reverse quote: amtOut drives amtIn  (what you must pay).
+  // The on-chain swap is always exact-in, so 'out' mode just back-solves the
+  // input from the CP-swap curve and the swap proceeds with that input.
   useEffect(() => {
-    if (!poolState || !amtIn || isNaN(parseFloat(amtIn)) || parseFloat(amtIn) <= 0 || vaultIn === 0n) { setQuoteOut(0); setPriceImpact(0); return; }
-    const rawIn  = BigInt(Math.floor(parseFloat(amtIn) * Math.pow(10, tokenIn.decimals)));
-    const amtFee = rawIn * 997500n / 1_000_000n;
-    const rawOut = vaultIn > 0n && vaultOut > 0n ? amtFee * vaultOut / (vaultIn + amtFee) : 0n;
-    setQuoteOut(Number(rawOut) / Math.pow(10, tokenOut.decimals));
-    setPriceImpact(vaultIn > 0n ? Number(rawIn * 10_000n / (vaultIn + rawIn)) / 100 : 0);
-  }, [amtIn, vaultIn, vaultOut, tokenIn, tokenOut]);
+    if (!poolState || vaultIn === 0n || vaultOut === 0n) { setQuoteOut(0); setPriceImpact(0); return; }
+    const FEE_NUM = 997500n, FEE_DEN = 1_000_000n; // 0.25% swap fee on input
+    if (exactSide === 'out') {
+      const v = parseFloat(amtOut);
+      if (!amtOut || isNaN(v) || v <= 0) { setAmtIn(''); setAmtOut(''); setQuoteOut(0); setExactSide('in'); setPriceImpact(0); return; }
+      const rawOut = BigInt(Math.floor(v * Math.pow(10, tokenOut.decimals)));
+      if (rawOut >= vaultOut) { setAmtIn(''); setAmtOut(''); setQuoteOut(0); setExactSide('in'); setPriceImpact(0); return; } // can't drain pool
+      // rawIn = rawOut·vaultIn / (fee·(vaultOut − rawOut)); +1 raw unit rounds up
+      const rawIn = (rawOut * vaultIn * FEE_DEN) / (FEE_NUM * (vaultOut - rawOut)) + 1n;
+      const inNum = Number(rawIn) / Math.pow(10, tokenIn.decimals);
+      setAmtIn(inNum > 0 ? inNum.toFixed(Math.min(tokenIn.decimals, 6)) : '');
+      setQuoteOut(v);
+      setPriceImpact(Number(rawIn * 10_000n / (vaultIn + rawIn)) / 100);
+    } else {
+      const v = parseFloat(amtIn);
+      if (!amtIn || isNaN(v) || v <= 0) { setAmtOut(''); setQuoteOut(0); setPriceImpact(0); return; }
+      const rawIn  = BigInt(Math.floor(v * Math.pow(10, tokenIn.decimals)));
+      const amtFee = rawIn * FEE_NUM / FEE_DEN;
+      const rawOut = amtFee * vaultOut / (vaultIn + amtFee);
+      const outNum = Number(rawOut) / Math.pow(10, tokenOut.decimals);
+      setQuoteOut(outNum);
+      setAmtOut(outNum > 0 ? outNum.toFixed(Math.min(tokenOut.decimals, 6)) : '');
+      setPriceImpact(Number(rawIn * 10_000n / (vaultIn + rawIn)) / 100);
+    }
+  }, [amtIn, amtOut, exactSide, vaultIn, vaultOut, tokenIn, tokenOut, poolState]);
 
   // ── Execute swap ──────────────────────────────────────────────────────────────
   const handleSwap = async () => {
@@ -3343,7 +3488,7 @@ const SwapTab: FC<{
           if (st?.value?.confirmationStatus === 'confirmed' || st?.value?.confirmationStatus === 'finalized') {
             setLastTxSig(sig);
             setStatus(`✅ Swap complete!`);
-            setAmtIn(''); setQuoteOut(0);
+            setAmtIn(''); setAmtOut(''); setQuoteOut(0); setExactSide('in');
             // Refresh all balances + vault after 1.5s (let chain settle)
             setTimeout(() => refreshAll(), 1500);
             return;
@@ -3424,53 +3569,46 @@ const SwapTab: FC<{
       setLoadingXdex(true);
       (async () => {
         try {
-          // Only pool/list works — other token-list endpoints return 404
+          // Only pool/list works — other token-list endpoints return 404.
+          // NOTE: network MUST be "X1 Mainnet" (URL-encoded). `network=mainnet`
+          // returns 0 pools, which is why the picker only showed wallet tokens.
           const endpoints = [
-            `/api/xdex-price/api/xendex/pool/list?network=mainnet`,
+            `/api/xdex-price/api/xendex/pool/list?network=X1%20Mainnet`,
           ];
           const results = await Promise.allSettled(
             endpoints.map(url => fetch(url, { signal: AbortSignal.timeout(8000) }).then(r => r.ok ? r.json() : null))
           );
 
-          // DEBUG: log first pool object to see real field names
-          for (const r of results) {
-            if (r.status === 'fulfilled' && r.value) {
-              const j = r.value;
-              const items: any[] = Array.isArray(j) ? j : Array.isArray(j?.data) ? j.data : Array.isArray(j?.pools) ? j.pools : Array.isArray(j?.tokens) ? j.tokens : [];
-              if (items.length > 0) {
-                console.log('[XDEX pool/list] first item keys:', Object.keys(items[0]));
-                console.log('[XDEX pool/list] first item:', JSON.stringify(items[0]).slice(0, 600));
-                break;
-              }
-            }
-          }
-
           const seen = new Set<string>();
           const tokens: WalletToken[] = [];
 
           const addFromData = (items: any[]) => {
-            for (const t of items) {
-              // Handle both token objects and pool objects
-              const candidates = t.token0 || t.token1 || t.tokenA || t.tokenB
-                ? [ // it's a pool
-                    t.token0, t.token1, t.tokenA, t.tokenB,
-                    { address: t.mintA || t.token0Mint, symbol: t.symbol0 || t.symbolA || t.token0Symbol, name: t.nameA || t.token0Name, logo: t.logoA || t.token0Logo },
-                    { address: t.mintB || t.token1Mint, symbol: t.symbol1 || t.symbolB || t.token1Symbol, name: t.nameB || t.token1Name, logo: t.logoB || t.token1Logo },
-                  ].filter(Boolean)
-                : [t]; // it's already a token
+            for (const p of items) {
+              // The live xDEX pool/list shape exposes each side as
+              // token1_address/token1_symbol/token1_logo + token2_* (see
+              // brainsIndexer._parseAndStore). Stay tolerant of older shapes too.
+              const candidates = [
+                { address: p.token1_address, symbol: p.token1_symbol, logo: p.token1_logo, decimals: p.token1_decimals },
+                { address: p.token2_address, symbol: p.token2_symbol, logo: p.token2_logo, decimals: p.token2_decimals },
+                p.token0, p.token1, p.tokenA, p.tokenB,
+                // already-a-token shape
+                (p.address || p.mint || p.token_address) ? p : null,
+              ].filter(Boolean) as any[];
 
               for (const c of candidates) {
                 if (!c) continue;
                 const mint = c.address || c.mint || c.token_address || c.tokenAddress;
                 if (!mint || seen.has(mint) || walletMints.has(mint) || mint === exclude) continue;
-                const decimals = c.decimals ?? t.decimals ?? 9;
+                // pool/list carries no decimals — default to 9 (re-resolved on
+                // select for the swap). Only skip clearly-invalid (<=1) values.
+                const decimals = c.decimals ?? 9;
                 if (decimals <= 1) continue;
-                const symbol = c.symbol || c.ticker || t.symbol || t.ticker || c.name?.slice(0,8) || mint.slice(0,6).toUpperCase();
+                const symbol = c.symbol || c.ticker || (typeof c.name === 'string' ? c.name.slice(0,8) : '') || mint.slice(0,6).toUpperCase();
                 if (!symbol || symbol.length < 1) continue;
                 seen.add(mint);
                 tokens.push({
                   mint, symbol, decimals,
-                  logo: c.logo || c.logoUri || c.image || c.icon || t.logo,
+                  logo: c.logo || c.logoUri || c.image || c.icon,
                   balance: 0, rawBalance: 0n,
                   program: TOKEN_2022_PROGRAM_ID.toBase58(),
                 });
@@ -3498,7 +3636,7 @@ const SwapTab: FC<{
         try {
           const [metaRes, priceRes] = await Promise.all([
             fetchTokenMeta(search).catch(() => null),
-            fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${search}`, { signal: AbortSignal.timeout(4000) }).then(r => r.json()).catch(() => null),
+            fetch(`/api/xdex-price/api/token-price/price?network=X1%20Mainnet&token_address=${search}`, { signal: AbortSignal.timeout(4000) }).then(r => r.json()).catch(() => null),
           ]);
           const results: WalletToken[] = [];
           if (!walletMints.has(search) && search !== exclude) {
@@ -3533,37 +3671,37 @@ const SwapTab: FC<{
 
     const allResults = [...filteredWallet, ...filteredXdex, ...xdexResults].filter(
       (t, idx, arr) => arr.findIndex(x => x.mint === t.mint) === idx
-    );
+    ).filter(t => !LP_MINTS.has(t.mint));
 
     // Shared token row renderer
     const TokenRow = ({ t, i }: { t: WalletToken; i: number }) => (
       <div key={t.mint + i} onClick={() => { onSelect(t); onClose(); }}
         style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
           borderRadius: 10, cursor: 'pointer', marginBottom: 4,
-          background: t.pinned ? 'rgba(0,212,255,.04)' : 'rgba(255,255,255,.02)',
-          border: `1px solid ${t.pinned ? 'rgba(0,212,255,.12)' : 'rgba(255,255,255,.05)'}`,
+          background: t.pinned ? 'rgba(255,140,0,.04)' : 'rgba(255,255,255,.02)',
+          border: `1px solid ${t.pinned ? 'rgba(255,140,0,.12)' : 'rgba(255,255,255,.05)'}`,
           transition: 'all .15s' }}
-        onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(0,212,255,.35)')}
-        onMouseLeave={e => (e.currentTarget.style.borderColor = t.pinned ? 'rgba(0,212,255,.12)' : 'rgba(255,255,255,.05)')}>
+        onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(255,140,0,.35)')}
+        onMouseLeave={e => (e.currentTarget.style.borderColor = t.pinned ? 'rgba(255,140,0,.12)' : 'rgba(255,255,255,.05)')}>
         <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
-          background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)',
+          background: 'rgba(255,140,0,.1)', border: '1px solid rgba(255,140,0,.2)',
           display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {t.logo
             ? <img src={t.logo} alt={t.symbol} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-            : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 900, color: '#00d4ff' }}>{t.symbol.slice(0,2)}</span>}
+            : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 900, color: '#ff8c00' }}>{t.symbol.slice(0,2)}</span>}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 700, color: '#e0f0ff' }}>{t.symbol}</span>
-            {t.pinned && <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#00d4ff', background: 'rgba(0,212,255,.1)', padding: '1px 5px', borderRadius: 4 }}>★</span>}
-            {!t.pinned && t.balance === 0 && <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 8, color: '#4a6a8a', background: 'rgba(255,255,255,.04)', padding: '1px 5px', borderRadius: 4 }}>XDEX</span>}
+            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 700, color: '#e6ebf2' }}>{t.symbol}</span>
+            {t.pinned && <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#ff8c00', background: 'rgba(255,140,0,.1)', padding: '1px 5px', borderRadius: 4 }}>★</span>}
+            {!t.pinned && t.balance === 0 && <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 8, color: '#5a6a82', background: 'rgba(255,255,255,.04)', padding: '1px 5px', borderRadius: 4 }}>XDEX</span>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#3a5a6a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.mint.slice(0,14)}…{t.mint.slice(-4)}</span>
+            <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#3a4150', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.mint.slice(0,14)}…{t.mint.slice(-4)}</span>
             <CopyButton text={t.mint} size={10} />
           </div>
         </div>
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: t.balance > 0 ? '#9abacf' : '#3a5a6a', flexShrink: 0 }}>
+        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: t.balance > 0 ? '#cdd8e2' : '#3a4150', flexShrink: 0 }}>
           {t.balance > 0 ? t.balance.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'}
         </div>
       </div>
@@ -3571,48 +3709,49 @@ const SwapTab: FC<{
 
     return createPortal(
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 10000,
-        background: 'rgba(0,0,0,.92)', backdropFilter: 'blur(16px)',
+        background: 'transparent',
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
         <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 420,
           background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-          border: '1px solid rgba(0,212,255,.2)', borderRadius: 20,
-          padding: '20px 16px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+          border: '1px solid rgba(255,140,0,.45)', borderRadius: 20,
+          padding: '20px 16px', maxHeight: '80vh', display: 'flex', flexDirection: 'column',
+          boxShadow: '0 24px 80px rgba(0,0,0,.65), 0 0 0 1px rgba(255,140,0,.18)' }}>
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 900, color: '#fff' }}>{title}</div>
             <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: '50%', cursor: 'pointer',
-              border: '1px solid rgba(255,255,255,.12)', background: 'rgba(8,12,15,.9)', color: '#6a8aaa', fontSize: 16 }}>×</button>
+              border: '1px solid rgba(255,255,255,.12)', background: 'rgba(8,12,15,.9)', color: '#8a9ab8', fontSize: 16 }}>×</button>
           </div>
           {/* Search */}
           <div style={{ position: 'relative', marginBottom: 12 }}>
-            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#4a6a8a', fontSize: 14 }}>🔍</span>
+            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#5a6a82', fontSize: 14 }}>🔍</span>
             <input value={search} onChange={e => setSearch(e.target.value)} autoFocus
               placeholder="Search name, symbol, address or paste mint…"
               style={{ width: '100%', padding: '10px 12px 10px 36px', borderRadius: 12, boxSizing: 'border-box',
-                background: 'rgba(255,255,255,.04)', border: '1px solid rgba(0,212,255,.15)',
-                color: '#e0f0ff', fontFamily: 'Sora,sans-serif', fontSize: 12, outline: 'none' }} />
-            {searching && <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: '#4a6a8a' }}>⟳</span>}
+                background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,140,0,.15)',
+                color: '#e6ebf2', fontFamily: 'Sora,sans-serif', fontSize: 12, outline: 'none' }} />
+            {searching && <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: '#5a6a82' }}>⟳</span>}
           </div>
           {/* Token list */}
           <div style={{ overflowY: 'auto', flex: 1 }}>
             {loadingWallet && !search
-              ? <div style={{ textAlign: 'center', padding: '30px 0', fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#4a6a8a' }}>⟳ Loading wallet tokens…</div>
+              ? <div style={{ textAlign: 'center', padding: '30px 0', fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#5a6a82' }}>⟳ Loading wallet tokens…</div>
               : allResults.length === 0 && (searching || (search.length >= 2 && loadingXdex))
-              ? <div style={{ textAlign: 'center', padding: '30px 0', fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#4a6a8a' }}>⟳ Searching…</div>
+              ? <div style={{ textAlign: 'center', padding: '30px 0', fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#5a6a82' }}>⟳ Searching…</div>
               : allResults.length === 0 && !searching
               ? <div style={{ textAlign: 'center', padding: '30px 0' }}>
-                  <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#4a6a8a', marginBottom: 8 }}>
+                  <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#5a6a82', marginBottom: 8 }}>
                     No tokens found
                   </div>
                   {search.length > 0 && search.length < 32 && (
-                    <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#3a5a6a' }}>
+                    <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#3a4150' }}>
                       Try pasting the full mint address
                     </div>
                   )}
                 </div>
               : allResults.map((t, i) => <TokenRow key={t.mint + i} t={t} i={i} />)}
           </div>
-          <div style={{ marginTop: 10, fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#2a3a4a', textAlign: 'center' }}>
+          <div style={{ marginTop: 10, fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#1a1f28', textAlign: 'center' }}>
             Showing wallet tokens + all XDEX indexed tokens
           </div>
         </div>
@@ -3623,7 +3762,7 @@ const SwapTab: FC<{
 
   // ── Token Button ──────────────────────────────────────────────────────────────
   // Token logo with proper fallback to colored letter avatar
-  const SwapLogo: FC<{ token: WalletToken; size?: number; color?: string }> = ({ token, size = 22, color = '#00d4ff' }) => {
+  const SwapLogo: FC<{ token: WalletToken; size?: number; color?: string }> = ({ token, size = 22, color = '#ff8c00' }) => {
     const [imgFailed, setImgFailed] = useState(false);
     return (
       <div style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
@@ -3658,70 +3797,86 @@ const SwapTab: FC<{
   return (
     <div style={{ maxWidth: 500, margin: '0 auto', animation: 'fadeUp 0.4s ease both' }}>
       <div style={{ background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-        border: '1px solid rgba(0,212,255,.12)', borderRadius: 20,
+        border: '1px solid rgba(255,140,0,.12)', borderRadius: 20,
         padding: isMobile ? '20px 16px' : '28px 28px' }}>
 
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 18, fontWeight: 900, color: '#fff' }}>🔄 SWAP</div>
-            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a', marginTop: 2 }}>Any SPL or Token-2022 · X1 Mainnet</div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, fontFamily: 'Orbitron,monospace', fontSize: 18, fontWeight: 900, color: '#fff' }}>
+              <img
+                src={BRAINS_LOGO}
+                alt=""
+                width={22}
+                height={22}
+                style={{
+                  borderRadius: '50%',
+                  border: '1px solid rgba(255,140,0,.45)',
+                  background: '#06090d',
+                  display: 'inline-block',
+                  verticalAlign: 'middle',
+                  objectFit: 'cover',
+                }}
+              />
+              SWAP
+            </div>
+            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82', marginTop: 2 }}>Any SPL or Token-2022 · X1 Mainnet</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {/* Refresh button */}
             <button onClick={() => refreshAll()} disabled={refreshing || !publicKey}
               title="Refresh balances & prices"
               style={{ width: 32, height: 32, borderRadius: '50%', cursor: refreshing || !publicKey ? 'not-allowed' : 'pointer',
-                background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.2)',
-                color: '#00d4ff', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.2)',
+                color: '#ff8c00', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 transition: 'all .2s', opacity: !publicKey ? 0.4 : 1 }}>
               <span style={{ display: 'inline-block', animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>↻</span>
             </button>
             {/* Slippage setting */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>Slippage:</span>
+              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82' }}>Slippage:</span>
               {[10, 50, 100].map(b => (
                 <button key={b} onClick={() => setSlipBps(b)} style={{ padding: '3px 8px', borderRadius: 6, cursor: 'pointer',
                   fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
-                  background: slipBps === b ? 'rgba(0,212,255,.15)' : 'rgba(255,255,255,.04)',
-                  border: `1px solid ${slipBps === b ? 'rgba(0,212,255,.35)' : 'rgba(255,255,255,.08)'}`,
-                  color: slipBps === b ? '#00d4ff' : '#4a6a8a' }}>{b / 100}%</button>
+                  background: slipBps === b ? 'rgba(255,140,0,.15)' : 'rgba(255,255,255,.04)',
+                  border: `1px solid ${slipBps === b ? 'rgba(255,140,0,.35)' : 'rgba(255,255,255,.08)'}`,
+                  color: slipBps === b ? '#ff8c00' : '#5a6a82' }}>{b / 100}%</button>
               ))}
             </div>
           </div>
         </div>
 
         {/* YOU PAY */}
-        <div style={{ background: 'rgba(255,255,255,.025)', border: '1px solid rgba(0,212,255,.1)', borderRadius: 16, padding: '16px', marginBottom: 6 }}>
+        <div style={{ background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,140,0,.1)', borderRadius: 16, padding: '16px', marginBottom: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#4a6a8a' }}>You Pay</span>
+            <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#5a6a82' }}>You Pay</span>
             {publicKey && (
-              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>
-                Balance: <span style={{ color: '#9abacf', fontWeight: 600 }}>{tokenIn.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82' }}>
+                Balance: <span style={{ color: '#cdd8e2', fontWeight: 600 }}>{tokenIn.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
               </span>
             )}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ flex: 1 }}>
-              <input value={amtIn} onChange={e => setAmtIn(e.target.value)} placeholder="0.00" type="number" min="0"
+              <input value={amtIn} onChange={e => { setAmtIn(e.target.value); setExactSide('in'); }} placeholder="0.00" type="number" min="0"
                 style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none',
                   fontFamily: 'Orbitron,monospace', fontSize: 28, fontWeight: 700,
-                  color: insufficientBal ? '#ff6666' : '#e0f0ff', boxSizing: 'border-box' }} />
-              {inUsd > 0 && <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>≈ ${inUsd.toFixed(4)} USD</div>}
+                  color: insufficientBal ? '#ff8c00' : '#e6ebf2', boxSizing: 'border-box' }} />
+              {inUsd > 0 && <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82' }}>≈ ${inUsd.toFixed(4)} USD</div>}
             </div>
-            <TokenBtn token={tokenIn} color="#00d4ff" onClick={() => setShowInPicker(true)} />
+            <TokenBtn token={tokenIn} color="#ff8c00" onClick={() => setShowInPicker(true)} />
           </div>
           {/* % preset buttons */}
           {publicKey && tokenIn.balance > 0 && (
             <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
               {[25, 50, 75, 100].map(pct => (
-                <button key={pct} onClick={() => setAmtIn((tokenIn.balance * pct / 100).toFixed(Math.min(tokenIn.decimals, 6)))}
+                <button key={pct} onClick={() => { setExactSide('in'); setAmtIn((tokenIn.balance * pct / 100).toFixed(Math.min(tokenIn.decimals, 6))); }}
                   style={{ flex: 1, padding: '5px 0', borderRadius: 8, cursor: 'pointer',
                     fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
-                    background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.15)',
-                    color: '#4a8aaa', transition: 'all .15s' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,212,255,.15)'; (e.currentTarget as HTMLButtonElement).style.color = '#00d4ff'; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,212,255,.06)'; (e.currentTarget as HTMLButtonElement).style.color = '#4a8aaa'; }}>
+                    background: 'rgba(255,140,0,.06)', border: '1px solid rgba(255,140,0,.15)',
+                    color: '#8a9ab8', transition: 'all .15s' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,140,0,.15)'; (e.currentTarget as HTMLButtonElement).style.color = '#ff8c00'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,140,0,.06)'; (e.currentTarget as HTMLButtonElement).style.color = '#8a9ab8'; }}>
                   {pct === 100 ? 'MAX' : `${pct}%`}
                 </button>
               ))}
@@ -3733,10 +3888,10 @@ const SwapTab: FC<{
         <div style={{ textAlign: 'center', margin: '4px 0', position: 'relative', zIndex: 1 }}>
           <button onClick={() => {
             const tmp = tokenIn; setTokenIn(tokenOut); setTokenOut(tmp);
-            setAmtIn(''); setQuoteOut(0);
+            setAmtIn(''); setAmtOut(''); setQuoteOut(0); setExactSide('in');
           }} style={{ width: 36, height: 36, borderRadius: '50%', cursor: 'pointer',
-            background: 'linear-gradient(135deg,rgba(0,212,255,.15),rgba(191,90,242,.1))',
-            border: '1px solid rgba(0,212,255,.3)', color: '#00d4ff', fontSize: 16,
+            background: 'linear-gradient(135deg,rgba(255,140,0,.15),rgba(191,90,242,.1))',
+            border: '1px solid rgba(255,140,0,.3)', color: '#ff8c00', fontSize: 16,
             transition: 'transform .2s' }}
             onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'rotate(180deg)'; }}
             onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'rotate(0deg)'; }}>⇅</button>
@@ -3745,27 +3900,28 @@ const SwapTab: FC<{
         {/* YOU RECEIVE */}
         <div style={{ background: 'rgba(255,255,255,.025)', border: '1px solid rgba(191,90,242,.1)', borderRadius: 16, padding: '16px', marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#4a6a8a' }}>You Receive</span>
+            <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#5a6a82' }}>You Receive</span>
             {publicKey && (
-              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>
-                Balance: <span style={{ color: '#9abacf', fontWeight: 600 }}>{tokenOut.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82' }}>
+                Balance: <span style={{ color: '#cdd8e2', fontWeight: 600 }}>{tokenOut.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
               </span>
             )}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 28, fontWeight: 700, color: quoteOut > 0 ? '#bf5af2' : '#2a3a4a' }}>
-                {quoteOut > 0 ? quoteOut.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '0.00'}
-              </div>
-              {outUsd > 0 && <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>≈ ${outUsd.toFixed(4)} USD</div>}
+              <input value={amtOut} onChange={e => { setAmtOut(e.target.value); setExactSide('out'); }} placeholder="0.00" type="number" min="0"
+                style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none',
+                  fontFamily: 'Orbitron,monospace', fontSize: 28, fontWeight: 700,
+                  color: amtOut ? '#ff8c00' : '#1a1f28', boxSizing: 'border-box' }} />
+              {outUsd > 0 && <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82' }}>≈ ${outUsd.toFixed(4)} USD</div>}
             </div>
-            <TokenBtn token={tokenOut} color="#bf5af2" onClick={() => setShowOutPicker(true)} />
+            <TokenBtn token={tokenOut} color="#ff8c00" onClick={() => setShowOutPicker(true)} />
           </div>
         </div>
 
         {/* Pool loading */}
         {loadingPool && (
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#4a6a8a', textAlign: 'center', marginBottom: 12 }}>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#5a6a82', textAlign: 'center', marginBottom: 12 }}>
             🔍 Finding pool…
           </div>
         )}
@@ -3777,40 +3933,40 @@ const SwapTab: FC<{
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
               {/* Rate */}
               <div>
-                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#4a6a8a', marginBottom: 3 }}>Rate</div>
-                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#9abacf', lineHeight: 1.4 }}>
+                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#5a6a82', marginBottom: 3 }}>Rate</div>
+                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#cdd8e2', lineHeight: 1.4 }}>
                   {rate > 0 ? <>
                     <div>1 {tokenIn.symbol} ≈ {rate.toLocaleString(undefined, { maximumFractionDigits: 4 })} {tokenOut.symbol}</div>
-                    {rate > 0 && <div style={{ color: '#4a6a8a' }}>1 {tokenOut.symbol} ≈ {(1/rate).toLocaleString(undefined, { maximumFractionDigits: 4 })} {tokenIn.symbol}</div>}
+                    {rate > 0 && <div style={{ color: '#5a6a82' }}>1 {tokenOut.symbol} ≈ {(1/rate).toLocaleString(undefined, { maximumFractionDigits: 4 })} {tokenIn.symbol}</div>}
                   </> : '—'}
                 </div>
               </div>
               {/* Price Impact */}
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#4a6a8a', marginBottom: 3 }}>Price Impact</div>
+                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#5a6a82', marginBottom: 3 }}>Price Impact</div>
                 <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700,
-                  color: priceImpact > 5 ? '#ff4444' : priceImpact > 2 ? '#ff8c00' : '#00c98d' }}>
+                  color: priceImpact > 5 ? '#ff8c00' : priceImpact > 2 ? '#ff8c00' : '#00c98d' }}>
                   {priceImpact.toFixed(2)}%{priceImpact > 5 ? ' ⚠️' : ''}
                 </div>
               </div>
               {/* Est Gas */}
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#4a6a8a', marginBottom: 3 }}>Est. Gas</div>
-                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#9abacf' }}>~{estGasXnt} XNT</div>
+                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#5a6a82', marginBottom: 3 }}>Est. Gas</div>
+                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#cdd8e2' }}>~{estGasXnt} XNT</div>
               </div>
               {/* Slippage */}
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#4a6a8a', marginBottom: 3 }}>Slippage</div>
-                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#9abacf' }}>{(slipBps / 100).toFixed(1)}%</div>
+                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#5a6a82', marginBottom: 3 }}>Slippage</div>
+                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#cdd8e2' }}>{(slipBps / 100).toFixed(1)}%</div>
               </div>
             </div>
             {/* Route */}
             <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,.04)',
               display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
-              <SwapLogo token={tokenIn} size={24} color="#00d4ff" />
-              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>→</span>
-              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a', background: 'rgba(255,255,255,.04)', padding: '2px 8px', borderRadius: 6 }}>XDEX Pool</span>
-              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>→</span>
+              <SwapLogo token={tokenIn} size={24} color="#ff8c00" />
+              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82' }}>→</span>
+              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82', background: 'rgba(255,255,255,.04)', padding: '2px 8px', borderRadius: 6 }}>XDEX Pool</span>
+              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82' }}>→</span>
               <SwapLogo token={tokenOut} size={24} color="#bf5af2" />
             </div>
           </div>
@@ -3820,9 +3976,9 @@ const SwapTab: FC<{
         {status && (
           <div style={{ margin: '10px 0 14px', padding: '10px 14px', borderRadius: 10,
             fontFamily: 'Sora,sans-serif', fontSize: 12, lineHeight: 1.6,
-            background: isErr ? 'rgba(255,68,68,.08)' : isOk ? 'rgba(0,201,141,.08)' : isWarn ? 'rgba(255,140,0,.08)' : 'rgba(255,255,255,.04)',
-            border: `1px solid ${isErr ? 'rgba(255,68,68,.25)' : isOk ? 'rgba(0,201,141,.25)' : isWarn ? 'rgba(255,140,0,.25)' : 'rgba(255,255,255,.08)'}`,
-            color: isErr ? '#ff8888' : isOk ? '#00c98d' : isWarn ? '#ff8c00' : '#9abacf' }}>{status}</div>
+            background: isErr ? 'rgba(255,140,0,.08)' : isOk ? 'rgba(0,201,141,.08)' : isWarn ? 'rgba(255,140,0,.08)' : 'rgba(255,255,255,.04)',
+            border: `1px solid ${isErr ? 'rgba(255,140,0,.25)' : isOk ? 'rgba(0,201,141,.25)' : isWarn ? 'rgba(255,140,0,.25)' : 'rgba(255,255,255,.08)'}`,
+            color: isErr ? '#ff8c00' : isOk ? '#00c98d' : isWarn ? '#ff8c00' : '#cdd8e2' }}>{status}</div>
         )}
 
         {/* Explorer button — shown after swap attempt with a tx sig */}
@@ -3839,18 +3995,18 @@ const SwapTab: FC<{
 
         {/* Swap Button */}
         {!publicKey
-          ? <div style={{ textAlign: 'center', padding: '14px 0', fontFamily: 'Sora,sans-serif', fontSize: 13, color: '#4a6a8a', background: 'rgba(255,255,255,.03)', borderRadius: 12, border: '1px solid rgba(255,255,255,.06)' }}>Connect wallet to swap</div>
+          ? <div style={{ textAlign: 'center', padding: '14px 0', fontFamily: 'Sora,sans-serif', fontSize: 13, color: '#5a6a82', background: 'rgba(255,255,255,.03)', borderRadius: 12, border: '1px solid rgba(255,255,255,.06)' }}>Connect wallet to swap</div>
           : <button onClick={handleSwap}
               disabled={pending || !poolState || !amtIn || parsedAmt <= 0 || !!insufficientBal}
               style={{ width: '100%', padding: '15px 0', borderRadius: 14, cursor: (pending || !poolState || !amtIn || parsedAmt <= 0) ? 'not-allowed' : 'pointer',
                 fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 900, transition: 'all .15s',
                 background: pending || !poolState ? 'rgba(255,255,255,.04)'
-                  : insufficientBal ? 'rgba(255,68,68,.1)'
-                  : 'linear-gradient(135deg,rgba(0,212,255,.22),rgba(191,90,242,.12))',
+                  : insufficientBal ? 'rgba(255,140,0,.1)'
+                  : 'linear-gradient(135deg,rgba(255,140,0,.22),rgba(255,140,0,.12))',
                 border: `1px solid ${pending || !poolState ? 'rgba(255,255,255,.08)'
-                  : insufficientBal ? 'rgba(255,68,68,.35)' : 'rgba(0,212,255,.45)'}`,
-                color: pending || !poolState ? '#4a6a8a' : insufficientBal ? '#ff6666' : '#00d4ff',
-                boxShadow: (!pending && poolState && !insufficientBal && parsedAmt > 0) ? '0 0 20px rgba(0,212,255,.12)' : 'none' }}>
+                  : insufficientBal ? 'rgba(255,140,0,.35)' : 'rgba(255,140,0,.45)'}`,
+                color: pending || !poolState ? '#5a6a82' : insufficientBal ? '#ff8c00' : '#ff8c00',
+                boxShadow: (!pending && poolState && !insufficientBal && parsedAmt > 0) ? '0 0 20px rgba(255,140,0,.12)' : 'none' }}>
               {pending ? 'SWAPPING…'
                 : loadingPool ? 'FINDING POOL…'
                 : !poolState && tokenIn.mint !== tokenOut.mint ? 'NO POOL FOUND'
@@ -3860,7 +4016,7 @@ const SwapTab: FC<{
             </button>
         }
 
-        <div style={{ marginTop: 12, fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#2a3a4a', textAlign: 'center' }}>
+        <div style={{ marginTop: 12, fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#1a1f28', textAlign: 'center' }}>
           0.25% fee · Powered by XDEX CP-Swap · X1 Mainnet
         </div>
       </div>
@@ -4043,7 +4199,7 @@ const PairingMarketplace: FC = () => {
       const missing = unique.filter(m => !newPrices.get(m));
       await Promise.all(missing.map(async mint => {
         try {
-          const r = await fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${mint}`, { signal: AbortSignal.timeout(4000) });
+          const r = await fetch(`/api/xdex-price/api/token-price/price?network=X1%20Mainnet&token_address=${mint}`, { signal: AbortSignal.timeout(4000) });
           const j2 = await r.json();
           if (j2?.success && j2?.data?.price) newPrices.set(mint, Number(j2.data.price));
         } catch {}
@@ -4102,7 +4258,7 @@ const PairingMarketplace: FC = () => {
       <NfaConsentModal />
 
       <div style={{ position: 'fixed', top: '20%', left: '10%', width: 600, height: 600, borderRadius: '50%',
-        background: 'radial-gradient(circle,rgba(0,212,255,0.04) 0%,transparent 60%)', pointerEvents: 'none', zIndex: 0 }} />
+        background: 'radial-gradient(circle,rgba(255,140,0,0.04) 0%,transparent 60%)', pointerEvents: 'none', zIndex: 0 }} />
       <div style={{ position: 'fixed', top: '60%', right: '5%', width: 500, height: 500, borderRadius: '50%',
         background: 'radial-gradient(circle,rgba(191,90,242,0.05) 0%,transparent 60%)', pointerEvents: 'none', zIndex: 0 }} />
 
@@ -4129,7 +4285,7 @@ const PairingMarketplace: FC = () => {
 
           <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
             width: isMobile ? 320 : 600, height: isMobile ? 180 : 280, borderRadius: '50%',
-            background: 'radial-gradient(ellipse,rgba(0,212,255,.07) 0%,rgba(191,90,242,.04) 40%,transparent 70%)',
+            background: 'radial-gradient(ellipse,rgba(255,140,0,.07) 0%,rgba(191,90,242,.04) 40%,transparent 70%)',
             pointerEvents: 'none', animation: 'hdr-orb 4s ease-in-out infinite', zIndex: 0 }} />
 
           <div style={{ position: 'relative', zIndex: 1, width: '100%' }}>
@@ -4141,7 +4297,7 @@ const PairingMarketplace: FC = () => {
                   X1 Brains
                 </span>
                 <span style={{ color: 'rgba(255,255,255,.15)', margin: isMobile ? '0 6px' : '0 12px', fontWeight: 300 }}>·</span>
-                <span style={{ color: '#e0f0ff' }}>
+                <span style={{ color: '#e6ebf2' }}>
                   Lab Work DeFi
                 </span>
               </h1>
@@ -4150,12 +4306,12 @@ const PairingMarketplace: FC = () => {
             <div style={{ marginTop: isMobile ? 8 : 10, marginBottom: isMobile ? 4 : 6,
               animation: 'fadeUp 0.5s ease 0.12s both' }}>
               <span style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 6 : 8,
-                color: '#9abace', letterSpacing: isMobile ? 2 : 3 }}>
+                color: '#cdd8e2', letterSpacing: isMobile ? 2 : 3 }}>
                 X1 BLOCKCHAIN · LIQUIDITY PAIRING · XDEX POOL CREATION · {PROGRAM_ID.slice(0,8)}…
               </span>
             </div>
 
-            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: isMobile ? 11 : 13, color: '#6a8aaa',
+            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: isMobile ? 11 : 13, color: '#8a9ab8',
               marginBottom: isMobile ? 20 : 28, marginTop: isMobile ? 6 : 8,
               letterSpacing: .5, animation: 'fadeUp 0.5s ease 0.15s both', lineHeight: 1.6 }}>
               List any token with an XNT pool &nbsp;·&nbsp; 0.888% fee with 33+ LB &nbsp;·&nbsp; 1.888% standard &nbsp;·&nbsp; Burn LP → earn LB points
@@ -4192,10 +4348,10 @@ const PairingMarketplace: FC = () => {
                     <span style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 7 : 8, letterSpacing: 1,
                       color: 'rgba(255,140,0,.6)', fontWeight: 700 }}>{t.sym}</span>
                     <span style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 10 : 12,
-                      fontWeight: 700, color: '#e0f0ff' }}>{t.val}</span>
+                      fontWeight: 700, color: '#e6ebf2' }}>{t.val}</span>
                     {t.chg && !isMobile && (
                       <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 9,
-                        color: t.up ? '#00c98d' : '#ff4444' }}>{t.chg}</span>
+                        color: t.up ? '#00c98d' : '#ff8c00' }}>{t.chg}</span>
                     )}
                   </div>
                 </React.Fragment>
@@ -4220,7 +4376,7 @@ const PairingMarketplace: FC = () => {
               gap: 8,
             }}>
               {[
-                { label: 'Platform Volume', value: fmtUSD(platformVolume), sub: 'all-time matched',  color: '#00d4ff' },
+                { label: 'Platform Volume', value: fmtUSD(platformVolume), sub: 'all-time matched',  color: '#ff8c00' },
                 { label: 'Pools Created',   value: String(totalPools),      sub: 'via lp pairing',   color: '#00c98d' },
                 { label: 'Open Listings',   value: String(listings.filter(l => l.status === 'open').length), sub: 'awaiting match', color: '#ff8c00' },
                 { label: 'Ecosystem TVL',   value: totalTVL > 0 ? fmtUSD(totalTVL) : '…', sub: 'xdex pools total', color: '#bf5af2' },
@@ -4296,7 +4452,7 @@ const PairingMarketplace: FC = () => {
           <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
             <div style={{
               fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 10 : 11,
-              fontWeight: 700, color: '#e0f0ff', letterSpacing: 1,
+              fontWeight: 700, color: '#e6ebf2', letterSpacing: 1,
               textTransform: 'uppercase', marginBottom: 2,
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
             }}>
@@ -4304,7 +4460,7 @@ const PairingMarketplace: FC = () => {
             </div>
             <div style={{
               fontFamily: 'Sora,sans-serif', fontSize: isMobile ? 9 : 10,
-              color: '#9abacf', lineHeight: 1.4,
+              color: '#cdd8e2', lineHeight: 1.4,
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
             }}>
               Stake BRAINS/XNT or LB/XNT LP · lock 30 / 90 / 365d · up to 8× rewards
@@ -4345,22 +4501,22 @@ const PairingMarketplace: FC = () => {
                   background: isActive && isMarket
                     ? 'linear-gradient(135deg,rgba(0,255,128,.18),rgba(0,200,100,.08))'
                     : isActive && !isCreate
-                    ? 'linear-gradient(135deg,rgba(0,212,255,.15),rgba(191,90,242,.08))'
+                    ? 'linear-gradient(135deg,rgba(255,140,0,.15),rgba(191,90,242,.08))'
                     : isCreate
-                    ? 'linear-gradient(135deg,rgba(0,212,255,.08),rgba(0,212,255,.03))'
+                    ? 'linear-gradient(135deg,rgba(255,140,0,.08),rgba(255,140,0,.03))'
                     : 'transparent',
                   border: isActive && isMarket ? '1px solid rgba(0,255,128,.7)'
-                        : isActive && !isCreate ? '1px solid rgba(0,212,255,.35)'
-                        : isCreate ? '1px solid rgba(0,212,255,.3)'
+                        : isActive && !isCreate ? '1px solid rgba(255,140,0,.35)'
+                        : isCreate ? '1px solid rgba(255,140,0,.3)'
                         : '1px solid transparent',
                   borderRadius: 11, cursor: 'pointer', transition: 'all 0.18s', textAlign: 'center',
                   animation: isMarket && !isActive ? 'lp-pulse 2s ease-in-out infinite' : 'none',
                 }}>
                 <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 9 : 11, fontWeight: 900,
-                  color: isActive && isMarket ? '#00ff80' : isActive && !isCreate ? '#00d4ff'
-                       : isCreate ? '#00d4ff' : '#4a6a8a', marginBottom: 2 }}>{m.label}</div>
+                  color: isActive && isMarket ? '#00c98d' : isActive && !isCreate ? '#ff8c00'
+                       : isCreate ? '#ff8c00' : '#5a6a82', marginBottom: 2 }}>{m.label}</div>
                 <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, letterSpacing: 1,
-                  color: isActive && isMarket ? 'rgba(0,255,128,.55)' : isActive ? 'rgba(0,212,255,.55)' : '#3a5a7a' }}>
+                  color: isActive && isMarket ? 'rgba(0,255,128,.55)' : isActive ? 'rgba(255,140,0,.55)' : '#3a4150' }}>
                   {m.sub}
                 </div>
               </button>
@@ -4381,18 +4537,18 @@ const PairingMarketplace: FC = () => {
                 style={{ padding: isMobile ? '6px 12px' : '7px 16px', borderRadius: 8,
                   cursor: 'pointer', border: 'none',
                   fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 8 : 9, letterSpacing: 1, fontWeight: 700,
-                  background: filter === f.key ? 'rgba(0,212,255,.12)' : 'rgba(255,255,255,.04)',
-                  color: filter === f.key ? '#00d4ff' : '#4a6a8a' }}>
+                  background: filter === f.key ? 'rgba(255,140,0,.12)' : 'rgba(255,255,255,.04)',
+                  color: filter === f.key ? '#ff8c00' : '#5a6a82' }}>
                 {f.label}
               </button>
             ))}
-            <div style={{ marginLeft: 'auto', fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 8 : 9, color: '#4a6a8a' }}>
+            <div style={{ marginLeft: 'auto', fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 8 : 9, color: '#5a6a82' }}>
               {filtered.length} listing{filtered.length !== 1 ? 's' : ''}
             </div>
             <button onClick={loadListings}
               style={{ padding: '6px 12px', borderRadius: 8, cursor: 'pointer', border: 'none',
                 fontFamily: 'Orbitron,monospace', fontSize: 8, background: 'rgba(255,255,255,.04)',
-                color: '#4a6a8a' }}>↻ REFRESH</button>
+                color: '#5a6a82' }}>↻ REFRESH</button>
           </div>
         )}
 
@@ -4418,11 +4574,11 @@ const PairingMarketplace: FC = () => {
               {tab === 'mine' ? '📋' : '⚡'}
             </div>
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 14 : 20,
-              fontWeight: 900, color: '#9abacf', marginBottom: 12, letterSpacing: 2 }}>
+              fontWeight: 900, color: '#cdd8e2', marginBottom: 12, letterSpacing: 2 }}>
               {tab === 'mine' ? 'NO ACTIVE LISTINGS' : 'NO LISTINGS YET'}
             </div>
             <div style={{ fontFamily: 'Sora,sans-serif', fontSize: isMobile ? 12 : 13,
-              color: '#6a8aaa', maxWidth: 380, margin: '0 auto 28px', lineHeight: 1.7 }}>
+              color: '#8a9ab8', maxWidth: 380, margin: '0 auto 28px', lineHeight: 1.7 }}>
               {tab === 'mine'
                 ? 'You have no open listings. Create one to attract liquidity partners.'
                 : 'Be the first to list. Any token with an XNT pool on XDEX can participate.'}
@@ -4430,9 +4586,9 @@ const PairingMarketplace: FC = () => {
             {publicKey && (
               <button onClick={() => setShowCreate(true)}
                 style={{ padding: isMobile ? '12px 24px' : '14px 32px', borderRadius: 12, cursor: 'pointer',
-                  background: 'linear-gradient(135deg,rgba(0,212,255,.18),rgba(0,212,255,.06))',
-                  border: '1px solid rgba(0,212,255,.4)',
-                  fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 10 : 11, fontWeight: 900, color: '#00d4ff' }}>
+                  background: 'linear-gradient(135deg,rgba(255,140,0,.18),rgba(255,140,0,.06))',
+                  border: '1px solid rgba(255,140,0,.4)',
+                  fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 10 : 11, fontWeight: 900, color: '#ff8c00' }}>
                 ⚡ CREATE LISTING
               </button>
             )}
@@ -4461,7 +4617,7 @@ const PairingMarketplace: FC = () => {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3,1fr)', gap: isMobile ? 14 : 18 }}>
               {[
-                { n: '01', title: 'LIST YOUR TOKENS', color: '#00d4ff',
+                { n: '01', title: 'LIST YOUR TOKENS', color: '#ff8c00',
                   desc: 'Any token with an XNT pool on XDEX. Choose burn % (0/25/50/100). Fee: 0.888% with 33+ LB, 1.888% standard.' },
                 { n: '02', title: 'GET MATCHED',      color: '#00c98d',
                   desc: 'Anyone brings equal USD value of any token. Price verified across 3 sources within ±0.5%. Pool must be 24h+ old with $300+ TVL.' },
@@ -4476,9 +4632,9 @@ const PairingMarketplace: FC = () => {
                   <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 22 : 28,
                     fontWeight: 900, color: s.color, opacity: .35, marginBottom: 10 }}>{s.n}</div>
                   <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 10 : 12,
-                    fontWeight: 900, color: '#e0f0ff', marginBottom: 8 }}>{s.title}</div>
+                    fontWeight: 900, color: '#e6ebf2', marginBottom: 8 }}>{s.title}</div>
                   <div style={{ fontFamily: 'Sora,sans-serif', fontSize: isMobile ? 11 : 12,
-                    color: '#6a8aaa', lineHeight: 1.7 }}>{s.desc}</div>
+                    color: '#8a9ab8', lineHeight: 1.7 }}>{s.desc}</div>
                 </div>
               ))}
             </div>
@@ -4497,7 +4653,7 @@ const PairingMarketplace: FC = () => {
         <div onClick={() => setShowCreate(false)}
           style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.85)',
             backdropFilter: 'blur(16px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, color: '#9abacf', textAlign: 'center' }}>
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, color: '#cdd8e2', textAlign: 'center' }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🔌</div>
             CONNECT WALLET TO CREATE A LISTING
           </div>
@@ -4520,7 +4676,7 @@ const PairingMarketplace: FC = () => {
         <div onClick={() => setMatchTarget(null)}
           style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.85)',
             backdropFilter: 'blur(16px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, color: '#9abacf', textAlign: 'center' }}>
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, color: '#cdd8e2', textAlign: 'center' }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🔌</div>
             CONNECT WALLET TO MATCH
           </div>

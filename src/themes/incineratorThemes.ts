@@ -6,7 +6,7 @@
 
 import React, { FC, useCallback, useState } from 'react';
 
-export type ThemeName = 'vegas' | 'fire';
+export type ThemeName = 'vegas' | 'fire' | 'v2';
 
 export interface IncTheme {
   name: ThemeName; label: string; icon: string;
@@ -109,10 +109,51 @@ export const FIRE: IncTheme = {
   qBg:'rgba(255,255,255,.03)', qBorder:'1px solid rgba(255,34,34,.12)', qColor:'#ff6600',
 };
 
-export const THEMES: Record<ThemeName, IncTheme> = { vegas: VEGAS, fire: FIRE };
+// ═══════════════════════════════════════════════
+// V2 — X1 Brains v2 palette
+// Orange #ff8c00 / Cyan #00d4ff / Purple #bf5af2
+// ═══════════════════════════════════════════════
+export const V2: IncTheme = {
+  name:'v2', label:'V2', icon:'⌬',
+  pageBg:'linear-gradient(180deg,#080c0f 0%,#0a0e16 40%,#080c0f 100%)',
+  glow1:'radial-gradient(circle,rgba(255,140,0,.05) 0%,transparent 70%)',
+  glow2:'radial-gradient(circle,rgba(0,212,255,.04) 0%,transparent 70%)',
+  cardBg:'linear-gradient(135deg,rgba(12,18,28,.96),rgba(8,12,15,.96))',
+  cardBorder:'rgba(255,140,0,.14)',
+  cardGlow:'linear-gradient(90deg,transparent,rgba(255,140,0,.5),rgba(0,212,255,.3),transparent)',
+  primary:'#ff8c00', primaryRgb:'255,140,0',
+  secondary:'#00d4ff', secondaryRgb:'0,212,255',
+  accent:'#bf5af2', accentRgb:'191,90,242',
+  textMuted:'#9abacf', textDim:'#6a7a94',
+  gradText:'linear-gradient(90deg,#ff8c00,#00d4ff,#bf5af2)',
+  ring1:'rgba(255,140,0,.16)', ring2:'rgba(0,212,255,.13)', ring3:'rgba(191,90,242,.10)',
+  node1:'radial-gradient(circle,#ffb340,#ff8c00)', node1G:'0 0 8px rgba(255,140,0,.85),0 0 20px rgba(255,140,0,.28)',
+  node2:'radial-gradient(circle,#5be5ff,#00d4ff)', node2G:'0 0 6px rgba(0,212,255,.85),0 0 16px rgba(0,212,255,.28)',
+  node3:'radial-gradient(circle,#d68bff,#bf5af2)', node3G:'0 0 6px rgba(191,90,242,.85),0 0 14px rgba(191,90,242,.28)',
+  coreBg:'radial-gradient(circle,rgba(255,140,0,.13) 0%,rgba(0,212,255,.07) 60%,transparent 100%)',
+  coreBurn:'radial-gradient(circle,rgba(255,140,0,.32) 0%,rgba(255,90,0,.13) 60%,transparent 100%)',
+  conic:'conic-gradient(from 0deg,#ff8c00,#00d4ff,#bf5af2,#ff8c00)',
+  innerBg:'radial-gradient(circle,#0c1218 0%,#080c0f 100%)',
+  btnBg:'linear-gradient(135deg,#ff8c00,#cc6600,#993300)', btnBorder:'rgba(255,140,0,.65)',
+  btnOff:'linear-gradient(135deg,rgba(255,140,0,.2),rgba(120,60,0,.2))',
+  inputBorder:'rgba(255,140,0,.3)', inputFocus:'rgba(0,212,255,.6)',
+  warnBg:'rgba(255,140,0,.08)', warnBorder:'rgba(255,140,0,.25)', warnAccent:'#ff8c00', warnText:'#ffb340',
+  okColor:'#00c98d', okRgb:'0,201,141', errColor:'#ff4444', errRgb:'255,68,68',
+  statBorder:'rgba(255,140,0,.12)',
+  qBg:'rgba(255,255,255,.04)', qBorder:'1px solid rgba(0,212,255,.18)', qColor:'#00d4ff',
+};
+
+export const THEMES: Record<ThemeName, IncTheme> = { vegas: VEGAS, fire: FIRE, v2: V2 };
 
 export function loadTheme(): ThemeName {
-  try { const s = localStorage.getItem('brains_theme') as ThemeName; if (s === 'vegas' || s === 'fire') return s; } catch {} return 'vegas';
+  try { const s = localStorage.getItem('brains_theme') as ThemeName; if (s === 'vegas' || s === 'fire' || s === 'v2') return s; } catch {} return 'v2';
+}
+
+// Force-set a theme — called by V2 pages on mount to override stored preference
+export function forceTheme(n: ThemeName) {
+  _currentTheme = n;
+  try { localStorage.setItem('brains_theme', n); } catch {}
+  _listeners.forEach(fn => fn(n));
 }
 
 // ═══════════════════════════════════════════════

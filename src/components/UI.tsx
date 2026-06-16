@@ -251,7 +251,7 @@ export const TopBar: FC = () => {
 
         {/* X1.CITY — external link to the open-world city site */}
         <a className="tb-hide-mobile tb-hide-narrow"
-          href="https://x1.city" target="_blank" rel="noopener noreferrer"
+          href="https://x1city.io" target="_blank" rel="noopener noreferrer"
           style={{
             background: 'rgba(0,212,255,0.06)',
             border: '1px solid rgba(0,212,255,0.25)',
@@ -413,7 +413,7 @@ export const TopBar: FC = () => {
 
               {/* X1.CITY — external open-world city site */}
               <a
-                href="https://x1.city" target="_blank" rel="noopener noreferrer"
+                href="https://x1city.io" target="_blank" rel="noopener noreferrer"
                 onClick={() => setNavOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s', textDecoration: 'none' }}
                 onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(0,212,255,0.1)'; }}
@@ -746,7 +746,7 @@ export const Footer: FC = () => (
     {/* ── External links ─────────────────────────────────────────────── */}
     <div style={{ display: 'flex', justifyContent: 'center', gap: 24, flexWrap: 'wrap' }}>
       {[
-        { label: 'X1.City',   href: 'https://x1.city' },
+        { label: 'X1.City',   href: 'https://x1city.io' },
         { label: 'X1.Ninja',  href: 'https://x1.ninja' },
         { label: 'X1 Brains', href: 'https://x1brains.xyz' },
         { label: 'XDex',      href: 'https://app.xdex.xyz' },

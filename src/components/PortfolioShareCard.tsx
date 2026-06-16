@@ -7,7 +7,7 @@
 // • Privacy: blur amounts, anon mode
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { FC, useState, useCallback, useMemo } from 'react';
+import React, { FC, useState, useCallback, useMemo, useEffect } from 'react';
 import { BRAINS_LOGO } from '../constants';
 import type { PortfolioSnapshot, SnapshotToken } from '../lib/supabase';
 
@@ -36,7 +36,7 @@ const BRAINS_LOGO_B64 = 'data:image/jpeg;base64,/9j/4QAYRXhpZgAASUkqAAgAAAAAAAAA
       font-size:8px; font-weight:700; letter-spacing:1.5px; transition:all .2s; border:1px solid;
     }
     .psc-off { background:rgba(255,255,255,.04); border-color:rgba(255,255,255,.1); color:#4a6070; }
-    .psc-on  { background:rgba(0,212,255,.12);   border-color:rgba(0,212,255,.35);  color:#00d4ff; }
+    .psc-on  { background:rgba(0,212,255,.12);   border-color:rgba(0,212,255,.35);  color:#00cfc6; }
     .psc-share {
       display:flex; align-items:center; gap:7px; padding:10px 16px; border-radius:10px;
       cursor:pointer; font-family:'Orbitron',monospace; font-size:9px; font-weight:700;
@@ -87,7 +87,7 @@ const fmtPts  = (n: number) =>
 const shortAddr = (a: string) => `${a.slice(0,5)}…${a.slice(-4)}`;
 const todayStr  = () => new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
 
-const COLORS = ['#ff8c00','#00d4ff','#bf5af2'];
+const COLORS = ['#ff8c00','#00cfc6','#00c98d']; // v2 duotone: orange · teal · green
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 export interface PortfolioShareCardProps {
@@ -98,18 +98,49 @@ export interface PortfolioShareCardProps {
   burnedTotal:    number;
   labWorkPts:     number;
   isMobile:       boolean;
+  /** Controlled mode — when set, renders as a modal (no inline trigger) driven by the parent. */
+  controlledOpen?: boolean;
+  onClose?:        () => void;
 }
 
 type ExportFormat = 'png' | 'jpeg' | 'svg';
+
+// ─── Logo → data-URI resolver ────────────────────────────────────────────────
+// SVG rasterized to <canvas> taints the canvas if it references a cross-origin
+// <image href="https://…">, so toDataURL()/toBlob() throws. To embed real token
+// logos we must inline them as base64 first. Already-inline data: URIs pass
+// straight through; http(s) URLs are fetched (R2 / Arweave serve ACAO:*) and
+// converted. Failures resolve to null so the row falls back to a rank badge.
+const _logoDataCache = new Map<string, string | null>();
+async function logoToDataURL(url?: string): Promise<string | null> {
+  if (!url) return null;
+  if (url.startsWith('data:')) return url;
+  if (_logoDataCache.has(url)) return _logoDataCache.get(url)!;
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (!res.ok) { _logoDataCache.set(url, null); return null; }
+    const blob = await res.blob();
+    if (!blob.type.startsWith('image/')) { _logoDataCache.set(url, null); return null; }
+    const data = await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload  = () => resolve(fr.result as string);
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    });
+    _logoDataCache.set(url, data);
+    return data;
+  } catch { _logoDataCache.set(url, null); return null; }
+}
 
 // ─── SVG CARD BUILDER — always works, no CORS issues ─────────────────────────
 function buildSVGCard(opts: {
   totalUSD: number | null; change24h: number | null; change24hUSD: number | null;
   topHoldings: (SnapshotToken & { pct: number })[]; burnPts: number;
   burnTier: typeof TIERS[0]; walletAddr: string | null;
-  blurAmounts: boolean; anonMode: boolean;
+  blurAmounts: boolean; anonMode: boolean; series: number[];
+  logoData: Record<string, string>;
 }): string {
-  const { totalUSD, change24h, change24hUSD, topHoldings, burnPts, burnTier, walletAddr, blurAmounts, anonMode } = opts;
+  const { totalUSD, change24h, change24hUSD, topHoldings, burnPts, burnTier, walletAddr, blurAmounts, anonMode, series, logoData } = opts;
   const W = 840;
   const isUp   = (change24h ?? 0) >= 0;
   const chgClr = isUp ? '#00c98d' : '#ff4466';
@@ -134,6 +165,12 @@ function buildSVGCard(opts: {
   const valueY      = y + VALUE_TOP;
   y = valueY + VALUE_H;
 
+  // Mini net-worth chart (only when we have ≥2 history points)
+  const hasChart  = series.length >= 2;
+  const CHART_H   = hasChart ? 104 : 0;   // label + plot area
+  const chartTopY = y + (hasChart ? 20 : 0);
+  y = hasChart ? chartTopY + CHART_H : y;
+
   const holdingsDivY = y + SECTION_GAP;
   const holdingsLabelY = holdingsDivY + DIVIDER_H;
   const holdingsStartY = holdingsLabelY + 18;  // first row center
@@ -151,31 +188,74 @@ function buildSVGCard(opts: {
   const holdingRows = topHoldings.slice(0,3).map((t, i) => {
     const rowY = holdingsStartY + i * HOLDING_ROW_H;
     const barW = Math.min(t.pct / 100 * 400, 400);
+    const logo = logoData[t.mint];
+    // Real logo (inlined as data-URI) clipped into a circle; else a rank badge.
+    const icon = logo
+      ? `<clipPath id="hc${i}"><circle cx="52" cy="${rowY}" r="12"/></clipPath>
+    <circle cx="52" cy="${rowY}" r="12.5" fill="#0a0e15" stroke="${COLORS[i]}55" stroke-width="1"/>
+    <image href="${logo}" x="40" y="${rowY-12}" width="24" height="24" clip-path="url(#hc${i})" preserveAspectRatio="xMidYMid slice"/>`
+      : `<circle cx="52" cy="${rowY}" r="11" fill="${COLORS[i]}18" stroke="${COLORS[i]}40" stroke-width="1"/>
+    <text x="52" y="${rowY+4}" text-anchor="middle" fill="${COLORS[i]}" font-family="monospace" font-size="9" font-weight="700">${i+1}</text>`;
     return `
-    <circle cx="52" cy="${rowY}" r="11" fill="${COLORS[i]}18" stroke="${COLORS[i]}40" stroke-width="1"/>
-    <text x="52" y="${rowY+4}" text-anchor="middle" fill="${COLORS[i]}" font-family="monospace" font-size="9" font-weight="700">${i+1}</text>
+    ${icon}
     <text x="74" y="${rowY+5}" fill="${COLORS[i]}" font-family="monospace" font-size="13" font-weight="700">${t.symbol}</text>
     <rect x="148" y="${rowY-4}" width="${barW}" height="4" rx="2" fill="${COLORS[i]}" opacity="0.75"/>
     <text x="${W-32}" y="${rowY+5}" text-anchor="end" fill="#e0e8f0" font-family="monospace" font-size="12" font-weight="700">${blurAmounts ? '••••' : fmtUSD(t.usd)}</text>
     <text x="${W-32}" y="${rowY+18}" text-anchor="end" fill="#a0b8cc" font-family="monospace" font-size="11">${t.pct.toFixed(1)}%</text>`;
   }).join('');
 
+  // ── Net-worth mini chart ──────────────────────────────────────────────────
+  let chartSvg = '';
+  if (hasChart) {
+    const cx0 = 36, cx1 = W - 36;
+    const cyTop = chartTopY + 12, cyBot = chartTopY + CHART_H - 10;
+    const min = Math.min(...series), max = Math.max(...series), rng = (max - min) || (max * 0.01) || 1;
+    const pts = series.map((v, i) => [
+      cx0 + (cx1 - cx0) * (series.length > 1 ? i / (series.length - 1) : 0),
+      cyBot - (cyBot - cyTop) * ((v - min) / rng),
+    ] as [number, number]);
+    const line = 'M' + pts.map(p => `${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' L');
+    const area = `${line} L${cx1.toFixed(1)} ${cyBot.toFixed(1)} L${cx0.toFixed(1)} ${cyBot.toFixed(1)} Z`;
+    const up = series[series.length - 1] >= series[0];
+    const clr = up ? '#00c98d' : '#ff4466';
+    const last = pts[pts.length - 1];
+    chartSvg = `
+    <text x="32" y="${chartTopY}" fill="#a0b8cc" font-family="monospace" font-size="11" letter-spacing="3">NET WORTH · ${series.length}D</text>
+    <path d="${area}" fill="${clr}" opacity="0.10"/>
+    <path d="${line}" fill="none" stroke="${clr}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="3.5" fill="${clr}"/>`;
+  }
+
+  // ── 24h change pill — sized to its content so % / $ / "24h" all sit INSIDE ──
+  const arrowCh   = isUp ? '▲' : '▼';
+  const pctStr    = blurAmounts ? '••%' : fmtPct(change24h);
+  const usdStr    = change24hUSD !== null ? `(${(isUp ? '+' : '') + (blurAmounts ? '••••' : fmtUSD(change24hUSD))})` : '';
+  const CW        = 7.6;          // generous monospace advance (canvas renders wide)
+  const PILL_X    = 32, PILL_PAD = 16, GAP = 9;
+  const xArrow    = PILL_X + PILL_PAD;
+  const xPct      = xArrow + 16;
+  const xUsd      = xPct + pctStr.length * CW + GAP;
+  const xLab      = xUsd + (usdStr ? usdStr.length * CW + GAP : 0);
+  const pillW     = Math.round(xLab + 3 * CW + PILL_PAD - PILL_X);
+  const pillFill  = isUp ? 'rgba(0,201,141,0.10)' : 'rgba(255,68,102,0.10)';
+  const pillStroke = isUp ? 'rgba(0,201,141,0.28)' : 'rgba(255,68,102,0.28)';
+
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <defs>
     <linearGradient id="topBar" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%"   stop-color="#ff4400"/>
-      <stop offset="25%"  stop-color="#ff8c00"/>
-      <stop offset="50%"  stop-color="#ffb700"/>
-      <stop offset="75%"  stop-color="#00d4ff"/>
-      <stop offset="100%" stop-color="#bf5af2"/>
+      <stop offset="0%"   stop-color="#ff8c00"/>
+      <stop offset="100%" stop-color="#00cfc6"/>
     </linearGradient>
     <linearGradient id="botBar" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%"   stop-color="#bf5af2"/>
-      <stop offset="25%"  stop-color="#00d4ff"/>
-      <stop offset="50%"  stop-color="#ffb700"/>
-      <stop offset="75%"  stop-color="#ff8c00"/>
-      <stop offset="100%" stop-color="#ff4400"/>
+      <stop offset="0%"   stop-color="#00cfc6"/>
+      <stop offset="100%" stop-color="#ff8c00"/>
     </linearGradient>
+    <radialGradient id="glowO" cx="0" cy="0" r="0.7">
+      <stop offset="0%" stop-color="#ff8c00" stop-opacity="0.14"/><stop offset="100%" stop-color="#ff8c00" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowT" cx="1" cy="0" r="0.7">
+      <stop offset="0%" stop-color="#00cfc6" stop-opacity="0.14"/><stop offset="100%" stop-color="#00cfc6" stop-opacity="0"/>
+    </radialGradient>
     <linearGradient id="valGrad" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%"   stop-color="#ffffff"/>
       <stop offset="100%" stop-color="#c0d8e8"/>
@@ -185,10 +265,14 @@ function buildSVGCard(opts: {
     </pattern>
     <clipPath id="logoClip"><circle cx="58" cy="60" r="24"/></clipPath>
     <clipPath id="footClip"><circle cx="44" cy="${footerY+28}" r="13"/></clipPath>
+    <clipPath id="cardClip"><rect width="${W}" height="${H}" rx="20"/></clipPath>
   </defs>
 
-  <rect width="${W}" height="${H}" rx="20" fill="#07090f"/>
+  <rect width="${W}" height="${H}" rx="20" fill="#0a0e15"/>
+  <rect width="${W}" height="${H}" rx="20" fill="url(#glowO)"/>
+  <rect width="${W}" height="${H}" rx="20" fill="url(#glowT)"/>
   <rect width="${W}" height="${H}" rx="20" fill="url(#grid)"/>
+  <rect x="0.5" y="0.5" width="${W-1}" height="${H-1}" rx="20" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
 
   <!-- Corner marks -->
   <path d="M18 36 L18 18 L36 18"                           fill="none" stroke="rgba(255,140,0,0.4)" stroke-width="1"/>
@@ -196,15 +280,17 @@ function buildSVGCard(opts: {
   <path d="M18 ${H-36} L18 ${H-18} L36 ${H-18}"           fill="none" stroke="rgba(0,212,255,0.3)" stroke-width="1"/>
   <path d="M${W-36} ${H-18} L${W-18} ${H-18} L${W-18} ${H-36}" fill="none" stroke="rgba(0,212,255,0.3)" stroke-width="1"/>
 
-  <rect x="0" y="0"     width="${W}" height="4" rx="2" fill="url(#topBar)"/>
-  <rect x="0" y="${H-3}" width="${W}" height="3"        fill="url(#botBar)"/>
+  <g clip-path="url(#cardClip)">
+    <rect x="0" y="0"     width="${W}" height="4" fill="url(#topBar)"/>
+    <rect x="0" y="${H-3}" width="${W}" height="3" fill="url(#botBar)"/>
+  </g>
 
   <!-- Header -->
   <circle cx="58" cy="60" r="30" fill="none" stroke="url(#topBar)" stroke-width="2.5"/>
   <circle cx="58" cy="60" r="24" fill="#1a0e00"/>
   <image href="${BRAINS_LOGO_B64}" x="34" y="36" width="48" height="48" clip-path="url(#logoClip)" preserveAspectRatio="xMidYMid slice"/>
   <text x="98" y="53" fill="#ff8c00" font-family="monospace" font-size="16" font-weight="900" letter-spacing="2">X1 BRAINS</text>
-  <text x="98" y="70" fill="#7a98b4" font-family="monospace" font-size="11" letter-spacing="2">PORTFOLIO TRACKER · X1 BLOCKCHAIN</text>
+  <text x="98" y="70" fill="#7a98b4" font-family="monospace" font-size="11" letter-spacing="2">LabWork · X1City · X1B</text>
   <rect x="${W-190}" y="42" width="170" height="26" rx="13" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" stroke-width="0.5"/>
   <text x="${W-105}" y="59" text-anchor="middle" fill="#a0b8cc" font-family="monospace" font-size="11" letter-spacing="1">${anonMode ? '🕶 ' : ''}${addr}</text>
   <line x1="24" y1="92" x2="${W-24}" y2="92" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
@@ -214,12 +300,15 @@ function buildSVGCard(opts: {
   <text x="32" y="${valueY+64}" fill="url(#valGrad)" font-family="monospace" font-size="52" font-weight="900">${blurAmounts ? '••••' : (totalUSD !== null ? fmtUSD(totalUSD) : '—')}</text>
 
   ${change24h !== null ? `
-  <rect x="32" y="${valueY+72}" width="230" height="27" rx="13.5" fill="${isUp ? 'rgba(0,201,141,0.1)' : 'rgba(255,68,102,0.1)'}" stroke="${isUp ? 'rgba(0,201,141,0.25)' : 'rgba(255,68,102,0.25)'}" stroke-width="0.5"/>
-  <text x="50"  y="${valueY+90}" fill="${chgClr}" font-family="monospace" font-size="10">${isUp ? '▲' : '▼'}</text>
-  <text x="66"  y="${valueY+90}" fill="${chgClr}" font-family="monospace" font-size="12" font-weight="700">${blurAmounts ? '••%' : fmtPct(change24h)}</text>
-  ${change24hUSD !== null ? `<text x="152" y="${valueY+90}" fill="${chgClr}" font-family="monospace" font-size="11" opacity="0.75">(${blurAmounts ? '••••' : ((isUp?'+':'')+fmtUSD(change24hUSD))})</text>` : ''}
-  <text x="240" y="${valueY+90}" fill="#a0b8cc" font-family="monospace" font-size="11">24h</text>
+  <rect x="${PILL_X}" y="${valueY+72}" width="${pillW}" height="27" rx="13.5" fill="${pillFill}" stroke="${pillStroke}" stroke-width="0.5"/>
+  <text x="${xArrow}" y="${valueY+90}" fill="${chgClr}" font-family="monospace" font-size="10">${arrowCh}</text>
+  <text x="${xPct}" y="${valueY+90}" fill="${chgClr}" font-family="monospace" font-size="12" font-weight="700">${pctStr}</text>
+  ${usdStr ? `<text x="${xUsd}" y="${valueY+90}" fill="${chgClr}" font-family="monospace" font-size="11" opacity="0.75">${usdStr}</text>` : ''}
+  <text x="${xLab}" y="${valueY+90}" fill="#a0b8cc" font-family="monospace" font-size="11">24h</text>
   ` : ''}
+
+  <!-- Net-worth chart -->
+  ${chartSvg}
 
   <!-- Holdings -->
   <line x1="24" y1="${holdingsDivY}" x2="${W-24}" y2="${holdingsDivY}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
@@ -359,7 +448,7 @@ const FormatPicker: FC<{
   const isContextual = forX || forTelegram;
   const platform     = forTelegram ? 'Telegram' : 'X';
   const formats: { fmt: ExportFormat; icon: string; label: string; desc: string; color: string; bg: string; border: string }[] = [
-    { fmt:'png',  icon:'🖼️', label:'PNG',  desc:'Best quality\nTransparent bg',  color:'#00d4ff', bg:'rgba(0,212,255,.06)',  border:'rgba(0,212,255,.25)'  },
+    { fmt:'png',  icon:'🖼️', label:'PNG',  desc:'Best quality\nTransparent bg',  color:'#00cfc6', bg:'rgba(0,212,255,.06)',  border:'rgba(0,212,255,.25)'  },
     { fmt:'jpeg', icon:'📸', label:'JPEG', desc:'Smaller file\nGreat for socials', color:'#00c98d', bg:'rgba(0,201,141,.06)',  border:'rgba(0,201,141,.25)'  },
     { fmt:'svg',  icon:'✏️', label:'SVG',  desc:'Always works\nScale to any size', color:'#bf5af2', bg:'rgba(191,90,242,.06)', border:'rgba(191,90,242,.25)' },
   ];
@@ -376,7 +465,7 @@ const FormatPicker: FC<{
         style={{ background:'linear-gradient(145deg,#0d1520,#0a1018)', border:'1px solid rgba(255,140,0,.2)', borderRadius:18, padding:'24px', maxWidth:440, width:'100%', animation:'psc-modal-in .25s ease both', position:'relative' }}
       >
         {/* Top accent */}
-        <div style={{ position:'absolute', top:0, left:0, right:0, height:2, background:'linear-gradient(90deg,#ff4400,#ff8c00,#ffb700,#00d4ff,#bf5af2)', borderRadius:'18px 18px 0 0' }} />
+        <div style={{ position:'absolute', top:0, left:0, right:0, height:2, background:'linear-gradient(90deg,#ff8c00,#00cfc6)', borderRadius:'18px 18px 0 0' }} />
 
         {/* Header */}
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
@@ -472,13 +561,13 @@ const CardCanvas: FC<{
       ))}
 
       {/* Chromatic top bar */}
-      <div style={{ height:3, background:'linear-gradient(90deg,#ff4400,#ff8c00,#ffb700,#00d4ff,#bf5af2)', position:'relative', zIndex:3 }} />
+      <div style={{ height:3, background:'linear-gradient(90deg,#ff8c00,#00cfc6)', position:'relative', zIndex:3 }} />
 
       {/* Header */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px 12px', position:'relative', zIndex:2, borderBottom:'1px solid rgba(255,255,255,.04)', background:'linear-gradient(180deg,rgba(255,140,0,.04) 0%,transparent 100%)' }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <div style={{ position:'relative', width:38, height:38, flexShrink:0 }}>
-            <div style={{ position:'absolute', inset:-3, borderRadius:'50%', background:'conic-gradient(from 0deg,#ff8c00,#ffb700,#00d4ff,#bf5af2,#ff8c00)', animation:'psc-spin 6s linear infinite' }} />
+            <div style={{ position:'absolute', inset:-3, borderRadius:'50%', background:'conic-gradient(from 0deg,#ff8c00,#00cfc6,#ff8c00)', animation:'psc-spin 6s linear infinite' }} />
             <div style={{ position:'absolute', inset:2, borderRadius:'50%', background:'#07090f', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
               <img src={BRAINS_LOGO} alt="X1 Brains" style={{ width:'100%', height:'100%', borderRadius:'50%', objectFit:'cover' }}
                 onError={e => { const img = e.currentTarget as HTMLImageElement; img.style.display='none'; (img.nextElementSibling as HTMLElement|null)?.style && ((img.nextElementSibling as HTMLElement).style.display='flex'); }} />
@@ -487,7 +576,7 @@ const CardCanvas: FC<{
           </div>
           <div>
             <div style={{ fontSize:13, fontWeight:900, color:'#ff8c00', letterSpacing:2, lineHeight:1 }}>X1 BRAINS</div>
-            <div style={{ fontSize:6, color:'#4a6070', letterSpacing:3, marginTop:2 }}>PORTFOLIO TRACKER · X1 BLOCKCHAIN</div>
+            <div style={{ fontSize:6, color:'#4a6070', letterSpacing:3, marginTop:2 }}>LabWork · X1City · X1B</div>
           </div>
         </div>
         <div style={{ fontSize:7, letterSpacing:1, padding:'5px 10px', borderRadius:20, ...(anonMode ? { color:'#bf5af2', background:'rgba(191,90,242,.08)', border:'1px solid rgba(191,90,242,.2)' } : { color:'#4a6070', background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.07)' }) }}>
@@ -519,7 +608,14 @@ const CardCanvas: FC<{
           <div style={{ fontSize:7, color:'#3a5060', letterSpacing:3, marginBottom:10 }}>TOP HOLDINGS</div>
           {topHoldings.map((t,i) => (
             <div key={t.mint} style={{ display:'flex', alignItems:'center', gap:9, marginBottom:8 }}>
-              <div style={{ width:18, height:18, borderRadius:'50%', flexShrink:0, background:`${COLORS[i]}12`, border:`1px solid ${COLORS[i]}30`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:7, fontWeight:700, color:COLORS[i] }}>{i+1}</div>
+              {t.logo ? (
+                <div style={{ width:18, height:18, borderRadius:'50%', flexShrink:0, overflow:'hidden', background:'#0a0e15', border:`1px solid ${COLORS[i]}55` }}>
+                  <img src={t.logo} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}
+                    onError={e => { const el = e.currentTarget as HTMLImageElement; el.style.display='none'; }} />
+                </div>
+              ) : (
+                <div style={{ width:18, height:18, borderRadius:'50%', flexShrink:0, background:`${COLORS[i]}12`, border:`1px solid ${COLORS[i]}30`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:7, fontWeight:700, color:COLORS[i] }}>{i+1}</div>
+              )}
               <div style={{ fontSize:10, fontWeight:700, color:COLORS[i], width:58, flexShrink:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.symbol}</div>
               <div style={{ flex:1, height:3, background:'rgba(255,255,255,.05)', borderRadius:2, overflow:'hidden' }}>
                 <div style={{ height:'100%', width:`${Math.min(t.pct,100)}%`, background:`linear-gradient(90deg,${COLORS[i]}50,${COLORS[i]})`, borderRadius:2 }} />
@@ -575,7 +671,7 @@ const CardCanvas: FC<{
       </div>
 
       {/* Chromatic bottom bar */}
-      <div style={{ height:2, background:'linear-gradient(90deg,#bf5af2,#00d4ff,#ffb700,#ff8c00,#ff4400)', position:'relative', zIndex:3 }} />
+      <div style={{ height:2, background:'linear-gradient(90deg,#00cfc6,#ff8c00)', position:'relative', zIndex:3 }} />
     </div>
   );
 };
@@ -592,8 +688,15 @@ const ShareBtn: FC<{ icon: string; label: string; color: string; bg: string; bor
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
   totalUSD, snapshotTokens, snapshots, walletAddress, burnedTotal, labWorkPts, isMobile,
+  controlledOpen, onClose,
 }) => {
-  const [open,        setOpen]        = useState(false);
+  // Controlled mode: a parent (e.g. a top "Snapshot" button) drives open/close and
+  // we render as a centered modal with NO inline trigger panel. Uncontrolled mode
+  // keeps the legacy inline expandable card.
+  const isCtrl = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = isCtrl ? !!controlledOpen : internalOpen;
+  const setOpen = (v: boolean) => { if (isCtrl) { if (!v) onClose?.(); } else setInternalOpen(v); };
   const [blurAmounts, setBlurAmounts] = useState(false);
   const [anonMode,    setAnonMode]    = useState(false);
   const [busy,        setBusy]        = useState(false);
@@ -607,6 +710,25 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
       .map(t => ({ ...t, pct: totalUSD && totalUSD > 0 ? (t.usd / totalUSD) * 100 : 0 })),
     [snapshotTokens, totalUSD]);
 
+  // Inline the top-3 logos as data-URIs so the exported (canvas-rasterized)
+  // card can embed them without tainting the canvas. Live preview uses the raw
+  // URL directly; only the export path needs the base64 version.
+  const [logoData, setLogoData] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    (async () => {
+      const pairs = await Promise.all(
+        topHoldings.map(async t => [t.mint, await logoToDataURL(t.logo)] as const),
+      );
+      if (!alive) return;
+      const next: Record<string, string> = {};
+      for (const [mint, data] of pairs) if (data) next[mint] = data;
+      setLogoData(next);
+    })();
+    return () => { alive = false; };
+  }, [open, topHoldings]);
+
   const { change24h, change24hUSD } = useMemo(() => {
     if (snapshots.length < 2 || !totalUSD) return { change24h:null, change24hUSD:null };
     const d = new Date(); d.setDate(d.getDate() - 1);
@@ -615,6 +737,13 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
     if (!ydSnap) return { change24h:null, change24hUSD:null };
     const diff = totalUSD - ydSnap.total_usd;
     return { change24h: ydSnap.total_usd > 0 ? (diff/ydSnap.total_usd)*100 : 0, change24hUSD: diff };
+  }, [snapshots, totalUSD]);
+
+  // Net-worth series for the mini chart on the card (history + current point).
+  const chartSeries = useMemo<number[]>(() => {
+    const s = [...snapshots].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date)).map(x => x.total_usd).filter(v => v >= 0);
+    if (totalUSD != null && totalUSD > 0 && (s.length === 0 || Math.abs(s[s.length - 1] - totalUSD) > 0.01)) s.push(totalUSD);
+    return s;
   }, [snapshots, totalUSD]);
 
   const burnPts  = useMemo(() => Math.floor(burnedTotal * 1.888) + labWorkPts, [burnedTotal, labWorkPts]);
@@ -678,9 +807,18 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
     const isForTg   = picker === 'telegram';
 
     try {
+      // Guarantee logos are inlined even if the open-effect hasn't settled yet
+      // (cache makes this instant on repeat).
+      const freshLogos: Record<string, string> = { ...logoData };
+      await Promise.all(topHoldings.map(async t => {
+        if (freshLogos[t.mint]) return;
+        const d = await logoToDataURL(t.logo);
+        if (d) freshLogos[t.mint] = d;
+      }));
       const svgString = buildSVGCard({
         totalUSD, change24h, change24hUSD, topHoldings, burnPts, burnTier,
-        walletAddr: walletAddress, blurAmounts, anonMode,
+        walletAddr: walletAddress, blurAmounts, anonMode, series: chartSeries,
+        logoData: freshLogos,
       });
 
       if (fmt === 'svg') {
@@ -747,7 +885,12 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
   const CARD_W = isMobile ? Math.min(340, typeof window !== 'undefined' ? window.innerWidth - 48 : 340) : 420;
 
   return (
-    <div style={{ marginBottom:24, animation:'psc-in .35s ease both' }}>
+    <div
+      style={ isCtrl
+        ? { position:'fixed', inset:0, zIndex:99997, background:'rgba(0,0,0,.78)', backdropFilter:'blur(6px)', display: open ? 'flex' : 'none', alignItems:'flex-start', justifyContent:'center', padding:'24px 16px', overflowY:'auto' }
+        : { marginBottom:24, animation:'psc-in .35s ease both' } }
+      onClick={ isCtrl ? (e) => { if (e.target === e.currentTarget && !busy) setOpen(false); } : undefined }
+    >
 
       {/* ── FORMAT PICKER MODAL ── */}
       {picker && (
@@ -765,17 +908,17 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
         />
       )}
 
-      {/* ── COLLAPSED TRIGGER ── */}
-      {!open && (
+      {/* ── COLLAPSED TRIGGER (inline mode only) ── */}
+      {!isCtrl && !open && (
         <button
           onClick={() => setOpen(true)}
           style={{ width:'100%', padding:0, border:'none', cursor:'pointer', background:'transparent', position:'relative' }}
         >
           {/* Animated chromatic border */}
-          <div style={{ position:'absolute', inset:-1, borderRadius:14, background:'linear-gradient(135deg,#ff8c00,#ffb700,#00d4ff,#bf5af2,#ff8c00)', backgroundSize:'300% 300%', animation:'psc-btn-border 4s linear infinite', zIndex:0 }} />
+          <div style={{ position:'absolute', inset:-1, borderRadius:14, background:'linear-gradient(135deg,#ff8c00,#00cfc6,#ff8c00)', backgroundSize:'300% 300%', animation:'psc-btn-border 4s linear infinite', zIndex:0 }} />
           {/* Inner panel */}
           <div style={{ position:'relative', zIndex:1, margin:1.5, borderRadius:13, background:'linear-gradient(135deg,#0d1520 0%,#111a28 50%,#0a1018 100%)', padding:'14px 20px', display:'flex', alignItems:'center', gap:12, transition:'background .2s' }}>
-            <span style={{ fontSize:22, flexShrink:0 }}>📊</span>
+            <span style={{ fontSize:22, flexShrink:0, color:'#ff8c00' }}>⊞</span>
             <div style={{ textAlign:'left', flex:1 }}>
               <div style={{ fontFamily:'Orbitron,monospace', fontSize:isMobile?11:13, fontWeight:900, color:'#e0e8f0', letterSpacing:2, lineHeight:1.2 }}>
                 SHARE PORTFOLIO CARD
@@ -792,13 +935,15 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
         </button>
       )}
 
-      {/* ── EXPANDED PANEL ── */}
+      {/* ── EXPANDED PANEL (inline, or centered modal box when controlled) ── */}
       {open && (
-        <div style={{ background:'linear-gradient(135deg,#0d1520,#0a1018)', border:'1px solid rgba(255,140,0,.15)', borderRadius:16, overflow:'hidden', animation:'psc-in .3s ease both' }}>
+        <div
+          onClick={ isCtrl ? (e) => e.stopPropagation() : undefined }
+          style={{ background:'linear-gradient(135deg,#0d1520,#0a1018)', border:'1px solid rgba(255,140,0,.15)', borderRadius:16, overflow:'hidden', animation:'psc-in .3s ease both', ...(isCtrl ? { width:'100%', maxWidth:480, alignSelf:'flex-start' } : {}) }}>
 
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:isMobile?'14px':'16px 22px', borderBottom:'1px solid rgba(255,255,255,.05)', background:'rgba(255,255,255,.02)' }}>
             <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-              <span style={{ fontSize:16 }}>📊</span>
+              <span style={{ fontSize:16, color:'#ff8c00' }}>⊞</span>
               <span style={{ fontFamily:'Orbitron,monospace', fontSize:isMobile?10:12, fontWeight:700, color:'#e0e8f0', letterSpacing:2 }}>SHARE PORTFOLIO CARD</span>
             </div>
             <button onClick={() => setOpen(false)} style={{ background:'none', border:'none', color:'#4a6070', cursor:'pointer', fontSize:20, lineHeight:1, padding:4 }}>×</button>
@@ -838,7 +983,7 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
             <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:12 }}>
               {/* POST TO X — opens format picker (which has skip image option inside) */}
               <ShareBtn icon="𝕏"  label="POST TO X"   color="#e0e8f0" bg="rgba(255,255,255,.06)" border="rgba(255,255,255,.15)" onClick={() => setPicker('x')} />
-              <ShareBtn icon="✈️" label="TELEGRAM"    color="#00d4ff" bg="rgba(0,212,255,.06)"   border="rgba(0,212,255,.2)"    onClick={() => setPicker('telegram')} />
+              <ShareBtn icon="✈️" label="TELEGRAM"    color="#00cfc6" bg="rgba(0,212,255,.06)"   border="rgba(0,212,255,.2)"    onClick={() => setPicker('telegram')} />
               <ShareBtn icon="📋" label="COPY TEXT"   color="#bf5af2" bg="rgba(191,90,242,.06)"  border="rgba(191,90,242,.2)"   onClick={copyText} disabled={busy} />
               <ShareBtn icon="💾" label="SAVE IMAGE"  color="#ff8c00" bg="rgba(255,140,0,.06)"   border="rgba(255,140,0,.2)"    onClick={() => setPicker('save')} disabled={busy} />
             </div>

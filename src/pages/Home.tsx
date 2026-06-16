@@ -408,7 +408,7 @@ const Home: FC = () => {
 
           {/* ── X1.CITY — External: Open World Unreal Engine 5 ── */}
           <a
-            href="https://x1.city" target="_blank" rel="noopener noreferrer"
+            href="https://x1city.io" target="_blank" rel="noopener noreferrer"
             style={{
               position: 'relative',
               background: 'linear-gradient(135deg, #0d1520, #0a1018)',

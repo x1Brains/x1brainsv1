@@ -1,36 +1,42 @@
 {
-  "name": "x1-brains-app",
-  "version": "1.0.0",
+  "name": "x1brainsv2",
   "private": true,
-  "dependencies": {
-    "@coral-xyz/anchor": "^0.32.1",
-    "@solana/spl-token": "^0.4.14",
-    "@solana/wallet-adapter-base": "^0.9.23",
-    "@solana/wallet-adapter-react": "^0.15.35",
-    "@solana/wallet-adapter-react-ui": "^0.9.35",
-    "@solana/web3.js": "^1.91.1",
-    "@supabase/supabase-js": "^2.97.0",
-    "bs58": "^5.0.0",
-    "buffer": "^6.0.3",
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.22.0",
-    "tweetnacl": "^1.0.3",
-    "typescript": "^5.3.3",
-    "vite-plugin-node-polyfills": "^0.2.0"
-  },
-  "devDependencies": {
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
-    "@vercel/node": "^4.0.0",
-    "@vitejs/plugin-react": "^4.2.1",
-    "vite": "^6.4.1"
-  },
+  "version": "0.0.0",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "lint": "eslint .",
     "preview": "vite preview"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/spl-token": "^0.4.14",
+    "@solana/wallet-adapter-base": "^0.9.27",
+    "@solana/wallet-adapter-react": "^0.15.39",
+    "@solana/wallet-adapter-react-ui": "^0.9.39",
+    "@solana/web3.js": "^1.98.4",
+    "@supabase/supabase-js": "^2.97.0",
+    "bs58": "^5.0.0",
+    "buffer": "^6.0.3",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-router-dom": "^6.30.0",
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.12.3",
+    "@vercel/node": "^5.1.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.6.0",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.59.2",
+    "vite": "^7.3.3"
   }
 }

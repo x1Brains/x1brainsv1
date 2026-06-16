@@ -9,7 +9,7 @@
 //   - Network / RPC / blockhash issues
 //   - Unknown errors (fail safe — generic message + console log for devs)
 
-import { BRAINS_FARM_ERRORS, FarmErrorInfo } from './brainsFarmErrors';
+import { BRAINS_FARM_ERRORS, type FarmErrorInfo } from './brainsFarmErrors';
 
 export type ErrorSource = 'program' | 'wallet' | 'network' | 'unknown';
 

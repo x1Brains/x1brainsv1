@@ -8,30 +8,14 @@
 // Ed25519 signature over a structured message that commits to (action,
 // payloadHash, ts, nonce). The signed message's action and payloadHash must
 // match the request body — so a captured signature can't be replayed against
-// a different action or payload. The signing pubkey must equal ADMIN_WALLET.
+// a different action or payload. The signing pubkey must be in ADMIN_WALLETS.
 // Timestamps must fall within ±60s; nonces are tracked in-memory to block
 // replays within that window.
 //
-// Allowed actions (POST /api/admin):
-//   { action: 'award_lbp',          payload: { address, lb_points, reason, category, week_id } }
-//   { action: 'delete_lbp',         payload: { id } }
-//   { action: 'clear_all_lbp' }
-//   { action: 'save_weekly_config', payload: { ...config } }
-//   { action: 'add_challenge_log',  payload: { ...log } }
-//   { action: 'update_challenge_log', payload: { week_id, updates: {...} } }
-//   { action: 'delete_challenge_log', payload: { week_id } }
-//   { action: 'add_announcement',   payload: { title, message, type } }
-//   { action: 'delete_announcement', payload: { id } }
-//   { action: 'update_submission',  payload: { id, status, review_note } }
-//   { action: 'delete_submission',  payload: { id } }
-//   { action: 'clear_all_submissions' }
-//   { action: 'insert_submission',  payload: { address, category, links, description } }
-//   { action: 'insert_burn_event',  payload: { sig, wallet, amount, block_time } }
-//   { action: 'insert_announcement', payload: { title, body, category, pinned, created_at } }
-//   { action: 'insert_lbp_reward',  payload: { address, lb_points, reason, category, awarded_by, week_id } }
-//   { action: 'save_address',       payload: { owner_wallet, saved_wallet, nickname } }
-//   { action: 'delete_address',     payload: { id } }
-//   { action: 'get_addresses',      payload: { owner_wallet } }
+// v2 change: two-wallet allowlist instead of single ADMIN_WALLET.
+//   COUNCIL  — CnyGhzMuv5snBGxvShxsJMDnvHcXKwRtVVUpzGX3QAuG
+//   V1_ADMIN — 2nVaSvCqrsdskcbtn47uquNDL7Q69To1k45FpYBvWnuC
+// Override via env ADMIN_WALLETS=pk1,pk2,...
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -43,21 +27,32 @@ import { handleBotAction, isBotAction } from './_bot-actions';
 
 const SUPABASE_URL      = process.env.SUPABASE_URL      || '';
 const SUPABASE_SERVICE  = process.env.SUPABASE_SERVICE_KEY || '';
-const ADMIN_WALLET      = process.env.ADMIN_WALLET || '2nVaSvCqrsdskcbtn47uquNDL7Q69To1k45FpYBvWnuC';
 
-// Replay window — signed messages older/newer than this are rejected.
+// Dedicated bucket for v2 spotlight uploads — kept separate from the bot's
+// `bot-banners` bucket. Auto-created (public) on first upload.
+const SPOTLIGHT_BUCKET = 'v2-spotlight';
+async function ensureSpotlightBucket(sb: any) {
+  try {
+    const { data } = await sb.storage.getBucket(SPOTLIGHT_BUCKET);
+    if (data) return;
+  } catch {}
+  try { await sb.storage.createBucket(SPOTLIGHT_BUCKET, { public: true }); } catch {}
+}
+
+// Two-wallet allowlist. Keep in sync with src/lib/admin.ts on the frontend.
+const COUNCIL_WALLET  = 'CnyGhzMuv5snBGxvShxsJMDnvHcXKwRtVVUpzGX3QAuG';
+const V1_ADMIN_WALLET = '2nVaSvCqrsdskcbtn47uquNDL7Q69To1k45FpYBvWnuC';
+const ADMIN_WALLETS = new Set<string>(
+  (process.env.ADMIN_WALLETS || `${COUNCIL_WALLET},${V1_ADMIN_WALLET}`)
+    .split(',').map(w => w.trim()).filter(Boolean),
+);
+
 const SIG_MAX_SKEW_MS = 60_000;
 
-// In-memory nonce cache to block within-window replays. Bounded LRU; survives
-// cold starts only by the freshness check above (a cold-start nonce that was
-// already used will pass uniqueness but still has to fall within ±60s of now,
-// limiting damage to one-shot replay during the warm window).
 const SEEN_NONCES = new Map<string, number>();
 function rememberNonce(nonce: string, ts: number): boolean {
-  // returns true if nonce is fresh (not previously seen)
   if (SEEN_NONCES.has(nonce)) return false;
   SEEN_NONCES.set(nonce, ts);
-  // Evict anything older than the skew window
   if (SEEN_NONCES.size > 1024) {
     const cutoff = Date.now() - SIG_MAX_SKEW_MS;
     for (const [k, t] of SEEN_NONCES) {
@@ -72,9 +67,9 @@ function sha256Hex(s: string): string {
 }
 
 interface AdminAuth {
-  pubkey: string;       // base58 ed25519 pubkey
-  message: string;      // signed JSON: { action, payloadHash, ts, nonce }
-  signature: string;    // base58 ed25519 signature
+  pubkey: string;
+  message: string;
+  signature: string;
 }
 
 interface SignedMessage {
@@ -84,12 +79,6 @@ interface SignedMessage {
   nonce: string;
 }
 
-/**
- * Verify the signed admin auth blob. Returns null on success, error string
- * on failure. The signature must commit to (action, payloadHash, ts, nonce)
- * and the message's action/payloadHash must match the request body so a
- * captured signature for one action can't be replayed against another.
- */
 function verifyAdminAuth(
   auth: AdminAuth | undefined,
   bodyAction: string,
@@ -99,7 +88,7 @@ function verifyAdminAuth(
   if (typeof auth.pubkey !== 'string' || typeof auth.message !== 'string' || typeof auth.signature !== 'string') {
     return 'Malformed auth';
   }
-  if (auth.pubkey !== ADMIN_WALLET) return 'Unauthorized signer';
+  if (!ADMIN_WALLETS.has(auth.pubkey)) return 'Unauthorized signer';
 
   let pubBytes: Uint8Array;
   let sigBytes: Uint8Array;
@@ -128,11 +117,9 @@ function verifyAdminAuth(
     return 'Signed message missing fields';
   }
 
-  // Freshness — guards against signature replay outside a tight window.
   const skew = Math.abs(Date.now() - parsed.ts);
   if (skew > SIG_MAX_SKEW_MS) return 'Signed message expired';
 
-  // Body binding — signature commits to action + payload, not just identity.
   if (parsed.action !== bodyAction) return 'Action mismatch';
   const expectedHash = sha256Hex(JSON.stringify(bodyPayload ?? null));
   if (parsed.payloadHash !== expectedHash) return 'Payload hash mismatch';
@@ -150,8 +137,16 @@ function err(res: VercelResponse, msg: string, status = 400) {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS — only allow from x1brains.io
-  res.setHeader('Access-Control-Allow-Origin', 'https://x1brains.io');
+  // CORS — allow x1brains.io and any preview domain set via ALLOWED_ORIGINS env.
+  const origin = req.headers.origin || '';
+  const allowed = new Set(
+    (process.env.ALLOWED_ORIGINS || 'https://x1brains.io,https://www.x1brains.io')
+      .split(',').map(o => o.trim()).filter(Boolean),
+  );
+  if (allowed.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(204).end();
@@ -167,93 +162,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     auth?: AdminAuth;
   };
 
-  // Verify Ed25519-signed auth blob (pubkey, msg, signature). The signature
-  // commits to action + payload + timestamp + nonce so a captured signature
-  // can't be replayed against a different action or payload.
   const authErr = verifyAdminAuth(auth, action, payload);
   if (authErr) return err(res, authErr, 403);
 
+  const signer = auth!.pubkey; // verified above
   const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE);
 
-  // ── Bot actions (delegated to _bot-actions.ts) ──────────────
+  // ── Bot actions delegated to _bot-actions.ts ──────────────
   if (isBotAction(action)) {
-    const result = await handleBotAction(action, payload, ADMIN_WALLET);
+    const result = await handleBotAction(action, payload, signer);
     return res.status(result.success ? 200 : 400).json(result);
   }
 
   try {
     switch (action) {
-
-      // ── Lab Work Points ──────────────────────────────────────────
-      case 'award_lbp': {
-        const { address, lb_points, reason, category, week_id } = payload;
-        const { error } = await sb.from('labwork_rewards').insert({
-          address: address.trim(), lb_points, reason: reason.trim(),
-          category: category || 'other', awarded_by: 'admin', week_id: week_id || '',
-        });
-        if (error) return err(res, error.message);
-        return ok(res);
-      }
-
-      case 'delete_lbp': {
-        const { error } = await sb.from('labwork_rewards').delete().eq('id', payload.id);
-        if (error) return err(res, error.message);
-        return ok(res);
-      }
-
-      case 'clear_all_lbp': {
-        const { error } = await sb.from('labwork_rewards')
-          .delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        if (error) return err(res, error.message);
-        return ok(res);
-      }
-
-      // ── Weekly Config ────────────────────────────────────────────
-      case 'save_weekly_config': {
-        const config = payload;
-        const { error } = await sb.from('weekly_config').upsert({
-          id: 'current',
-          week_id: config.weekId ?? '', status: config.status ?? 'upcoming',
-          start_date: config.startDate || null, end_date: config.endDate || null,
-          challenges: config.challenges ?? [], prizes: config.prizes ?? [[], [], []],
-          winners: config.winners ?? [], send_receipts: config.sendReceipts ?? [],
-          section_confirmed: config.sectionConfirmed ?? {},
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'id' });
-        if (error) return err(res, error.message);
-        return ok(res);
-      }
-
-      // ── Challenge Logs ───────────────────────────────────────────
-      case 'add_challenge_log': {
-        const log = payload;
-        const { error } = await sb.from('challenge_logs').insert({
-          week_id: log.weekId ?? '', status: log.status ?? 'ended',
-          start_date: log.startDate || null, end_date: log.endDate || null,
-          stopped_at: log.stoppedAt || new Date().toISOString(),
-          challenges: log.challenges ?? [], prizes: log.prizes ?? [[], [], []],
-          winners: log.winners ?? [], send_receipts: log.sendReceipts ?? [],
-        });
-        if (error) return err(res, error.message);
-        return ok(res);
-      }
-
-      case 'update_challenge_log': {
-        const { week_id, updates } = payload;
-        const p: any = {};
-        if (updates.winners      !== undefined) p.winners       = updates.winners;
-        if (updates.sendReceipts !== undefined) p.send_receipts = updates.sendReceipts;
-        if (updates.status       !== undefined) p.status        = updates.status;
-        const { error } = await sb.from('challenge_logs').update(p).eq('week_id', week_id);
-        if (error) return err(res, error.message);
-        return ok(res);
-      }
-
-      case 'delete_challenge_log': {
-        const { error } = await sb.from('challenge_logs').delete().eq('week_id', payload.week_id);
-        if (error) return err(res, error.message);
-        return ok(res);
-      }
 
       // ── Announcements ────────────────────────────────────────────
       case 'add_announcement': {
@@ -317,12 +239,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return ok(res);
       }
 
-      case 'insert_lbp_reward': {
-        const { error } = await sb.from('labwork_rewards').insert(payload);
-        if (error) return err(res, error.message);
-        return ok(res);
-      }
-
       // ── Saved Addresses ──────────────────────────────────────────
       case 'save_address': {
         const { owner_wallet, saved_wallet, nickname } = payload;
@@ -359,6 +275,60 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .order('created_at', { ascending: false });
         if (error) return err(res, error.message);
         return ok(res, data);
+      }
+
+      // ── Spotlight carousel images ────────────────────────────────
+      case 'spotlight_upload': {
+        const { dataUrl, filename, link, caption } = payload || {};
+        if (!dataUrl) return err(res, 'Missing image data');
+        const m = /^data:(image\/[a-z+]+);base64,(.+)$/i.exec(dataUrl);
+        if (!m) return err(res, 'Invalid image data URL');
+        const mime  = m[1];
+        const bytes = Buffer.from(m[2], 'base64');
+        if (bytes.length > 5 * 1024 * 1024) return err(res, 'Image too large (max 5MB)');
+        const ext  = (String(filename || 'jpg').split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+        const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        await ensureSpotlightBucket(sb);
+        const up = await sb.storage.from(SPOTLIGHT_BUCKET).upload(path, bytes, {
+          contentType: mime, upsert: true, cacheControl: '3600',
+        });
+        if (up.error) return err(res, up.error.message);
+        const { data: urlData } = sb.storage.from(SPOTLIGHT_BUCKET).getPublicUrl(path);
+        const { data: row, error } = await sb.from('spotlight_images').insert({
+          image_url:    urlData.publicUrl,
+          storage_path: path,
+          link_url:     link || null,
+          caption:      caption || null,
+        }).select().single();
+        if (error) return err(res, error.message);
+        return ok(res, row);
+      }
+
+      case 'spotlight_list': {
+        const { data, error } = await sb.from('spotlight_images')
+          .select('*')
+          .order('sort_order', { ascending: true })
+          .order('created_at', { ascending: true });
+        if (error) return err(res, error.message);
+        return ok(res, data);
+      }
+
+      case 'spotlight_delete': {
+        const { id } = payload || {};
+        if (!id) return err(res, 'Missing id');
+        const { data: row } = await sb.from('spotlight_images').select('storage_path').eq('id', id).single();
+        if (row?.storage_path) { try { await sb.storage.from(SPOTLIGHT_BUCKET).remove([row.storage_path]); } catch {} }
+        const { error } = await sb.from('spotlight_images').delete().eq('id', id);
+        if (error) return err(res, error.message);
+        return ok(res);
+      }
+
+      case 'spotlight_set_active': {
+        const { id, active } = payload || {};
+        if (!id) return err(res, 'Missing id');
+        const { error } = await sb.from('spotlight_images').update({ active: !!active }).eq('id', id);
+        if (error) return err(res, error.message);
+        return ok(res);
       }
 
       default:

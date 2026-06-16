@@ -1,31 +1,20 @@
 // src/pages/LpFarms.tsx
-// Route: /lpfarms
-// X1 Brains LP Farms — stake LP tokens, earn rewards by lock tier.
-// Matches the visual language of PairingMarketplace / LabWorkDefi.
+// X1 Brains LP Farms — data + helper module (program constants, PDA derivations,
+// on-chain fetchers, APR math). The rendered page lives in V2LpPools.tsx
+// (route /lpfarms); this module only provides the named exports it consumes.
 
-import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
-import { createPortal } from 'react-dom';
-import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import {
-  PublicKey, Transaction, TransactionInstruction, SystemProgram,
-  LAMPORTS_PER_SOL, Connection,
-} from '@solana/web3.js';
-import {
-  TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  getAssociatedTokenAddressSync,
-  createAssociatedTokenAccountIdempotentInstruction,
-} from '@solana/spl-token';
-import { TopBar, PageBackground, Footer, NfaConsentModal } from '../components/UI';
-import { parseFarmError, UNKNOWN_ERROR_FALLBACK } from '../utils/parseError';
-import { resolveClaimTooSoon, formatDuration as fmtFriendlyDuration, type FarmErrorInfo } from '../utils/brainsFarmErrors';
+import { useState, useEffect } from 'react';
+import { PublicKey, Connection } from '@solana/web3.js';
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { BRAINS_LOGO, XNT_LOGO } from '../constants';
+import { getCachedTokenLogo } from '../lib/tokenLogos';
 
 // ═════════════════════════════════════════════════════════════════════════════
 // PROGRAM CONSTANTS — MIRROR brains_farm/src/constants.rs EXACTLY
 // ═════════════════════════════════════════════════════════════════════════════
 
 // TODO: Replace with actual deployed program id after first deploy
-const FARM_PROGRAM_ID = 'Ci1qDtdoSh8mCtJTVoX1tArbnLydQUZYu9RiqukRFJpg';
+export const FARM_PROGRAM_ID = 'Ci1qDtdoSh8mCtJTVoX1tArbnLydQUZYu9RiqukRFJpg';
 
 const BRAINS_MINT  = 'EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC1EHUBtPN';
 const LB_MINT      = 'Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6';
@@ -45,7 +34,7 @@ const POOL_BY_LP: Record<string, { pool: string; other: string }> = {
     other: LB_MINT,
   },
 };
-const TREASURY     = 'CAeTTU2zk2EjWLKVeg4zxYhHu7gba1oRN8NHEDjpK9XF';
+export const TREASURY     = 'CAeTTU2zk2EjWLKVeg4zxYhHu7gba1oRN8NHEDjpK9XF';
 
 // Pool addresses (from BRAINSFARMS.md) — used by seeding script to derive LP mint
 const BRAINS_XNT_POOL = '7deZorr98nLdZhpmSdUgu8WY4NAjSpeLDGxHzaTAxrUg';
@@ -55,16 +44,16 @@ const RPC       = 'https://rpc.mainnet.x1.xyz';
 const XDEX_BASE = '/api/xdex-price/api';
 
 // Lock config — three tiers, multipliers in bps
-const LOCK_TIERS = [
+export const LOCK_TIERS = [
   { id: 'locked30',  label: '30 DAYS',   days: 30,  multBps: 20_000, multDisplay: '2×', color: '#00d4ff' },
   { id: 'locked90',  label: '90 DAYS',   days: 90,  multBps: 40_000, multDisplay: '4×', color: '#00c98d' },
   { id: 'locked365', label: '365 DAYS',  days: 365, multBps: 80_000, multDisplay: '8×', color: '#ff8c00' },
 ] as const;
-type LockId = typeof LOCK_TIERS[number]['id'];
+export type LockId = typeof LOCK_TIERS[number]['id'];
 
 const GRACE_SECS         = 3 * 86_400;
 const CLAIM_COOLDOWN_SEC = 86_400;
-const STAKE_FEE_LAMPORTS = 5_000_000; // 0.005 XNT
+export const STAKE_FEE_LAMPORTS = 5_000_000; // 0.005 XNT
 
 // Penalty bps
 // ─── LB tier ladder (matches on-chain accumulator.rs exactly) ─────────────────
@@ -116,11 +105,11 @@ function getPenaltyBps(period: 1 | 2, tier: number): number {
 
 // Back-compat alias — keep for any external references, but prefer getLbTier
 const LB_DISCOUNT_THRESHOLD = LB_TIER1_THRESHOLD_RAW;
-const ACC_PRECISION = BigInt('1000000000000000000'); // 1e18
+export const ACC_PRECISION = BigInt('1000000000000000000'); // 1e18
 
 // Helper: 10^n as a number, for converting raw token amounts to UI amounts
 // based on a mint's decimals. Safe up to 15 decimals (JS Number precision).
-function pow10(n: number): number {
+export function pow10(n: number): number {
   return Math.pow(10, n);
 }
 
@@ -128,7 +117,7 @@ function pow10(n: number): number {
 // TYPES
 // ═════════════════════════════════════════════════════════════════════════════
 
-interface FarmOnChain {
+export interface FarmOnChain {
   pubkey:                string;
   lpMint:                string;
   rewardMint:            string;
@@ -158,7 +147,7 @@ interface FarmOnChain {
   otherTokenSymbol?:     string;       // "BRAINS" or "LB"
 }
 
-interface PositionOnChain {
+export interface PositionOnChain {
   pubkey:           string;
   owner:            string;
   farm:             string;
@@ -224,14 +213,14 @@ function fmtDuration(secs: number): string {
 function truncAddr(a: string): string { return `${a.slice(0,4)}…${a.slice(-4)}`; }
 
 // Anchor discriminator: first 8 bytes of sha256("global:<ix_name>")
-async function disc(name: string): Promise<Buffer> {
+export async function disc(name: string): Promise<Buffer> {
   const msg = new TextEncoder().encode(`global:${name}`);
   const h = await window.crypto.subtle.digest('SHA-256', msg);
   return Buffer.from(new Uint8Array(h).slice(0, 8));
 }
 
 // ─── PDA derivations — match program seeds exactly ────────────────────────────
-function deriveFarmGlobal(): [PublicKey, number] {
+export function deriveFarmGlobal(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from('farm_global')],
     new PublicKey(FARM_PROGRAM_ID),
@@ -259,7 +248,7 @@ function deriveRewardVault(farm: PublicKey): [PublicKey, number] {
   );
 }
 
-function derivePosition(owner: PublicKey, farm: PublicKey, nonce: number): [PublicKey, number] {
+export function derivePosition(owner: PublicKey, farm: PublicKey, nonce: number): [PublicKey, number] {
   const nonceBuf = Buffer.alloc(4);
   nonceBuf.writeUInt32LE(nonce, 0);
   return PublicKey.findProgramAddressSync(
@@ -269,7 +258,7 @@ function derivePosition(owner: PublicKey, farm: PublicKey, nonce: number): [Publ
 }
 
 // ─── Token program detection ──────────────────────────────────────────────────
-async function getTokenProgram(mint: PublicKey, connection: Connection): Promise<PublicKey> {
+export async function getTokenProgram(mint: PublicKey, connection: Connection): Promise<PublicKey> {
   try {
     const info = await connection.getAccountInfo(mint);
     if (info?.owner?.toBase58() === TOKEN_2022_PROGRAM_ID.toBase58()) return TOKEN_2022_PROGRAM_ID;
@@ -281,7 +270,7 @@ async function getTokenProgram(mint: PublicKey, connection: Connection): Promise
 async function fetchPrice(mint: string): Promise<number> {
   try {
     const r = await fetch(
-      `${XDEX_BASE}/token-price/price?network=X1+Mainnet&token_address=${mint}`,
+      `${XDEX_BASE}/token-price/price?network=X1%20Mainnet&token_address=${mint}`,
       { signal: AbortSignal.timeout(6_000) },
     );
     const j = await r.json();
@@ -407,14 +396,84 @@ async function fetchLpPrice(
   }
 }
 
-// ─── Fetch all farms from on-chain ────────────────────────────────────────────
-async function fetchFarms(connection: Connection): Promise<FarmOnChain[]> {
+// ─── Farms cache ──────────────────────────────────────────────────────────
+// Stale-while-revalidate: any visit returns the last known farms instantly
+// (from in-memory or localStorage) and triggers a background refresh.
+// FarmOnChain has bigints which JSON.stringify can't roundtrip, so we
+// serialize them as strings and rehydrate on load.
+const FARMS_MEM_TTL_MS = 60_000;
+const FARMS_STALE_MS   = 15 * 60_000;
+const FARMS_HARD_MS    = 24 * 60 * 60_000;
+const FARMS_LS_KEY     = 'v2_farms_cache_v1';
+
+let _farmsCache: { ts: number; data: FarmOnChain[] } | null = null;
+let _farmsInflight: Promise<FarmOnChain[]> | null = null;
+
+function _serializeFarms(farms: FarmOnChain[]): string {
+  return JSON.stringify(farms, (_k, v) => typeof v === 'bigint' ? `__bi:${v.toString()}` : v);
+}
+function _deserializeFarms(json: string): FarmOnChain[] {
+  return JSON.parse(json, (_k, v) =>
+    typeof v === 'string' && v.startsWith('__bi:') ? BigInt(v.slice(5)) : v,
+  );
+}
+
+// Seed memory from LS at module init.
+(function _seedFarms() {
   try {
-    const programPk = new PublicKey(FARM_PROGRAM_ID);
-    // Farm account size = 229 bytes
-    const accounts = await connection.getProgramAccounts(programPk, {
-      filters: [{ dataSize: 229 }],
-    });
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(FARMS_LS_KEY) : null;
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as { ts: number; data: string };
+    if (parsed?.ts && Date.now() - parsed.ts < FARMS_HARD_MS && parsed.data) {
+      _farmsCache = { ts: parsed.ts, data: _deserializeFarms(parsed.data) };
+    }
+  } catch {}
+})();
+
+async function _doFetchFarms(connection: Connection): Promise<FarmOnChain[]> {
+  const programPk = new PublicKey(FARM_PROGRAM_ID);
+  const accounts = await connection.getProgramAccounts(programPk, {
+    filters: [{ dataSize: 229 }],
+  });
+  const data = await _parseFarms(accounts, connection);
+  _farmsCache = { ts: Date.now(), data };
+  try {
+    localStorage.setItem(FARMS_LS_KEY, JSON.stringify({
+      ts: _farmsCache.ts, data: _serializeFarms(data),
+    }));
+  } catch {}
+  return data;
+}
+
+// ─── Fetch all farms from on-chain ────────────────────────────────────────────
+export async function fetchFarms(connection: Connection): Promise<FarmOnChain[]> {
+  // Fresh hit
+  if (_farmsCache && Date.now() - _farmsCache.ts < FARMS_MEM_TTL_MS) {
+    return _farmsCache.data;
+  }
+  // Stale hit — return immediately, refresh in background
+  if (_farmsCache && Date.now() - _farmsCache.ts < FARMS_STALE_MS) {
+    if (!_farmsInflight) {
+      _farmsInflight = _doFetchFarms(connection)
+        .catch(() => _farmsCache?.data ?? [])
+        .finally(() => { _farmsInflight = null; });
+    }
+    return _farmsCache.data;
+  }
+  // Cold
+  if (_farmsInflight) return _farmsInflight;
+  _farmsInflight = _doFetchFarms(connection)
+    .catch(() => _farmsCache?.data ?? [])
+    .finally(() => { _farmsInflight = null; });
+  return _farmsInflight;
+}
+
+// Original fetchFarms body — split out so the cache wrapper above can call it.
+async function _parseFarms(
+  accounts: { pubkey: any; account: any }[],
+  connection: Connection,
+): Promise<FarmOnChain[]> {
+  try {
 
     const results: FarmOnChain[] = [];
     for (const { pubkey, account } of accounts) {
@@ -486,16 +545,24 @@ async function fetchFarms(connection: Connection): Promise<FarmOnChain[]> {
           console.warn('Failed to read mint decimals, using defaults:', e);
         }
 
-        // Logos — fetch reward token's logo from Token-2022 metadata.
-        // XNT is the paired side in both current farms but has no logo yet,
-        // so we pass undefined and let TokenLogo render the 'X' placeholder.
+        // Logos — XNT + BRAINS are hardcoded from constants so they always
+        // appear instantly. Anything else (LB, other ecosystem tokens) falls
+        // through to the shared cache (BrainsIndexer-warmed) then a live
+        // Token-2022 metadata fetch as a last resort.
         let otherTokenLogo: string | undefined;
-        try {
-          const lg = await fetchTokenLogo(rewardMint, connection);
-          if (lg) otherTokenLogo = lg;
-        } catch {}
+        if (rewardMint === BRAINS_MINT) {
+          otherTokenLogo = BRAINS_LOGO;
+        } else {
+          otherTokenLogo = getCachedTokenLogo(rewardMint) ?? undefined;
+          if (!otherTokenLogo) {
+            try {
+              const lg = await fetchTokenLogo(rewardMint, connection);
+              if (lg) otherTokenLogo = lg;
+            } catch {}
+          }
+        }
         const otherTokenSymbol = rewardSymbol;
-        const xntLogo = undefined;
+        const xntLogo: string = XNT_LOGO;
 
         results.push({
           pubkey: pubkey.toBase58(),
@@ -523,7 +590,7 @@ async function fetchFarms(connection: Connection): Promise<FarmOnChain[]> {
 }
 
 // ─── Fetch user positions for a farm ──────────────────────────────────────────
-async function fetchPositions(
+export async function fetchPositions(
   connection: Connection, owner: PublicKey, farm: FarmOnChain,
 ): Promise<PositionOnChain[]> {
   try {
@@ -623,7 +690,7 @@ async function fetchPositions(
 // Counts unique staker wallets across every farm by scanning Position accounts.
 // Uses dataSlice to only fetch the 32-byte owner field per account — keeps RPC
 // bandwidth flat regardless of how many positions exist.
-async function fetchTotalStakers(
+export async function fetchTotalStakers(
   connection: Connection,
 ): Promise<{ uniqueStakers: number; totalPositions: number }> {
   try {
@@ -649,7 +716,7 @@ async function fetchTotalStakers(
 // At zero TVL there's no "real" APR — we show a hypothetical at $1,000 TVL so
 // the display is honest: "if you were the only staker with $1k, you'd earn X%."
 // This number is ALWAYS SHOWN WITH A "PROJ" LABEL so users know it's indicative.
-function computeApr(
+export function computeApr(
   farm: FarmOnChain,
   lockMultBps: number,
 ): number {
@@ -684,56 +751,6 @@ function computeApr(
   return blendedApr * tierShare;
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// COMPONENTS
-// ═════════════════════════════════════════════════════════════════════════════
-
-const CopyButton: FC<{ text: string; size?: number }> = ({ text, size = 11 }) => {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button onClick={e => {
-      e.stopPropagation();
-      navigator.clipboard.writeText(text).then(() => {
-        setCopied(true); setTimeout(() => setCopied(false), 1_500);
-      });
-    }} style={{
-      background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px',
-      color: copied ? '#00c98d' : '#3a5a6a', fontSize: size, lineHeight: 1,
-      borderRadius: 4, flexShrink: 0, transition: 'color .15s',
-    }}>{copied ? '✓' : '⎘'}</button>
-  );
-};
-
-const StatusBox: FC<{ msg: string }> = ({ msg }) => {
-  if (!msg) return null;
-  const isErr = msg.startsWith('❌');
-  const isOk  = msg.startsWith('✅');
-  return (
-    <div style={{
-      padding: '10px 14px', borderRadius: 10, marginBottom: 16,
-      background: isErr ? 'rgba(255,68,68,.08)' : isOk ? 'rgba(0,201,141,.08)' : 'rgba(0,212,255,.06)',
-      border: `1px solid ${isErr ? 'rgba(255,68,68,.25)' : isOk ? 'rgba(0,201,141,.25)' : 'rgba(0,212,255,.15)'}`,
-      fontFamily: 'Sora,sans-serif', fontSize: 12,
-      color: isErr ? '#ff6666' : isOk ? '#00c98d' : '#9abacf', lineHeight: 1.6,
-      whiteSpace: 'pre-wrap',
-    }}>{msg}</div>
-  );
-};
-
-const TxLink: FC<{ sig: string; color?: string }> = ({ sig, color = '#00d4ff' }) => {
-  if (!sig) return null;
-  return (
-    <a href={`https://explorer.mainnet.x1.xyz/tx/${sig}`}
-       target="_blank" rel="noopener noreferrer" style={{
-      display: 'block', textAlign: 'center', padding: '10px 14px', marginBottom: 16,
-      borderRadius: 10, background: 'rgba(0,212,255,.04)',
-      border: `1px solid ${color}40`, textDecoration: 'none',
-      fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700,
-      color, letterSpacing: 1,
-    }}>VIEW ON EXPLORER ↗</a>
-  );
-};
-
 // ─── Token logos ──────────────────────────────────────────────────────────────
 // Simple fetch from Token-2022 on-chain metadata (URI → JSON → image).
 // Cached in-memory so we don't re-fetch on every render.
@@ -758,2097 +775,3 @@ async function fetchTokenLogo(mint: string, connection: Connection): Promise<str
     return null;
   }
 }
-
-// XNT has no standard logo yet — let TokenLogo fall through to text-letter placeholder.
-
-// TokenLogo component — img with graceful fallback to symbol-letter placeholder
-const TokenLogo: FC<{
-  src?: string; symbol: string; size?: number; offset?: number;
-}> = ({ src, symbol, size = 20, offset = 0 }) => {
-  const [failed, setFailed] = useState(false);
-  const COLORS = ['#ff8c00', '#ffb700', '#00d4ff', '#00c98d', '#bf5af2'];
-  const ci = (symbol?.charCodeAt(0) ?? 65) % COLORS.length;
-  const ci2 = (ci + 2) % COLORS.length;
-  const radius = size * 0.22;
-
-  const style: React.CSSProperties = {
-    width: size, height: size, borderRadius: radius,
-    background: src && !failed ? '#111820'
-      : `linear-gradient(135deg,${COLORS[ci]},${COLORS[ci2]})`,
-    border: '1px solid rgba(255,255,255,.08)',
-    objectFit: 'cover', flexShrink: 0,
-    marginLeft: offset,
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontFamily: 'Orbitron,monospace',
-    fontSize: size * 0.42, fontWeight: 900,
-    color: '#0a0e14',
-  };
-
-  if (src && !failed) {
-    return (
-      <img src={src} alt={symbol} crossOrigin="anonymous" style={style}
-        onError={() => setFailed(true)} />
-    );
-  }
-  return <div style={style}>{symbol?.slice(0, 1) || '?'}</div>;
-};
-
-// Paired logo — two overlapping token logos (BRAINS + XNT, etc.)
-const PairLogo: FC<{
-  logoA?: string; symbolA: string;   // native/primary token (BRAINS/LB) — shown on top
-  logoB?: string; symbolB: string;   // paired token (XNT) — shown behind
-  size?: number;
-}> = ({ logoA, symbolA, logoB, symbolB, size = 22 }) => {
-  const overlap = Math.floor(size * 0.35);
-  return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0,
-      position: 'relative' }}>
-      <div style={{ position: 'relative', zIndex: 2 }}>
-        <TokenLogo src={logoA} symbol={symbolA} size={size} />
-      </div>
-      <div style={{ position: 'relative', zIndex: 1, marginLeft: -overlap }}>
-        <TokenLogo src={logoB} symbol={symbolB} size={size} />
-      </div>
-    </div>
-  );
-};
-
-
-// Restrained educational section matching the LabWorkDefi aesthetic: small type,
-// muted palette, data-dense tables. No heavy color emphasis, no large emoji.
-const TokenomicsPanel: FC<{ isMobile: boolean }> = ({ isMobile }) => {
-  const [open, setOpen] = useState(false);
-
-  const SectionHeader: FC<{ label: string }> = ({ label }) => (
-    <div style={{
-      fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
-      color: '#4a6a8a', letterSpacing: 1.5, marginTop: 18, marginBottom: 8,
-      textTransform: 'uppercase',
-    }}>{label}</div>
-  );
-
-  const tableTh: React.CSSProperties = {
-    textAlign: 'left', padding: '6px 8px 6px 0', fontWeight: 600,
-    fontSize: 8, color: '#4a6a8a', letterSpacing: .5,
-    borderBottom: '1px solid rgba(255,255,255,.06)',
-  };
-  const tableTd: React.CSSProperties = {
-    padding: '5px 8px 5px 0', fontSize: 9, color: '#9abacf',
-    borderBottom: '1px solid rgba(255,255,255,.03)',
-  };
-  const tableTdRight: React.CSSProperties = { ...tableTd, textAlign: 'right', paddingRight: 0 };
-
-  return (
-    <div style={{
-      marginBottom: isMobile ? 14 : 20,
-      background: 'rgba(255,255,255,.015)',
-      border: '1px solid rgba(255,255,255,.06)',
-      borderRadius: 10, overflow: 'hidden',
-    }}>
-      {/* Header */}
-      <button
-        onClick={() => setOpen(o => !o)}
-        style={{
-          width: '100%', padding: isMobile ? '11px 14px' : '13px 18px',
-          background: 'transparent', border: 'none', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          textAlign: 'left',
-        }}
-      >
-        <div>
-          <div style={{
-            fontFamily: 'Orbitron,monospace', fontSize: 10,
-            fontWeight: 700, color: '#9abacf', letterSpacing: 1.5,
-            textTransform: 'uppercase',
-          }}>How it works</div>
-          <div style={{
-            fontFamily: 'Sora,sans-serif', fontSize: 9,
-            color: '#3a5a6a', marginTop: 3,
-          }}>APR amps · lock tiers · exit policy · LB discount ladder</div>
-        </div>
-        <div style={{
-          fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700,
-          color: '#4a6a8a', letterSpacing: 1,
-        }}>{open ? '−' : '+'}</div>
-      </button>
-
-      {open && (
-        <div style={{
-          padding: isMobile ? '4px 14px 18px' : '4px 18px 20px',
-          fontFamily: 'Sora,sans-serif', fontSize: 10,
-          color: '#9abacf', lineHeight: 1.6,
-          borderTop: '1px solid rgba(255,255,255,.04)',
-        }}>
-          {/* Overview */}
-          <SectionHeader label="Overview" />
-          <div>
-            Perpetual LP farms. Stake BRAINS/XNT or LB/XNT LP tokens to earn BRAINS or LB
-            rewards. Rewards emit at a fixed rate until the vault depletes. Longer locks
-            receive a larger share of emissions.
-          </div>
-
-          {/* Lock tiers */}
-          <SectionHeader label="Lock tiers · APR multipliers" />
-          <table style={{ width: '100%', borderCollapse: 'collapse',
-            fontFamily: 'Orbitron,monospace' }}>
-            <thead>
-              <tr>
-                <th style={tableTh}>Lock duration</th>
-                <th style={{...tableTh, textAlign: 'right'}}>Multiplier</th>
-                <th style={{...tableTh, textAlign: 'right'}}>vs baseline</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td style={tableTd}>30 days</td>
-                <td style={tableTdRight}>2×</td>
-                <td style={tableTdRight}>baseline</td>
-              </tr>
-              <tr>
-                <td style={tableTd}>90 days</td>
-                <td style={tableTdRight}>4×</td>
-                <td style={tableTdRight}>2× APR</td>
-              </tr>
-              <tr>
-                <td style={{...tableTd, borderBottom: 'none'}}>365 days</td>
-                <td style={{...tableTdRight, borderBottom: 'none'}}>8×</td>
-                <td style={{...tableTdRight, borderBottom: 'none'}}>4× APR</td>
-              </tr>
-            </tbody>
-          </table>
-          <div style={{ marginTop: 8, fontSize: 9, color: '#4a6a8a' }}>
-            Effective stake = LP amount × multiplier. Your share of emissions equals your
-            effective stake divided by total effective across all positions.
-          </div>
-
-          {/* Exit policy */}
-          <SectionHeader label="Exit policy" />
-          <div style={{ marginBottom: 6 }}>
-            <span style={{ color: '#9abacf', fontWeight: 600 }}>Grace (days 1–3).</span>{' '}
-            Full LP returned, accrued rewards forfeited to vault. Intended as an "undo"
-            window for mistakes.
-          </div>
-          <div style={{ marginBottom: 6 }}>
-            <span style={{ color: '#9abacf', fontWeight: 600 }}>Early (past grace, before unlock).</span>{' '}
-            LP penalty applied (see ladder below), rewards forfeited.
-          </div>
-          <div>
-            <span style={{ color: '#9abacf', fontWeight: 600 }}>Mature (at or past unlock).</span>{' '}
-            Full LP returned, full accrued rewards paid out.
-          </div>
-          <div style={{ marginTop: 8, fontSize: 9, color: '#4a6a8a' }}>
-            Forfeited rewards remain in the vault and become re-emittable, marginally
-            increasing APR for remaining stakers.
-          </div>
-
-          {/* LB discount ladder */}
-          <SectionHeader label="LB-holder penalty discount ladder" />
-          <div style={{ marginBottom: 8, fontSize: 10, color: '#9abacf' }}>
-            Holding LB tokens reduces early-exit penalty across two periods:
-            P1 (first half of lock past grace) and P2 (second half).
-          </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse',
-            fontFamily: 'Orbitron,monospace' }}>
-            <thead>
-              <tr>
-                <th style={tableTh}>Tier</th>
-                <th style={tableTh}>LB held</th>
-                <th style={{...tableTh, textAlign: 'right'}}>P1 penalty</th>
-                <th style={{...tableTh, textAlign: 'right'}}>P2 penalty</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td style={tableTd}>—</td>
-                <td style={tableTd}>&lt; 33</td>
-                <td style={tableTdRight}>4.000%</td>
-                <td style={tableTdRight}>1.888%</td>
-              </tr>
-              <tr>
-                <td style={tableTd}>T1</td>
-                <td style={tableTd}>≥ 33</td>
-                <td style={tableTdRight}>1.888%</td>
-                <td style={tableTdRight}>0.888%</td>
-              </tr>
-              <tr>
-                <td style={tableTd}>T2</td>
-                <td style={tableTd}>≥ 330</td>
-                <td style={tableTdRight}>1.000%</td>
-                <td style={tableTdRight}>0.444%</td>
-              </tr>
-              <tr>
-                <td style={{...tableTd, borderBottom: 'none'}}>T3</td>
-                <td style={{...tableTd, borderBottom: 'none'}}>≥ 3,300</td>
-                <td style={{...tableTdRight, borderBottom: 'none'}}>0.500%</td>
-                <td style={{...tableTdRight, borderBottom: 'none'}}>0.222%</td>
-              </tr>
-            </tbody>
-          </table>
-          <div style={{ marginTop: 8, fontSize: 9, color: '#4a6a8a' }}>
-            Balance checked from the user's LB token account at exit. No action required.
-          </div>
-
-          {/* Claim */}
-          <SectionHeader label="Claim cooldown" />
-          <div>
-            Positions past grace can claim accrued rewards while still staked.
-            Claims have a 24-hour cooldown per position. Rewards continue accruing
-            between claims.
-          </div>
-
-          {/* Runway */}
-          <SectionHeader label="Reward runway" />
-          <div>
-            Each farm emits from a finite reward vault at a fixed rate until depletion.
-            The runway metric shown on each farm card reflects days of emissions
-            remaining at the current rate. Anyone may donate to a farm vault.
-          </div>
-
-          {/* Transparency */}
-          <SectionHeader label="On-chain transparency" />
-          <div>
-            All state and math are on-chain. Admin controls are limited to pause
-            (stake/claim blocked, unstake always works), rate updates, and withdrawal
-            of un-earmarked surplus (never touches rewards owed to active stakers).
-            Admin cannot seize staked LP or alter positions.
-          </div>
-          <div style={{ marginTop: 6, fontFamily: 'Orbitron,monospace',
-            fontSize: 9, color: '#4a6a8a', wordBreak: 'break-all' }}>
-            Program: Ci1qDtdoSh8mCtJTVoX1tArbnLydQUZYu9RiqukRFJpg
-          </div>
-
-          <div style={{ marginTop: 16, paddingTop: 12,
-            borderTop: '1px solid rgba(255,255,255,.04)',
-            fontSize: 9, color: '#3a5a6a', fontStyle: 'italic' }}>
-            Not financial advice. APRs are variable, locks are final, and smart contract
-            risk applies. Do your own research.
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ─── Farm Card ────────────────────────────────────────────────────────────────
-const FarmCard: FC<{
-  farm: FarmOnChain;
-  isMobile: boolean;
-  userPositions: PositionOnChain[];
-  onStake: () => void;
-  onFund: () => void;
-}> = ({ farm, isMobile, userPositions, onStake, onFund }) => {
-  const apr30  = computeApr(farm, 20_000);
-  const apr90  = computeApr(farm, 40_000);
-  const apr365 = computeApr(farm, 80_000);
-
-  const tvlUsd = (Number(farm.totalStaked) / pow10(farm.lpDecimals)) * farm.lpPriceUsd;
-  const vaultUsd = (Number(farm.vaultBalance) / pow10(farm.rewardDecimals)) * farm.rewardPriceUsd;
-  const myStakeCount = userPositions.length;
-
-  const isHot = farm.rewardMint === BRAINS_MINT ? '#ff8c00' : '#00c98d';
-
-  return (
-    <div style={{
-      background: 'rgba(255,255,255,.015)',
-      border: `1px solid ${isHot}22`,
-      borderRadius: 12,
-      padding: isMobile ? '14px 14px' : '16px 20px',
-      marginBottom: 12,
-      position: 'relative', overflow: 'hidden',
-      animation: 'fadeUp 0.4s ease both',
-      transition: 'border-color 0.2s',
-    }}
-      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = `${isHot}55`; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = `${isHot}22`; }}>
-
-      {/* Thin top accent */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1,
-        background: `linear-gradient(90deg, transparent, ${isHot}66, transparent)` }} />
-
-      {/* Status badges */}
-      {(farm.paused || (farm.runwayDays <= 30 && farm.runwayDays > 0) ||
-        (farm.runwayDays === 0 && farm.vaultBalance === 0n) || myStakeCount > 0) && (
-        <div style={{ display: 'flex', gap: 5, marginBottom: 10, flexWrap: 'wrap' }}>
-          {farm.paused && (
-            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
-              padding: '2px 7px', borderRadius: 4, color: '#ff8c00', letterSpacing: .5,
-              background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.25)' }}>
-              PAUSED
-            </span>
-          )}
-          {farm.runwayDays <= 30 && farm.runwayDays > 0 && (
-            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
-              padding: '2px 7px', borderRadius: 4, color: '#ff6666', letterSpacing: .5,
-              background: 'rgba(255,68,68,.08)', border: '1px solid rgba(255,68,68,.25)' }}>
-              LOW RUNWAY
-            </span>
-          )}
-          {farm.runwayDays === 0 && farm.vaultBalance === 0n && (
-            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
-              padding: '2px 7px', borderRadius: 4, color: '#ff4444', letterSpacing: .5,
-              background: 'rgba(255,68,68,.12)', border: '1px solid rgba(255,68,68,.35)' }}>
-              DRAINED
-            </span>
-          )}
-          {myStakeCount > 0 && (
-            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
-              padding: '2px 7px', borderRadius: 4, color: '#00c98d', letterSpacing: .5,
-              background: 'rgba(0,201,141,.08)', border: '1px solid rgba(0,201,141,.25)' }}>
-              {myStakeCount} MY STAKE{myStakeCount > 1 ? 'S' : ''}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Header: pair logos + title + reward vault */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        marginBottom: 14, gap: 12, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-          <PairLogo
-            logoA={farm.otherTokenLogo} symbolA={farm.otherTokenSymbol || farm.rewardSymbol}
-            logoB={farm.xntLogo} symbolB="XNT"
-            size={isMobile ? 32 : 36}
-          />
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 14 : 16,
-              fontWeight: 900, color: '#e0f0ff', letterSpacing: .5, lineHeight: 1.2,
-              whiteSpace: 'nowrap' }}>
-              {farm.lpSymbol} <span style={{ color: isHot, opacity: .8 }}>→</span> {farm.rewardSymbol}
-            </div>
-            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#6a90a8',
-              display: 'flex', alignItems: 'center', gap: 5, marginTop: 3 }}>
-              Stake {farm.lpSymbol}, earn {farm.rewardSymbol}
-              <CopyButton text={farm.pubkey} />
-            </div>
-          </div>
-        </div>
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#4a6a8a',
-            letterSpacing: 1, textTransform: 'uppercase' }}>
-            Reward vault
-          </div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700,
-            color: isHot, marginTop: 2 }}>
-            {fmtNum(Number(farm.vaultBalance) / pow10(farm.rewardDecimals))} {farm.rewardSymbol}
-          </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#9abacf' }}>
-            {fmtUSD(vaultUsd)}
-          </div>
-        </div>
-      </div>
-
-      {/* APR grid — 3 tiers */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 12 }}>
-        {LOCK_TIERS.map((tier, i) => {
-          const apr = [apr30, apr90, apr365][i];
-          return (
-            <div key={tier.id}
-              title={
-                'Current realized APR — calculated from the live emission rate, current TVL, ' +
-                "and the average lock multiplier across all stakers. Your personal APR depends " +
-                'on the TVL and tier mix at the moment you stake. On a small farm, a large new ' +
-                'stake will lower the displayed number for everyone (including you). ' +
-                'The ratio updates live as positions are opened and closed.'
-              }
-              style={{
-              background: `${tier.color}06`,
-              border: `1px solid ${tier.color}22`,
-              borderRadius: 7, padding: '9px 8px', textAlign: 'center',
-              cursor: 'help',
-            }}>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7,
-                letterSpacing: 1, color: tier.color, marginBottom: 3, fontWeight: 700 }}>
-                {tier.label}
-              </div>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 13 : 15,
-                fontWeight: 900, color: tier.color, lineHeight: 1 }}>
-                {apr > 0 ? `${apr < 10_000 ? apr.toFixed(1) : fmtNum(apr, 0)}%` : '—'}
-              </div>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#4a6a8a', marginTop: 3,
-                letterSpacing: .5 }}>
-                APR · {tier.multDisplay} ⓘ
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Stats row */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
-        gap: 6, marginBottom: 12, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,.04)' }}>
-        {[
-          { label: 'TVL',     value: fmtUSD(tvlUsd),                                                             color: '#e0f0ff' },
-          { label: 'STAKED',  value: fmtNum(Number(farm.totalStaked)/pow10(farm.lpDecimals)),                    color: '#9abacf' },
-          { label: 'RUNWAY',  value: farm.runwayDays > 0 ? `${fmtNum(farm.runwayDays, 0)}d` : '—',              color: farm.runwayDays <= 30 ? '#ff8c00' : '#9abacf' },
-          { label: 'EMITTED', value: fmtNum(Number(farm.totalEmitted)/pow10(farm.rewardDecimals)),               color: '#9abacf' },
-        ].map(stat => (
-          <div key={stat.label}>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, letterSpacing: 1,
-              color: '#4a6a8a', marginBottom: 2, textTransform: 'uppercase' }}>{stat.label}</div>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700,
-              color: stat.color }}>{stat.value}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 6 }}>
-        <button onClick={onStake} disabled={farm.paused || farm.closed}
-          style={{ flex: 2, padding: '10px 14px', borderRadius: 8,
-            cursor: farm.paused || farm.closed ? 'not-allowed' : 'pointer',
-            background: farm.paused || farm.closed
-              ? 'rgba(255,255,255,.02)'
-              : `${isHot}15`,
-            border: `1px solid ${farm.paused || farm.closed ? 'rgba(255,255,255,.06)' : `${isHot}44`}`,
-            fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 700,
-            color: farm.paused || farm.closed ? '#4a6a8a' : isHot, letterSpacing: 1.2,
-            transition: 'all .15s' }}>
-          Stake LP
-        </button>
-        <button onClick={onFund}
-          style={{ flex: 1, padding: '10px 14px', borderRadius: 8, cursor: 'pointer',
-            background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.08)',
-            fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 700,
-            color: '#9abacf', letterSpacing: 1.2, transition: 'all .15s' }}>
-          Donate
-        </button>
-      </div>
-    </div>
-  );
-};
-
-// ─── Position Card ────────────────────────────────────────────────────────────
-const PositionCard: FC<{
-  position: PositionOnChain;
-  farm: FarmOnChain;
-  isMobile: boolean;
-  onClaim: () => void;
-  onUnstake: () => void;
-}> = ({ position, farm, isMobile, onClaim, onUnstake }) => {
-  const tier = LOCK_TIERS.find(t => t.id === position.lockType)!;
-  const now = Math.floor(Date.now() / 1000);
-  const isMatured    = now >= position.unlockTs;
-  const isInGrace    = now <= position.graceEndTs;
-  const daysToUnlock = Math.max(0, Math.floor((position.unlockTs - now) / 86_400));
-  const hoursToClaim = Math.floor(position.nextClaimInSec / 3_600);
-  const minsToClaim  = Math.floor((position.nextClaimInSec % 3_600) / 60);
-
-  const amountUi  = Number(position.amount) / pow10(farm.lpDecimals);
-  const amountUsd = amountUi * farm.lpPriceUsd;
-  const earnedUi  = Number(position.earnedNow) / pow10(farm.rewardDecimals);
-  const earnedUsd = earnedUi * farm.rewardPriceUsd;
-
-  const statusBadge = isMatured
-    ? { label: '✓ MATURED',       color: '#00c98d' }
-    : isInGrace
-    ? { label: '🛡️ GRACE',        color: '#00d4ff' }
-    : { label: `🔒 ${daysToUnlock}d LEFT`, color: tier.color };
-
-  return (
-    <div style={{
-      background: '#0d1520',
-      border: `1px solid ${tier.color}22`,
-      borderRadius: 12, padding: isMobile ? '14px' : '18px 22px',
-      marginBottom: 10, position: 'relative', overflow: 'hidden',
-      animation: 'fadeUp 0.35s ease both',
-    }}>
-      {/* Left accent bar */}
-      <div style={{ position: 'absolute', left: 0, top: '15%', bottom: '15%', width: 3,
-        borderRadius: 2, background: tier.color, boxShadow: `0 0 8px ${tier.color}55` }} />
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 900, color: '#e0f0ff' }}>
-            {tier.label} · {tier.multDisplay}
-          </span>
-          <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
-            padding: '3px 8px', borderRadius: 5,
-            color: statusBadge.color,
-            background: `${statusBadge.color}15`,
-            border: `1px solid ${statusBadge.color}33` }}>
-            {statusBadge.label}
-          </span>
-        </div>
-        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#708090' }}>
-          #{position.nonce}
-        </div>
-      </div>
-
-      {/* Stats row */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)',
-        gap: 10, marginBottom: 12 }}>
-        <div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#8899aa',
-            letterSpacing: 1, marginBottom: 2 }}>STAKED</div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 700, color: '#e0f0ff' }}>
-            {fmtNum(amountUi, 3)} LP
-          </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#c0d0e0' }}>
-            {fmtUSD(amountUsd)}
-          </div>
-        </div>
-        <div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#8899aa',
-            letterSpacing: 1, marginBottom: 2 }}>EARNED</div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 700, color: '#00c98d' }}>
-            {fmtNum(earnedUi, 4)} {farm.rewardSymbol}
-          </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#c0d0e0' }}>
-            {fmtUSD(earnedUsd)}
-          </div>
-        </div>
-        {!isMobile && (
-          <div>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#8899aa',
-              letterSpacing: 1, marginBottom: 2 }}>MATURES</div>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 700,
-              color: isMatured ? '#00c98d' : '#9abacf' }}>
-              {isMatured ? 'READY' : fmtDuration(position.unlockTs - now)}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Penalty warning if early */}
-      {!isMatured && !isInGrace && (
-        <div style={{ padding: '8px 12px', borderRadius: 7, marginBottom: 12,
-          background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
-          fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#9abacf', lineHeight: 1.5 }}>
-          Early exit: {(position.penaltyBps / 100).toFixed(3)}% LP penalty · rewards forfeited.
-          <br/>
-          <span style={{ color: '#4a6a8a' }}>
-            LB discount: T1 ≥33 → {(position.penaltyBps === PENALTY_P1_STANDARD ? PENALTY_P1_TIER1 : PENALTY_P2_TIER1)/100}%{' · '}
-            T2 ≥330 → {(position.penaltyBps === PENALTY_P1_STANDARD ? PENALTY_P1_TIER2 : PENALTY_P2_TIER2)/100}%{' · '}
-            T3 ≥3,300 → {(position.penaltyBps === PENALTY_P1_STANDARD ? PENALTY_P1_TIER3 : PENALTY_P2_TIER3)/100}%
-          </span>
-        </div>
-      )}
-
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={onClaim} disabled={!position.canClaim}
-          style={{ flex: 1, padding: '10px 16px', borderRadius: 9,
-            cursor: position.canClaim ? 'pointer' : 'not-allowed',
-            background: position.canClaim ? 'rgba(0,201,141,.12)' : 'rgba(255,255,255,.03)',
-            border: `1px solid ${position.canClaim ? 'rgba(0,201,141,.4)' : 'rgba(255,255,255,.08)'}`,
-            fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 900,
-            color: position.canClaim ? '#00c98d' : '#4a6a8a', letterSpacing: 1 }}
-          title={
-            isInGrace
-              ? `3-day grace period — claim opens in ${fmtFriendlyDuration(position.graceEndTs - now + 1)}. Free exit window with no penalty.`
-              : !position.canClaim
-              ? `Claim every 24 hours. Next claim in ${fmtFriendlyDuration(position.nextClaimInSec)}.`
-              : ''
-          }>
-          {position.canClaim
-            ? '💰 CLAIM'
-            : isInGrace
-            ? `🛡️ GRACE · ${fmtFriendlyDuration(position.graceEndTs - now + 1)}`
-            : `⏱ CLAIM IN ${hoursToClaim}h ${minsToClaim}m`}
-        </button>
-        <button onClick={onUnstake}
-          style={{ flex: 1, padding: '10px 16px', borderRadius: 9, cursor: 'pointer',
-            background: isMatured
-              ? 'linear-gradient(135deg,rgba(0,201,141,.18),rgba(0,201,141,.06))'
-              : 'rgba(255,68,68,.06)',
-            border: `1px solid ${isMatured ? 'rgba(0,201,141,.45)' : 'rgba(255,68,68,.25)'}`,
-            fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 900,
-            color: isMatured ? '#00c98d' : '#ff6666', letterSpacing: 1 }}>
-          {isMatured ? '✓ UNSTAKE' : '⚠ EARLY EXIT'}
-        </button>
-      </div>
-    </div>
-  );
-};
-
-// ─── Stake Modal ──────────────────────────────────────────────────────────────
-const StakeModal: FC<{
-  farm: FarmOnChain;
-  isMobile: boolean;
-  publicKey: PublicKey;
-  connection: Connection;
-  signTransaction: any;
-  onClose: () => void;
-  onStaked: () => void;
-}> = ({ farm, isMobile, publicKey, connection, signTransaction, onClose, onStaked }) => {
-  const [amount, setAmount]   = useState('');
-  const [lockId, setLockId]   = useState<LockId>('locked90');
-  const [lpBal, setLpBal]     = useState(0);
-  const [xntBal, setXntBal]   = useState(0);
-  const [status, setStatus]   = useState('');
-  const [pending, setPending] = useState(false);
-  const [sig, setSig]         = useState('');
-
-  useEffect(() => {
-    let sy = 0;
-    try { sy = window.scrollY; document.body.style.position = 'fixed'; document.body.style.top = `-${sy}px`; } catch {}
-    return () => { try { document.body.style.position = ''; document.body.style.top = ''; window.scrollTo(0, sy); } catch {} };
-  }, []);
-
-  // Fetch balances
-  useEffect(() => {
-    (async () => {
-      try {
-        const lpTokenProg = await getTokenProgram(new PublicKey(farm.lpMint), connection);
-        const lpAta = getAssociatedTokenAddressSync(
-          new PublicKey(farm.lpMint), publicKey, false, lpTokenProg,
-        );
-        const [lpInfo, xntLamp] = await Promise.all([
-          connection.getParsedAccountInfo(lpAta).catch(() => null),
-          connection.getBalance(publicKey).catch(() => 0),
-        ]);
-        const lp = Number((lpInfo?.value?.data as any)?.parsed?.info?.tokenAmount?.uiAmount ?? 0);
-        setLpBal(lp);
-        setXntBal(xntLamp / LAMPORTS_PER_SOL);
-      } catch {}
-    })();
-  }, [farm.lpMint, publicKey, connection]);
-
-  const amt = parseFloat(amount) || 0;
-  const tier = LOCK_TIERS.find(t => t.id === lockId)!;
-  const amountUsd = amt * farm.lpPriceUsd;
-  const apr = computeApr(farm, tier.multBps);
-  const projYearReward = apr > 0 && farm.rewardPriceUsd > 0
-    ? (amountUsd * apr / 100) / farm.rewardPriceUsd
-    : 0;
-  const feeXnt = STAKE_FEE_LAMPORTS / LAMPORTS_PER_SOL;
-  const canSubmit = amt > 0 && amt <= lpBal && xntBal >= feeXnt && !pending;
-
-  const handleStake = async () => {
-    if (!canSubmit) return;
-    setPending(true); setSig(''); setStatus('Building transaction…');
-    try {
-      const programPk  = new PublicKey(FARM_PROGRAM_ID);
-      const lpMintPk   = new PublicKey(farm.lpMint);
-      const rewardPk   = new PublicKey(farm.rewardMint);
-      const farmPk     = new PublicKey(farm.pubkey);
-      const [globalPk] = deriveFarmGlobal();
-
-      const lpTokenProg = await getTokenProgram(lpMintPk, connection);
-      const lpAta = getAssociatedTokenAddressSync(lpMintPk, publicKey, false, lpTokenProg);
-
-      // Find unused nonce
-      let nonce = 0;
-      for (let i = 0; i < 100; i++) {
-        const [p] = derivePosition(publicKey, farmPk, i);
-        const info = await connection.getAccountInfo(p);
-        if (!info) { nonce = i; break; }
-      }
-      const [positionPk] = derivePosition(publicKey, farmPk, nonce);
-
-      const lockTypeByte = lockId === 'locked30' ? 0 : lockId === 'locked90' ? 1 : 2;
-      const rawAmt = BigInt(Math.floor(amt * pow10(farm.lpDecimals))); // LP decimals = 9
-
-      const d = await disc('stake');
-      const params = Buffer.alloc(8 + 1 + 4);
-      params.writeBigUInt64LE(rawAmt, 0);
-      params.writeUInt8(lockTypeByte, 8);
-      params.writeUInt32LE(nonce, 9);
-      const data = Buffer.concat([d, params]);
-
-      const keys = [
-        { pubkey: publicKey,                 isSigner: true,  isWritable: true  }, // owner
-        { pubkey: globalPk,                  isSigner: false, isWritable: true  }, // global_state
-        { pubkey: farmPk,                    isSigner: false, isWritable: true  }, // farm
-        { pubkey: lpMintPk,                  isSigner: false, isWritable: false }, // lp_mint
-        { pubkey: lpAta,                     isSigner: false, isWritable: true  }, // owner_lp_ata
-        { pubkey: new PublicKey(farm.lpVault),     isSigner: false, isWritable: true  }, // lp_vault
-        { pubkey: new PublicKey(farm.rewardVault), isSigner: false, isWritable: false }, // reward_vault
-        { pubkey: positionPk,                isSigner: false, isWritable: true  }, // position
-        { pubkey: new PublicKey(TREASURY),   isSigner: false, isWritable: true  }, // treasury
-        { pubkey: lpTokenProg,               isSigner: false, isWritable: false }, // lp_token_program
-        { pubkey: SystemProgram.programId,   isSigner: false, isWritable: false }, // system_program
-        { pubkey: new PublicKey('SysvarRent111111111111111111111111111111111'), isSigner: false, isWritable: false }, // rent
-      ];
-
-      const ix = new TransactionInstruction({ programId: programPk, keys, data });
-      const { blockhash } = await connection.getLatestBlockhash('confirmed');
-      const tx = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash });
-      tx.add(ix);
-
-      setStatus('Waiting for wallet approval…');
-      const signed = await signTransaction(tx);
-      const txSig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false });
-      setSig(txSig); setStatus('Confirming…');
-
-      for (let i = 0; i < 30; i++) {
-        await new Promise(r => setTimeout(r, 1_500));
-        const st = await connection.getSignatureStatus(txSig, { searchTransactionHistory: true });
-        if (st?.value?.err) throw new Error('Tx failed: ' + JSON.stringify(st.value.err));
-        if (st?.value?.confirmationStatus === 'confirmed' || st?.value?.confirmationStatus === 'finalized') {
-          setStatus(`✅ Staked ${fmtNum(amt, 4)} ${farm.lpSymbol} for ${tier.label}!`);
-          setTimeout(() => { onStaked(); onClose(); }, 2_500);
-          return;
-        }
-      }
-      throw new Error('Confirmation timeout');
-    } catch (e: any) {
-      const friendly = friendlyError(e);
-      setStatus(`❌ ${friendly.title} — ${friendly.message}`);
-    } finally { setPending(false); }
-  };
-
-  return createPortal(
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999,
-      background: 'rgba(0,0,0,.85)', backdropFilter: 'blur(16px)',
-      display: 'flex', alignItems: isMobile ? 'flex-end' : 'center',
-      justifyContent: 'center', padding: isMobile ? 0 : 16 }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        width: '100%', maxWidth: isMobile ? '100%' : 520,
-        background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-        border: '1px solid rgba(255,140,0,0.25)',
-        borderRadius: isMobile ? '20px 20px 0 0' : 16,
-        padding: isMobile ? '20px 16px 28px' : '24px 26px',
-        maxHeight: isMobile ? '88vh' : 'calc(100vh - 32px)',
-        overflowY: 'auto', position: 'relative',
-        animation: 'modal-in .22s cubic-bezier(.22,1,.36,1) both',
-      }}>
-        <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16,
-          width: 30, height: 30, borderRadius: '50%', cursor: 'pointer',
-          border: '1px solid rgba(255,140,0,.2)', background: 'rgba(8,12,15,.9)',
-          color: '#ff8c00', fontSize: 16 }}>×</button>
-
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 18,
-          fontWeight: 900, color: '#fff', letterSpacing: 1, marginBottom: 4 }}>
-          ⚡ STAKE {farm.lpSymbol}
-        </div>
-        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11,
-          color: '#c0d0e0', marginBottom: 18 }}>
-          Earn {farm.rewardSymbol} rewards. Lock duration determines multiplier.
-        </div>
-
-        {/* Amount */}
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2,
-          color: '#8899aa', marginBottom: 8 }}>AMOUNT TO STAKE</div>
-        <div style={{ background: 'rgba(255,255,255,.04)',
-          border: '1px solid rgba(255,140,0,.2)',
-          borderRadius: 12, padding: '14px 16px', marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <input value={amount} onChange={e => setAmount(e.target.value)}
-              type="number" min="0" placeholder="0"
-              style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none',
-                fontFamily: 'Orbitron,monospace', fontSize: 24, fontWeight: 900, color: '#fff' }} />
-            <button onClick={() => setAmount(lpBal.toFixed(6))}
-              style={{ background: 'rgba(255,140,0,.1)', border: '1px solid rgba(255,140,0,.3)',
-                borderRadius: 7, padding: '5px 12px', cursor: 'pointer',
-                fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#ff8c00' }}>
-              MAX
-            </button>
-          </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#c0d0e0', marginTop: 6 }}>
-            Balance: {fmtNum(lpBal, 4)} LP
-            {amt > 0 && <> · ≈ {fmtUSD(amountUsd)}</>}
-          </div>
-        </div>
-
-        {/* Lock tier picker */}
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2,
-          color: '#8899aa', marginBottom: 8 }}>LOCK DURATION</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
-          {LOCK_TIERS.map(t => (
-            <button key={t.id} onClick={() => setLockId(t.id)}
-              style={{ padding: '14px 8px', borderRadius: 11, cursor: 'pointer', textAlign: 'center',
-                background: lockId === t.id ? `${t.color}18` : 'rgba(255,255,255,.03)',
-                border: `1px solid ${lockId === t.id ? `${t.color}66` : 'rgba(255,255,255,.08)'}`,
-                transition: 'all 0.15s' }}>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-                color: lockId === t.id ? t.color : '#8aa0b8' }}>{t.label}</div>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900,
-                color: lockId === t.id ? t.color : '#4a6a8a', marginTop: 4 }}>{t.multDisplay}</div>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8,
-                color: '#8899aa', marginTop: 3 }}>weight</div>
-            </button>
-          ))}
-        </div>
-
-        {/* Projections */}
-        <div style={{ background: 'rgba(255,255,255,.025)',
-          border: '1px solid rgba(255,255,255,.06)',
-          borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9,
-            color: '#8899aa', letterSpacing: 1, marginBottom: 10 }}>PROJECTION</div>
-          {[
-            { label: 'EFFECTIVE APR',       val: apr > 0 ? `${apr < 10_000 ? apr.toFixed(2) : fmtNum(apr, 0)}%` : '—', color: tier.color, tip: 'Current realized APR for this tier — based on the live rate and existing stakers. Your actual APR will shift slightly as your stake joins the pool: if you commit a large amount relative to current TVL, the displayed number drops for everyone (you included). Updates live.' },
-            { label: 'YEARLY REWARD (est)', val: projYearReward > 0 ? `${fmtNum(projYearReward, 2)} ${farm.rewardSymbol}` : '—', color: '#00c98d', tip: 'Estimated rewards over a full year at the current rate. Actual amount depends on TVL changes and your stake size relative to the pool.' },
-            { label: 'UNLOCK DATE',         val: `${tier.days} days from now`, color: '#d0dde8', tip: '' },
-            { label: 'STAKE FEE',            val: `${feeXnt} XNT`, color: '#ff8c00', tip: 'Flat fee paid to the protocol treasury on stake. One-time, charged in XNT.' },
-          ].map(r => (
-            <div key={r.label}
-              title={r.tip || undefined}
-              style={{ display: 'flex', justifyContent: 'space-between',
-              padding: '4px 0', fontFamily: 'Orbitron,monospace', fontSize: 10,
-              cursor: r.tip ? 'help' : 'default' }}>
-              <span style={{ color: '#8899aa', letterSpacing: .5 }}>{r.label}{r.tip ? ' ⓘ' : ''}</span>
-              <span style={{ color: r.color, fontWeight: 700 }}>{r.val}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Penalty disclosure */}
-        <div style={{ padding: '12px 14px', borderRadius: 8, marginBottom: 14,
-          background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
-          fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#9abacf', lineHeight: 1.5 }}>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
-            color: '#4a6a8a', marginBottom: 8, letterSpacing: 1, textTransform: 'uppercase' }}>
-            Exit policy
-          </div>
-          <div style={{ marginBottom: 10, fontSize: 10 }}>
-            Grace (days 1–3): full LP returned, rewards forfeited. Past grace: LP penalty +
-            rewards forfeited. Mature: full LP + full rewards.
-          </div>
-
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
-            color: '#4a6a8a', marginTop: 12, marginBottom: 6, letterSpacing: 1, textTransform: 'uppercase' }}>
-            LB-holder discount ladder
-          </div>
-          <table style={{ width: '100%', fontSize: 9, borderCollapse: 'collapse',
-            fontFamily: 'Orbitron,monospace' }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left', padding: '4px 8px 4px 0', fontWeight: 600,
-                  fontSize: 8, color: '#4a6a8a', letterSpacing: .5,
-                  borderBottom: '1px solid rgba(255,255,255,.06)' }}>Tier</th>
-                <th style={{ textAlign: 'left', padding: '4px 8px 4px 0', fontWeight: 600,
-                  fontSize: 8, color: '#4a6a8a', letterSpacing: .5,
-                  borderBottom: '1px solid rgba(255,255,255,.06)' }}>LB held</th>
-                <th style={{ textAlign: 'right', padding: '4px 8px 4px 0', fontWeight: 600,
-                  fontSize: 8, color: '#4a6a8a', letterSpacing: .5,
-                  borderBottom: '1px solid rgba(255,255,255,.06)' }}>P1</th>
-                <th style={{ textAlign: 'right', padding: '4px 0', fontWeight: 600,
-                  fontSize: 8, color: '#4a6a8a', letterSpacing: .5,
-                  borderBottom: '1px solid rgba(255,255,255,.06)' }}>P2</th>
-              </tr>
-            </thead>
-            <tbody style={{ color: '#9abacf' }}>
-              <tr>
-                <td style={{ padding: '4px 8px 4px 0', borderBottom: '1px solid rgba(255,255,255,.03)' }}>—</td>
-                <td style={{ padding: '4px 8px 4px 0', borderBottom: '1px solid rgba(255,255,255,.03)' }}>&lt; 33</td>
-                <td style={{ padding: '4px 8px 4px 0', textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,.03)' }}>4.000%</td>
-                <td style={{ padding: '4px 0', textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,.03)' }}>1.888%</td>
-              </tr>
-              <tr>
-                <td style={{ padding: '4px 8px 4px 0', borderBottom: '1px solid rgba(255,255,255,.03)' }}>T1</td>
-                <td style={{ padding: '4px 8px 4px 0', borderBottom: '1px solid rgba(255,255,255,.03)' }}>≥ 33</td>
-                <td style={{ padding: '4px 8px 4px 0', textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,.03)' }}>1.888%</td>
-                <td style={{ padding: '4px 0', textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,.03)' }}>0.888%</td>
-              </tr>
-              <tr>
-                <td style={{ padding: '4px 8px 4px 0', borderBottom: '1px solid rgba(255,255,255,.03)' }}>T2</td>
-                <td style={{ padding: '4px 8px 4px 0', borderBottom: '1px solid rgba(255,255,255,.03)' }}>≥ 330</td>
-                <td style={{ padding: '4px 8px 4px 0', textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,.03)' }}>1.000%</td>
-                <td style={{ padding: '4px 0', textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,.03)' }}>0.444%</td>
-              </tr>
-              <tr>
-                <td style={{ padding: '4px 8px 4px 0' }}>T3</td>
-                <td style={{ padding: '4px 8px 4px 0' }}>≥ 3,300</td>
-                <td style={{ padding: '4px 8px 4px 0', textAlign: 'right' }}>0.500%</td>
-                <td style={{ padding: '4px 0', textAlign: 'right' }}>0.222%</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <StatusBox msg={status} />
-        <TxLink sig={sig} color="#ff8c00" />
-
-        <button onClick={handleStake} disabled={!canSubmit}
-          style={{ width: '100%', padding: '15px 0', borderRadius: 12,
-            cursor: canSubmit ? 'pointer' : 'not-allowed',
-            background: canSubmit
-              ? 'linear-gradient(135deg,rgba(255,140,0,.25),rgba(255,140,0,.08))'
-              : 'rgba(255,255,255,.04)',
-            border: `1px solid ${canSubmit ? 'rgba(255,140,0,.5)' : 'rgba(255,255,255,.08)'}`,
-            fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-            color: canSubmit ? '#ff8c00' : '#4a6a8a', letterSpacing: 1.5 }}>
-          {pending ? 'STAKING…' : `⚡ STAKE ${amt > 0 ? fmtNum(amt, 4) : '—'} LP · ${tier.label}`}
-        </button>
-      </div>
-    </div>,
-    document.body,
-  );
-};
-
-// ─── Claim Modal ──────────────────────────────────────────────────────────────
-const ClaimModal: FC<{
-  position: PositionOnChain; farm: FarmOnChain;
-  isMobile: boolean; publicKey: PublicKey; connection: Connection; signTransaction: any;
-  onClose: () => void; onClaimed: () => void;
-}> = ({ position, farm, isMobile, publicKey, connection, signTransaction, onClose, onClaimed }) => {
-  const [status, setStatus] = useState('');
-  const [pending, setPending] = useState(false);
-  const [sig, setSig] = useState('');
-
-  const handleClaim = async () => {
-    setPending(true); setStatus('Building transaction…');
-    try {
-      const programPk  = new PublicKey(FARM_PROGRAM_ID);
-      const farmPk     = new PublicKey(farm.pubkey);
-      const rewardPk   = new PublicKey(farm.rewardMint);
-      const [globalPk] = deriveFarmGlobal();
-      const [positionPk] = derivePosition(publicKey, farmPk, position.nonce);
-
-      const rewardProg = await getTokenProgram(rewardPk, connection);
-      const rewardAta  = getAssociatedTokenAddressSync(rewardPk, publicKey, false, rewardProg);
-
-      const d = await disc('claim');
-      const params = Buffer.alloc(4);
-      params.writeUInt32LE(position.nonce, 0);
-      const data = Buffer.concat([d, params]);
-
-      const keys = [
-        { pubkey: publicKey, isSigner: true,  isWritable: true  },
-        { pubkey: globalPk,  isSigner: false, isWritable: true  },
-        { pubkey: farmPk,    isSigner: false, isWritable: true  },
-        { pubkey: positionPk, isSigner: false, isWritable: true  },
-        { pubkey: rewardPk,  isSigner: false, isWritable: false },
-        { pubkey: rewardAta, isSigner: false, isWritable: true  },
-        { pubkey: new PublicKey(farm.rewardVault), isSigner: false, isWritable: true  },
-        { pubkey: rewardProg, isSigner: false, isWritable: false },
-      ];
-
-      const { blockhash } = await connection.getLatestBlockhash('confirmed');
-      const tx = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash });
-      // Ensure reward ATA exists
-      const ataInfo = await connection.getAccountInfo(rewardAta);
-      if (!ataInfo) {
-        tx.add(createAssociatedTokenAccountIdempotentInstruction(
-          publicKey, rewardAta, publicKey, rewardPk, rewardProg,
-        ));
-      }
-      tx.add(new TransactionInstruction({ programId: programPk, keys, data }));
-
-      setStatus('Waiting for wallet…');
-      const signed = await signTransaction(tx);
-      const txSig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false });
-      setSig(txSig); setStatus('Confirming…');
-
-      for (let i = 0; i < 30; i++) {
-        await new Promise(r => setTimeout(r, 1_500));
-        const st = await connection.getSignatureStatus(txSig, { searchTransactionHistory: true });
-        if (st?.value?.err) throw new Error('Tx failed: ' + JSON.stringify(st.value.err));
-        if (st?.value?.confirmationStatus === 'confirmed' || st?.value?.confirmationStatus === 'finalized') {
-          setStatus(`✅ Claimed rewards!`);
-          setTimeout(() => { onClaimed(); onClose(); }, 2_000);
-          return;
-        }
-      }
-      throw new Error('Confirmation timeout');
-    } catch (e: any) {
-      const friendly = friendlyClaimError(e, position);
-      setStatus(`❌ ${friendly.title} — ${friendly.message}`);
-    } finally { setPending(false); }
-  };
-
-  const earnedUi = Number(position.earnedNow) / pow10(farm.rewardDecimals);
-  const earnedUsd = earnedUi * farm.rewardPriceUsd;
-
-  return createPortal(
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999,
-      background: 'rgba(0,0,0,.85)', backdropFilter: 'blur(16px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        width: '100%', maxWidth: 420,
-        background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-        border: '1px solid rgba(0,201,141,.25)', borderRadius: 16,
-        padding: '24px 26px', position: 'relative',
-        animation: 'modal-in .22s cubic-bezier(.22,1,.36,1) both',
-      }}>
-        <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16,
-          width: 30, height: 30, borderRadius: '50%', cursor: 'pointer',
-          border: '1px solid rgba(0,201,141,.2)', background: 'rgba(8,12,15,.9)',
-          color: '#00c98d', fontSize: 16 }}>×</button>
-
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 18, fontWeight: 900,
-          color: '#fff', letterSpacing: 1, marginBottom: 18 }}>
-          💰 CLAIM REWARDS
-        </div>
-
-        <div style={{ background: 'rgba(0,201,141,.06)',
-          border: '1px solid rgba(0,201,141,.2)', borderRadius: 12,
-          padding: '20px', marginBottom: 18, textAlign: 'center' }}>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9,
-            color: '#8899aa', letterSpacing: 1, marginBottom: 8 }}>YOU'LL CLAIM</div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 28, fontWeight: 900,
-            color: '#00c98d', marginBottom: 4 }}>
-            {fmtNum(earnedUi, 6)} {farm.rewardSymbol}
-          </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#d0dde8' }}>
-            ≈ {fmtUSD(earnedUsd)}
-          </div>
-        </div>
-
-        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11,
-          color: '#c0d0e0', marginBottom: 18, lineHeight: 1.6 }}>
-          Position stays open after claim. Next claim available in 24 hours.
-        </div>
-
-        <StatusBox msg={status} />
-        <TxLink sig={sig} color="#00c98d" />
-
-        <button onClick={handleClaim} disabled={pending}
-          style={{ width: '100%', padding: '14px 0', borderRadius: 11,
-            cursor: pending ? 'not-allowed' : 'pointer',
-            background: pending ? 'rgba(255,255,255,.04)'
-                                : 'linear-gradient(135deg,rgba(0,201,141,.22),rgba(0,201,141,.08))',
-            border: '1px solid rgba(0,201,141,.45)',
-            fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-            color: pending ? '#4a6a8a' : '#00c98d', letterSpacing: 1.5 }}>
-          {pending ? 'CLAIMING…' : '💰 CLAIM NOW'}
-        </button>
-      </div>
-    </div>,
-    document.body,
-  );
-};
-
-// ─── Unstake Modal ────────────────────────────────────────────────────────────
-const UnstakeModal: FC<{
-  position: PositionOnChain; farm: FarmOnChain;
-  isMobile: boolean; publicKey: PublicKey; connection: Connection; signTransaction: any;
-  onClose: () => void; onUnstaked: () => void;
-}> = ({ position, farm, isMobile, publicKey, connection, signTransaction, onClose, onUnstaked }) => {
-  const [status, setStatus] = useState('');
-  const [pending, setPending] = useState(false);
-  const [sig, setSig] = useState('');
-  const [lbBal, setLbBal] = useState(0);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const lbAta = getAssociatedTokenAddressSync(
-          new PublicKey(LB_MINT), publicKey, false, TOKEN_2022_PROGRAM_ID,
-        );
-        const info = await connection.getParsedAccountInfo(lbAta).catch(() => null);
-        const raw = Number((info?.value?.data as any)?.parsed?.info?.tokenAmount?.amount ?? 0);
-        setLbBal(raw);
-      } catch {}
-    })();
-  }, [publicKey, connection]);
-
-  const now = Math.floor(Date.now() / 1000);
-  const isMatured = now >= position.unlockTs;
-  const isInGrace = now <= position.graceEndTs;
-  const lbTier = getLbTier(lbBal);
-  const hasDiscount = lbTier > 0; // kept for button-hint copy below
-
-  // Compute penalty with actual LB tier (matches on-chain logic exactly)
-  let penaltyBps = 0;
-  let period: 1 | 2 = 1;
-  if (!isMatured && !isInGrace) {
-    const midpoint = position.startTs + position.lockDuration / 2;
-    period = now < midpoint ? 1 : 2;
-    penaltyBps = getPenaltyBps(period, lbTier);
-  }
-  const penaltyRaw = (position.amount * BigInt(penaltyBps)) / 10_000n;
-  const lpReturnedRaw = position.amount - penaltyRaw;
-
-  const amountUi  = Number(position.amount) / pow10(farm.lpDecimals);
-  const returnedUi = Number(lpReturnedRaw) / pow10(farm.lpDecimals);
-  const penaltyUi  = Number(penaltyRaw) / pow10(farm.lpDecimals);
-  const earnedUi   = Number(position.earnedNow) / pow10(farm.rewardDecimals);
-  const isEarly = !isMatured && !isInGrace;
-
-  const handleUnstake = async () => {
-    setPending(true); setStatus('Building transaction…');
-    try {
-      const programPk  = new PublicKey(FARM_PROGRAM_ID);
-      const farmPk     = new PublicKey(farm.pubkey);
-      const lpMintPk   = new PublicKey(farm.lpMint);
-      const rewardPk   = new PublicKey(farm.rewardMint);
-      const [globalPk] = deriveFarmGlobal();
-      const [positionPk] = derivePosition(publicKey, farmPk, position.nonce);
-      const treasuryPk = new PublicKey(TREASURY);
-
-      const lpProg     = await getTokenProgram(lpMintPk, connection);
-      const rewardProg = await getTokenProgram(rewardPk, connection);
-
-      const lpAta      = getAssociatedTokenAddressSync(lpMintPk, publicKey, false, lpProg);
-      const rewardAta  = getAssociatedTokenAddressSync(rewardPk, publicKey, false, rewardProg);
-      const treasLpAta = getAssociatedTokenAddressSync(lpMintPk, treasuryPk, true, lpProg);
-      const lbAta      = getAssociatedTokenAddressSync(new PublicKey(LB_MINT), publicKey, false, TOKEN_2022_PROGRAM_ID);
-      const lbAtaInfo  = await connection.getAccountInfo(lbAta);
-      const lbAccount  = lbAtaInfo ? lbAta : programPk; // program_id sentinel for "no LB"
-
-      const d = await disc('unstake');
-      const params = Buffer.alloc(4);
-      params.writeUInt32LE(position.nonce, 0);
-      const data = Buffer.concat([d, params]);
-
-      const keys = [
-        { pubkey: publicKey,       isSigner: true,  isWritable: true  },
-        { pubkey: globalPk,        isSigner: false, isWritable: true  },
-        { pubkey: farmPk,          isSigner: false, isWritable: true  },
-        { pubkey: positionPk,      isSigner: false, isWritable: true  },
-        { pubkey: lpMintPk,        isSigner: false, isWritable: false },
-        { pubkey: rewardPk,        isSigner: false, isWritable: false },
-        { pubkey: lpAta,           isSigner: false, isWritable: true  },
-        { pubkey: rewardAta,       isSigner: false, isWritable: true  },
-        { pubkey: new PublicKey(farm.lpVault),     isSigner: false, isWritable: true  },
-        { pubkey: new PublicKey(farm.rewardVault), isSigner: false, isWritable: true  },
-        { pubkey: treasLpAta,      isSigner: false, isWritable: true  },
-        { pubkey: treasuryPk,      isSigner: false, isWritable: false },
-        { pubkey: lbAccount,       isSigner: false, isWritable: false },
-        { pubkey: lpProg,          isSigner: false, isWritable: false },
-        { pubkey: rewardProg,      isSigner: false, isWritable: false },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      ];
-
-      const { blockhash } = await connection.getLatestBlockhash('confirmed');
-      const tx = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash });
-
-      // Ensure all destination ATAs exist
-      for (const ata of [lpAta, rewardAta, treasLpAta]) {
-        const info = await connection.getAccountInfo(ata);
-        if (!info) {
-          const mint = ata.equals(treasLpAta) ? lpMintPk : (ata.equals(rewardAta) ? rewardPk : lpMintPk);
-          const owner = ata.equals(treasLpAta) ? treasuryPk : publicKey;
-          const prog = mint.equals(rewardPk) ? rewardProg : lpProg;
-          tx.add(createAssociatedTokenAccountIdempotentInstruction(
-            publicKey, ata, owner, mint, prog,
-          ));
-        }
-      }
-      tx.add(new TransactionInstruction({ programId: programPk, keys, data }));
-
-      setStatus('Waiting for wallet…');
-      const signed = await signTransaction(tx);
-      const txSig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false });
-      setSig(txSig); setStatus('Confirming…');
-
-      for (let i = 0; i < 30; i++) {
-        await new Promise(r => setTimeout(r, 1_500));
-        const st = await connection.getSignatureStatus(txSig, { searchTransactionHistory: true });
-        if (st?.value?.err) throw new Error('Tx failed: ' + JSON.stringify(st.value.err));
-        if (st?.value?.confirmationStatus === 'confirmed' || st?.value?.confirmationStatus === 'finalized') {
-          setStatus(isMatured ? '✅ Unstaked! LP + rewards returned.' : '✅ Early exit completed.');
-          setTimeout(() => { onUnstaked(); onClose(); }, 2_500);
-          return;
-        }
-      }
-      throw new Error('Confirmation timeout');
-    } catch (e: any) {
-      const friendly = friendlyError(e);
-      setStatus(`❌ ${friendly.title} — ${friendly.message}`);
-    } finally { setPending(false); }
-  };
-
-  const accentColor = isMatured ? '#00c98d' : isInGrace ? '#ffb347' : '#ff6666';
-
-  return createPortal(
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999,
-      background: 'rgba(0,0,0,.85)', backdropFilter: 'blur(16px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        width: '100%', maxWidth: 460,
-        background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-        border: `1px solid ${accentColor}40`, borderRadius: 16,
-        padding: '24px 26px', position: 'relative', maxHeight: '88vh', overflowY: 'auto',
-        animation: 'modal-in .22s cubic-bezier(.22,1,.36,1) both',
-      }}>
-        <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16,
-          width: 30, height: 30, borderRadius: '50%', cursor: 'pointer',
-          border: `1px solid ${accentColor}40`, background: 'rgba(8,12,15,.9)',
-          color: accentColor, fontSize: 16 }}>×</button>
-
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 18, fontWeight: 900,
-          color: '#fff', letterSpacing: 1, marginBottom: 4 }}>
-          {isMatured ? '✓ UNSTAKE' : isInGrace ? '🛡️ GRACE EXIT' : '⚠ EARLY EXIT'}
-        </div>
-        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#c0d0e0',
-          marginBottom: 18, lineHeight: 1.5 }}>
-          {isMatured
-            ? 'Lock period complete. Full LP + rewards returned.'
-            : isInGrace
-            ? 'Within 3-day grace period. Full LP returned, all pending rewards forfeited to vault.'
-            : 'Early exit: LP penalty + all pending rewards forfeited.'}
-        </div>
-
-        <div style={{ background: `${accentColor}08`, border: `1px solid ${accentColor}33`,
-          borderRadius: 12, padding: '16px', marginBottom: 16 }}>
-          {[
-            { label: 'LP RETURNED',  val: `${fmtNum(returnedUi, 4)} LP`, color: '#00c98d' },
-            ...(penaltyUi > 0 ? [{
-              label: `PENALTY (${(penaltyBps/100).toFixed(3)}%${lbTier > 0 ? ` · T${lbTier} LB discount` : ''})`,
-              val: `-${fmtNum(penaltyUi, 4)} LP → treasury`,
-              color: '#ff8c00',
-            }] : []),
-            { label: isMatured ? 'REWARDS PAID' : 'REWARDS FORFEITED',
-              val: isMatured
-                ? `${fmtNum(earnedUi, 4)} ${farm.rewardSymbol}`
-                : `${fmtNum(earnedUi, 4)} ${farm.rewardSymbol} stays in vault`,
-              color: isMatured ? '#00c98d' : '#ff6666' },
-          ].map(r => (
-            <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between',
-              padding: '6px 0', borderTop: '1px solid rgba(255,255,255,.04)' }}>
-              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 8,
-                color: '#8899aa', letterSpacing: .5 }}>{r.label}</span>
-              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11,
-                fontWeight: 700, color: r.color, textAlign: 'right', maxWidth: '60%' }}>{r.val}</span>
-            </div>
-          ))}
-        </div>
-
-        {!isMatured && !isInGrace && lbTier < 3 && (
-          <div style={{ padding: '10px 12px', borderRadius: 7, marginBottom: 14,
-            background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
-            fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#9abacf', lineHeight: 1.5 }}>
-            {lbTier === 0 && (
-              <>You hold {(lbBal/100).toFixed(2)} LB. Hold {(LB_TIER1_THRESHOLD_UI - lbBal/100).toFixed(2)} more to reach T1 ({period === 1 ? '1.888' : '0.888'}% penalty).</>
-            )}
-            {lbTier === 1 && (
-              <>T1 active · {(lbBal/100).toFixed(2)} LB. Hold {(LB_TIER2_THRESHOLD_UI - lbBal/100).toFixed(2)} more to reach T2 ({period === 1 ? '1.000' : '0.444'}% penalty).</>
-            )}
-            {lbTier === 2 && (
-              <>T2 active · {(lbBal/100).toFixed(2)} LB. Hold {(LB_TIER3_THRESHOLD_UI - lbBal/100).toFixed(2)} more to reach T3 ({period === 1 ? '0.500' : '0.222'}% penalty).</>
-            )}
-          </div>
-        )}
-        {!isMatured && !isInGrace && lbTier === 3 && (
-          <div style={{ padding: '10px 12px', borderRadius: 7, marginBottom: 14,
-            background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
-            fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#9abacf', lineHeight: 1.5 }}>
-            T3 active · {(lbBal/100).toFixed(2)} LB. Lowest penalty tier reached.
-          </div>
-        )}
-
-        <StatusBox msg={status} />
-        <TxLink sig={sig} color={accentColor} />
-
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={onClose}
-            style={{ flex: 1, padding: '13px 0', borderRadius: 11, cursor: 'pointer',
-              background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)',
-              fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700, color: '#c0d0e0' }}>
-            CANCEL
-          </button>
-          <button onClick={handleUnstake} disabled={pending}
-            style={{ flex: 2, padding: '13px 0', borderRadius: 11,
-              cursor: pending ? 'not-allowed' : 'pointer',
-              background: pending ? 'rgba(255,255,255,.04)'
-                : `linear-gradient(135deg,${accentColor}22,${accentColor}08)`,
-              border: `1px solid ${accentColor}66`,
-              fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-              color: pending ? '#4a6a8a' : accentColor, letterSpacing: 1.5 }}>
-            {pending ? 'UNSTAKING…' : isMatured ? '✓ CONFIRM UNSTAKE' : '⚠ CONFIRM EARLY EXIT'}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-};
-
-// ─── Donation Modal ───────────────────────────────────────────────────────────
-const DonateModal: FC<{
-  farm: FarmOnChain; isMobile: boolean; publicKey: PublicKey;
-  connection: Connection; signTransaction: any;
-  onClose: () => void; onDonated: () => void;
-}> = ({ farm, isMobile, publicKey, connection, signTransaction, onClose, onDonated }) => {
-  const [amount, setAmount] = useState('');
-  const [bal, setBal] = useState(0);
-  const [status, setStatus] = useState('');
-  const [pending, setPending] = useState(false);
-  const [sig, setSig] = useState('');
-
-  useEffect(() => {
-    (async () => {
-      const prog = await getTokenProgram(new PublicKey(farm.rewardMint), connection);
-      const ata = getAssociatedTokenAddressSync(new PublicKey(farm.rewardMint), publicKey, false, prog);
-      const info = await connection.getParsedAccountInfo(ata).catch(() => null);
-      setBal(Number((info?.value?.data as any)?.parsed?.info?.tokenAmount?.uiAmount ?? 0));
-    })();
-  }, [farm.rewardMint, publicKey, connection]);
-
-  const amt = parseFloat(amount) || 0;
-  const amtUsd = amt * farm.rewardPriceUsd;
-  const additionalRunwayDays = farm.rewardRatePerSec > 0n
-    ? Math.floor(Number(BigInt(Math.floor(amt * 1e9)) * ACC_PRECISION / farm.rewardRatePerSec) / 86_400)
-    : 0;
-  const canSubmit = amt > 0 && amt <= bal && !pending;
-
-  const handleDonate = async () => {
-    setPending(true); setStatus('Building transaction…');
-    try {
-      const programPk  = new PublicKey(FARM_PROGRAM_ID);
-      const farmPk     = new PublicKey(farm.pubkey);
-      const rewardPk   = new PublicKey(farm.rewardMint);
-      const prog       = await getTokenProgram(rewardPk, connection);
-      const funderAta  = getAssociatedTokenAddressSync(rewardPk, publicKey, false, prog);
-
-      const rawAmt = BigInt(Math.floor(amt * pow10(farm.rewardDecimals)));
-      const d = await disc('fund_farm');
-      const params = Buffer.alloc(8);
-      params.writeBigUInt64LE(rawAmt, 0);
-      const data = Buffer.concat([d, params]);
-
-      const keys = [
-        { pubkey: publicKey,        isSigner: true,  isWritable: true  },
-        { pubkey: farmPk,           isSigner: false, isWritable: true  },
-        { pubkey: rewardPk,         isSigner: false, isWritable: false },
-        { pubkey: funderAta,        isSigner: false, isWritable: true  },
-        { pubkey: new PublicKey(farm.rewardVault), isSigner: false, isWritable: true  },
-        { pubkey: prog,             isSigner: false, isWritable: false },
-      ];
-
-      const { blockhash } = await connection.getLatestBlockhash('confirmed');
-      const tx = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash });
-      tx.add(new TransactionInstruction({ programId: programPk, keys, data }));
-
-      setStatus('Waiting for wallet…');
-      const signed = await signTransaction(tx);
-      const txSig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false });
-      setSig(txSig); setStatus('Confirming…');
-
-      for (let i = 0; i < 30; i++) {
-        await new Promise(r => setTimeout(r, 1_500));
-        const st = await connection.getSignatureStatus(txSig, { searchTransactionHistory: true });
-        if (st?.value?.err) throw new Error('Tx failed: ' + JSON.stringify(st.value.err));
-        if (st?.value?.confirmationStatus === 'confirmed' || st?.value?.confirmationStatus === 'finalized') {
-          setStatus(`✅ Donated ${fmtNum(amt, 4)} ${farm.rewardSymbol}! Runway extended.`);
-          setTimeout(() => { onDonated(); onClose(); }, 2_500);
-          return;
-        }
-      }
-      throw new Error('Confirmation timeout');
-    } catch (e: any) {
-      setStatus('❌ ' + (e?.message ?? String(e)).slice(0, 200));
-    } finally { setPending(false); }
-  };
-
-  return createPortal(
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999,
-      background: 'rgba(0,0,0,.85)', backdropFilter: 'blur(16px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        width: '100%', maxWidth: 440,
-        background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-        border: '1px solid rgba(0,201,141,.25)', borderRadius: 16,
-        padding: '24px 26px', position: 'relative',
-        animation: 'modal-in .22s cubic-bezier(.22,1,.36,1) both',
-      }}>
-        <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16,
-          width: 30, height: 30, borderRadius: '50%', cursor: 'pointer',
-          border: '1px solid rgba(0,201,141,.2)', background: 'rgba(8,12,15,.9)',
-          color: '#00c98d', fontSize: 16 }}>×</button>
-
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 18, fontWeight: 900,
-          color: '#fff', letterSpacing: 1, marginBottom: 4 }}>
-          💧 DONATE TO {farm.rewardSymbol} FARM
-        </div>
-        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#c0d0e0',
-          marginBottom: 18, lineHeight: 1.5 }}>
-          Extend farm runway for existing stakers. Donations cannot be withdrawn.
-        </div>
-
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9,
-          letterSpacing: 2, color: '#8899aa', marginBottom: 8 }}>
-          AMOUNT
-        </div>
-        <div style={{ background: 'rgba(255,255,255,.04)',
-          border: '1px solid rgba(0,201,141,.2)', borderRadius: 12,
-          padding: '14px 16px', marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <input value={amount} onChange={e => setAmount(e.target.value)}
-              type="number" min="0" placeholder="0"
-              style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none',
-                fontFamily: 'Orbitron,monospace', fontSize: 22, fontWeight: 900, color: '#fff' }} />
-            <button onClick={() => setAmount(bal.toFixed(6))}
-              style={{ background: 'rgba(0,201,141,.1)', border: '1px solid rgba(0,201,141,.3)',
-                borderRadius: 7, padding: '5px 12px', cursor: 'pointer',
-                fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#00c98d' }}>
-              MAX
-            </button>
-          </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#c0d0e0', marginTop: 6 }}>
-            Balance: {fmtNum(bal, 4)} {farm.rewardSymbol}
-            {amt > 0 && farm.rewardPriceUsd > 0 && <> · ≈ {fmtUSD(amtUsd)}</>}
-          </div>
-        </div>
-
-        {amt > 0 && (
-          <div style={{ padding: '12px 16px', borderRadius: 10, marginBottom: 14,
-            background: 'rgba(0,201,141,.06)', border: '1px solid rgba(0,201,141,.2)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between',
-              fontFamily: 'Orbitron,monospace', fontSize: 10 }}>
-              <span style={{ color: '#8899aa' }}>RUNWAY EXTENSION</span>
-              <span style={{ color: '#00c98d', fontWeight: 700 }}>
-                +{fmtNum(additionalRunwayDays, 0)} days
-              </span>
-            </div>
-          </div>
-        )}
-
-        <StatusBox msg={status} />
-        <TxLink sig={sig} color="#00c98d" />
-
-        <button onClick={handleDonate} disabled={!canSubmit}
-          style={{ width: '100%', padding: '14px 0', borderRadius: 11,
-            cursor: canSubmit ? 'pointer' : 'not-allowed',
-            background: canSubmit
-              ? 'linear-gradient(135deg,rgba(0,201,141,.22),rgba(0,201,141,.08))'
-              : 'rgba(255,255,255,.04)',
-            border: `1px solid ${canSubmit ? 'rgba(0,201,141,.45)' : 'rgba(255,255,255,.08)'}`,
-            fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-            color: canSubmit ? '#00c98d' : '#4a6a8a', letterSpacing: 1.5 }}>
-          {pending ? 'DONATING…' : `💧 DONATE ${amt > 0 ? fmtNum(amt, 4) : '—'} ${farm.rewardSymbol}`}
-        </button>
-      </div>
-    </div>,
-    document.body,
-  );
-};
-
-// ═════════════════════════════════════════════════════════════════════════════
-// HUD DASHBOARD — single-frame readout panel, multi-section
-// ═════════════════════════════════════════════════════════════════════════════
-// One outer frame (corner brackets, scanline backdrop) wraps multiple stacked
-// sections. Each section has a bracketed header with a hairline divider and a
-// row of cells separated by thin vertical rules — like a single instrument
-// panel rather than a grid of chiclets. Cyberpunk + monochrome aesthetic.
-
-interface HudCell {
-  label: string;
-  value: string;
-  sub: string;
-  /** Optional brand accent — colors the leading tick + a thin top strip. */
-  accent?: string;
-  /** Optional override for the value text color (defaults to off-white). */
-  valueColor?: string;
-}
-interface HudSection { header: string; cells: HudCell[]; live?: boolean; }
-
-// LP Farms page theme: orange brand accent for the outer frame and section
-// brackets; cyan as the default "data" accent inside cells.
-const FRAME_ACCENT  = '#ff8c00';                    // page-level identity (orange)
-const BRACKET_COLOR = 'rgba(110, 170, 200, .55)';   // muted phosphor cyan — internal default
-const VALUE_COLOR   = '#e8eef5';
-const LABEL_COLOR   = 'rgba(180, 210, 230, .55)';
-const SUB_COLOR     = 'rgba(180, 210, 230, .32)';
-const HEADER_COLOR  = 'rgba(255, 178, 100, .75)';   // warm white-amber, ties to FRAME_ACCENT
-const FRAME_BG      = '#070b12';
-const FRAME_BORDER  = 'rgba(255, 140, 0, .18)';     // faint orange edge
-const RULE_COLOR    = 'rgba(255, 140, 0, .12)';     // separator hairlines pick up the orange too
-
-// Per-cell accents that match the existing LP Farms color structure.
-export const HUD_ACCENT = {
-  brains:  '#ff8c00',  // BRAINS orange (matches isHot color in farm cards)
-  lb:      '#00c98d',  // LB green
-  reward:  '#bf5af2',  // "My" / claimable purple
-  data:    '#00d4ff',  // generic data cyan
-} as const;
-
-const CornerBracket: FC<{ corner: 'tl' | 'tr' | 'bl' | 'br'; size?: number; color?: string }> = ({ corner, size = 11, color = FRAME_ACCENT }) => {
-  const base: React.CSSProperties = { position: 'absolute', width: size, height: size, pointerEvents: 'none' };
-  const styles: Record<typeof corner, React.CSSProperties> = {
-    tl: { top: -1, left: -1,  borderTop: `1px solid ${color}`, borderLeft:  `1px solid ${color}` },
-    tr: { top: -1, right: -1, borderTop: `1px solid ${color}`, borderRight: `1px solid ${color}` },
-    bl: { bottom: -1, left: -1,  borderBottom: `1px solid ${color}`, borderLeft:  `1px solid ${color}` },
-    br: { bottom: -1, right: -1, borderBottom: `1px solid ${color}`, borderRight: `1px solid ${color}` },
-  };
-  return <div style={{ ...base, ...styles[corner] }} />;
-};
-
-const HudDashboard: FC<{
-  isMobile: boolean;
-  refreshing?: boolean;
-  sections: HudSection[];
-}> = ({ isMobile, refreshing = false, sections }) => (
-  <div
-    style={{
-      position: 'relative',
-      width: '100%', maxWidth: 920, margin: '0 auto',
-      background: FRAME_BG,
-      border: `1px solid ${FRAME_BORDER}`,
-      // subtle CRT scanline backdrop
-      backgroundImage: `repeating-linear-gradient(
-        0deg,
-        rgba(110,170,200,.022) 0,
-        rgba(110,170,200,.022) 1px,
-        transparent 1px,
-        transparent 3px
-      )`,
-      animation: 'fadeUp 0.5s ease 0.22s both',
-    }}
-  >
-    <style>{`
-      @keyframes hud-pulse { 0%,100%{ opacity: .35 } 50%{ opacity: 1 } }
-    `}</style>
-    <CornerBracket corner="tl" />
-    <CornerBracket corner="tr" />
-    <CornerBracket corner="bl" />
-    <CornerBracket corner="br" />
-
-    {sections.map((sec, idx) => {
-      const colCount = sec.cells.length;
-      // Mobile: 2 cols if 4 cells, 1 col if 3 cells, else fit. Desktop: one col per cell.
-      const gridCols = isMobile
-        ? (colCount >= 4 ? 'repeat(2, minmax(0,1fr))' : `repeat(${Math.min(colCount, 2)}, minmax(0,1fr))`)
-        : `repeat(${colCount}, minmax(0,1fr))`;
-
-      return (
-        <div key={sec.header}>
-          {/* Section divider (between sections) */}
-          {idx > 0 && (
-            <div style={{
-              height: 1,
-              margin: 0,
-              background: `linear-gradient(90deg, transparent, ${RULE_COLOR}, ${RULE_COLOR}, transparent)`,
-            }} />
-          )}
-
-          {/* Section header bar */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: isMobile ? '10px 14px 8px' : '14px 18px 10px',
-            fontFamily: 'Orbitron, monospace',
-            fontSize: isMobile ? 8 : 9,
-            letterSpacing: 2,
-            color: HEADER_COLOR,
-            textTransform: 'uppercase',
-          }}>
-            <span style={{ color: FRAME_ACCENT }}>[</span>
-            <span>{sec.header}</span>
-            <span style={{ color: FRAME_ACCENT }}>]</span>
-            <span style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${FRAME_ACCENT}66, transparent)` }} />
-            {sec.live && (
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: 5,
-                fontSize: isMobile ? 7 : 8, letterSpacing: 1.2,
-                color: refreshing ? '#00d4ff' : 'rgba(110,170,200,.45)',
-                fontWeight: 600,
-              }}>
-                <span style={{
-                  width: 6, height: 6, borderRadius: '50%',
-                  background: refreshing ? '#00d4ff' : 'rgba(110,170,200,.4)',
-                  animation: refreshing ? 'hud-pulse 1.2s ease-in-out infinite' : 'none',
-                  boxShadow: refreshing ? '0 0 6px rgba(0,212,255,.6)' : 'none',
-                }} />
-                {refreshing ? 'SYNC' : 'IDLE'}
-              </span>
-            )}
-          </div>
-
-          {/* Cells row — vertical hairline rules between cells, no individual borders */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: gridCols,
-            padding: isMobile ? '4px 4px 14px' : '4px 8px 18px',
-          }}>
-            {sec.cells.map((cell, i) => {
-              const tick = cell.accent ?? BRACKET_COLOR;
-              // On mobile (2-col grid): if this is the last cell AND the
-              // total cell count is odd, it would otherwise sit alone on the
-              // left of its own row — span it across both columns + center
-              // its contents so the orphan looks intentional rather than
-              // off-balance.
-              const isMobileOrphanLast = isMobile
-                && i === sec.cells.length - 1
-                && sec.cells.length % 2 === 1
-                && i > 0;
-              return (
-              <div
-                key={cell.label}
-                style={{
-                  position: 'relative',
-                  // vertical separator on cells > 0 in the same row.
-                  // On mobile with 2 cols, only every-other cell gets the rule;
-                  // a spanned orphan cell (full-width on mobile) gets none.
-                  borderLeft: isMobileOrphanLast ? 'none'
-                    : (isMobile ? i % 2 !== 0 : i > 0) ? `1px solid ${RULE_COLOR}` : 'none',
-                  // Center-align spanned orphan + reach across both columns.
-                  gridColumn: isMobileOrphanLast ? '1 / -1' : 'auto',
-                  textAlign: isMobileOrphanLast ? 'center' : 'left',
-                  padding: isMobile ? '12px 12px 8px' : '14px 18px 10px',
-                  minWidth: 0,
-                }}
-              >
-                {/* Subtle top accent strip when the cell carries a brand color */}
-                {cell.accent && (
-                  <div style={{
-                    position: 'absolute', top: 0, left: 0, right: 0, height: 1,
-                    background: `linear-gradient(90deg, ${cell.accent}, ${cell.accent}55, transparent)`,
-                    pointerEvents: 'none',
-                  }} />
-                )}
-                <div style={{
-                  fontFamily: 'Orbitron, monospace',
-                  fontSize: isMobile ? 8 : 9,
-                  letterSpacing: 1.4,
-                  color: LABEL_COLOR,
-                  marginBottom: isMobile ? 7 : 9,
-                  textTransform: 'uppercase',
-                  fontWeight: 500,
-                  display: 'flex', alignItems: 'center', gap: 5,
-                  justifyContent: isMobileOrphanLast ? 'center' : 'flex-start',
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                }}>
-                  <span style={{ color: tick, fontSize: isMobile ? 7 : 8 }}>▸</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{cell.label}</span>
-                </div>
-                <div style={{
-                  fontFamily: 'Orbitron, monospace',
-                  fontSize: isMobile ? 15 : 22,
-                  fontWeight: 600,
-                  color: cell.valueColor ?? VALUE_COLOR,
-                  letterSpacing: 0.3,
-                  lineHeight: 1.05,
-                  fontVariantNumeric: 'tabular-nums',
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                }}>{cell.value}</div>
-                <div style={{
-                  marginTop: isMobile ? 6 : 8,
-                  fontFamily: 'Sora, sans-serif',
-                  fontSize: isMobile ? 9 : 10,
-                  color: SUB_COLOR,
-                  letterSpacing: 0.3,
-                  fontVariantNumeric: 'tabular-nums',
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                }}>{cell.sub}</div>
-              </div>
-              );
-            })}
-          </div>
-        </div>
-      );
-    })}
-  </div>
-);
-
-// ═════════════════════════════════════════════════════════════════════════════
-// MAIN PAGE
-// ═════════════════════════════════════════════════════════════════════════════
-
-const LpFarms: FC = () => {
-  const { publicKey, signTransaction } = useWallet();
-  const { connection } = useConnection();
-  const isMobile = useIsMobile();
-
-  const [tab, setTab]              = useState<'farms' | 'mystakes'>('farms');
-  const [farms, setFarms]          = useState<FarmOnChain[]>([]);
-  const [positions, setPositions]  = useState<PositionOnChain[]>([]);
-  const [loading, setLoading]      = useState(true);    // only on first-ever load
-  const [refreshing, setRefreshing] = useState(false);  // background poll; does not hide UI
-
-  // Network-wide stats (independent of wallet connection)
-  const [uniqueStakers, setUniqueStakers] = useState(0);
-  const [brainsSupplyUi, setBrainsSupplyUi] = useState(0);
-  const [lbSupplyUi, setLbSupplyUi] = useState(0);
-  const [brainsPriceUsd, setBrainsPriceUsd] = useState(0);
-  const [lbPriceUsd, setLbPriceUsd] = useState(0);
-  const [stakeTarget, setStakeTarget]     = useState<FarmOnChain | null>(null);
-  const [donateTarget, setDonateTarget]   = useState<FarmOnChain | null>(null);
-  const [claimTarget, setClaimTarget]     = useState<PositionOnChain | null>(null);
-  const [unstakeTarget, setUnstakeTarget] = useState<PositionOnChain | null>(null);
-
-  // loadData(silent=true)  → keeps cards on screen while fresh data fetches
-  // loadData(silent=false) → shows skeleton (only used on initial page load)
-  const loadData = useCallback(async (silent = true) => {
-    if (!silent) setLoading(true);
-    setRefreshing(true);
-    try {
-      const fs = await fetchFarms(connection);
-      setFarms(fs);
-
-      // Network-wide stats — fire all five in parallel so refresh stays cheap.
-      // None of these depend on wallet connection.
-      const [stakers, brainsSupplyRes, lbSupplyRes, brainsPx, lbPx] = await Promise.all([
-        fetchTotalStakers(connection),
-        connection.getTokenSupply(new PublicKey(BRAINS_MINT)).then(r => r.value.uiAmount ?? 0).catch(() => 0),
-        connection.getTokenSupply(new PublicKey(LB_MINT)).then(r => r.value.uiAmount ?? 0).catch(() => 0),
-        fetchPrice(BRAINS_MINT).catch(() => 0),
-        fetchPrice(LB_MINT).catch(() => 0),
-      ]);
-      setUniqueStakers(stakers.uniqueStakers);
-      setBrainsSupplyUi(brainsSupplyRes);
-      setLbSupplyUi(lbSupplyRes);
-      setBrainsPriceUsd(brainsPx);
-      setLbPriceUsd(lbPx);
-
-      if (publicKey) {
-        const allPos: PositionOnChain[] = [];
-        for (const f of fs) {
-          const ps = await fetchPositions(connection, publicKey, f);
-          allPos.push(...ps);
-        }
-        setPositions(allPos);
-      } else {
-        setPositions([]);
-      }
-    } catch (e) {
-      console.error('loadData error:', e);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [connection, publicKey]);
-
-  // Initial load — shows skeleton
-  useEffect(() => { loadData(false); }, [loadData]);
-  // Background refresh every 30s — cards stay visible
-  useEffect(() => {
-    const i = setInterval(() => loadData(true), 30_000);
-    return () => clearInterval(i);
-  }, [loadData]);
-
-  const positionsByFarm = useMemo(() => {
-    const m = new Map<string, PositionOnChain[]>();
-    for (const p of positions) {
-      if (!m.has(p.farm)) m.set(p.farm, []);
-      m.get(p.farm)!.push(p);
-    }
-    return m;
-  }, [positions]);
-
-  // Aggregate stats
-  const totalVaultUsd = farms.reduce((s, f) =>
-    s + (Number(f.vaultBalance) / pow10(f.rewardDecimals)) * f.rewardPriceUsd, 0);
-  const totalTvlUsd = farms.reduce((s, f) =>
-    s + (Number(f.totalStaked) / pow10(f.lpDecimals)) * f.lpPriceUsd, 0);
-  const myTotalStakedUsd = positions.reduce((s, p) => {
-    const farm = farms.find(f => f.pubkey === p.farm);
-    if (!farm) return s;
-    return s + (Number(p.amount) / pow10(farm.lpDecimals)) * farm.lpPriceUsd;
-  }, 0);
-  const myPendingUsd = positions.reduce((s, p) => {
-    const farm = farms.find(f => f.pubkey === p.farm);
-    if (!farm) return s;
-    return s + (Number(p.earnedNow) / pow10(farm.rewardDecimals)) * farm.rewardPriceUsd;
-  }, 0);
-
-  return (
-    <div style={{ minHeight: '100vh', background: '#080c0f',
-      padding: isMobile ? '70px 10px 40px' : '90px 24px 60px',
-      position: 'relative', overflow: 'hidden' }}>
-
-      <TopBar />
-      <PageBackground />
-      <NfaConsentModal />
-
-      {/* Background orbs */}
-      <div style={{ position: 'fixed', top: '20%', left: '10%', width: 600, height: 600,
-        borderRadius: '50%', background: 'radial-gradient(circle,rgba(255,140,0,0.04) 0%,transparent 60%)',
-        pointerEvents: 'none', zIndex: 0 }} />
-      <div style={{ position: 'fixed', top: '60%', right: '5%', width: 500, height: 500,
-        borderRadius: '50%', background: 'radial-gradient(circle,rgba(0,201,141,0.05) 0%,transparent 60%)',
-        pointerEvents: 'none', zIndex: 0 }} />
-
-      <style>{`
-        @keyframes fadeUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes spin { to{transform:rotate(360deg)} }
-        @keyframes modal-in { from{opacity:0;transform:scale(.93) translateY(20px)} to{opacity:1;transform:scale(1) translateY(0)} }
-        input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button { -webkit-appearance:none; margin:0 }
-        input[type=number] { -moz-appearance:textfield }
-      `}</style>
-
-      <div style={{ position: 'relative', zIndex: 1, maxWidth: 1_100, margin: '0 auto' }}>
-
-        {/* ── HEADER ─────────────────────────────────────────────────── */}
-        <div style={{ textAlign: 'center', marginBottom: isMobile ? 28 : 44 }}>
-          <h1 style={{ fontFamily: 'Orbitron,monospace',
-            fontSize: isMobile ? 22 : 40, fontWeight: 900,
-            letterSpacing: isMobile ? 1 : 3, margin: '0 0 6px',
-            textTransform: 'uppercase', animation: 'fadeUp 0.5s ease 0.05s both' }}>
-            <span style={{ color: '#ff8c00' }}>LP FARMS</span>
-            <span style={{ color: 'rgba(255,255,255,.15)', margin: isMobile ? '0 8px' : '0 14px', fontWeight: 300 }}>·</span>
-            <span style={{ color: '#e0f0ff' }}>STAKE & EARN</span>
-          </h1>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 7 : 9,
-            color: '#d0dde8', letterSpacing: isMobile ? 2 : 3, marginBottom: isMobile ? 8 : 12,
-            animation: 'fadeUp 0.5s ease 0.12s both' }}>
-            X1 BLOCKCHAIN · LOCK LP · EARN REWARDS · PERPETUAL FARMS
-          </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: isMobile ? 11 : 13,
-            color: '#c0d0e0', marginBottom: isMobile ? 22 : 30,
-            letterSpacing: .5, animation: 'fadeUp 0.5s ease 0.15s both', lineHeight: 1.6 }}>
-            Stake your BRAINS/XNT or LB/XNT LP tokens &nbsp;·&nbsp; Lock 30 / 90 / 365 days &nbsp;·&nbsp; Up to 8× boosted rewards
-          </div>
-
-          {/* Orange accent line */}
-          <div style={{ width: '100%', maxWidth: 900, margin: '0 auto 14px', height: 2,
-            background: 'linear-gradient(90deg, transparent, #ff8c00, #ffb700, #ff8c00, transparent)',
-            borderRadius: 2,
-            boxShadow: '0 0 12px rgba(255,140,0,.4), 0 0 24px rgba(255,140,0,.15)' }} />
-
-          {/* ── HUD DASHBOARD — single frame, two internal sections ──────── */}
-          <HudDashboard
-            isMobile={isMobile}
-            refreshing={refreshing}
-            sections={[
-              {
-                header: 'NETWORK · LIVE',
-                live: true,
-                cells: [
-                  { label: 'Active Farms',   value: String(farms.filter(f => !f.closed).length),                                              sub: 'running',              accent: HUD_ACCENT.brains },
-                  { label: 'LP Farms TVL',   value: totalTvlUsd > 0 ? fmtUSD(totalTvlUsd) : '—',                                              sub: 'platform · lp staked', accent: HUD_ACCENT.data },
-                  { label: 'Total Vault',    value: totalVaultUsd > 0 ? fmtUSD(totalVaultUsd) : '—',                                          sub: 'rewards locked',       accent: HUD_ACCENT.lb },
-                  { label: 'Total Stakers',  value: uniqueStakers > 0 ? String(uniqueStakers) : '—',                                          sub: 'unique wallets',       accent: HUD_ACCENT.reward },
-                ],
-              },
-              {
-                header: 'POSITION · DATA',
-                cells: [
-                  { label: 'BRAINS MC',      value: brainsPriceUsd > 0 && brainsSupplyUi > 0 ? fmtUSD(brainsSupplyUi * brainsPriceUsd) : '—', sub: brainsPriceUsd > 0 ? `@ $${brainsPriceUsd < 0.01 ? brainsPriceUsd.toFixed(6) : brainsPriceUsd.toFixed(4)}` : 'market cap', accent: HUD_ACCENT.brains },
-                  { label: 'LB MC',          value: lbPriceUsd     > 0 && lbSupplyUi     > 0 ? fmtUSD(lbSupplyUi     * lbPriceUsd)     : '—', sub: lbPriceUsd     > 0 ? `@ $${lbPriceUsd     < 0.01 ? lbPriceUsd.toFixed(6)     : lbPriceUsd.toFixed(4)}`     : 'market cap', accent: HUD_ACCENT.lb },
-                  // My Rewards only shows when a wallet is connected — otherwise the cell is omitted
-                  // and the section renders with 2 cells instead of 3.
-                  ...(publicKey ? [{
-                    label: 'My Rewards',
-                    value: myPendingUsd > 0 ? fmtUSD(myPendingUsd) : '$0.00',
-                    sub: 'claimable',
-                    accent: HUD_ACCENT.reward,
-                    valueColor: '#ff8c00',
-                  }] : []),
-                ],
-              },
-            ]}
-          />
-        </div>
-
-        {/* ── TAB SWITCHER ─────────────────────────────────────────────── */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: isMobile ? 20 : 28,
-          background: 'rgba(255,255,255,.03)', borderRadius: 14, padding: 4,
-          border: '1px solid rgba(255,255,255,.06)',
-          animation: 'fadeUp 0.4s ease 0.28s both' }}>
-          {[
-            { id: 'farms' as const,    label: '🌾 AVAILABLE FARMS', sub: `${farms.length} live` },
-            { id: 'mystakes' as const, label: '📋 MY STAKES',       sub: positions.length > 0 ? `${positions.length} active` : 'your positions' },
-          ].map(m => {
-            const isActive = tab === m.id;
-            return (
-              <button key={m.id} onClick={() => setTab(m.id)}
-                style={{ flex: 1, padding: isMobile ? '12px 8px' : '14px 12px',
-                  background: isActive
-                    ? 'linear-gradient(135deg,rgba(255,140,0,.15),rgba(255,183,0,.06))'
-                    : 'transparent',
-                  border: isActive ? '1px solid rgba(255,140,0,.4)' : '1px solid transparent',
-                  borderRadius: 11, cursor: 'pointer', textAlign: 'center', transition: 'all .18s' }}>
-                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 10 : 12,
-                  fontWeight: 900, color: isActive ? '#ff8c00' : '#4a6a8a', marginBottom: 2 }}>
-                  {m.label}
-                </div>
-                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, letterSpacing: 1,
-                  color: isActive ? 'rgba(255,140,0,.6)' : '#3a5a7a' }}>
-                  {m.sub}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* ── CONTENT ───────────────────────────────────────────────── */}
-        {loading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {[0, 1].map(i => (
-              <div key={i} style={{ height: 220, borderRadius: 16,
-                background: 'linear-gradient(90deg,rgba(255,255,255,.04) 25%,rgba(255,255,255,.07) 50%,rgba(255,255,255,.04) 75%)',
-                backgroundSize: '400px 100%',
-                animation: `fadeUp 0.3s ease ${i * 0.1}s both` }} />
-            ))}
-          </div>
-        ) : tab === 'farms' ? (
-          farms.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: isMobile ? '60px 20px' : '100px 40px' }}>
-              <div style={{ fontSize: 64, marginBottom: 24 }}>🌾</div>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 14 : 20,
-                fontWeight: 900, color: '#d0dde8', marginBottom: 12, letterSpacing: 2 }}>
-                NO FARMS LIVE YET
-              </div>
-              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: isMobile ? 12 : 13,
-                color: '#c0d0e0', maxWidth: 380, margin: '0 auto', lineHeight: 1.7 }}>
-                Farms will appear here once the admin creates them. Check back soon.
-              </div>
-            </div>
-          ) : (
-            farms.map(farm => (
-              <FarmCard key={farm.pubkey} farm={farm} isMobile={isMobile}
-                userPositions={positionsByFarm.get(farm.pubkey) ?? []}
-                onStake={() => setStakeTarget(farm)}
-                onFund={() => setDonateTarget(farm)} />
-            ))
-          )
-        ) : (
-          // MY STAKES
-          !publicKey ? (
-            <div style={{ textAlign: 'center', padding: isMobile ? '60px 20px' : '100px 40px' }}>
-              <div style={{ fontSize: 64, marginBottom: 24 }}>🔌</div>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 14 : 20,
-                fontWeight: 900, color: '#d0dde8', marginBottom: 12, letterSpacing: 2 }}>
-                CONNECT WALLET
-              </div>
-              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 13,
-                color: '#c0d0e0', maxWidth: 340, margin: '0 auto', lineHeight: 1.7 }}>
-                Connect your wallet to see your stakes.
-              </div>
-            </div>
-          ) : positions.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: isMobile ? '60px 20px' : '100px 40px' }}>
-              <div style={{ fontSize: 64, marginBottom: 24 }}>📋</div>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 14 : 20,
-                fontWeight: 900, color: '#d0dde8', marginBottom: 12, letterSpacing: 2 }}>
-                NO ACTIVE STAKES
-              </div>
-              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 13,
-                color: '#c0d0e0', maxWidth: 340, margin: '0 auto 24px', lineHeight: 1.7 }}>
-                Head to the farms tab and stake your LP tokens to start earning.
-              </div>
-              <button onClick={() => setTab('farms')}
-                style={{ padding: '12px 28px', borderRadius: 11, cursor: 'pointer',
-                  background: 'linear-gradient(135deg,rgba(255,140,0,.22),rgba(255,140,0,.08))',
-                  border: '1px solid rgba(255,140,0,.45)',
-                  fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 900,
-                  color: '#ff8c00', letterSpacing: 1.5 }}>
-                BROWSE FARMS →
-              </button>
-            </div>
-          ) : (
-            <>
-              {/* ── My Stakes HUD dashboard — overview + tier breakdown + timing ── */}
-              {(() => {
-                // Bucket positions by lock tier
-                const byTier = {
-                  locked30:  positions.filter(p => p.lockType === 'locked30'),
-                  locked90:  positions.filter(p => p.lockType === 'locked90'),
-                  locked365: positions.filter(p => p.lockType === 'locked365'),
-                };
-                const tierUsd = (ps: PositionOnChain[]) => ps.reduce((s, p) => {
-                  const f = farms.find(fa => fa.pubkey === p.farm);
-                  if (!f) return s;
-                  return s + (Number(p.amount) / pow10(f.lpDecimals)) * f.lpPriceUsd;
-                }, 0);
-
-                // Soonest unlock + value-weighted average lock-remaining
-                const now = Math.floor(Date.now() / 1000);
-                const futureUnlocks = positions.filter(p => p.unlockTs > now);
-                const nextUnlockSec = futureUnlocks.length
-                  ? Math.min(...futureUnlocks.map(p => p.unlockTs - now))
-                  : 0;
-                const totalWeight = positions.reduce((s, p) => {
-                  const f = farms.find(fa => fa.pubkey === p.farm);
-                  return f ? s + (Number(p.amount) / pow10(f.lpDecimals)) * f.lpPriceUsd : s;
-                }, 0);
-                const avgLockRemainSec = totalWeight > 0
-                  ? positions.reduce((s, p) => {
-                      const f = farms.find(fa => fa.pubkey === p.farm);
-                      if (!f) return s;
-                      const w = (Number(p.amount) / pow10(f.lpDecimals)) * f.lpPriceUsd;
-                      const rem = Math.max(0, p.unlockTs - now);
-                      return s + w * rem;
-                    }, 0) / totalWeight
-                  : 0;
-                const fmtDur = (sec: number): string => {
-                  if (sec <= 0) return 'unlocked';
-                  const d = Math.floor(sec / 86400);
-                  if (d >= 1) return `${d}d`;
-                  const h = Math.floor(sec / 3600);
-                  if (h >= 1) return `${h}h`;
-                  return `${Math.max(1, Math.floor(sec / 60))}m`;
-                };
-                const tierCell = (label: string, ps: PositionOnChain[], boost: string) => ({
-                  label,
-                  value: ps.length > 0 ? `${ps.length} · ${fmtUSD(tierUsd(ps))}` : '—',
-                  sub: ps.length > 0 ? boost : 'no positions',
-                });
-
-                return (
-                  <div style={{ marginBottom: 16 }}>
-                    <HudDashboard
-                      isMobile={isMobile}
-                      refreshing={refreshing}
-                      sections={[
-                        {
-                          header: 'POSITION · OVERVIEW',
-                          live: true,
-                          cells: [
-                            { label: 'Active',       value: String(positions.length),  sub: 'open positions',      accent: HUD_ACCENT.brains },
-                            { label: 'Total Locked', value: fmtUSD(myTotalStakedUsd),   sub: 'lp value · usd',      accent: HUD_ACCENT.data },
-                            { label: 'Claimable',    value: fmtUSD(myPendingUsd),       sub: 'unclaimed rewards',   accent: HUD_ACCENT.reward, valueColor: '#ff8c00' },
-                          ],
-                        },
-                        {
-                          header: 'TIER · BREAKDOWN',
-                          cells: [
-                            { ...tierCell('30D Lock',  byTier.locked30,  '1× boost'),  accent: HUD_ACCENT.data },
-                            { ...tierCell('90D Lock',  byTier.locked90,  '3× boost'),  accent: HUD_ACCENT.brains },
-                            { ...tierCell('365D Lock', byTier.locked365, '8× boost'),  accent: HUD_ACCENT.reward },
-                          ],
-                        },
-                        {
-                          header: 'TIMING · UNLOCK',
-                          cells: [
-                            {
-                              label: 'Next Unlock',
-                              value: nextUnlockSec > 0 ? fmtDur(nextUnlockSec) : (positions.length > 0 ? 'unlocked' : '—'),
-                              sub: nextUnlockSec > 0 ? 'soonest position' : (positions.length > 0 ? 'all unlocked' : 'no positions'),
-                              accent: HUD_ACCENT.lb,
-                            },
-                            {
-                              label: 'Avg Remaining',
-                              value: avgLockRemainSec > 0 ? fmtDur(Math.floor(avgLockRemainSec)) : '—',
-                              sub: 'weighted by value',
-                              accent: HUD_ACCENT.data,
-                            },
-                          ],
-                        },
-                      ]}
-                    />
-                  </div>
-                );
-              })()}
-
-              {positions.map(p => {
-                const farm = farms.find(f => f.pubkey === p.farm);
-                if (!farm) return null;
-                return (
-                  <PositionCard key={p.pubkey} position={p} farm={farm} isMobile={isMobile}
-                    onClaim={() => setClaimTarget(p)}
-                    onUnstake={() => setUnstakeTarget(p)} />
-                );
-              })}
-            </>
-          )
-        )}
-
-        {/* ── HOW IT WORKS / TOKENOMICS (only on farms tab) ────────────── */}
-        {tab === 'farms' && !loading && farms.length > 0 && (
-          <div style={{ marginTop: isMobile ? 24 : 36 }}>
-            <TokenomicsPanel isMobile={isMobile} />
-          </div>
-        )}
-
-        {/* ── FOOTER + NFA DISCLAIMER ──────────────────────────────────── */}
-        <Footer />
-      </div>
-
-      {/* ── MODALS ────────────────────────────────────────────────── */}
-      {stakeTarget && publicKey && (
-        <StakeModal farm={stakeTarget} isMobile={isMobile}
-          publicKey={publicKey} connection={connection} signTransaction={signTransaction}
-          onClose={() => setStakeTarget(null)}
-          onStaked={loadData} />
-      )}
-      {donateTarget && publicKey && (
-        <DonateModal farm={donateTarget} isMobile={isMobile}
-          publicKey={publicKey} connection={connection} signTransaction={signTransaction}
-          onClose={() => setDonateTarget(null)}
-          onDonated={loadData} />
-      )}
-      {claimTarget && publicKey && (
-        <ClaimModal position={claimTarget} farm={farms.find(f => f.pubkey === claimTarget.farm)!}
-          isMobile={isMobile}
-          publicKey={publicKey} connection={connection} signTransaction={signTransaction}
-          onClose={() => setClaimTarget(null)}
-          onClaimed={loadData} />
-      )}
-      {unstakeTarget && publicKey && (
-        <UnstakeModal position={unstakeTarget} farm={farms.find(f => f.pubkey === unstakeTarget.farm)!}
-          isMobile={isMobile}
-          publicKey={publicKey} connection={connection} signTransaction={signTransaction}
-          onClose={() => setUnstakeTarget(null)}
-          onUnstaked={loadData} />
-      )}
-    </div>
-  );
-};
-
-export default LpFarms;

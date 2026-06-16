@@ -6,7 +6,7 @@
 
 import React, { FC, useCallback, useState } from 'react';
 
-export type ThemeName = 'vegas' | 'fire';
+export type ThemeName = 'vegas' | 'fire' | 'v2';
 
 export interface IncTheme {
   name: ThemeName; label: string; icon: string;
@@ -76,53 +76,110 @@ export const VEGAS: IncTheme = {
 // ═══════════════════════════════════════════════
 export const FIRE: IncTheme = {
   name:'fire', label:'FIRE', icon:'🔥',
-  // Dark navy/charcoal base — same darkness as BurnPortal, NOT brown
-  pageBg:'linear-gradient(180deg,#060608 0%,#0a0810 40%,#08060c 100%)',
-  glow1:'radial-gradient(circle,rgba(255,80,0,.06) 0%,transparent 70%)',
-  glow2:'radial-gradient(circle,rgba(255,140,0,.04) 0%,transparent 70%)',
-  cardBg:'linear-gradient(135deg,rgba(10,8,16,.95),rgba(6,4,10,.95))',
-  cardBorder:'rgba(255,100,20,.15)',
-  cardGlow:'linear-gradient(90deg,transparent,rgba(255,100,20,.5),rgba(255,140,0,.3),transparent)',
-  // Fire Orange primary, Gold secondary, Red accent
+  // Deep dark charcoal — very dark, near-black
+  pageBg:'linear-gradient(180deg,#050506 0%,#070708 40%,#050506 100%)',
+  glow1:'radial-gradient(circle,rgba(255,34,34,.015) 0%,transparent 70%)',
+  glow2:'radial-gradient(circle,rgba(255,102,0,.01) 0%,transparent 70%)',
+  cardBg:'linear-gradient(135deg,rgba(7,7,9,.97),rgba(5,5,7,.97))',
+  cardBorder:'rgba(255,34,34,.05)',
+  cardGlow:'linear-gradient(90deg,transparent,rgba(255,34,34,.15),rgba(255,102,0,.08),transparent)',
+  // True Red primary, Fire Orange secondary, Bright Gold accent
   primary:'#ff6600', primaryRgb:'255,102,0',
-  secondary:'#ffaa00', secondaryRgb:'255,170,0',
-  accent:'#ff3300', accentRgb:'255,51,0',
-  // Muted text stays cool/neutral, not warm
-  textMuted:'#9aabb8', textDim:'#5a6a7a',
-  gradText:'linear-gradient(90deg,#ff3300,#ff6600,#ffaa00)',
-  // Reactor — fire tones on dark
-  ring1:'rgba(255,102,0,.2)', ring2:'rgba(255,170,0,.16)', ring3:'rgba(255,51,0,.14)',
-  node1:'radial-gradient(circle,#ff8833,#ff6600)', node1G:'0 0 8px rgba(255,102,0,.9),0 0 20px rgba(255,60,0,.4)',
-  node2:'radial-gradient(circle,#ffcc33,#ffaa00)', node2G:'0 0 6px rgba(255,170,0,.9),0 0 16px rgba(255,130,0,.3)',
-  node3:'radial-gradient(circle,#ff5533,#ff3300)', node3G:'0 0 6px rgba(255,51,0,.9),0 0 14px rgba(200,0,0,.4)',
-  coreBg:'radial-gradient(circle,rgba(255,102,0,.15) 0%,rgba(255,51,0,.06) 60%,transparent 100%)',
-  coreBurn:'radial-gradient(circle,rgba(255,51,0,.4) 0%,rgba(200,0,0,.18) 60%,transparent 100%)',
-  conic:'conic-gradient(from 0deg,#ff3300,#ff6600,#ffaa00,#ff6600,#ff3300)',
-  innerBg:'radial-gradient(circle,#0c0a14 0%,#08060c 100%)',
+  secondary:'#ffbb33', secondaryRgb:'255,187,51',
+  accent:'#ff2222', accentRgb:'255,34,34',
+  // Brighter text — near-white
+  textMuted:'#a89cb0', textDim:'#6a5e78',
+  gradText:'linear-gradient(90deg,#ff2222,#ff6600,#ffbb33,#ffffff,#ffdd44)',
+  // Reactor — subtle fire tones, lower opacity for darker feel
+  ring1:'rgba(255,34,34,.10)', ring2:'rgba(255,102,0,.08)', ring3:'rgba(255,187,51,.07)',
+  node1:'radial-gradient(circle,#ff4444,#ff2222)', node1G:'0 0 5px rgba(255,34,34,.6),0 0 12px rgba(255,34,34,.2)',
+  node2:'radial-gradient(circle,#ff8833,#ff6600)', node2G:'0 0 4px rgba(255,102,0,.6),0 0 10px rgba(255,102,0,.18)',
+  node3:'radial-gradient(circle,#ffcc44,#ffbb33)', node3G:'0 0 4px rgba(255,187,51,.6),0 0 10px rgba(255,187,51,.2)',
+  coreBg:'radial-gradient(circle,rgba(255,34,34,.06) 0%,rgba(255,102,0,.025) 60%,transparent 100%)',
+  coreBurn:'radial-gradient(circle,rgba(255,34,34,.28) 0%,rgba(200,0,0,.12) 60%,transparent 100%)',
+  conic:'conic-gradient(from 0deg,#ff2222,#ff6600,#ffbb33,#ffdd44,#ff6600,#ff2222)',
+  innerBg:'radial-gradient(circle,#080809 0%,#060607 100%)',
   // Buttons
-  btnBg:'linear-gradient(135deg,#ff5500,#cc2200,#991100)', btnBorder:'rgba(255,85,0,.7)',
-  btnOff:'linear-gradient(135deg,rgba(255,85,0,.2),rgba(150,30,0,.2))',
-  inputBorder:'rgba(255,102,0,.25)', inputFocus:'rgba(255,102,0,.6)',
-  warnBg:'rgba(255,51,0,.06)', warnBorder:'rgba(255,51,0,.2)', warnAccent:'#ff3300', warnText:'#ff6600',
-  okColor:'#ffaa00', okRgb:'255,170,0', errColor:'#ff2222', errRgb:'255,34,34',
-  statBorder:'rgba(255,102,0,.1)',
-  qBg:'rgba(255,255,255,.04)', qBorder:'1px solid rgba(255,170,0,.15)', qColor:'#ffaa00',
+  btnBg:'linear-gradient(135deg,#ff4400,#cc2200,#991100)', btnBorder:'rgba(255,34,34,.6)',
+  btnOff:'linear-gradient(135deg,rgba(255,34,34,.15),rgba(150,30,0,.15))',
+  inputBorder:'rgba(255,34,34,.2)', inputFocus:'rgba(255,34,34,.5)',
+  warnBg:'rgba(255,34,34,.05)', warnBorder:'rgba(255,34,34,.15)', warnAccent:'#ff2222', warnText:'#ff6600',
+  okColor:'#ffbb33', okRgb:'255,187,51', errColor:'#ff2222', errRgb:'255,34,34',
+  statBorder:'rgba(255,34,34,.08)',
+  qBg:'rgba(255,255,255,.03)', qBorder:'1px solid rgba(255,34,34,.12)', qColor:'#ff6600',
 };
 
-export const THEMES: Record<ThemeName, IncTheme> = { vegas: VEGAS, fire: FIRE };
+// ═══════════════════════════════════════════════
+// V2 — X1 Brains v2 palette
+// Orange #ff8c00 / Cyan #00d4ff / Purple #bf5af2
+// ═══════════════════════════════════════════════
+export const V2: IncTheme = {
+  name:'v2', label:'V2', icon:'⌬',
+  pageBg:'linear-gradient(180deg,#080c0f 0%,#0a0e16 40%,#080c0f 100%)',
+  glow1:'radial-gradient(circle,rgba(255,140,0,.05) 0%,transparent 70%)',
+  glow2:'radial-gradient(circle,rgba(0,212,255,.04) 0%,transparent 70%)',
+  cardBg:'linear-gradient(135deg,rgba(12,18,28,.96),rgba(8,12,15,.96))',
+  cardBorder:'rgba(255,140,0,.14)',
+  cardGlow:'linear-gradient(90deg,transparent,rgba(255,140,0,.5),rgba(0,212,255,.3),transparent)',
+  primary:'#ff8c00', primaryRgb:'255,140,0',
+  secondary:'#00d4ff', secondaryRgb:'0,212,255',
+  accent:'#bf5af2', accentRgb:'191,90,242',
+  textMuted:'#9abacf', textDim:'#6a7a94',
+  gradText:'linear-gradient(90deg,#ff8c00,#00d4ff,#bf5af2)',
+  ring1:'rgba(255,140,0,.16)', ring2:'rgba(0,212,255,.13)', ring3:'rgba(191,90,242,.10)',
+  node1:'radial-gradient(circle,#ffb340,#ff8c00)', node1G:'0 0 8px rgba(255,140,0,.85),0 0 20px rgba(255,140,0,.28)',
+  node2:'radial-gradient(circle,#5be5ff,#00d4ff)', node2G:'0 0 6px rgba(0,212,255,.85),0 0 16px rgba(0,212,255,.28)',
+  node3:'radial-gradient(circle,#d68bff,#bf5af2)', node3G:'0 0 6px rgba(191,90,242,.85),0 0 14px rgba(191,90,242,.28)',
+  coreBg:'radial-gradient(circle,rgba(255,140,0,.13) 0%,rgba(0,212,255,.07) 60%,transparent 100%)',
+  coreBurn:'radial-gradient(circle,rgba(255,140,0,.32) 0%,rgba(255,90,0,.13) 60%,transparent 100%)',
+  conic:'conic-gradient(from 0deg,#ff8c00,#00d4ff,#bf5af2,#ff8c00)',
+  innerBg:'radial-gradient(circle,#0c1218 0%,#080c0f 100%)',
+  btnBg:'linear-gradient(135deg,#ff8c00,#cc6600,#993300)', btnBorder:'rgba(255,140,0,.65)',
+  btnOff:'linear-gradient(135deg,rgba(255,140,0,.2),rgba(120,60,0,.2))',
+  inputBorder:'rgba(255,140,0,.3)', inputFocus:'rgba(0,212,255,.6)',
+  warnBg:'rgba(255,140,0,.08)', warnBorder:'rgba(255,140,0,.25)', warnAccent:'#ff8c00', warnText:'#ffb340',
+  okColor:'#00c98d', okRgb:'0,201,141', errColor:'#ff4444', errRgb:'255,68,68',
+  statBorder:'rgba(255,140,0,.12)',
+  qBg:'rgba(255,255,255,.04)', qBorder:'1px solid rgba(0,212,255,.18)', qColor:'#00d4ff',
+};
+
+export const THEMES: Record<ThemeName, IncTheme> = { vegas: VEGAS, fire: FIRE, v2: V2 };
 
 export function loadTheme(): ThemeName {
-  try { const s = localStorage.getItem('brains_theme') as ThemeName; if (s === 'vegas' || s === 'fire') return s; } catch {} return 'vegas';
+  try { const s = localStorage.getItem('brains_theme') as ThemeName; if (s === 'vegas' || s === 'fire' || s === 'v2') return s; } catch {} return 'v2';
 }
-export function saveTheme(n: ThemeName) { try { localStorage.setItem('brains_theme', n); } catch {} }
+
+// Force-set a theme — called by V2 pages on mount to override stored preference
+export function forceTheme(n: ThemeName) {
+  _currentTheme = n;
+  try { localStorage.setItem('brains_theme', n); } catch {}
+  _listeners.forEach(fn => fn(n));
+}
 
 // ═══════════════════════════════════════════════
-// useTheme hook — share across all pages
+// Module-level theme sync — all hooks share state
 // ═══════════════════════════════════════════════
+const _listeners = new Set<(t: ThemeName) => void>();
+let _currentTheme: ThemeName = loadTheme();
+
+function _setTheme(n: ThemeName) {
+  _currentTheme = n;
+  try { localStorage.setItem('brains_theme', n); } catch {}
+  _listeners.forEach(fn => fn(n));
+}
+
 export function useIncTheme(): [IncTheme, ThemeName, () => void] {
-  const [name, setName] = useState<ThemeName>(loadTheme);
+  const [name, setName] = useState<ThemeName>(() => _currentTheme);
+  React.useEffect(() => {
+    // Sync on mount in case another component changed it
+    if (_currentTheme !== name) setName(_currentTheme);
+    const handler = (n: ThemeName) => setName(n);
+    _listeners.add(handler);
+    return () => { _listeners.delete(handler); };
+  }, []);
   const toggle = useCallback(() => {
-    setName(p => { const n = p === 'vegas' ? 'fire' : 'vegas'; saveTheme(n); return n; });
+    const n = _currentTheme === 'vegas' ? 'fire' : 'vegas';
+    _setTheme(n);
   }, []);
   return [THEMES[name] || VEGAS, name, toggle];
 }
@@ -132,58 +189,37 @@ export function useIncTheme(): [IncTheme, ThemeName, () => void] {
 // ═══════════════════════════════════════════════
 export const ThemeToggle: FC<{ themeName: ThemeName; onToggle: () => void; t: IncTheme; isMobile: boolean }> = ({ themeName, onToggle, t, isMobile }) => {
   const isF = themeName === 'fire';
+  const sw = isMobile ? 32 : 34;
+  const sh = isMobile ? 16 : 17;
+  const kb = isMobile ? 12 : 13;
   return React.createElement('div', {
     style: {
-      display:'flex', alignItems:'center', gap: isMobile ? 8 : 12,
-      background: t.cardBg, border: `1px solid ${t.cardBorder}`,
-      borderRadius: 14, padding: isMobile ? '8px 10px' : '10px 16px',
-      marginBottom: 16, transition: 'all .4s',
+      display:'inline-flex', alignItems:'center', gap:isMobile?6:8,
+      background:'rgba(0,0,0,.3)', backdropFilter:'blur(8px)',
+      border: isF ? '1px solid rgba(255,102,0,.12)' : '1px solid rgba(180,140,255,.1)',
+      borderRadius:20, padding:isMobile?'4px 8px':'4px 10px',
+      marginBottom:10, transition:'border-color .3s',
     }
   },
-    // Vegas label
-    React.createElement('div', {
-      style: { fontFamily:'Orbitron,monospace', fontSize: isMobile?9:10, fontWeight:700, letterSpacing:1.5,
-        color: !isF ? '#cc88ff' : t.textDim, transition:'color .3s', display:'flex', alignItems:'center', gap:4 }
-    }, '🎰', !isMobile && React.createElement('span', null, 'VEGAS')),
-
-    // Toggle switch
-    React.createElement('button', {
-      onClick: onToggle,
-      style: {
-        position:'relative', width:56, height:28, borderRadius:14, border:'none', cursor:'pointer', outline:'none', flexShrink:0,
-        background: isF ? 'linear-gradient(135deg,#ff4400,#ff6600)' : 'linear-gradient(135deg,#cc88ff,#aa44ff)',
-        boxShadow: isF ? '0 0 16px rgba(255,68,0,.5)' : '0 0 16px rgba(204,136,255,.5)',
-        transition: 'all .3s', overflow:'hidden',
-      }
-    },
-      // Knob
-      React.createElement('span', {
-        style: {
-          position:'absolute', top:3, left: isF ? 31 : 3,
-          width:22, height:22, borderRadius:'50%', background:'#fff',
-          boxShadow: isF ? '0 0 8px rgba(255,68,0,.6)' : '0 0 8px rgba(204,136,255,.6)',
-          transition: 'left .3s,box-shadow .3s',
-          display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, zIndex:1,
-        }
-      }, isF ? '🔥' : '🎰')
+    React.createElement('span',{style:{fontSize:isMobile?8:9,opacity:!isF?1:.35,transition:'opacity .3s',cursor:'default'}},'🎰'),
+    React.createElement('button',{onClick:onToggle,'aria-label':'Toggle theme',style:{
+      position:'relative',width:sw,height:sh,borderRadius:sh/2,border:'none',cursor:'pointer',outline:'none',flexShrink:0,
+      background:isF?'rgba(255,68,0,.12)':'rgba(160,120,255,.12)',
+      transition:'background .3s',overflow:'hidden',
+    }as React.CSSProperties},
+      React.createElement('span',{style:{
+        position:'absolute',top:(sh-kb)/2,left:isF?sw-kb-(sh-kb)/2:(sh-kb)/2,
+        width:kb,height:kb,borderRadius:'50%',
+        background:isF?'#ff5500':'#bb77ee',
+        boxShadow:isF?'0 0 5px rgba(255,85,0,.6)':'0 0 5px rgba(187,119,238,.6)',
+        transition:'left .25s cubic-bezier(.4,0,.2,1),background .25s,box-shadow .25s',
+      }})
     ),
-
-    // Fire label
-    React.createElement('div', {
-      style: { fontFamily:'Orbitron,monospace', fontSize: isMobile?9:10, fontWeight:700, letterSpacing:1.5,
-        color: isF ? '#ff6600' : t.textDim, transition:'color .3s', display:'flex', alignItems:'center', gap:4 }
-    }, '🔥', !isMobile && React.createElement('span', null, 'FIRE')),
-
-    // Badge
-    React.createElement('div', {
-      style: {
-        marginLeft:'auto', fontFamily:'Orbitron,monospace', fontSize:8, fontWeight:700, letterSpacing:1.5,
-        padding:'3px 10px', borderRadius:6, transition:'all .3s',
-        color: isF ? '#ff6600' : '#cc88ff',
-        background: isF ? 'rgba(255,102,0,.1)' : 'rgba(204,136,255,.1)',
-        border: `1px solid ${isF ? 'rgba(255,102,0,.25)' : 'rgba(204,136,255,.25)'}`,
-      }
-    }, isF ? '🔥 FIRE EDITION' : '🎰 VEGAS MODE')
+    React.createElement('span',{style:{fontSize:isMobile?8:9,opacity:isF?1:.35,transition:'opacity .3s',cursor:'default'}},'🔥'),
+    React.createElement('span',{style:{
+      fontFamily:'Orbitron,monospace',fontSize:isMobile?6:7,fontWeight:700,letterSpacing:1,
+      color:isF?'#ff6600':'#bb88ee',marginLeft:isMobile?2:4,transition:'color .3s',
+    }},isF?'FIRE':'VEGAS')
   );
 };
 
@@ -200,31 +236,62 @@ export function injectThemeOverrides() {
   s.id = id;
   s.textContent = `
     /* ═══ FIRE THEME OVERRIDES ═══ */
-    /* Applied when .burn-theme-fire is on the page wrapper */
-
     .burn-theme-fire {
-      /* Page background */
       background: linear-gradient(180deg,#0a0604 0%,#120804 40%,#0e0602 100%) !important;
     }
-
-    /* Override purple (#cc88ff) → fire orange (#ff6600) */
     .burn-theme-fire [style*="color: rgb(204, 136, 255)"],
-    .burn-theme-fire [style*="color:#cc88ff"] {
-      color: #ff6600 !important;
-    }
-
-    /* Override neon green (#39ff88) → molten yellow (#ffbb00) for success/accent */
-    /* Note: We keep green for USD values — only change structural accents */
-
-    /* Override card backgrounds */
+    .burn-theme-fire [style*="color:#cc88ff"] { color: #ff6600 !important; }
     .burn-theme-fire .lb-card-override {
       background: linear-gradient(135deg,rgba(24,10,4,.95),rgba(14,6,2,.95)) !important;
       border-color: rgba(255,100,20,.18) !important;
     }
-
-    /* Override gradient text */
     .burn-theme-fire .lb-grad-text {
       background: linear-gradient(90deg,#ff2200,#ff6600,#ffcc00) !important;
+    }
+
+    /* ═══ V2 THEME OVERRIDES — x1brains v2 palette ═══ */
+    .burn-theme-v2 {
+      background: linear-gradient(180deg,#080c0f 0%,#0a0e16 40%,#080c0f 100%) !important;
+    }
+    /* purple #cc88ff → v2 orange #ff8c00 (primary accent) */
+    .burn-theme-v2 [style*="color: rgb(204, 136, 255)"],
+    .burn-theme-v2 [style*="color:#cc88ff"],
+    .burn-theme-v2 [style*="color: #cc88ff"] { color: #ff8c00 !important; }
+    /* deep purple #aa44ff / #8822cc → v2 cyan */
+    .burn-theme-v2 [style*="color: rgb(170, 68, 255)"],
+    .burn-theme-v2 [style*="color:#aa44ff"],
+    .burn-theme-v2 [style*="color: #aa44ff"] { color: #00d4ff !important; }
+    /* legacy orange #ff9933 → v2 orange #ff8c00 */
+    .burn-theme-v2 [style*="color: rgb(255, 153, 51)"],
+    .burn-theme-v2 [style*="color:#ff9933"],
+    .burn-theme-v2 [style*="color: #ff9933"] { color: #ff8c00 !important; }
+    /* legacy green #39ff88 → v2 green #00c98d */
+    .burn-theme-v2 [style*="color: rgb(57, 255, 136)"],
+    .burn-theme-v2 [style*="color:#39ff88"],
+    .burn-theme-v2 [style*="color: #39ff88"] { color: #00c98d !important; }
+    /* magenta crimson #ee55ff → cyan */
+    .burn-theme-v2 [style*="color: rgb(238, 85, 255)"],
+    .burn-theme-v2 [style*="color:#ee55ff"] { color: #00d4ff !important; }
+    /* pink #dd99ff family → cyan */
+    .burn-theme-v2 [style*="color: rgb(221, 153, 255)"],
+    .burn-theme-v2 [style*="color:#dd99ff"] { color: #5be5ff !important; }
+    /* purple fills → orange tinted */
+    .burn-theme-v2 [style*="background: rgba(204, 136, 255"],
+    .burn-theme-v2 [style*="background:rgba(204,136,255"] {
+      background: rgba(255,140,0,.08) !important;
+    }
+    /* purple borders → cyan */
+    .burn-theme-v2 [style*="border: 1px solid rgba(204, 136, 255"],
+    .burn-theme-v2 [style*="border:1px solid rgba(204,136,255"] {
+      border-color: rgba(0,212,255,.22) !important;
+    }
+    /* card chrome */
+    .burn-theme-v2 .lb-card-override {
+      background: linear-gradient(135deg,rgba(12,18,28,.96),rgba(8,12,15,.96)) !important;
+      border-color: rgba(255,140,0,.14) !important;
+    }
+    .burn-theme-v2 .lb-grad-text {
+      background: linear-gradient(90deg,#ff8c00,#00d4ff,#bf5af2) !important;
     }
   `;
   document.head.appendChild(s);

@@ -186,10 +186,21 @@ async function scanBurnHistory(
     const unknownSigs = sigs.filter(s => !knownSigs.has(s.signature));
     if (unknownSigs.length === 0) { onProgress(allTxs, runningTotal, true); break; }
 
-    const txs = await connection.getParsedTransactions(
-      unknownSigs.map(s => s.signature),
-      { maxSupportedTransactionVersion: 0, commitment: 'confirmed' },
-    );
+    // X1 RPC returns "413 Payload Too Large" for a 100-sig getParsedTransactions
+    // call (≤50 works). Chunk into 25s; null-pad failed chunks to keep index
+    // alignment with unknownSigs[i] below.
+    const sigStrs = unknownSigs.map(s => s.signature);
+    const PARSE_CHUNK = 25;
+    const txs: Awaited<ReturnType<typeof connection.getParsedTransactions>> = [];
+    for (let ci = 0; ci < sigStrs.length; ci += PARSE_CHUNK) {
+      if (signal.aborted) break;
+      const slice = sigStrs.slice(ci, ci + PARSE_CHUNK);
+      const part = await connection.getParsedTransactions(slice, {
+        maxSupportedTransactionVersion: 0, commitment: 'confirmed',
+      }).catch(() => null);
+      if (part) for (const t of part) txs.push(t);
+      else for (let k = 0; k < slice.length; k++) txs.push(null);
+    }
 
     for (let i = 0; i < txs.length; i++) {
       const tx  = txs[i];

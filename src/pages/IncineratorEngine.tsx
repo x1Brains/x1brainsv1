@@ -6,7 +6,8 @@ import { TOKEN_2022_PROGRAM_ID, createBurnCheckedInstruction, getAssociatedToken
 import { useNavigate } from 'react-router-dom';
 import { BRAINS_MINT, BRAINS_LOGO } from '../constants';
 import { TopBar, PageBackground, Footer, AddressBar } from '../components/UI';
-import { fetchLeaderboard, getCachedLeaderboard, BurnerEntry, injectLeaderboardStyles } from '../components/BurnLeaderboard';
+import { fetchLeaderboard, getCachedLeaderboard, injectLeaderboardStyles } from '../components/BurnLeaderboard';
+import type { BurnerEntry } from '../components/BurnLeaderboard';
 import { useIncTheme, ThemeToggle, type IncTheme } from '../components/incineratorThemes';
 import { injectPortalStyles } from '../components/BurnPortal';
 import burnBrainImg from '../assets/images1st.jpg';

@@ -581,29 +581,92 @@ function groupByCollection(nfts: NFTData[]): Map<string, NFTData[]> {
 //  Reads all program accounts matching the Listing discriminator.
 //  Listing::LEN = 8 + 32 + 32 + 8 + 1 + 1 + 1 = 83 bytes
 // ─────────────────────────────────────────────────────────────────
+// Session-shared cache so marketplace + home don't hit getProgramAccounts twice
+// Listings cache — split into fresh window (no network) and stale window
+// (return cached + background refresh). Bumped LS window from 60s to 15min
+// so a reload always paints instantly; user only sees a stale flash if it's
+// been >15min since the last refresh.
+let _listingsCache: { ts: number; data: Listing[] } | null = null;
+let _listingsInflight: Promise<Listing[]> | null = null;
+const LISTINGS_FRESH_MS = 60_000;            // skip network entirely
+const LISTINGS_STALE_MS = 15 * 60_000;       // serve cached + refresh
+const LISTINGS_LS_KEY   = 'v2_listings_cache_v1';
+
+// Seed from localStorage at module init so first paint is instant.
+// We accept up to the stale window here so the page can paint immediately
+// after a refresh — a background refetch will update the rows.
+try {
+  const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(LISTINGS_LS_KEY) : null;
+  if (raw) {
+    const parsed = JSON.parse(raw);
+    if (parsed?.ts && Array.isArray(parsed.data) && Date.now() - parsed.ts < LISTINGS_STALE_MS) {
+      _listingsCache = { ts: parsed.ts, data: parsed.data };
+    }
+  }
+} catch {}
+
+/** Bust both the in-memory + localStorage listings caches.
+ *  Call this right after a successful list / buy / cancel so the next
+ *  fetchAllListings goes back to the chain instead of returning stale data. */
+export function invalidateListingsCache(): void {
+  _listingsCache = null;
+  _listingsInflight = null;
+  try { localStorage.removeItem(LISTINGS_LS_KEY); } catch {}
+}
+
+async function _fetchListingsUncached(connection: any): Promise<Listing[]> {
+  const accounts = await connection.getProgramAccounts(getMarketplaceProgramId(), {
+    filters: [
+      { dataSize: 90 },
+      { memcmp: { offset: 0, bytes: DISC_SALE_B58 } },
+    ],
+  });
+  const data = (accounts as any[]).map(({ pubkey, account }: any) => {
+    const d       = account.data as Buffer;
+    const seller  = new PublicKey(d.slice(8,  40)).toBase58();
+    const nftMint = new PublicKey(d.slice(40, 72)).toBase58();
+    const price   = Number(d.readBigUInt64LE(72));
+    const sellerPk  = new PublicKey(seller);
+    const mintPk    = new PublicKey(nftMint);
+    const [vaultPda] = getVaultPda(mintPk, sellerPk);
+    return { listingPda: pubkey.toBase58(), escrowPda: vaultPda.toBase58(), seller, nftMint, price, active: true };
+  });
+  _listingsCache = { ts: Date.now(), data };
+  try { localStorage.setItem(LISTINGS_LS_KEY, JSON.stringify(_listingsCache)); } catch {}
+  return data;
+}
+
 async function fetchAllListings(connection: any): Promise<Listing[]> {
-  try {
-    // SaleAccount = 90 bytes. Pre-computed discriminator avoids async SHA-256 on every load.
-    // withContext:true returns slot alongside data for cache freshness checks.
-    const accounts = await connection.getProgramAccounts(getMarketplaceProgramId(), {
-      filters: [
-        { dataSize: 90 },
-        { memcmp: { offset: 0, bytes: DISC_SALE_B58 } },
-      ],
-      // dataSlice not used — account is only 90 bytes so full fetch is fine
-    });
-    return (accounts as any[]).map(({ pubkey, account }: any) => {
-      const d       = account.data as Buffer;
-      const seller  = new PublicKey(d.slice(8,  40)).toBase58();
-      const nftMint = new PublicKey(d.slice(40, 72)).toBase58();
-      const price   = Number(d.readBigUInt64LE(72));
-      // bump=80, vault_bump=81, created_at=82-89 — no active flag, all accounts are active
-      const sellerPk  = new PublicKey(seller);
-      const mintPk    = new PublicKey(nftMint);
-      const [vaultPda] = getVaultPda(mintPk, sellerPk);
-      return { listingPda: pubkey.toBase58(), escrowPda: vaultPda.toBase58(), seller, nftMint, price, active: true };
-    });
-  } catch { return []; }
+  // Fresh cache wins — no RPC at all
+  if (_listingsCache && Date.now() - _listingsCache.ts < LISTINGS_FRESH_MS) {
+    return _listingsCache.data;
+  }
+
+  // Stale cache hit — return immediately + refresh in background.
+  if (_listingsCache && Date.now() - _listingsCache.ts < LISTINGS_STALE_MS) {
+    if (!_listingsInflight) {
+      _listingsInflight = _fetchListingsUncached(connection)
+        .catch(() => _listingsCache?.data ?? [])
+        .finally(() => { _listingsInflight = null; });
+    }
+    return _listingsCache.data;
+  }
+
+  // Coalesce concurrent callers onto a single in-flight request
+  if (_listingsInflight) return _listingsInflight;
+
+  _listingsInflight = (async () => {
+    try {
+      return await _fetchListingsUncached(connection);
+    } catch {
+      // On error: fall back to stale cache if we have one (better than empty)
+      return _listingsCache?.data ?? [];
+    } finally {
+      _listingsInflight = null;
+    }
+  })();
+
+  return _listingsInflight;
 }
 
 // Parse raw Metaplex PDA bytes into name/symbol/uri

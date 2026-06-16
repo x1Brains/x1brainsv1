@@ -9,8 +9,19 @@ export const RPC_ENDPOINT = 'https://rpc.mainnet.x1.xyz';
 export const XDEX_API     = '/xdex';
 
 // ── Logos ────────────────────────────────────
-export const BRAINS_LOGO = 'https://mint.xdex.xyz/ipfs/QmWVZ29dfptaWTcJRT6ePsCJS5juoV36afrWL8WqTKGo75?pinataGatewayToken=yMPvcPv-nyFCJ0GGUmoHxYkuVS6bZxS_ucWqpMpVMedA3_nOdJO5uUqA8dibii5a';
-export const XNT_LOGO    = 'https://raw.githubusercontent.com/x1-labs/x1-assets/main/tokens/xnt/logo.png';
+// Local, tight-cropped 256² logo. The xDEX token logo is a detailed cartoon on
+// a large black canvas (1288×1134, ~40% padding) — it renders as a muddy/tiny
+// blob in small circular icons. This is that art trimmed to the subject + padded
+// square so it stays crisp at 16–64px. (Source IPFS:
+// mint.xdex.xyz/ipfs/QmWVZ29dfptaWTcJRT6ePsCJS5juoV36afrWL8WqTKGo75)
+export const BRAINS_LOGO = '/brains-logo.png';
+export const XNT_LOGO    = 'https://app.xdex.xyz/assets/images/tokens/x1.webp';
+// LB has no hardcoded image URL yet — the letter placeholder renders.
+// When a real CDN URL is available, drop it in here.
+export const LB_LOGO: string | undefined = undefined;
+
+// LB mint — hardcoded for logo + symbol fallback across the app
+export const LB_MINT     = 'Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6';
 
 // ── NFT Collection ───────────────────────────
 export const NFT_TOTAL_SUPPLY    = 88;

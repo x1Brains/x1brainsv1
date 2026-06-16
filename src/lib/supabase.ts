@@ -89,7 +89,17 @@ async function adminFetch(action: string, payload?: any): Promise<{ success: boo
         },
       }),
     });
-    return await r.json();
+    const text = await r.text();
+    if (!text) {
+      return {
+        success: false,
+        error: `Admin API returned an empty response (HTTP ${r.status}). ` +
+          `The /api/admin function runs on Vercel — it isn't served by plain "vite dev". ` +
+          `Test on the deployed site or run "vercel dev".`,
+      };
+    }
+    try { return JSON.parse(text); }
+    catch { return { success: false, error: `Admin API returned a non-JSON response (HTTP ${r.status}).` }; }
   } catch (e: any) {
     return { success: false, error: e?.message ?? 'Network error' };
   }
@@ -457,7 +467,9 @@ export async function getAllPageViews(): Promise<any[]> {
     while (true) {
       const { data, error } = await supabase
         .from('page_views')
-        .select('path, referrer, country, city, region, device, browser, os, session_id, visited_at')
+        // select('*') so the optional `site` column (added by SUPABASE_ANALYTICS_SITE.sql)
+        // is included when present but doesn't 400 the whole query when it isn't yet.
+        .select('*')
         .order('visited_at', { ascending: false })
         .range(from, from + PAGE - 1);
       if (error || !data || data.length === 0) break;
@@ -509,7 +521,7 @@ export async function getAllSiteEvents(): Promise<any[]> {
     while (true) {
       const { data, error } = await supabase
         .from('site_events')
-        .select('session_id, event_type, category, label, value, path, fired_at')
+        .select('*')
         .order('fired_at', { ascending: false })
         .range(from, from + PAGE - 1);
       if (error || !data || data.length === 0) break;
@@ -519,6 +531,108 @@ export async function getAllSiteEvents(): Promise<any[]> {
     }
     return all;
   } catch { return []; }
+}
+
+// ═════════════════════════════════════════════
+// 8b. MARKETPLACE STATS — server-side cache of NFT sales volume
+// Table: marketplace_stats (single row id='main'). Lets the landing load the
+// number instantly + only re-scan the chain when a new platform-wallet sig
+// appears. See SUPABASE_MARKET_STATS.sql.
+// ═════════════════════════════════════════════
+export interface MarketplaceStatsRow {
+  volumeXnt:   number;
+  salesCount:  number;
+  biggestSale: { priceXnt: number; sig: string; timestamp: number } | null;
+  lastSig:     string | null;
+}
+
+export async function getMarketplaceStats(): Promise<MarketplaceStatsRow | null> {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from('marketplace_stats')
+      .select('volume_xnt, sales_count, biggest_sale, last_sig')
+      .eq('id', 'main')
+      .maybeSingle();
+    if (error || !data) return null;
+    return {
+      volumeXnt:   Number(data.volume_xnt) || 0,
+      salesCount:  Number(data.sales_count) || 0,
+      biggestSale: data.biggest_sale ?? null,
+      lastSig:     data.last_sig ?? null,
+    };
+  } catch { return null; }
+}
+
+export async function upsertMarketplaceStats(r: MarketplaceStatsRow): Promise<void> {
+  if (!supabase) return;
+  try {
+    await supabase.from('marketplace_stats').upsert({
+      id: 'main',
+      volume_xnt:   r.volumeXnt,
+      sales_count:  r.salesCount,
+      biggest_sale: r.biggestSale,
+      last_sig:     r.lastSig,
+      updated_at:   new Date().toISOString(),
+    }, { onConflict: 'id' });
+  } catch {}
+}
+
+// ═════════════════════════════════════════════
+// NFT METADATA CACHE — shared, app-level indexer (table: nft_metadata)
+// First viewer to resolve an NFT's image/traits writes them here; every later
+// visitor loads them INSTANTLY from Supabase instead of re-fetching the per-NFT
+// metadata JSON through slow public CORS proxies. See SUPABASE_NFT_METADATA.sql.
+// ═════════════════════════════════════════════
+export interface NftMetaRow {
+  mint:         string;
+  name?:        string | null;
+  symbol?:      string | null;
+  image?:       string | null;
+  description?: string | null;
+  externalUrl?: string | null;
+  collection?:  string | null;
+  attributes?:  { trait_type: string; value: string }[] | null;
+}
+
+/** Batch-read cached metadata for many mints. Chunks the IN() list. */
+export async function getNftMetadataBatch(mints: string[]): Promise<Map<string, NftMetaRow>> {
+  const out = new Map<string, NftMetaRow>();
+  if (!supabase || mints.length === 0) return out;
+  const uniq = Array.from(new Set(mints));
+  const CHUNK = 150;
+  try {
+    for (let i = 0; i < uniq.length; i += CHUNK) {
+      const slice = uniq.slice(i, i + CHUNK);
+      const { data } = await supabase
+        .from('nft_metadata')
+        .select('mint,name,symbol,image,description,external_url,collection,attributes')
+        .in('mint', slice);
+      if (data) for (const d of data as any[]) {
+        out.set(d.mint, {
+          mint: d.mint, name: d.name, symbol: d.symbol, image: d.image,
+          description: d.description, externalUrl: d.external_url,
+          collection: d.collection, attributes: d.attributes,
+        });
+      }
+    }
+  } catch {}
+  return out;
+}
+
+/** Write-through cache. Only rows with a usable image OR attributes are worth storing. */
+export async function upsertNftMetadata(rows: NftMetaRow[]): Promise<void> {
+  if (!supabase || rows.length === 0) return;
+  const payload = rows
+    .filter(r => r.mint && (r.image || (r.attributes && r.attributes.length)))
+    .map(r => ({
+      mint: r.mint, name: r.name ?? null, symbol: r.symbol ?? null,
+      image: r.image ?? null, description: r.description ?? null,
+      external_url: r.externalUrl ?? null, collection: r.collection ?? null,
+      attributes: r.attributes ?? null, updated_at: new Date().toISOString(),
+    }));
+  if (payload.length === 0) return;
+  try { await supabase.from('nft_metadata').upsert(payload, { onConflict: 'mint' }); } catch {}
 }
 
 // ═════════════════════════════════════════════
@@ -622,23 +736,16 @@ export interface SnapshotToken {
   balance: number;
   usd:     number;
   price:   number;
+  /** Token/NFT logo URL (or data URI) — rendered on the shareable card. */
+  logo?:   string;
 }
 
 /** Upsert today's snapshot — always overwrites with the latest (most complete) data */
 export async function upsertPortfolioSnapshot(snap: PortfolioSnapshot): Promise<void> {
   if (!supabase) return;
   try {
-    // First check if we already have a snapshot for today
-    const { data: existing } = await supabase
-      .from('portfolio_snapshots')
-      .select('total_usd')
-      .eq('wallet', snap.wallet)
-      .eq('snapshot_date', snap.snapshot_date)
-      .single();
-
-    // Only overwrite if new value is higher (more prices loaded) or no snapshot yet
-    if (existing && snap.total_usd <= existing.total_usd) return;
-
+    // Always store the latest computed value for today (latest-write wins), so
+    // the curve reflects the current portfolio rather than the day's peak.
     await supabase
       .from('portfolio_snapshots')
       .upsert(
@@ -665,6 +772,56 @@ export async function getPortfolioSnapshots(wallet: string): Promise<PortfolioSn
     if (error || !data) return [];
     return data as PortfolioSnapshot[];
   } catch { return []; }
+}
+
+// ═════════════════════════════════════════════
+// 12. SPOTLIGHT IMAGES — admin-curated landing carousel promos
+// ═════════════════════════════════════════════
+export interface SpotlightImage {
+  id:            string;
+  image_url:     string;
+  storage_path?: string;
+  link_url?:     string | null;
+  caption?:      string | null;
+  sort_order:    number;
+  active:        boolean;
+  created_at?:   string;
+}
+
+/** Public read — active spotlight images for the landing carousel. */
+export async function getSpotlightImages(): Promise<SpotlightImage[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from('spotlight_images')
+      .select('id, image_url, link_url, caption, sort_order, active, created_at')
+      .eq('active', true)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error || !data) return [];
+    return data as SpotlightImage[];
+  } catch { return []; }
+}
+
+/** Admin — full list including inactive rows. */
+export async function adminListSpotlight(): Promise<SpotlightImage[]> {
+  const r = await adminFetch('spotlight_list');
+  return r.success && Array.isArray(r.data) ? r.data as SpotlightImage[] : [];
+}
+
+/** Admin — upload an image (base64 data URL) with optional link + caption. */
+export async function uploadSpotlightImage(args: {
+  dataUrl: string; filename: string; link?: string; caption?: string;
+}) { return adminFetch('spotlight_upload', args); }
+
+/** Admin — delete a spotlight image (DB row + storage file). */
+export async function deleteSpotlightImage(id: string) {
+  return adminFetch('spotlight_delete', { id });
+}
+
+/** Admin — toggle whether an image shows in the carousel. */
+export async function setSpotlightActive(id: string, active: boolean) {
+  return adminFetch('spotlight_set_active', { id, active });
 }
 
 // ═════════════════════════════════════════════

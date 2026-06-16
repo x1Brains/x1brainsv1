@@ -484,7 +484,8 @@ export default BurnPortal;
 // Separate component for the global burn transactions list
 // Usage: <BurnTransactions entries={entries} isMobile={isMobile} />
 // ─────────────────────────────────────────────────────────────────────────────
-import { BurnerEntry, fetchLeaderboard } from './BurnLeaderboard';
+import { fetchLeaderboard } from './BurnLeaderboard';
+import type { BurnerEntry } from './BurnLeaderboard';
 import { Connection } from '@solana/web3.js';
 
 const short2 = (addr: string) => addr ? `${addr.slice(0,4)}…${addr.slice(-4)}` : '—';

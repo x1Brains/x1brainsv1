@@ -1,36 +1,52 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ── preserved from v1 — secrets, keypairs, build artifacts, operator ops ──
 *.Zone.Identifier
 *keypair*.json
 .env
 .env.local
-.next/
-check.js
-check_tokens.js
-dist/
+.env.*
 id.json
-node_modules/
 target/
 target/deploy/*-keypair.json
-
-# Build artifacts
-target/
-
-# Dev scripts & artifacts
+__pycache__/
+*.pyc
 mnt/
-*.txt
-gettx*.js
-verify[0-9]*.js
-check*.js
-inspect_*.js
-scripts/force-mature.js
-scripts/check-force-mature-alive.js
-
-# Backup files
 *.bak
 *.old
 *.orig
-
-# Local ops scripts — kept on disk for the operator, not published.
-# These read the admin keypair from disk and run one-off admin tasks.
+nohup.out
+# Local operator-only ops scripts (read admin keypair from disk; never published)
 collect_lb_fees.js
 manual_delist.js
 seed_brains_pools.js
+check.js
+check_tokens.js
+gettx*.js
+verify[0-9]*.js
+inspect_*.js
+scripts/force-mature.js
+scripts/check-force-mature-alive.js

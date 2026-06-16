@@ -557,9 +557,27 @@ export async function fetchLeaderboard(
     if (unknownSigs.length < sigs.length) hitKnown = true;
 
     const sigStrs = unknownSigs.map(s => s.signature);
-    const txBatch = await connection.getParsedTransactions(sigStrs, {
-      maxSupportedTransactionVersion: 0, commitment: 'confirmed',
-    }).catch(() => [] as (Awaited<ReturnType<typeof connection.getParsedTransactions>>[number])[]);
+    // X1 RPC returns "413 Payload Too Large" for 100 sigs in one
+    // getParsedTransactions call (≤50 works). Chunk into 25s and fire the
+    // chunks concurrently — the parse is the dominant cost, so running the
+    // page's ~4 chunks in parallel cuts per-page latency ~4x. Padding failed
+    // chunks with nulls keeps index alignment with unknownSigs below.
+    const PARSE_CHUNK = 25;
+    const slices: string[][] = [];
+    for (let ci = 0; ci < sigStrs.length; ci += PARSE_CHUNK) {
+      slices.push(sigStrs.slice(ci, ci + PARSE_CHUNK));
+    }
+    const parts = await Promise.all(slices.map(slice =>
+      connection.getParsedTransactions(slice, {
+        maxSupportedTransactionVersion: 0, commitment: 'confirmed',
+      }).catch(() => null),
+    ));
+    const txBatch: (Awaited<ReturnType<typeof connection.getParsedTransactions>>[number])[] = [];
+    for (let si = 0; si < slices.length; si++) {
+      const part = parts[si];
+      if (part) for (const t of part) txBatch.push(t);
+      else for (let k = 0; k < slices[si].length; k++) txBatch.push(null);
+    }
 
     if (signal.aborted) break;
 

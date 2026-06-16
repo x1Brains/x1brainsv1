@@ -10,11 +10,17 @@ import {
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountInstruction,
   createTransferCheckedInstruction,
+  createBurnCheckedInstruction,
   getAccount,
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
 } from '@solana/spl-token';
 import type { TokenData } from './TokenComponents';
+
+// The incinerator is an off-curve vanity address — you cannot create an ATA for
+// it, so a transfer to it throws. Sending here uses the real SPL burn
+// instruction instead, which removes the token from circulating supply.
+const INCINERATOR = '1nc1nerator11111111111111111111111111111111';
 
 // ─── STYLE INJECTION ─────────────────────────────────────────────────────────
 (function () {
@@ -30,16 +36,16 @@ import type { TokenData } from './TokenComponents';
     @keyframes sp-fade { from{opacity:0} to{opacity:1} }
     @keyframes sp-spin  { to{transform:rotate(360deg)} }
     .sp-input {
-      width:100%; padding:10px 14px;
+      width:100%; padding:8px 11px;
       background:rgba(0,0,0,.4); border:1px solid rgba(255,140,0,.2);
-      border-radius:8px; font-family:'Sora',sans-serif; font-size:13px;
+      border-radius:7px; font-family:'Sora',sans-serif; font-size:12px;
       color:#e0e8f0; outline:none; box-sizing:border-box; transition:border-color .2s;
     }
     .sp-input:focus { border-color:rgba(255,140,0,.5); box-shadow:0 0 0 3px rgba(255,140,0,.08); }
     .sp-input::placeholder { color:#3a5060; }
     .sp-btn {
-      padding:10px 18px; border:none; border-radius:8px; cursor:pointer;
-      font-family:'Orbitron',monospace; font-size:10px; font-weight:700;
+      padding:8px 14px; border:none; border-radius:7px; cursor:pointer;
+      font-family:'Orbitron',monospace; font-size:9px; font-weight:700;
       letter-spacing:1.5px; transition:all .2s; text-transform:uppercase;
     }
   `;
@@ -125,27 +131,35 @@ async function sendTokens(
     } else {
       const rawAmt = BigInt(Math.floor(r.amount * Math.pow(10, token.decimals)));
       const sAta   = getAssociatedTokenAddressSync(mintPk!, wallet.publicKey, false, progId);
-      const rAta   = getAssociatedTokenAddressSync(mintPk!, recipientPk, false, progId);
 
-      // Create recipient ATA if needed
-      try { await getAccount(connection, rAta, 'confirmed', progId); }
-      catch {
-        tx.add(createAssociatedTokenAccountInstruction(
-          wallet.publicKey, rAta, recipientPk, mintPk!, progId,
+      if (r.address.trim() === INCINERATOR) {
+        // Burn — the incinerator can't own an ATA, so destroy the token at the
+        // source instead. Works for NFTs (amount 1, decimals 0) and fungibles.
+        tx.add(createBurnCheckedInstruction(
+          sAta, mintPk!, wallet.publicKey, rawAmt, token.decimals, [], progId,
+        ));
+      } else {
+        const rAta = getAssociatedTokenAddressSync(mintPk!, recipientPk, false, progId);
+        // Create recipient ATA if needed
+        try { await getAccount(connection, rAta, 'confirmed', progId); }
+        catch {
+          tx.add(createAssociatedTokenAccountInstruction(
+            wallet.publicKey, rAta, recipientPk, mintPk!, progId,
+          ));
+        }
+        tx.add(createTransferCheckedInstruction(
+          sAta, mintPk!, rAta, wallet.publicKey,
+          rawAmt, token.decimals, [], progId,
         ));
       }
-
-      tx.add(createTransferCheckedInstruction(
-        sAta, mintPk!, rAta, wallet.publicKey,
-        rawAmt, token.decimals, [], progId,
-      ));
     }
 
-    txs.push({ tx, label: `${r.amount} ${token.symbol} → ${short(r.address)}` });
+    const burning = r.address.trim() === INCINERATOR;
+    txs.push({ tx, label: burning ? `Burn ${r.amount} ${token.symbol}` : `${r.amount} ${token.symbol} → ${short(r.address)}` });
   }
 
   // Sign all at once — single wallet approval for batch
-  onStatus(`🔐 Requesting approval for ${txs.length} transaction${txs.length > 1 ? 's' : ''}…`);
+  onStatus(`Requesting approval for ${txs.length} transaction${txs.length > 1 ? 's' : ''}…`);
   const { blockhash } = await connection.getLatestBlockhash('confirmed');
   txs.forEach(({ tx }) => {
     tx.feePayer = wallet.publicKey;
@@ -155,7 +169,7 @@ async function sendTokens(
   const signed = await wallet.signAllTransactions(txs.map(t => t.tx));
 
   for (let i = 0; i < signed.length; i++) {
-    onStatus(`📡 Sending ${txs[i].label}…`);
+    onStatus(`Sending ${txs[i].label}…`);
     const sig = await connection.sendRawTransaction(signed[i].serialize(), {
       skipPreflight: false, preflightCommitment: 'confirmed',
     });
@@ -170,7 +184,7 @@ async function sendTokens(
       await new Promise(r => setTimeout(r, 500));
     }
     sigs.push(sig);
-    onStatus(`✅ Confirmed: ${txs[i].label}`);
+    onStatus(`Confirmed: ${txs[i].label}`);
   }
 
   return sigs;
@@ -239,8 +253,8 @@ export const SendHistoryRow: FC<{ record: SendRecord; isMobile: boolean }> = ({ 
       </>
     )}
     <a href={`${EXPLORER}${record.tx_sig}`} target="_blank" rel="noopener noreferrer"
-      style={{ fontFamily:'Orbitron,monospace', fontSize:8, color:'#00d4ff', textDecoration:'none',
-        padding:'3px 8px', background:'rgba(0,212,255,.06)', border:'1px solid rgba(0,212,255,.2)',
+      style={{ fontFamily:'Orbitron,monospace', fontSize:8, color:'#ff8c00', textDecoration:'none',
+        padding:'3px 8px', background:'rgba(255,140,0,.06)', border:'1px solid rgba(255,140,0,.2)',
         borderRadius:5, whiteSpace:'nowrap', textAlign:'center' }}>
       TX ↗
     </a>
@@ -264,10 +278,12 @@ export const SendPanel: FC<SendPanelProps> = ({
   token, wallet, connection, isMobile,
   savedAddresses, onSaveAddress, onDeleteAddress, onSendComplete, onClose,
 }) => {
+  // A 1/1 NFT (decimals 0, balance 1) — send the whole thing, no amount entry.
+  const isNft = token.decimals === 0 && token.balance > 0 && token.balance <= 1;
   const [mode,       setMode]       = useState<'single'|'batch'>('single');
   // Single send
   const [toAddr,     setToAddr]     = useState('');
-  const [amount,     setAmount]     = useState('');
+  const [amount,     setAmount]     = useState(isNft ? String(token.balance) : '');
   const [nickname,   setNickname]   = useState('');
   const [saveAddr,   setSaveAddr]   = useState(false);
   const [showBook,   setShowBook]   = useState(false);
@@ -278,6 +294,10 @@ export const SendPanel: FC<SendPanelProps> = ({
   const [sending,    setSending]    = useState(false);
   const [feeEst,     setFeeEst]     = useState<number|null>(null);
   const [error,      setError]      = useState('');
+  // Receipts for the most recent successful send. Stay on screen until the
+  // panel is closed (or the citizen kicks off another send) so they always
+  // have time to copy / explore the tx hashes.
+  const [sentReceipts, setSentReceipts] = useState<SendRecord[]>([]);
   const bookRef = useRef<HTMLDivElement>(null);
 
   // Close address book on outside click
@@ -298,7 +318,7 @@ export const SendPanel: FC<SendPanelProps> = ({
   }, [mode, toAddr, rows, wallet, connection]);
 
   const handleSend = useCallback(async () => {
-    setError(''); setStatus('');
+    setError(''); setStatus(''); setSentReceipts([]);
     if (!wallet?.publicKey) { setError('Wallet not connected'); return; }
     if (!wallet?.signAllTransactions) { setError('Wallet does not support batch signing — try Phantom or Backpack'); return; }
     const recipients = mode === 'single'
@@ -336,7 +356,8 @@ export const SendPanel: FC<SendPanelProps> = ({
       }));
 
       onSendComplete(records);
-      setStatus(`✅ Done! Sent ${recipients.length} transaction${recipients.length>1?'s':''}.`);
+      setSentReceipts(records);
+      setStatus(`Sent ${recipients.length} transaction${recipients.length>1?'s':''}.`);
       setToAddr(''); setAmount(''); setRows([{to:'',amount:''},{to:'',amount:''}]);
     } catch (e: any) {
       setError(e.message ?? 'Send failed');
@@ -347,34 +368,36 @@ export const SendPanel: FC<SendPanelProps> = ({
   }, [mode, toAddr, amount, rows, token, wallet, connection, saveAddr, nickname, onSaveAddress, onSendComplete]);
 
   const accent = '#ff8c00';
+  const isBurnTarget = toAddr.trim() === INCINERATOR;
 
   return (
     <div style={{
       animation: 'sp-slide-down .25s ease both',
-      background: 'linear-gradient(135deg,rgba(255,140,0,.04),rgba(0,0,0,.3))',
-      border: '1px solid rgba(255,140,0,.2)',
-      borderTop: '2px solid rgba(255,140,0,.4)',
+      background: 'linear-gradient(180deg,#0b1018,#080c12)',
+      border: '1px solid #1a2433',
+      borderTop: `2px solid ${isBurnTarget ? 'rgba(255,68,68,.5)' : 'rgba(255,140,0,.45)'}`,
       borderRadius: '0 0 14px 14px',
-      padding: isMobile ? '16px 14px' : '20px 22px',
+      padding: isMobile ? '13px 13px' : '15px 16px',
       marginTop: -2,
     }}>
 
       {/* ── HEADER ── */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:13 }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <span style={{ fontSize:16 }}>📤</span>
-          <span style={{ fontFamily:'Orbitron,monospace', fontSize:11, fontWeight:700, color:accent, letterSpacing:2 }}>
-            SEND {token.symbol}
+          <span style={{ width:4, height:14, borderRadius:2, background: isBurnTarget ? '#ff4444' : accent,
+            boxShadow:`0 0 8px ${isBurnTarget ? 'rgba(255,68,68,.6)' : 'rgba(255,140,0,.55)'}` }} />
+          <span style={{ fontFamily:'Orbitron,monospace', fontSize:11, fontWeight:700, color: isBurnTarget ? '#ff6666' : accent, letterSpacing:2 }}>
+            {isBurnTarget ? 'BURN' : 'SEND'} {token.symbol}
           </span>
-          <span style={{ fontFamily:'Orbitron,monospace', fontSize:9, color:'#5a7a90' }}>
-            BAL: {token.balance.toLocaleString(undefined,{maximumFractionDigits:4})}
+          <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:9, color:'#566173', letterSpacing:.5 }}>
+            BAL {token.balance.toLocaleString(undefined,{maximumFractionDigits:4})}
           </span>
         </div>
         <button type="button" onClick={onClose} style={{ background:'none', border:'none', color:'#5a7a90', fontSize:18, cursor:'pointer', padding:'0 4px', lineHeight:1 }}>×</button>
       </div>
 
       {/* ── MODE TOGGLE ── */}
-      <div style={{ display:'flex', gap:6, marginBottom:16 }}>
+      <div style={{ display:'flex', gap:6, marginBottom:12 }}>
         {(['single','batch'] as const).map(m => (
           <button type="button" key={m} onClick={() => setMode(m)} className="sp-btn" style={{
             background: mode===m ? `rgba(255,140,0,.15)` : 'rgba(255,255,255,.04)',
@@ -382,7 +405,7 @@ export const SendPanel: FC<SendPanelProps> = ({
             color: mode===m ? accent : '#5a7a90',
             padding:'7px 16px',
           }}>
-            {m === 'single' ? '👤 Single' : '👥 Batch Send'}
+            {m === 'single' ? 'SINGLE' : 'BATCH'}
           </button>
         ))}
       </div>
@@ -401,13 +424,29 @@ export const SendPanel: FC<SendPanelProps> = ({
                 onChange={e => setToAddr(e.target.value)}
                 style={{ flex:1 }}
               />
-              <button type="button" onClick={() => setShowBook(v => !v)} title="Address book"
-                style={{ background: showBook ? 'rgba(255,140,0,.15)' : 'rgba(255,255,255,.06)',
-                  border:`1px solid ${showBook ? 'rgba(255,140,0,.4)' : 'rgba(255,255,255,.1)'}`,
-                  borderRadius:8, padding:'0 12px', cursor:'pointer', fontSize:16, flexShrink:0 }}>
-                📒
+              <button type="button" onClick={() => setShowBook(v => !v)} title="Saved addresses"
+                style={{ background: showBook ? 'rgba(255,140,0,.12)' : 'rgba(255,255,255,.03)',
+                  border:`1px solid ${showBook ? 'rgba(255,140,0,.4)' : '#1a2433'}`,
+                  borderRadius:8, padding:'0 13px', cursor:'pointer', flexShrink:0,
+                  fontFamily:'Orbitron,monospace', fontSize:9, fontWeight:700, letterSpacing:1, color: showBook ? '#ff8c00' : '#8a9ab8' }}>
+                SAVED
+              </button>
+              <button type="button" onClick={() => setToAddr(isBurnTarget ? '' : INCINERATOR)}
+                title={isBurnTarget ? 'Cancel burn' : 'Burn to incinerator'}
+                style={{ background: isBurnTarget ? 'rgba(255,68,68,.16)' : 'rgba(255,255,255,.03)',
+                  border:`1px solid ${isBurnTarget ? 'rgba(255,68,68,.5)' : '#1a2433'}`,
+                  borderRadius:8, padding:'0 13px', cursor:'pointer', flexShrink:0,
+                  fontFamily:'Orbitron,monospace', fontSize:9, fontWeight:700, letterSpacing:1, color: isBurnTarget ? '#ff6666' : '#8a9ab8' }}>
+                BURN
               </button>
             </div>
+            {isBurnTarget && (
+              <div style={{ marginTop:8, padding:'8px 11px', borderLeft:'2px solid #ff4444',
+                background:'rgba(255,68,68,.05)', borderRadius:'0 6px 6px 0',
+                fontFamily:'Sora,sans-serif', fontSize:11, color:'#ff8899', lineHeight:1.5 }}>
+                Burns <b style={{ color:'#ffb0b0' }}>{token.name || token.symbol}</b> permanently — this cannot be undone or recovered.
+              </div>
+            )}
             {showBook && (
               <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, right:0, zIndex:50,
                 background:'#0d1520', border:'1px solid rgba(255,140,0,.25)', borderRadius:10,
@@ -421,21 +460,32 @@ export const SendPanel: FC<SendPanelProps> = ({
             )}
           </div>
 
-          {/* Amount row */}
-          <div style={{ display:'flex', gap:8 }}>
-            <input
-              className="sp-input"
-              type="number" min="0" step="any"
-              placeholder={`Amount of ${token.symbol}…`}
-              value={amount}
-              onChange={e => setAmount(e.target.value)}
-              style={{ flex:1 }}
-            />
-            <button type="button" onClick={() => setAmount(String(token.balance))} className="sp-btn"
-              style={{ background:'rgba(0,212,255,.08)', border:'1px solid rgba(0,212,255,.2)', color:'#00d4ff', padding:'0 14px', flexShrink:0 }}>
-              MAX
-            </button>
-          </div>
+          {/* Amount row — NFTs send the whole item, no amount needed */}
+          {isNft ? (
+            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 13px', borderRadius:8,
+              background:'rgba(255,255,255,.02)', border:'1px solid #1a2433' }}>
+              <span style={{ fontFamily:'Orbitron,monospace', fontSize:8.5, fontWeight:800, letterSpacing:1, color:'#bf5af2',
+                padding:'3px 7px', borderRadius:4, background:'rgba(191,90,242,.1)', border:'1px solid rgba(191,90,242,.3)' }}>NFT</span>
+              <span style={{ fontFamily:'Sora,sans-serif', fontSize:12, color:'#9abace' }}>Sending whole item</span>
+              <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:11, color:'#7a9ab8', marginLeft:'auto',
+                whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:'42%' }}>{token.name || token.symbol}</span>
+            </div>
+          ) : (
+            <div style={{ display:'flex', gap:8 }}>
+              <input
+                className="sp-input"
+                type="number" min="0" step="any"
+                placeholder={`Amount of ${token.symbol}…`}
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                style={{ flex:1 }}
+              />
+              <button type="button" onClick={() => setAmount(String(token.balance))} className="sp-btn"
+                style={{ background:'rgba(255,140,0,.08)', border:'1px solid rgba(255,140,0,.2)', color:'#ff8c00', padding:'0 14px', flexShrink:0 }}>
+                MAX
+              </button>
+            </div>
+          )}
 
           {/* Save address option */}
           <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', userSelect:'none' }}>
@@ -471,8 +521,8 @@ export const SendPanel: FC<SendPanelProps> = ({
             </div>
           ))}
           <button type="button" onClick={() => setRows([...rows,{to:'',amount:''}])} className="sp-btn"
-            style={{ background:'rgba(0,201,141,.08)', border:'1px solid rgba(0,201,141,.25)', color:'#00c98d',
-              padding:'8px 0', width:'100%', marginTop:4 }}>
+            style={{ background:'rgba(255,255,255,.03)', border:'1px solid #1a2433', color:'#8a9ab8',
+              padding:'9px 0', width:'100%', marginTop:4 }}>
             + ADD RECIPIENT
           </button>
         </div>
@@ -480,22 +530,19 @@ export const SendPanel: FC<SendPanelProps> = ({
 
       {/* ── FEE ESTIMATE ── */}
       {feeEst !== null && (
-        <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:12, padding:'8px 12px',
-          background:'rgba(0,212,255,.04)', border:'1px solid rgba(0,212,255,.12)', borderRadius:8 }}>
-          <span style={{ fontSize:12 }}>⛽</span>
-          <span style={{ fontFamily:'Sora,sans-serif', fontSize:11, color:'#5a9ab8' }}>
-            Est. network fee: <span style={{ color:'#00d4ff', fontWeight:600 }}>~{feeEst.toFixed(5)} XNT</span>
-            <span style={{ color:'#3a5060', fontSize:10 }}> (includes ATA creation if needed)</span>
-          </span>
+        <div style={{ display:'flex', alignItems:'center', marginTop:12, padding:'10px 13px',
+          background:'rgba(255,255,255,.02)', border:'1px solid #1a2433', borderRadius:8 }}>
+          <span style={{ fontFamily:'Orbitron,monospace', fontSize:8.5, color:'#566173', letterSpacing:1.5 }}>EST. NETWORK FEE</span>
+          <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:11.5, color:'#ff8c00', fontWeight:600, marginLeft:'auto' }}>~{feeEst.toFixed(5)} XNT</span>
         </div>
       )}
 
       {/* ── STATUS / ERROR ── */}
       {error && (
-        <div style={{ marginTop:10, padding:'10px 14px', background:'rgba(255,68,102,.08)',
-          border:'1px solid rgba(255,68,102,.25)', borderRadius:8,
+        <div style={{ marginTop:10, padding:'10px 14px', background:'rgba(255,68,102,.07)',
+          borderLeft:'2px solid #ff4466', borderRadius:'0 8px 8px 0',
           fontFamily:'Sora,sans-serif', fontSize:12, color:'#ff8899' }}>
-          ⚠️ {error}
+          {error}
         </div>
       )}
       {status && (
@@ -503,6 +550,68 @@ export const SendPanel: FC<SendPanelProps> = ({
           border:'1px solid rgba(0,201,141,.2)', borderRadius:8,
           fontFamily:'Sora,sans-serif', fontSize:12, color:'#00c98d' }}>
           {status}
+        </div>
+      )}
+      {sentReceipts.length > 0 && (
+        <div style={{
+          marginTop: 10, padding: '12px 14px',
+          background: 'rgba(255,140,0,.04)',
+          border: '1px solid rgba(255,140,0,.25)',
+          borderRadius: 8,
+          display: 'flex', flexDirection: 'column', gap: 8,
+        }}>
+          <div style={{
+            display:'flex', alignItems:'center', gap:7,
+            fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
+            color: '#ff8c00', letterSpacing: 1.5,
+          }}>
+            <span style={{ width:6, height:6, borderRadius:'50%', background:'#00c98d', boxShadow:'0 0 8px #00c98d' }} />
+            TX RECEIPT{sentReceipts.length > 1 ? 'S' : ''}
+          </div>
+          {sentReceipts.map(r => (
+            <div key={r.tx_sig} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              gap: 10, flexWrap: 'wrap',
+              padding: '6px 8px',
+              background: 'rgba(0,0,0,.25)',
+              border: '1px solid rgba(255,255,255,.06)',
+              borderRadius: 6,
+            }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 700, color: '#cfdfee' }}>
+                  {r.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })} {r.symbol}
+                  <span style={{ color: '#5a7a90', margin: '0 6px' }}>→</span>
+                  <span style={{ fontFamily: 'monospace', color: '#8aabb8' }}>{short(r.to_wallet)}</span>
+                </div>
+                <div style={{ fontFamily: 'monospace', fontSize: 9, color: '#5a7a90', marginTop: 3, wordBreak: 'break-all' }}>
+                  {r.tx_sig}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => { navigator.clipboard?.writeText(r.tx_sig).catch(() => {}); }}
+                  title="Copy tx hash"
+                  style={{
+                    fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
+                    padding: '5px 10px', borderRadius: 5,
+                    background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.35)',
+                    color: '#ff8c00', cursor: 'pointer', letterSpacing: 1.2,
+                  }}
+                >COPY</button>
+                <a
+                  href={`${EXPLORER}${r.tx_sig}`}
+                  target="_blank" rel="noopener noreferrer"
+                  style={{
+                    fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
+                    padding: '5px 10px', borderRadius: 5,
+                    background: 'rgba(255,140,0,.14)', border: '1px solid rgba(255,140,0,.55)',
+                    color: '#ff8c00', textDecoration: 'none', letterSpacing: 1.2,
+                  }}
+                >TX ↗</a>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -513,20 +622,22 @@ export const SendPanel: FC<SendPanelProps> = ({
         disabled={sending}
         className="sp-btn"
         style={{
-          marginTop:14, width:'100%', padding:'13px 0',
-          background: sending ? 'rgba(255,140,0,.3)' : 'linear-gradient(135deg,#ff8c00,#ffb700)',
-          color: '#0a0e14', fontSize:12, opacity: sending ? 0.7 : 1,
+          marginTop:12, width:'100%', padding:'11px 0',
+          background: sending ? 'rgba(255,140,0,.3)'
+            : isBurnTarget ? 'linear-gradient(135deg,#ff4444,#cc2222)'
+            : 'linear-gradient(135deg,#ff8c00,#ffb700)',
+          color: isBurnTarget && !sending ? '#fff' : '#0a0e14', fontSize:12, opacity: sending ? 0.7 : 1,
           cursor: sending ? 'not-allowed' : 'pointer',
-          boxShadow: sending ? 'none' : '0 4px 20px rgba(255,140,0,.3)',
+          boxShadow: sending ? 'none' : isBurnTarget ? '0 4px 20px rgba(255,68,68,.35)' : '0 4px 20px rgba(255,140,0,.3)',
         }}
       >
         {sending
           ? <span style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
               <span style={{ width:14, height:14, border:'2px solid rgba(0,0,0,.3)', borderTop:'2px solid #0a0e14',
                 borderRadius:'50%', animation:'sp-spin .7s linear infinite', display:'inline-block' }} />
-              SENDING…
+              {isBurnTarget ? 'BURNING…' : 'SENDING…'}
             </span>
-          : `SEND ${token.symbol}`
+          : isBurnTarget ? `BURN ${token.symbol}` : `SEND ${token.symbol}`
         }
       </button>
 

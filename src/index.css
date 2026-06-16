@@ -1,0 +1,107 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  /* ── v1 LabWork DeFi palette ─────────────────────────────── */
+  --bg-deep: #080c0f;
+  --bg-card: #0d1520;
+  --bg-card-2: #111820;
+  --bg-hover: #1a2535;
+
+  --accent-orange: #ff8c00;
+  --accent-orange-dim: #cc7000;
+  --accent-purple: #bf5af2;
+  --neon-cyan: #00d4ff;
+  --neon-yellow: #ffb700;
+  --neon-green: #00c98d;
+  --neon-green-bright: #00ff80;
+  --neon-red: #ff4444;
+  --neon-red-soft: #ff6666;
+
+  --text-primary: #e6edf6;
+  --text-secondary: #9abace;
+  --text-muted: #6a8aaa;
+  --text-dim: #5c7a90;
+  --text-faint: #4a6a8a;
+
+  --border: #1e3050;
+  --border-soft: rgba(255, 255, 255, 0.07);
+  --border-glow: rgba(255, 140, 0, 0.25);
+
+  --sidebar-w: 218px;
+  --header-h: 68px;
+
+  /* ── v2 page-window glow (dual-top: faint orange TL · teal TR) ──────────
+     Layer over any dark panel base: `background: var(--v2-glow), <base>;` */
+  --v2-glow:
+    radial-gradient(110% 80% at 0% 0%, rgba(255, 140, 0, 0.018), transparent 46%),
+    radial-gradient(110% 80% at 100% 0%, rgba(0, 207, 198, 0.055), transparent 46%),
+    linear-gradient(135deg, rgba(255, 140, 0, 0.012), rgba(0, 207, 198, 0.012) 60%, transparent);
+  --v2-glow-soft:
+    radial-gradient(110% 90% at 0% 0%, rgba(255, 140, 0, 0.012), transparent 55%),
+    radial-gradient(110% 90% at 100% 0%, rgba(0, 207, 198, 0.035), transparent 55%);
+}
+
+body {
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  font-family: 'Sora', system-ui, sans-serif;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+}
+
+input::placeholder { color: var(--text-faint); }
+
+/* ── decorative background layers (grid + radial glows) ───── */
+.bg-grid {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 140, 0, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 140, 0, 0.025) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+.bg-glow {
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.bg-glow-orange {
+  top: -200px;
+  right: -200px;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(255, 140, 0, 0.06) 0%, transparent 70%);
+}
+
+.bg-glow-cyan {
+  bottom: -300px;
+  left: -200px;
+  width: 700px;
+  height: 700px;
+  background: radial-gradient(circle, rgba(0, 212, 255, 0.04) 0%, transparent 70%);
+}
+
+.bg-glow-purple {
+  top: 30%;
+  right: 5%;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(191, 90, 242, 0.04) 0%, transparent 60%);
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* Kill the native number-input spinner arrows everywhere (swap, list NFT,
+   send panel, etc.) — they don't fit the dark UI. */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type='number'] { -moz-appearance: textfield; appearance: textfield; }

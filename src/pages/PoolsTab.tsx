@@ -62,7 +62,7 @@ async function disc(name: string): Promise<Buffer> {
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-interface PoolRecord {
+export interface PoolRecord {
   pda:        string;
   poolAddr:   string;  // XDEX pool state address
   lpMint:     string;
@@ -79,7 +79,7 @@ interface PoolRecord {
   seeded:     boolean;
 }
 
-interface PoolState {
+export interface PoolState {
   ammConfig:    string;
   token0Vault:  string;
   token1Vault:  string;
@@ -97,7 +97,7 @@ interface PoolState {
   lpSupply:     bigint;
 }
 
-interface PoolView extends PoolRecord {
+export interface PoolView extends PoolRecord {
   state?:       PoolState;
   vault0Bal:    bigint;
   vault1Bal:    bigint;
@@ -164,7 +164,7 @@ const CopyButton: FC<{ text: string; size?: number }> = ({ text, size = 11 }) =>
   return (
     <button onClick={handleCopy} title={copied ? 'Copied!' : 'Copy address'} style={{
       background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px',
-      color: copied ? '#00c98d' : '#3a5a6a', fontSize: size,
+      color: copied ? '#00c98d' : '#3a4150', fontSize: size,
       lineHeight: 1, borderRadius: 4, flexShrink: 0,
       transition: 'color .15s',
     }}>
@@ -347,7 +347,7 @@ async function fetchMetaplexMeta(mint: string): Promise<TokenMeta | null> {
 
 async function fetchXdexMeta(mint: string): Promise<TokenMeta | null> {
   try {
-    const r = await fetch(`/api/xdex-price/api/token-price/price?network=X1+Mainnet&token_address=${mint}`, { signal: AbortSignal.timeout(6000) });
+    const r = await fetch(`/api/xdex-price/api/token-price/price?network=X1%20Mainnet&token_address=${mint}`, { signal: AbortSignal.timeout(6000) });
     const j = await r.json();
     if (j.success && j.data) return { symbol: j.data.symbol || mint.slice(0,6), name: j.data.name || mint.slice(0,6), logo: j.data.logo || j.data.logoUri, decimals: j.data.decimals ?? 9 };
   } catch {}
@@ -817,7 +817,7 @@ async function fetchWalletTokensViaApi(wallet: string): Promise<XdexWalletToken[
   if (cached && Date.now() - cached.ts < WALLET_CACHE_TTL) return cached.tokens;
   try {
     const r = await fetch(
-      `${XDEX_BASE}/xendex/wallet/tokens?network=X1+Mainnet&wallet_address=${wallet}`,
+      `${XDEX_BASE}/xendex/wallet/tokens?network=X1%20Mainnet&wallet_address=${wallet}`,
       { signal: AbortSignal.timeout(8000) }
     );
     if (!r.ok) return null;
@@ -873,9 +873,9 @@ const StatusBox: FC<{ msg: string }> = ({ msg }) => {
     <div style={{
       margin: '12px 0', padding: '10px 14px', borderRadius: 10, fontSize: 12,
       fontFamily: 'Sora,sans-serif', lineHeight: 1.6, whiteSpace: 'pre-wrap',
-      background: isErr ? 'rgba(255,68,68,.08)' : isOk ? 'rgba(0,201,141,.08)' : 'rgba(255,255,255,.04)',
-      border: `1px solid ${isErr ? 'rgba(255,68,68,.25)' : isOk ? 'rgba(0,201,141,.25)' : 'rgba(255,255,255,.08)'}`,
-      color: isErr ? '#ff8888' : isOk ? '#00c98d' : '#9abacf',
+      background: isErr ? 'rgba(255,140,0,.08)' : isOk ? 'rgba(0,201,141,.08)' : 'rgba(255,255,255,.04)',
+      border: `1px solid ${isErr ? 'rgba(255,140,0,.25)' : isOk ? 'rgba(0,201,141,.25)' : 'rgba(255,255,255,.08)'}`,
+      color: isErr ? '#ff8c00' : isOk ? '#00c98d' : '#cdd8e2',
     }}>{msg}</div>
   );
 };
@@ -884,18 +884,18 @@ const StatusBox: FC<{ msg: string }> = ({ msg }) => {
 const TokenLogo: FC<{ logo?: string; symbol: string; size?: number }> = ({ logo, symbol, size = 32 }) => (
   <div style={{
     width: size, height: size, borderRadius: '50%', overflow: 'hidden',
-    background: 'rgba(0,212,255,.12)', border: '1px solid rgba(0,212,255,.2)',
+    background: 'rgba(255,140,0,.12)', border: '1px solid rgba(255,140,0,.2)',
     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   }}>
     {logo
       ? <img src={logo} alt={symbol} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-      : <span style={{ fontSize: size * 0.35, fontWeight: 900, color: '#00d4ff', fontFamily: 'Orbitron,monospace' }}>{symbol.slice(0, 2)}</span>
+      : <span style={{ fontSize: size * 0.35, fontWeight: 900, color: '#ff8c00', fontFamily: 'Orbitron,monospace' }}>{symbol.slice(0, 2)}</span>
     }
   </div>
 );
 
 // ─── Withdraw Modal ───────────────────────────────────────────────────────────
-const WithdrawModal: FC<{
+export const WithdrawModal: FC<{
   pool: PoolView;
   isMobile: boolean;
   publicKey: PublicKey;
@@ -1033,26 +1033,26 @@ const WithdrawModal: FC<{
       <div onClick={e => e.stopPropagation()} style={{
         width: '100%', maxWidth: 420,
         background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-        border: '1px solid rgba(0,212,255,.15)', borderRadius: isMobile ? '20px 20px 0 0' : 16,
+        border: '1px solid rgba(255,140,0,.15)', borderRadius: isMobile ? '20px 20px 0 0' : 16,
         padding: isMobile ? '20px 16px 28px' : '24px 26px',
         maxHeight: isMobile ? '88vh' : 'calc(100vh - 32px)', overflowY: 'auto',
       }}>
         <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, width: 28, height: 28,
           borderRadius: '50%', border: '1px solid rgba(255,255,255,.12)', background: 'rgba(8,12,15,.9)',
-          cursor: 'pointer', color: '#6a8aaa', fontSize: 16 }}>×</button>
+          cursor: 'pointer', color: '#8a9ab8', fontSize: 16 }}>×</button>
 
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 16, fontWeight: 900, color: '#fff', marginBottom: 4 }}>
           💧 REMOVE LIQUIDITY
         </div>
-        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa', marginBottom: 20 }}>
+        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#8a9ab8', marginBottom: 20 }}>
           {pool.sym0} / {pool.sym1} pool
         </div>
 
         {/* LP balance */}
-        <div style={{ background: 'rgba(0,212,255,.04)', border: '1px solid rgba(0,212,255,.12)',
+        <div style={{ background: 'rgba(255,140,0,.04)', border: '1px solid rgba(255,140,0,.12)',
           borderRadius: 12, padding: 16, marginBottom: 16 }}>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a', letterSpacing: 1, marginBottom: 6 }}>YOUR LP BALANCE</div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 18, fontWeight: 900, color: '#00d4ff' }}>
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82', letterSpacing: 1, marginBottom: 6 }}>YOUR LP BALANCE</div>
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 18, fontWeight: 900, color: '#ff8c00' }}>
             {lpUi.toFixed(4)} LP
           </div>
         </div>
@@ -1060,19 +1060,19 @@ const WithdrawModal: FC<{
         {/* Slider */}
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a' }}>AMOUNT TO REMOVE</span>
-            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900, color: '#00d4ff' }}>{pct}%</span>
+            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82' }}>AMOUNT TO REMOVE</span>
+            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900, color: '#ff8c00' }}>{pct}%</span>
           </div>
           <input type="range" min={1} max={100} value={pct} onChange={e => setPct(Number(e.target.value))}
-            style={{ width: '100%', accentColor: '#00d4ff', cursor: 'pointer' }} />
+            style={{ width: '100%', accentColor: '#ff8c00', cursor: 'pointer' }} />
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             {[25, 50, 75, 100].map(p => (
               <button key={p} onClick={() => setPct(p)} style={{
                 flex: 1, padding: '6px 0', borderRadius: 8, cursor: 'pointer', fontSize: 10,
                 fontFamily: 'Orbitron,monospace', fontWeight: 700,
-                background: pct === p ? 'rgba(0,212,255,.15)' : 'rgba(255,255,255,.04)',
-                border: `1px solid ${pct === p ? 'rgba(0,212,255,.4)' : 'rgba(255,255,255,.08)'}`,
-                color: pct === p ? '#00d4ff' : '#6a8aaa',
+                background: pct === p ? 'rgba(255,140,0,.15)' : 'rgba(255,255,255,.04)',
+                border: `1px solid ${pct === p ? 'rgba(255,140,0,.4)' : 'rgba(255,255,255,.08)'}`,
+                color: pct === p ? '#ff8c00' : '#8a9ab8',
               }}>{p}%</button>
             ))}
           </div>
@@ -1081,15 +1081,15 @@ const WithdrawModal: FC<{
         {/* Estimates */}
         <div style={{ background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
           borderRadius: 12, padding: 14, marginBottom: 16 }}>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a', marginBottom: 10 }}>YOU WILL RECEIVE (ESTIMATE)</div>
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82', marginBottom: 10 }}>YOU WILL RECEIVE (ESTIMATE)</div>
           {[
             { sym: pool.sym0, amt: Number(est0) / Math.pow(10, dec0) },
             { sym: pool.sym1, amt: Number(est1) / Math.pow(10, dec1) },
           ].map(r => (
             <div key={r.sym} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0',
               borderTop: '1px solid rgba(255,255,255,.04)' }}>
-              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#9abacf' }}>{r.sym}</span>
-              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: '#e0f0ff' }}>
+              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#cdd8e2' }}>{r.sym}</span>
+              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700, color: '#e6ebf2' }}>
                 {fmtNum(r.amt, 4)}
               </span>
             </div>
@@ -1110,10 +1110,10 @@ const WithdrawModal: FC<{
         <button onClick={handleWithdraw} disabled={pending || lpToRemove === 0n} style={{
           width: '100%', padding: '14px 0', borderRadius: 12,
           cursor: pending ? 'not-allowed' : 'pointer',
-          background: pending ? 'rgba(255,255,255,.04)' : 'linear-gradient(135deg,rgba(0,212,255,.2),rgba(0,212,255,.06))',
-          border: `1px solid ${pending ? 'rgba(255,255,255,.08)' : 'rgba(0,212,255,.45)'}`,
+          background: pending ? 'rgba(255,255,255,.04)' : 'linear-gradient(135deg,rgba(255,140,0,.2),rgba(255,140,0,.06))',
+          border: `1px solid ${pending ? 'rgba(255,255,255,.08)' : 'rgba(255,140,0,.45)'}`,
           fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-          color: pending ? '#4a6a8a' : '#00d4ff',
+          color: pending ? '#5a6a82' : '#ff8c00',
         }}>
           {pending ? 'PROCESSING…' : `WITHDRAW ${pct}% LP`}
         </button>
@@ -1124,7 +1124,7 @@ const WithdrawModal: FC<{
 };
 
 // ─── Deposit Modal ─────────────────────────────────────────────────────────────
-const DepositModal: FC<{
+export const DepositModal: FC<{
   pool: PoolView;
   isMobile: boolean;
   publicKey: PublicKey;
@@ -1402,12 +1402,12 @@ const DepositModal: FC<{
       }}>
         <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, width: 28, height: 28,
           borderRadius: '50%', border: '1px solid rgba(255,255,255,.12)', background: 'rgba(8,12,15,.9)',
-          cursor: 'pointer', color: '#6a8aaa', fontSize: 16 }}>×</button>
+          cursor: 'pointer', color: '#8a9ab8', fontSize: 16 }}>×</button>
 
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 16, fontWeight: 900, color: '#fff', marginBottom: 4 }}>
           ➕ ADD LIQUIDITY
         </div>
-        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa', marginBottom: 20 }}>
+        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#8a9ab8', marginBottom: 20 }}>
           {pool.sym0} / {pool.sym1} · proportional deposit
         </div>
 
@@ -1421,10 +1421,10 @@ const DepositModal: FC<{
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <TokenLogo logo={f.logo} symbol={f.sym} size={28} />
-                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 900, color: '#e0f0ff' }}>{f.sym}</span>
+                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 900, color: '#e6ebf2' }}>{f.sym}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>
+                <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82' }}>
                   {fmtNum(f.bal, 4)}
                 </span>
                 <button onClick={() => f.set(f.bal.toFixed(f.dec > 6 ? 6 : f.dec))} style={{
@@ -1437,10 +1437,10 @@ const DepositModal: FC<{
             <div style={{ position: 'relative' }}>
               <input value={f.val} onChange={e => f.set(e.target.value)} placeholder="0.00"
                 style={{ width: '100%', padding: '8px 0', border: 'none', background: 'transparent',
-                  color: '#e0f0ff', fontFamily: 'Orbitron,monospace', fontSize: 20, fontWeight: 700,
+                  color: '#e6ebf2', fontFamily: 'Orbitron,monospace', fontSize: 20, fontWeight: 700,
                   outline: 'none', boxSizing: 'border-box' }} />
               {f.usd > 0 && (
-                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>
+                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82' }}>
                   ≈ {fmtUSD(f.usd)}
                 </div>
               )}
@@ -1451,10 +1451,10 @@ const DepositModal: FC<{
         {/* Pool ratio */}
         {ratio > 0 && (
           <div style={{ background: 'rgba(255,255,255,.02)', borderRadius: 10, padding: '10px 14px',
-            marginBottom: 12, fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa' }}>
+            marginBottom: 12, fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#8a9ab8' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>Pool ratio</span>
-              <span style={{ color: '#9abacf' }}>1 {pool.sym0} = {fmtNum(ratio, 4)} {pool.sym1}</span>
+              <span style={{ color: '#cdd8e2' }}>1 {pool.sym0} = {fmtNum(ratio, 4)} {pool.sym1}</span>
             </div>
             {totalUsd > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
@@ -1482,7 +1482,7 @@ const DepositModal: FC<{
           background: pending ? 'rgba(255,255,255,.04)' : 'linear-gradient(135deg,rgba(0,201,141,.2),rgba(0,201,141,.06))',
           border: `1px solid ${pending ? 'rgba(255,255,255,.08)' : 'rgba(0,201,141,.45)'}`,
           fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-          color: pending ? '#4a6a8a' : '#00c98d',
+          color: pending ? '#5a6a82' : '#00c98d',
         }}>
           {pending ? 'PROCESSING…' : 'ADD LIQUIDITY'}
         </button>
@@ -1541,12 +1541,12 @@ async function fetchPriceHistory(pool: PoolView): Promise<PricePoint[]> {
 // ─── Mini price chart component ───────────────────────────────────────────────
 const MiniChart: FC<{ points: PricePoint[]; sym0: string; sym1: string; color: string }> = ({ points, sym0, sym1, color }) => {
   if (points.length < 2) return (
-    <div style={{ height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#3a5a6a' }}>
+    <div style={{ height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#5a6a82' }}>
       Not enough data for chart
     </div>
   );
-  const W = 400, H = 80, PAD = 8;
+  const W = 400, H = 48, PAD = 5;
   const prices = points.map(p => p.price);
   const minP = Math.min(...prices);
   const maxP = Math.max(...prices);
@@ -1565,17 +1565,17 @@ const MiniChart: FC<{ points: PricePoint[]; sym0: string; sym1: string; color: s
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#3a5a6a' }}>
+        <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#3a4150' }}>
           {sym1}/{sym0} PRICE
         </div>
         {pctDisplay !== null && (
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 700,
-            color: up ? '#00c98d' : '#ff4444' }}>
+            color: up ? '#00c98d' : '#ff8c00' }}>
             {up ? '▲' : '▼'} {Math.abs(pctDisplay).toFixed(2)}%
           </div>
         )}
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 80, overflow: 'visible' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 48, overflow: 'visible' }}>
         <defs>
           <linearGradient id={`grad-${sym0}`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity="0.3" />
@@ -1587,9 +1587,9 @@ const MiniChart: FC<{ points: PricePoint[]; sym0: string; sym1: string; color: s
         {/* Current price dot */}
         <circle cx={toX(points.length - 1)} cy={toY(last)} r="3" fill={color} />
       </svg>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#3a5a6a', marginTop: 2 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#3a4150', marginTop: 2 }}>
         <span>{new Date(points[0].ts * 1000).toLocaleDateString()}</span>
-        <span style={{ color: '#9abacf', fontWeight: 700 }}>
+        <span style={{ color: '#cdd8e2', fontWeight: 700 }}>
           1 {sym0} = {fmtNum(last, 4)} {sym1}
         </span>
         <span>Now</span>
@@ -1599,7 +1599,7 @@ const MiniChart: FC<{ points: PricePoint[]; sym0: string; sym1: string; color: s
 };
 
 // ─── Swap Modal ───────────────────────────────────────────────────────────────
-const SwapModal: FC<{
+export const SwapModal: FC<{
   pool: PoolView;
   isMobile: boolean;
   publicKey: PublicKey;
@@ -1812,12 +1812,12 @@ const SwapModal: FC<{
       }}>
         <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, width: 28, height: 28,
           borderRadius: '50%', border: '1px solid rgba(255,255,255,.12)', background: 'rgba(8,12,15,.9)',
-          cursor: 'pointer', color: '#6a8aaa', fontSize: 16 }}>×</button>
+          cursor: 'pointer', color: '#8a9ab8', fontSize: 16 }}>×</button>
 
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 16, fontWeight: 900, color: '#fff', marginBottom: 4 }}>
           ⚡ SWAP
         </div>
-        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#6a8aaa', marginBottom: 16 }}>
+        <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#8a9ab8', marginBottom: 16 }}>
           {pool.sym0} / {pool.sym1} pool
         </div>
 
@@ -1829,7 +1829,7 @@ const SwapModal: FC<{
               fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 700,
               background: sellIdx === idx ? 'rgba(191,90,242,.15)' : 'rgba(255,255,255,.04)',
               border: `1px solid ${sellIdx === idx ? 'rgba(191,90,242,.4)' : 'rgba(255,255,255,.08)'}`,
-              color: sellIdx === idx ? '#bf5af2' : '#6a8aaa',
+              color: sellIdx === idx ? '#bf5af2' : '#8a9ab8',
             }}>
               {idx === 0 ? pool.sym0 : pool.sym1} → {idx === 0 ? pool.sym1 : pool.sym0}
             </button>
@@ -1839,9 +1839,9 @@ const SwapModal: FC<{
         {/* Input with balance + MAX */}
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a' }}>{symIn} AMOUNT IN</span>
+            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82' }}>{symIn} AMOUNT IN</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#6a8aaa' }}>
+              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#8a9ab8' }}>
                 Balance: {fmtNum(balIn, 4)}
               </span>
               <button onClick={() => setAmtIn(balIn.toFixed(decIn > 4 ? 4 : decIn))} style={{
@@ -1856,12 +1856,12 @@ const SwapModal: FC<{
               style={{
                 width: '100%', padding: '12px 14px', borderRadius: 10,
                 border: '1px solid rgba(191,90,242,.2)', background: 'rgba(191,90,242,.04)',
-                color: '#e0f0ff', fontFamily: 'Orbitron,monospace', fontSize: 14,
+                color: '#e6ebf2', fontFamily: 'Orbitron,monospace', fontSize: 14,
                 outline: 'none', boxSizing: 'border-box',
               }} />
             {inUsd > 0 && (
               <div style={{ position: 'absolute', right: 12, bottom: 8,
-                fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a' }}>
+                fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82' }}>
                 ≈ {fmtUSD(inUsd)}
               </div>
             )}
@@ -1872,16 +1872,16 @@ const SwapModal: FC<{
         {rawIn > 0n && (
           <div style={{ background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)',
             borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a', marginBottom: 6 }}>YOU RECEIVE (ESTIMATE)</div>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82', marginBottom: 6 }}>YOU RECEIVE (ESTIMATE)</div>
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 20, fontWeight: 900, color: '#bf5af2' }}>
               {fmtNum(outUi, 4)} {symOut}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#6a8aaa' }}>
+              <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#8a9ab8' }}>
                 ≈ {fmtUSD(outUsd)}
               </span>
               <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10,
-                color: priceImpact > 5 ? '#ff8888' : priceImpact > 2 ? '#ff8c00' : '#6a8aaa' }}>
+                color: priceImpact > 5 ? '#ff8c00' : priceImpact > 2 ? '#ff8c00' : '#8a9ab8' }}>
                 Impact: {priceImpact.toFixed(2)}%{priceImpact > 5 ? ' ⚠️' : ''}
               </span>
             </div>
@@ -1890,21 +1890,21 @@ const SwapModal: FC<{
 
         {/* Rate */}
         {resIn > 0n && resOut > 0n && (
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a', marginBottom: 12, textAlign: 'center' }}>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82', marginBottom: 12, textAlign: 'center' }}>
             1 {symIn} ≈ {fmtNum(Number(resOut) / Math.pow(10, decOut) / (Number(resIn) / Math.pow(10, decIn)), 4)} {symOut}
           </div>
         )}
 
         {/* Slippage */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#4a6a8a' }}>SLIPPAGE</span>
+          <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82' }}>SLIPPAGE</span>
           {[10, 50, 100].map(b => (
             <button key={b} onClick={() => setSlipBps(b)} style={{
               padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
               fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
               background: slipBps === b ? 'rgba(191,90,242,.15)' : 'rgba(255,255,255,.04)',
               border: `1px solid ${slipBps === b ? 'rgba(191,90,242,.3)' : 'rgba(255,255,255,.08)'}`,
-              color: slipBps === b ? '#bf5af2' : '#6a8aaa',
+              color: slipBps === b ? '#bf5af2' : '#8a9ab8',
             }}>{b / 100}%</button>
           ))}
         </div>
@@ -1924,10 +1924,10 @@ const SwapModal: FC<{
           width: '100%', padding: '14px 0', borderRadius: 12,
           cursor: (pending || rawIn === 0n) ? 'not-allowed' : 'pointer',
           background: pending ? 'rgba(255,255,255,.04)' : parsedIn > balIn
-            ? 'rgba(255,68,68,.1)' : 'linear-gradient(135deg,rgba(191,90,242,.2),rgba(191,90,242,.06))',
-          border: `1px solid ${pending ? 'rgba(255,255,255,.08)' : parsedIn > balIn ? 'rgba(255,68,68,.3)' : 'rgba(191,90,242,.45)'}`,
+            ? 'rgba(255,140,0,.1)' : 'linear-gradient(135deg,rgba(191,90,242,.2),rgba(191,90,242,.06))',
+          border: `1px solid ${pending ? 'rgba(255,255,255,.08)' : parsedIn > balIn ? 'rgba(255,140,0,.3)' : 'rgba(191,90,242,.45)'}`,
           fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-          color: pending ? '#4a6a8a' : parsedIn > balIn ? '#ff6666' : '#bf5af2',
+          color: pending ? '#5a6a82' : parsedIn > balIn ? '#ff8c00' : '#bf5af2',
         }}>
           {pending ? 'SWAPPING…'
             : parsedIn > balIn ? 'INSUFFICIENT BALANCE'
@@ -1982,7 +1982,7 @@ const PoolCard: FC<{
       }}>
         {/* Top accent */}
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2,
-          background: 'linear-gradient(90deg,rgba(0,212,255,.6),rgba(191,90,242,.4),transparent)' }} />
+          background: 'linear-gradient(90deg,rgba(255,140,0,.6),rgba(191,90,242,.4),transparent)' }} />
 
         {/* Pair header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
@@ -1993,7 +1993,7 @@ const PoolCard: FC<{
             </div>
           </div>
           <div>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 14 : 16, fontWeight: 900, color: '#e0f0ff' }}>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 14 : 16, fontWeight: 900, color: '#e6ebf2' }}>
               {pool.sym0} / {pool.sym1}
             </div>
             <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -2012,8 +2012,8 @@ const PoolCard: FC<{
               )}
               {burnPct > 0 && (
                 <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, letterSpacing: 1,
-                  color: '#ff4444', background: 'rgba(255,68,68,.1)',
-                  border: '1px solid rgba(255,68,68,.3)', borderRadius: 5, padding: '2px 7px' }}>
+                  color: '#ff8c00', background: 'rgba(255,140,0,.1)',
+                  border: '1px solid rgba(255,140,0,.3)', borderRadius: 5, padding: '2px 7px' }}>
                   🔥 {burnPct}% BURN
                 </span>
               )}
@@ -2022,21 +2022,21 @@ const PoolCard: FC<{
           <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
             {trendingRank && (
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 900,
-                color: trendingRank === 1 ? '#ffd700' : trendingRank === 2 ? '#c0c0c0' : trendingRank === 3 ? '#cd7f32' : '#4a6a8a',
+                color: trendingRank === 1 ? '#ff8c00' : trendingRank === 2 ? '#8a9ab8' : trendingRank === 3 ? '#ff8c00' : '#5a6a82',
                 background: trendingRank <= 3 ? 'rgba(255,215,0,.08)' : 'rgba(255,255,255,.04)',
                 border: `1px solid ${trendingRank === 1 ? 'rgba(255,215,0,.3)' : trendingRank === 2 ? 'rgba(192,192,192,.3)' : trendingRank === 3 ? 'rgba(205,127,50,.3)' : 'rgba(255,255,255,.08)'}`,
                 borderRadius: 6, padding: '2px 8px', marginBottom: 4, display: 'inline-block' }}>
                 {trendingRank === 1 ? '🥇' : trendingRank === 2 ? '🥈' : trendingRank === 3 ? '🥉' : `#${trendingRank}`} TRENDING
               </div>
             )}
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 13 : 15, fontWeight: 900, color: '#00d4ff' }}>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 13 : 15, fontWeight: 900, color: '#ff8c00' }}>
               {pool.loading
-                ? <span style={{ color: '#4a6a8a' }}>…</span>
+                ? <span style={{ color: '#5a6a82' }}>…</span>
                 : pool.tvlUsd > 0
                   ? fmtUSD(pool.tvlUsd)
-                  : <span style={{ color: '#4a6a8a' }}>—</span>}
+                  : <span style={{ color: '#5a6a82' }}>—</span>}
             </div>
-            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#4a6a8a', marginTop: 2 }}>TVL</div>
+            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#5a6a82', marginTop: 2 }}>TVL</div>
           </div>
         </div>
 
@@ -2048,8 +2048,8 @@ const PoolCard: FC<{
             { label: 'LIQUIDITY',           val: pool.loading ? '…' : pool.tvlUsd > 0 ? fmtUSD(pool.tvlUsd) : '—' },
           ].map(s => (
             <div key={s.label} style={{ background: 'rgba(255,255,255,.02)', borderRadius: 8, padding: '8px 10px' }}>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#3a5a6a', letterSpacing: .5, marginBottom: 4 }}>{s.label}</div>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700, color: '#9abacf' }}>{s.val}</div>
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#3a4150', letterSpacing: .5, marginBottom: 4 }}>{s.label}</div>
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700, color: '#cdd8e2' }}>{s.val}</div>
             </div>
           ))}
         </div>
@@ -2061,19 +2061,19 @@ const PoolCard: FC<{
               points={chartData}
               sym0={pool.sym0}
               sym1={pool.sym1}
-              color={pool.burnBps > 0 ? '#bf5af2' : '#00d4ff'}
+              color={pool.burnBps > 0 ? '#bf5af2' : '#ff8c00'}
             />
           </div>
         )}
 
         {/* LP distribution */}
         <div style={{ background: 'rgba(255,255,255,.02)', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#3a5a6a', marginBottom: 8 }}>LP DISTRIBUTION</div>
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#3a4150', marginBottom: 8 }}>LP DISTRIBUTION</div>
           {(() => {
             const rows = [
-              { label: 'BURNED',    val: pool.lpBurned,   color: '#ff4444' },
+              { label: 'BURNED',    val: pool.lpBurned,   color: '#ff8c00' },
               { label: 'TREASURY',  val: pool.lpTreasury, color: '#ff8c00' },
-              { label: 'CREATOR A', val: pool.lpUserA,    color: '#00d4ff' },
+              { label: 'CREATOR A', val: pool.lpUserA,    color: '#ff8c00' },
               { label: 'CREATOR B', val: pool.lpUserB,    color: '#bf5af2' },
             ];
             const totalLp = rows.reduce((s, r) => s + r.val, 0n);
@@ -2084,9 +2084,9 @@ const PoolCard: FC<{
                   const pct = totalLp > 0n ? Number(r.val * 10_000n / totalLp) / 100 : 0;
                   return (
                     <div key={r.label} style={{ minWidth: 64 }}>
-                      <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#3a5a6a', marginBottom: 2 }}>{r.label}</div>
+                      <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#3a4150', marginBottom: 2 }}>{r.label}</div>
                       <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
-                        color: r.val > 0n ? r.color : '#2a3a4a' }}>
+                        color: r.val > 0n ? r.color : '#1a1f28' }}>
                         {r.val > 0n ? fmtNum(ui, 2) : '—'}
                       </div>
                       {r.val > 0n && totalLp > 0n && (
@@ -2104,10 +2104,10 @@ const PoolCard: FC<{
 
         {/* Your LP */}
         {publicKey && hasLp && (
-          <div style={{ background: 'rgba(0,212,255,.04)', border: '1px solid rgba(0,212,255,.12)',
+          <div style={{ background: 'rgba(255,140,0,.04)', border: '1px solid rgba(255,140,0,.12)',
             borderRadius: 8, padding: '8px 12px', marginBottom: 14 }}>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#4a6a8a', marginBottom: 2 }}>YOUR LP</div>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900, color: '#00d4ff' }}>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#5a6a82', marginBottom: 2 }}>YOUR LP</div>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900, color: '#ff8c00' }}>
               {lpUi.toFixed(4)} LP
             </div>
           </div>
@@ -2115,17 +2115,17 @@ const PoolCard: FC<{
 
         {/* Pool address + explorer link */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#3a5a6a', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-            Pool: <a href={`https://explorer.x1.xyz/address/${pool.poolAddr}`} target="_blank" rel="noreferrer"
-              style={{ color: '#4a6a8a', textDecoration: 'none' }}>{truncAddr(pool.poolAddr)}</a>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#3a4150', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+            Pool: <a href={`https://explorer.mainnet.x1.xyz/address/${pool.poolAddr}`} target="_blank" rel="noreferrer"
+              style={{ color: '#5a6a82', textDecoration: 'none' }}>{truncAddr(pool.poolAddr)}</a>
             <CopyButton text={pool.poolAddr} size={10} />
             {' · '}
             {new Date(pool.createdAt * 1000).toLocaleDateString()}
           </div>
-          <a href={`https://explorer.x1.xyz/address/${pool.poolAddr}`} target="_blank" rel="noreferrer"
+          <a href={`https://explorer.mainnet.x1.xyz/address/${pool.poolAddr}`} target="_blank" rel="noreferrer"
             style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,.08)',
               background: 'rgba(255,255,255,.04)', fontFamily: 'Orbitron,monospace', fontSize: 8,
-              color: '#4a6a8a', textDecoration: 'none', cursor: 'pointer' }}>
+              color: '#5a6a82', textDecoration: 'none', cursor: 'pointer' }}>
             🔍 EXPLORER
           </a>
         </div>
@@ -2134,7 +2134,7 @@ const PoolCard: FC<{
         <div style={{ display: 'flex', gap: 16, marginBottom: 14, flexWrap: 'wrap' }}>
           {pool.seeded ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#3a5a6a' }}>CREATED BY:</span>
+              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#3a4150' }}>CREATED BY:</span>
               <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
                 color: '#ff8c00', background: 'rgba(255,140,0,.08)',
                 border: '1px solid rgba(255,140,0,.2)', borderRadius: 5, padding: '2px 8px' }}>
@@ -2147,8 +2147,8 @@ const PoolCard: FC<{
               { label: 'CREATOR B', addr: pool.creatorB },
             ].map(c => (
               <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#3a5a6a' }}>{c.label}:</span>
-                <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#4a6a8a' }}>{truncAddr(c.addr)}</span>
+                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#3a4150' }}>{c.label}:</span>
+                <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#5a6a82' }}>{truncAddr(c.addr)}</span>
                 <CopyButton text={c.addr} size={10} />
               </div>
             ))
@@ -2174,14 +2174,14 @@ const PoolCard: FC<{
             {hasLp && pool.walletLp > 0n && (
               <button onClick={() => openModal('withdraw')} style={{
                 flex: 1, minWidth: 80, padding: '10px 0', borderRadius: 10, cursor: 'pointer',
-                background: 'linear-gradient(135deg,rgba(0,212,255,.15),rgba(0,212,255,.05))',
-                border: '1px solid rgba(0,212,255,.35)',
-                fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 900, color: '#00d4ff',
+                background: 'linear-gradient(135deg,rgba(255,140,0,.15),rgba(255,140,0,.05))',
+                border: '1px solid rgba(255,140,0,.35)',
+                fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 900, color: '#ff8c00',
               }}>💧 WITHDRAW</button>
             )}
           </div>
         ) : (
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#4a6a8a', textAlign: 'center', padding: '8px 0' }}>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#5a6a82', textAlign: 'center', padding: '8px 0' }}>
             Connect wallet to trade
           </div>
         )}
@@ -2553,7 +2553,7 @@ const PoolsTab: FC = () => {
             fontWeight: 900, color: '#fff', letterSpacing: 1.5 }}>
             🏊 LAB WORK POOLS
           </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#4a6a8a', marginTop: 3 }}>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82', marginTop: 3 }}>
             {pools.filter(p => !p.seeded).length} protocol pool{pools.filter(p => !p.seeded).length !== 1 ? 's' : ''} · {pools.filter(p => p.seeded).length} ecosystem pool{pools.filter(p => p.seeded).length !== 1 ? 's' : ''} · swap, deposit & withdraw
           </div>
         </div>
@@ -2562,9 +2562,9 @@ const PoolsTab: FC = () => {
           <div style={{ display: 'flex', background: 'rgba(255,255,255,.04)',
             border: '1px solid rgba(255,255,255,.08)', borderRadius: 10, padding: 3, flexWrap: 'wrap', gap: 2 }}>
             {([
-              { id: 'all',       label: '🌐 ALL',        color: '#00d4ff' },
+              { id: 'all',       label: '🌐 ALL',        color: '#ff8c00' },
               { id: 'ecosystem', label: '🧠 ECOSYSTEM',  color: '#ff8c00' },
-              { id: 'trending',  label: '🔥 TRENDING',   color: '#ff4444' },
+              { id: 'trending',  label: '🔥 TRENDING',   color: '#ff8c00' },
               { id: 'mine',      label: '👤 MINE',       color: '#bf5af2' },
             ] as { id: typeof filter; label: string; color: string }[]).map(f => (
               <button key={f.id} onClick={() => setFilter(f.id)} style={{
@@ -2572,7 +2572,7 @@ const PoolsTab: FC = () => {
                 fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 900,
                 background: filter === f.id ? `${f.color}20` : 'transparent',
                 border: `1px solid ${filter === f.id ? f.color + '55' : 'transparent'}`,
-                color: filter === f.id ? f.color : '#4a6a8a',
+                color: filter === f.id ? f.color : '#5a6a82',
                 transition: 'all .15s',
               }}>{f.label}</button>
             ))}
@@ -2581,7 +2581,7 @@ const PoolsTab: FC = () => {
           <button onClick={loadPools} style={{
             padding: '6px 12px', borderRadius: 8, cursor: 'pointer',
             background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)',
-            fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#4a6a8a',
+            fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#5a6a82',
           }}>↻</button>
         </div>
       </div>
@@ -2590,12 +2590,12 @@ const PoolsTab: FC = () => {
       {loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ textAlign: 'center', padding: '20px 0 8px',
-            fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#4a6a8a', letterSpacing: 2,
+            fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#5a6a82', letterSpacing: 2,
             animation: 'pulse 1.5s ease-in-out infinite' }}>
             ⟳ FETCHING POOL DATA…
           </div>
           {[0, 1, 2].map(i => (
-            <div key={i} style={{ height: 220, borderRadius: 16,
+            <div key={i} style={{ height: 140, borderRadius: 12,
               background: 'linear-gradient(90deg,rgba(255,255,255,.03) 25%,rgba(255,255,255,.06) 50%,rgba(255,255,255,.03) 75%)',
               backgroundSize: '400px 100%', animation: `shimmer 1.5s infinite ${i * 0.15}s`,
               border: '1px solid rgba(255,255,255,.05)' }} />
@@ -2605,13 +2605,13 @@ const PoolsTab: FC = () => {
         <div style={{ textAlign: 'center', padding: isMobile ? '60px 20px' : '80px 40px' }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🏊</div>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 12 : 16,
-            fontWeight: 900, color: '#9abacf', letterSpacing: 2, marginBottom: 8 }}>
+            fontWeight: 900, color: '#cdd8e2', letterSpacing: 2, marginBottom: 8 }}>
             {filter === 'mine' ? 'NO POOLS FOUND'
               : filter === 'ecosystem' ? 'NO ECOSYSTEM POOLS'
               : filter === 'trending' ? 'NO ACTIVE POOLS'
               : 'NO POOLS YET'}
           </div>
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#4a6a8a' }}>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 12, color: '#5a6a82' }}>
             {filter === 'mine'
               ? 'You have no LP positions or created pools.'
               : filter === 'ecosystem'

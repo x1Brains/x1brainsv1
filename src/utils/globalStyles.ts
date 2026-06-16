@@ -17,6 +17,7 @@ const GLOBAL_CSS = `
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: #111820; }
   ::-webkit-scrollbar-thumb { background: #ff8c00; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #ffb340; }
 
   /* Wallet adapter overrides */
   .wallet-adapter-button {
@@ -132,6 +133,12 @@ const GLOBAL_CSS = `
 
   /* Page wrapper */
   .page-enter { animation: page-in 0.5s ease both; }
+
+  /* Header admin button — small icon, lights up on hover. */
+  .header-admin-btn:hover {
+    background: color-mix(in srgb, currentColor 22%, transparent) !important;
+    border-color: currentColor !important;
+  }
 `;
 
 export function injectGlobalCSS(): void {

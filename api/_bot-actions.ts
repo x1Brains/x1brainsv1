@@ -1,34 +1,10 @@
 // api/_bot-actions.ts
 //
-// Drop-in bot actions for your existing /api/admin proxy.
-//
-// Integrate with your existing api/admin.ts:
-//
-//    import { handleBotAction, isBotAction } from './_bot-actions';
-//
-//    export default async function handler(req, res) {
-//      const { action, payload } = req.body;
-//      const wallet = req.headers['x-admin-wallet'] as string;
-//
-//      // Verify admin wallet (same as your existing actions)
-//      if (wallet !== '2nVaSvCqrsdskcbtn47uquNDL7Q69To1k45FpYBvWnuC') {
-//        return res.status(403).json({ success: false, error: 'unauthorized' });
-//      }
-//
-//      // Route bot actions to this module — pass the wallet for defense-in-depth.
-//      // handleBotAction also re-checks the wallet itself, so even if the
-//      // outer gate above is misconfigured, bot actions stay locked.
-//      if (isBotAction(action)) {
-//        const result = await handleBotAction(action, payload, wallet);
-//        return res.status(result.success ? 200 : 400).json(result);
-//      }
-//
-//      // ...your existing actions (award_lbp, save_weekly_config, etc.)
-//    }
+// Bot actions invoked from /api/admin when action ∈ BOT_ACTIONS.
+// Two-wallet allowlist: COUNCIL + V1_ADMIN (override via ADMIN_WALLETS env).
 
 import { createClient } from '@supabase/supabase-js';
 
-// ─── Supabase admin client (uses SERVICE key — server-side only!) ─────────────
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
 
@@ -40,7 +16,6 @@ const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
   auth: { persistSession: false },
 });
 
-// ─── X1 / project constants (these match config.py on the bot host) ──────────
 const RPC_URL = 'https://rpc.mainnet.x1.xyz';
 const POOLS = {
   BRAINS: {
@@ -68,13 +43,14 @@ const BOT_ACTIONS = new Set([
   'bot_health',
 ]);
 
-// ─── DEFENSE-IN-DEPTH ADMIN WALLET CHECK ─────────────────────────────────────
-// The outer /api/admin handler already validates x-admin-wallet, but bot
-// actions can hijack the Telegram token if the outer check is bypassed or
-// misconfigured, so we re-verify here. Either env var or this fallback works.
+// Defense-in-depth: re-verify the signing wallet inside bot-actions, even
+// though /api/admin already gated on signature + allowlist. Same allowlist
+// rules (env override → fallback to the two known admins).
+const COUNCIL_WALLET  = 'CnyGhzMuv5snBGxvShxsJMDnvHcXKwRtVVUpzGX3QAuG';
+const V1_ADMIN_WALLET = '2nVaSvCqrsdskcbtn47uquNDL7Q69To1k45FpYBvWnuC';
 const ADMIN_WALLETS = new Set(
-  (process.env.ADMIN_WALLET || '2nVaSvCqrsdskcbtn47uquNDL7Q69To1k45FpYBvWnuC')
-    .split(',').map(w => w.trim()).filter(Boolean)
+  (process.env.ADMIN_WALLETS || `${COUNCIL_WALLET},${V1_ADMIN_WALLET}`)
+    .split(',').map(w => w.trim()).filter(Boolean),
 );
 
 export function isBotAction(action: string): boolean {
@@ -83,16 +59,11 @@ export function isBotAction(action: string): boolean {
 
 type ActionResult = { success: boolean; error?: string; data?: any };
 
-// ═════════════════════════════════════════════════════════════════════════════
-// MAIN ROUTER
-// ═════════════════════════════════════════════════════════════════════════════
 export async function handleBotAction(
   action: string,
   payload: any,
-  wallet?: string,    // pass req.headers['x-admin-wallet'] from your /api/admin handler
+  wallet?: string,
 ): Promise<ActionResult> {
-  // Belt-and-suspenders wallet check. Even if the outer handler forgets to
-  // gate, the bot actions can never be invoked without an admin wallet header.
   const w = (wallet || '').trim();
   if (!w || !ADMIN_WALLETS.has(w)) {
     return { success: false, error: 'unauthorized: admin wallet required' };
@@ -120,9 +91,6 @@ export async function handleBotAction(
   }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// SETTINGS
-// ═════════════════════════════════════════════════════════════════════════════
 async function getSettings(): Promise<ActionResult> {
   const { data, error } = await sb.from('bot_settings').select('config').eq('id', 'main').single();
   if (error) return { success: false, error: error.message };
@@ -134,7 +102,6 @@ async function saveSettings(updates: Record<string, any>): Promise<ActionResult>
     return { success: false, error: 'updates must be an object' };
   }
 
-  // Whitelist allowed keys to prevent injection
   const allowed = new Set([
     'brains_buys', 'brains_burns', 'brains_lp', 'brains_stake', 'brains_unstake', 'brains_claim',
     'lb_buys', 'lb_burns', 'lb_lp', 'lb_stake', 'lb_unstake', 'lb_claim',
@@ -157,14 +124,10 @@ async function saveSettings(updates: Record<string, any>): Promise<ActionResult>
   return { success: true, data: merged };
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// CONNECTION
-// ═════════════════════════════════════════════════════════════════════════════
 async function getConnection(): Promise<ActionResult> {
   const { data, error } = await sb.from('bot_connection').select('*').eq('id', 'main').single();
   if (error) return { success: false, error: error.message };
 
-  // CRITICAL: never return the raw token. Only a masked preview.
   const t = data?.telegram_token || '';
   const masked = t ? (t.length > 14 ? `${t.slice(0, 6)}…${t.slice(-4)}` : '••••••••') : '';
 
@@ -190,7 +153,6 @@ async function saveTelegramToken(token?: string): Promise<ActionResult> {
   const t = (token || '').trim();
   if (!t || !t.includes(':')) return { success: false, error: 'invalid token format' };
 
-  // Verify before saving
   const verify = await tgCall(t, 'getMe');
   if (!verify.ok) return { success: false, error: verify.error || 'Telegram rejected token' };
 
@@ -275,7 +237,6 @@ async function sendTestMessage(token?: string): Promise<ActionResult> {
   const emoji = sym === 'BRAINS' ? '🧠' : '🧪';
   const caption = `${emoji}  *$${sym} TEST MESSAGE*  ${emoji}\n\nAdmin-triggered test from the X1 Brains bot. Wiring confirmed. ✅`;
 
-  // Try to send the banner if uploaded
   const bannerUrl = await getPublicBannerUrl(sym);
   let res;
   if (bannerUrl) {
@@ -291,15 +252,11 @@ async function sendTestMessage(token?: string): Promise<ActionResult> {
   return { success: true };
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// VAULT AUTO-DETECTION (parses on-chain XDEX pool state)
-// ═════════════════════════════════════════════════════════════════════════════
 async function detectVaults(token?: string): Promise<ActionResult> {
   const sym = String(token || '').toUpperCase();
   const pool = POOLS[sym as keyof typeof POOLS];
   if (!pool) return { success: false, error: `unknown token: ${sym}` };
 
-  // Fetch the pool account's raw data
   const r = await fetch(RPC_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -315,7 +272,6 @@ async function detectVaults(token?: string): Promise<ActionResult> {
   const dataB64 = j?.result?.value?.data?.[0];
   if (!dataB64) return { success: false, error: 'pool account not found on-chain' };
 
-  // Decode the relevant bytes
   const raw = Uint8Array.from(atob(dataB64), c => c.charCodeAt(0));
   if (raw.length < 232) {
     return { success: false, error: `pool account too small (${raw.length} bytes)` };
@@ -338,7 +294,6 @@ async function detectVaults(token?: string): Promise<ActionResult> {
     };
   }
 
-  // Save to DB
   const updates: any = {};
   updates[`vault_${sym.toLowerCase()}_token`] = vault_token;
   updates[`vault_${sym.toLowerCase()}_quote`] = vault_quote;
@@ -348,15 +303,11 @@ async function detectVaults(token?: string): Promise<ActionResult> {
   return { success: true, data: { vault_token, vault_quote } };
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// BANNERS (Supabase Storage)
-// ═════════════════════════════════════════════════════════════════════════════
 async function uploadBanner(token?: string, dataUrl?: string, filename?: string): Promise<ActionResult> {
   const sym = String(token || '').toUpperCase();
   if (!POOLS[sym as keyof typeof POOLS]) return { success: false, error: `unknown token: ${sym}` };
   if (!dataUrl || !filename) return { success: false, error: 'dataUrl + filename required' };
 
-  // Parse data URL → bytes
   const match = /^data:(image\/[a-z+]+);base64,(.+)$/i.exec(dataUrl);
   if (!match) return { success: false, error: 'invalid dataUrl' };
   const mime = match[1];
@@ -366,7 +317,6 @@ async function uploadBanner(token?: string, dataUrl?: string, filename?: string)
   const ext = (filename.split('.').pop() || 'jpg').toLowerCase();
   const path = `banner_${sym.toLowerCase()}.${ext}`;
 
-  // Delete existing first (in case extension changed)
   await sb.storage.from('bot-banners').remove([
     `banner_${sym.toLowerCase()}.jpg`,
     `banner_${sym.toLowerCase()}.jpeg`,
@@ -392,7 +342,6 @@ async function getBannerUrl(token?: string): Promise<ActionResult> {
 }
 
 async function getPublicBannerUrl(sym: string): Promise<string | null> {
-  // Check which extension exists by trying a list
   const { data: files } = await sb.storage.from('bot-banners').list('', {
     search: `banner_${sym.toLowerCase()}.`,
   });
@@ -402,9 +351,6 @@ async function getPublicBannerUrl(sym: string): Promise<string | null> {
   return data.publicUrl;
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// HELPERS
-// ═════════════════════════════════════════════════════════════════════════════
 async function tgCall(token: string, method: string, params?: any): Promise<{ ok: boolean; result?: any; error?: string }> {
   try {
     const r = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
@@ -422,11 +368,9 @@ async function tgCall(token: string, method: string, params?: any): Promise<{ ok
 
 const B58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 function b58encode(bytes: Uint8Array): string {
-  // Count leading zero bytes
   let zeros = 0;
   while (zeros < bytes.length && bytes[zeros] === 0) zeros++;
 
-  // Convert to bigint then to base58 digits
   let n = 0n;
   for (let i = 0; i < bytes.length; i++) n = (n << 8n) + BigInt(bytes[i]);
 

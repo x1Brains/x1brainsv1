@@ -2124,7 +2124,7 @@ const Portfolio: FC = () => {
 
                 {/* Description */}
                 <p style={{ fontFamily: 'Sora, sans-serif', fontSize: isMobile ? 12 : 13, color: '#7ab8a0', lineHeight: 1.65, marginBottom: 16, position: 'relative', zIndex: 1 }}>
-                  Paste any <span style={{ color: '#00c98d', fontWeight: 600 }}>X1 or Solana wallet address</span> to instantly view its full portfolio — tokens, NFTs, burn rank and history. No wallet connection required.
+                  Paste any <span style={{ color: '#00c98d', fontWeight: 600 }}>X1 wallet address</span> to instantly view its full portfolio — tokens, NFTs, burn rank and history. No wallet connection required.
                 </p>
 
                 {/* Input + button */}
