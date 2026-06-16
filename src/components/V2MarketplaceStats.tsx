@@ -4,7 +4,7 @@
 
 import { FC } from 'react';
 
-const ACCENT = '#ff8c00';
+const ACCENT = '#f29030';
 const TEXT   = 'var(--text-primary)';
 const MUTED  = 'var(--text-muted)';
 const DIM    = 'var(--text-faint)';
@@ -96,8 +96,8 @@ const RingTile: FC<RingTileProps> = ({ label, value, pct, ringText, onClick, act
       onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); } } : undefined}
       title={hint}
       style={{
-        background: active ? 'rgba(255,140,0,0.10)' : 'rgba(138, 154, 184, 0.04)',
-        border: `1px solid ${active ? 'rgba(255,140,0,0.55)' : 'rgba(138, 154, 184, 0.12)'}`,
+        background: active ? 'rgba(242,144,48,0.10)' : 'rgba(138, 154, 184, 0.04)',
+        border: `1px solid ${active ? 'rgba(242,144,48,0.55)' : 'rgba(138, 154, 184, 0.12)'}`,
         borderRadius: 7,
         padding: '6px 10px',
         display: 'grid',
@@ -215,8 +215,8 @@ export default function MarketplaceStats(props: Props) {
         {/* ── HERO ── */}
         <div style={{
           position: 'relative',
-          background: 'linear-gradient(155deg, rgba(255,140,0,.12), rgba(255,140,0,.02))',
-          border: '1px solid rgba(255,140,0,0.3)',
+          background: 'linear-gradient(155deg, rgba(242,144,48,.12), rgba(242,144,48,.02))',
+          border: '1px solid rgba(242,144,48,0.3)',
           borderRadius: 10,
           padding: '12px 14px',
           display: 'flex',

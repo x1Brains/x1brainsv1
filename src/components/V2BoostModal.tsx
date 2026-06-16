@@ -109,7 +109,7 @@ async function saveLabworkPoints(p: {
   }
 }
 
-const ACCENT = '#ff8c00';
+const ACCENT = '#f29030';
 const TEXT   = '#cdd8e2';
 const MUTED  = '#8aaac8';
 const DIM    = '#5c7a90';

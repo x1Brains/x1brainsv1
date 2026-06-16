@@ -51,7 +51,7 @@ const TIER_COLORS = [
   { color: '#00d4ff', rgb: '0,212,255'   },
   { color: '#bf5af2', rgb: '191,90,242'  },
   { color: '#00c98d', rgb: '0,201,141'   },
-  { color: '#ff8c00', rgb: '255,140,0'   },
+  { color: '#f29030', rgb: '255,140,0'   },
 ];
 const TIER_LABELS = ['TIER I', 'TIER II', 'TIER III', 'TIER IV'];
 

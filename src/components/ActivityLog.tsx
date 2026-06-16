@@ -454,7 +454,7 @@ export default function ActivityLog() {
 
       {connected && !loading && items.map(it => {
         const kindColor =
-          it.kind === 'burn'    ? '#ff8c00' :
+          it.kind === 'burn'    ? '#f29030' :
           it.kind === 'swap'    ? '#00d4ff' :
           it.kind === 'send'    ? '#bf5af2' :
           it.kind === 'receive' ? '#00c98d' :

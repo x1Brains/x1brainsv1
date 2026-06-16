@@ -308,7 +308,7 @@ const BHTierBadge: FC<{ points: number }> = ({ points }) => {
         <div style={{ fontFamily:'Orbitron, monospace', fontSize:11, fontWeight:900, color:tier.neon, letterSpacing:1.5, textShadow:`0 0 8px ${tier.neon}66`, lineHeight:1 }}>{tier.label}</div>
         {next && <div style={{ fontFamily:'Orbitron, monospace', fontSize:6, color:'#aabbcc', marginTop:2 }}>{tierPct.toFixed(0)}% to {next.label}</div>}
       </div>
-      {isTop && <span style={{ position:'relative', zIndex:1, fontFamily:'Orbitron, monospace', fontSize:6, color:'#ff9933', padding:'1px 5px', background:'rgba(255,140,0,.12)', border:'1px solid rgba(255,140,0,.3)', borderRadius:3 }}>MAX</span>}
+      {isTop && <span style={{ position:'relative', zIndex:1, fontFamily:'Orbitron, monospace', fontSize:6, color:'#ff9933', padding:'1px 5px', background:'rgba(242,144,48,.12)', border:'1px solid rgba(242,144,48,.3)', borderRadius:3 }}>MAX</span>}
     </div>
   );
 };
@@ -459,8 +459,8 @@ const BurnHistory: FC = () => {
               <div style={{ position:'absolute', inset:0, backgroundImage:'linear-gradient(rgba(100,60,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(100,60,255,.04) 1px,transparent 1px)', backgroundSize:'32px 32px', pointerEvents:'none' }} />
               {/* corner brackets */}
               <div style={{ position:'absolute', top:12, left:12, width:18, height:18, borderTop:'1.5px solid rgba(180,80,255,.5)', borderLeft:'1.5px solid rgba(180,80,255,.5)', borderRadius:'2px 0 0 0' }} />
-              <div style={{ position:'absolute', top:12, right:12, width:18, height:18, borderTop:'1.5px solid rgba(255,140,0,.5)', borderRight:'1.5px solid rgba(255,140,0,.5)', borderRadius:'0 2px 0 0' }} />
-              <div style={{ position:'absolute', bottom:12, left:12, width:18, height:18, borderBottom:'1.5px solid rgba(255,140,0,.5)', borderLeft:'1.5px solid rgba(255,140,0,.5)', borderRadius:'0 0 0 2px' }} />
+              <div style={{ position:'absolute', top:12, right:12, width:18, height:18, borderTop:'1.5px solid rgba(242,144,48,.5)', borderRight:'1.5px solid rgba(242,144,48,.5)', borderRadius:'0 2px 0 0' }} />
+              <div style={{ position:'absolute', bottom:12, left:12, width:18, height:18, borderBottom:'1.5px solid rgba(242,144,48,.5)', borderLeft:'1.5px solid rgba(242,144,48,.5)', borderRadius:'0 0 0 2px' }} />
               <div style={{ position:'absolute', bottom:12, right:12, width:18, height:18, borderBottom:'1.5px solid rgba(180,80,255,.5)', borderRight:'1.5px solid rgba(180,80,255,.5)', borderRadius:'0 0 2px 0' }} />
 
               {/* ambient orbs — purple/orange xyon palette */}

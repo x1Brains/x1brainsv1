@@ -306,7 +306,7 @@ function fmtHashRate(hs: number): { value: string; unit: string } {
 // ─────────────────────────────────────────────────────────────────────────────
 // STYLES
 // ─────────────────────────────────────────────────────────────────────────────
-const C = { purple:'#bf5af2', cyan:'#00d4ff', green:'#00ff88', orange:'#ff8c00', gold:'#ffb700', red:'#ff5050', dark:'#0d1520' };
+const C = { purple:'#bf5af2', cyan:'#00d4ff', green:'#00ff88', orange:'#f29030', gold:'#ffb700', red:'#ff5050', dark:'#0d1520' };
 const mono: React.CSSProperties = { fontFamily:'Orbitron, monospace' };
 const sans: React.CSSProperties = { fontFamily:'Sora, sans-serif' };
 function hexToRgb(h: string) { return `${parseInt(h.slice(1,3),16)},${parseInt(h.slice(3,5),16)},${parseInt(h.slice(5,7),16)}`; }
@@ -488,7 +488,7 @@ const NetworkStatsBar: FC<{
       {/* Row 1 — 3 network stats, even thirds */}
       <div style={{ display:'flex', borderTop:'1px solid rgba(255,255,255,.04)' }}>
         <Cell icon="📦" label="Total Blocks" value={totalDisplay} sub="all-time network"   color="#00ff88" firstLoad={firstLoad} pulse={isLive} />
-        <Cell icon="🧮" label="Difficulty"   value={diffDisplay}  sub="Argon2 memory cost" color="#ff8c00" firstLoad={firstLoad} />
+        <Cell icon="🧮" label="Difficulty"   value={diffDisplay}  sub="Argon2 memory cost" color="#f29030" firstLoad={firstLoad} />
         <Cell icon="🌐" label="Net Hashrate" value={netHrDisplay} sub="~10M H/s fixed cap" color="#bf5af2" firstLoad={firstLoad} noBorder />
       </div>
 
@@ -506,7 +506,7 @@ const NetworkStatsBar: FC<{
           icon="🏆" label="Your Rank"
           value={isMiner ? (minerRank ? `#${minerRank.toLocaleString()}` : null) : '—'}
           sub={isMiner ? 'leaderboard position' : 'not on leaderboard'}
-          color="#ff8c00"
+          color="#f29030"
         />
         <Cell
           icon="📊" label="Network Share"

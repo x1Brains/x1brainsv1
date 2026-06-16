@@ -87,7 +87,7 @@ const fmtPts  = (n: number) =>
 const shortAddr = (a: string) => `${a.slice(0,5)}…${a.slice(-4)}`;
 const todayStr  = () => new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
 
-const COLORS = ['#ff8c00','#00cfc6','#00c98d']; // v2 duotone: orange · teal · green
+const COLORS = ['#f29030','#00cfc6','#00c98d']; // v2 duotone: orange · teal · green
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 export interface PortfolioShareCardProps {
@@ -243,15 +243,15 @@ function buildSVGCard(opts: {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <defs>
     <linearGradient id="topBar" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%"   stop-color="#ff8c00"/>
+      <stop offset="0%"   stop-color="#f29030"/>
       <stop offset="100%" stop-color="#00cfc6"/>
     </linearGradient>
     <linearGradient id="botBar" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0%"   stop-color="#00cfc6"/>
-      <stop offset="100%" stop-color="#ff8c00"/>
+      <stop offset="100%" stop-color="#f29030"/>
     </linearGradient>
     <radialGradient id="glowO" cx="0" cy="0" r="0.7">
-      <stop offset="0%" stop-color="#ff8c00" stop-opacity="0.14"/><stop offset="100%" stop-color="#ff8c00" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#f29030" stop-opacity="0.14"/><stop offset="100%" stop-color="#f29030" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="glowT" cx="1" cy="0" r="0.7">
       <stop offset="0%" stop-color="#00cfc6" stop-opacity="0.14"/><stop offset="100%" stop-color="#00cfc6" stop-opacity="0"/>
@@ -261,7 +261,7 @@ function buildSVGCard(opts: {
       <stop offset="100%" stop-color="#c0d8e8"/>
     </linearGradient>
     <pattern id="grid" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
-      <path d="M 24 0 L 0 0 0 24" fill="none" stroke="rgba(255,140,0,0.025)" stroke-width="0.5"/>
+      <path d="M 24 0 L 0 0 0 24" fill="none" stroke="rgba(242,144,48,0.025)" stroke-width="0.5"/>
     </pattern>
     <clipPath id="logoClip"><circle cx="58" cy="60" r="24"/></clipPath>
     <clipPath id="footClip"><circle cx="44" cy="${footerY+28}" r="13"/></clipPath>
@@ -275,8 +275,8 @@ function buildSVGCard(opts: {
   <rect x="0.5" y="0.5" width="${W-1}" height="${H-1}" rx="20" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
 
   <!-- Corner marks -->
-  <path d="M18 36 L18 18 L36 18"                           fill="none" stroke="rgba(255,140,0,0.4)" stroke-width="1"/>
-  <path d="M${W-36} 18 L${W-18} 18 L${W-18} 36"           fill="none" stroke="rgba(255,140,0,0.4)" stroke-width="1"/>
+  <path d="M18 36 L18 18 L36 18"                           fill="none" stroke="rgba(242,144,48,0.4)" stroke-width="1"/>
+  <path d="M${W-36} 18 L${W-18} 18 L${W-18} 36"           fill="none" stroke="rgba(242,144,48,0.4)" stroke-width="1"/>
   <path d="M18 ${H-36} L18 ${H-18} L36 ${H-18}"           fill="none" stroke="rgba(0,212,255,0.3)" stroke-width="1"/>
   <path d="M${W-36} ${H-18} L${W-18} ${H-18} L${W-18} ${H-36}" fill="none" stroke="rgba(0,212,255,0.3)" stroke-width="1"/>
 
@@ -289,7 +289,7 @@ function buildSVGCard(opts: {
   <circle cx="58" cy="60" r="30" fill="none" stroke="url(#topBar)" stroke-width="2.5"/>
   <circle cx="58" cy="60" r="24" fill="#1a0e00"/>
   <image href="${BRAINS_LOGO_B64}" x="34" y="36" width="48" height="48" clip-path="url(#logoClip)" preserveAspectRatio="xMidYMid slice"/>
-  <text x="98" y="53" fill="#ff8c00" font-family="monospace" font-size="16" font-weight="900" letter-spacing="2">X1 BRAINS</text>
+  <text x="98" y="53" fill="#f29030" font-family="monospace" font-size="16" font-weight="900" letter-spacing="2">X1 BRAINS</text>
   <text x="98" y="70" fill="#7a98b4" font-family="monospace" font-size="11" letter-spacing="2">LabWork · X1City · X1B</text>
   <rect x="${W-190}" y="42" width="170" height="26" rx="13" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)" stroke-width="0.5"/>
   <text x="${W-105}" y="59" text-anchor="middle" fill="#a0b8cc" font-family="monospace" font-size="11" letter-spacing="1">${anonMode ? '🕶 ' : ''}${addr}</text>
@@ -325,11 +325,11 @@ function buildSVGCard(opts: {
   ` : ''}
 
   <!-- Footer -->
-  <rect x="0" y="${footerY}" width="${W}" height="${FOOTER_H}" fill="rgba(255,140,0,0.04)"/>
+  <rect x="0" y="${footerY}" width="${W}" height="${FOOTER_H}" fill="rgba(242,144,48,0.04)"/>
   <line x1="0" y1="${footerY}" x2="${W}" y2="${footerY}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
-  <circle cx="44" cy="${footerY+28}" r="13" fill="#1a0e00" stroke="rgba(255,140,0,0.3)" stroke-width="1"/>
+  <circle cx="44" cy="${footerY+28}" r="13" fill="#1a0e00" stroke="rgba(242,144,48,0.3)" stroke-width="1"/>
   <image href="${BRAINS_LOGO_B64}" x="31" y="${footerY+15}" width="26" height="26" clip-path="url(#footClip)" preserveAspectRatio="xMidYMid slice"/>
-  <text x="64" y="${footerY+20}" fill="#ff8c00" font-family="monospace" font-size="11" font-weight="700" letter-spacing="1.5">X1 BRAINS</text>
+  <text x="64" y="${footerY+20}" fill="#f29030" font-family="monospace" font-size="11" font-weight="700" letter-spacing="1.5">X1 BRAINS</text>
   <text x="64" y="${footerY+36}" fill="#a0b8cc" font-family="monospace" font-size="11" letter-spacing="2">x1brains.io</text>
   <rect x="${W/2-75}" y="${footerY+10}" width="150" height="22" rx="3" fill="rgba(0,201,141,0.08)" stroke="rgba(0,201,141,0.2)" stroke-width="0.5"/>
   <circle cx="${W/2-58}" cy="${footerY+21}" r="3.5" fill="#00c98d"/>
@@ -462,10 +462,10 @@ const FormatPicker: FC<{
       {/* Modal */}
       <div
         onClick={e => e.stopPropagation()}
-        style={{ background:'linear-gradient(145deg,#0d1520,#0a1018)', border:'1px solid rgba(255,140,0,.2)', borderRadius:18, padding:'24px', maxWidth:440, width:'100%', animation:'psc-modal-in .25s ease both', position:'relative' }}
+        style={{ background:'linear-gradient(145deg,#0d1520,#0a1018)', border:'1px solid rgba(242,144,48,.2)', borderRadius:18, padding:'24px', maxWidth:440, width:'100%', animation:'psc-modal-in .25s ease both', position:'relative' }}
       >
         {/* Top accent */}
-        <div style={{ position:'absolute', top:0, left:0, right:0, height:2, background:'linear-gradient(90deg,#ff8c00,#00cfc6)', borderRadius:'18px 18px 0 0' }} />
+        <div style={{ position:'absolute', top:0, left:0, right:0, height:2, background:'linear-gradient(90deg,#f29030,#00cfc6)', borderRadius:'18px 18px 0 0' }} />
 
         {/* Header */}
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
@@ -524,7 +524,7 @@ const FormatPicker: FC<{
         </div>
 
         {busy && (
-          <div style={{ fontFamily:'Orbitron,monospace', fontSize:9, color:'#ff8c00', letterSpacing:1, textAlign:'center', marginTop:12, animation:'psc-in .2s ease both' }}>
+          <div style={{ fontFamily:'Orbitron,monospace', fontSize:9, color:'#f29030', letterSpacing:1, textAlign:'center', marginTop:12, animation:'psc-in .2s ease both' }}>
             ⟳ Generating…
           </div>
         )}
@@ -545,15 +545,15 @@ const CardCanvas: FC<{
   const blurS  = (px = 8): React.CSSProperties => ({ filter:`blur(${px}px)`, transition:'filter .3s', userSelect:'none' });
 
   return (
-    <div style={{ width, background:'#07090f', borderRadius:20, overflow:'hidden', position:'relative', fontFamily:'Orbitron,monospace', boxShadow:'0 24px 80px rgba(0,0,0,.8),0 0 0 1px rgba(255,140,0,.12)' }}>
+    <div style={{ width, background:'#07090f', borderRadius:20, overflow:'hidden', position:'relative', fontFamily:'Orbitron,monospace', boxShadow:'0 24px 80px rgba(0,0,0,.8),0 0 0 1px rgba(242,144,48,.12)' }}>
 
       {/* Grid */}
-      <div style={{ position:'absolute', inset:0, pointerEvents:'none', zIndex:0, backgroundImage:'linear-gradient(rgba(255,140,0,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,140,0,.018) 1px,transparent 1px)', backgroundSize:'24px 24px' }} />
+      <div style={{ position:'absolute', inset:0, pointerEvents:'none', zIndex:0, backgroundImage:'linear-gradient(rgba(242,144,48,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(242,144,48,.018) 1px,transparent 1px)', backgroundSize:'24px 24px' }} />
 
       {/* Corner marks */}
       {([
-        { top:10,    left:10,    borderTop:'1px solid rgba(255,140,0,.4)',  borderLeft:'1px solid rgba(255,140,0,.4)',  borderRadius:'3px 0 0 0' },
-        { top:10,    right:10,   borderTop:'1px solid rgba(255,140,0,.4)',  borderRight:'1px solid rgba(255,140,0,.4)', borderRadius:'0 3px 0 0' },
+        { top:10,    left:10,    borderTop:'1px solid rgba(242,144,48,.4)',  borderLeft:'1px solid rgba(242,144,48,.4)',  borderRadius:'3px 0 0 0' },
+        { top:10,    right:10,   borderTop:'1px solid rgba(242,144,48,.4)',  borderRight:'1px solid rgba(242,144,48,.4)', borderRadius:'0 3px 0 0' },
         { bottom:10, left:10,    borderBottom:'1px solid rgba(0,212,255,.3)', borderLeft:'1px solid rgba(0,212,255,.3)',  borderRadius:'0 0 0 3px' },
         { bottom:10, right:10,   borderBottom:'1px solid rgba(0,212,255,.3)', borderRight:'1px solid rgba(0,212,255,.3)', borderRadius:'0 0 3px 0' },
       ] as React.CSSProperties[]).map((c,i) => (
@@ -561,13 +561,13 @@ const CardCanvas: FC<{
       ))}
 
       {/* Chromatic top bar */}
-      <div style={{ height:3, background:'linear-gradient(90deg,#ff8c00,#00cfc6)', position:'relative', zIndex:3 }} />
+      <div style={{ height:3, background:'linear-gradient(90deg,#f29030,#00cfc6)', position:'relative', zIndex:3 }} />
 
       {/* Header */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px 12px', position:'relative', zIndex:2, borderBottom:'1px solid rgba(255,255,255,.04)', background:'linear-gradient(180deg,rgba(255,140,0,.04) 0%,transparent 100%)' }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px 12px', position:'relative', zIndex:2, borderBottom:'1px solid rgba(255,255,255,.04)', background:'linear-gradient(180deg,rgba(242,144,48,.04) 0%,transparent 100%)' }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <div style={{ position:'relative', width:38, height:38, flexShrink:0 }}>
-            <div style={{ position:'absolute', inset:-3, borderRadius:'50%', background:'conic-gradient(from 0deg,#ff8c00,#00cfc6,#ff8c00)', animation:'psc-spin 6s linear infinite' }} />
+            <div style={{ position:'absolute', inset:-3, borderRadius:'50%', background:'conic-gradient(from 0deg,#f29030,#00cfc6,#f29030)', animation:'psc-spin 6s linear infinite' }} />
             <div style={{ position:'absolute', inset:2, borderRadius:'50%', background:'#07090f', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
               <img src={BRAINS_LOGO} alt="X1 Brains" style={{ width:'100%', height:'100%', borderRadius:'50%', objectFit:'cover' }}
                 onError={e => { const img = e.currentTarget as HTMLImageElement; img.style.display='none'; (img.nextElementSibling as HTMLElement|null)?.style && ((img.nextElementSibling as HTMLElement).style.display='flex'); }} />
@@ -575,7 +575,7 @@ const CardCanvas: FC<{
             </div>
           </div>
           <div>
-            <div style={{ fontSize:13, fontWeight:900, color:'#ff8c00', letterSpacing:2, lineHeight:1 }}>X1 BRAINS</div>
+            <div style={{ fontSize:13, fontWeight:900, color:'#f29030', letterSpacing:2, lineHeight:1 }}>X1 BRAINS</div>
             <div style={{ fontSize:6, color:'#4a6070', letterSpacing:3, marginTop:2 }}>LabWork · X1City · X1B</div>
           </div>
         </div>
@@ -649,14 +649,14 @@ const CardCanvas: FC<{
       )}
 
       {/* Watermark footer */}
-      <div style={{ position:'relative', zIndex:2, overflow:'hidden', background:'linear-gradient(90deg,rgba(255,140,0,.06),rgba(191,90,242,.04),rgba(0,212,255,.04))', borderTop:'1px solid rgba(255,255,255,.05)', padding:'11px 20px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
-        <div style={{ position:'absolute', inset:0, zIndex:0, pointerEvents:'none', backgroundImage:'repeating-linear-gradient(45deg,rgba(255,140,0,.015) 0px,rgba(255,140,0,.015) 1px,transparent 1px,transparent 12px)' }} />
+      <div style={{ position:'relative', zIndex:2, overflow:'hidden', background:'linear-gradient(90deg,rgba(242,144,48,.06),rgba(191,90,242,.04),rgba(0,212,255,.04))', borderTop:'1px solid rgba(255,255,255,.05)', padding:'11px 20px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+        <div style={{ position:'absolute', inset:0, zIndex:0, pointerEvents:'none', backgroundImage:'repeating-linear-gradient(45deg,rgba(242,144,48,.015) 0px,rgba(242,144,48,.015) 1px,transparent 1px,transparent 12px)' }} />
         <div style={{ display:'flex', alignItems:'center', gap:7, position:'relative', zIndex:1 }}>
-          <div style={{ width:20, height:20, borderRadius:'50%', overflow:'hidden', border:'1px solid rgba(255,140,0,.3)', flexShrink:0, background:'linear-gradient(135deg,#1a0e00,#2a1800)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div style={{ width:20, height:20, borderRadius:'50%', overflow:'hidden', border:'1px solid rgba(242,144,48,.3)', flexShrink:0, background:'linear-gradient(135deg,#1a0e00,#2a1800)', display:'flex', alignItems:'center', justifyContent:'center' }}>
             <img src={BRAINS_LOGO} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', borderRadius:'50%' }} onError={e => { (e.currentTarget as HTMLImageElement).style.display='none'; }} />
           </div>
           <div>
-            <div style={{ fontSize:8, fontWeight:700, color:'#ff8c00', letterSpacing:1.5 }}>X1 BRAINS</div>
+            <div style={{ fontSize:8, fontWeight:700, color:'#f29030', letterSpacing:1.5 }}>X1 BRAINS</div>
             <div style={{ fontSize:6, color:'#3a5060', letterSpacing:2 }}>x1brains.io</div>
           </div>
         </div>
@@ -671,7 +671,7 @@ const CardCanvas: FC<{
       </div>
 
       {/* Chromatic bottom bar */}
-      <div style={{ height:2, background:'linear-gradient(90deg,#00cfc6,#ff8c00)', position:'relative', zIndex:3 }} />
+      <div style={{ height:2, background:'linear-gradient(90deg,#00cfc6,#f29030)', position:'relative', zIndex:3 }} />
     </div>
   );
 };
@@ -915,10 +915,10 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
           style={{ width:'100%', padding:0, border:'none', cursor:'pointer', background:'transparent', position:'relative' }}
         >
           {/* Animated chromatic border */}
-          <div style={{ position:'absolute', inset:-1, borderRadius:14, background:'linear-gradient(135deg,#ff8c00,#00cfc6,#ff8c00)', backgroundSize:'300% 300%', animation:'psc-btn-border 4s linear infinite', zIndex:0 }} />
+          <div style={{ position:'absolute', inset:-1, borderRadius:14, background:'linear-gradient(135deg,#f29030,#00cfc6,#f29030)', backgroundSize:'300% 300%', animation:'psc-btn-border 4s linear infinite', zIndex:0 }} />
           {/* Inner panel */}
           <div style={{ position:'relative', zIndex:1, margin:1.5, borderRadius:13, background:'linear-gradient(135deg,#0d1520 0%,#111a28 50%,#0a1018 100%)', padding:'14px 20px', display:'flex', alignItems:'center', gap:12, transition:'background .2s' }}>
-            <span style={{ fontSize:22, flexShrink:0, color:'#ff8c00' }}>⊞</span>
+            <span style={{ fontSize:22, flexShrink:0, color:'#f29030' }}>⊞</span>
             <div style={{ textAlign:'left', flex:1 }}>
               <div style={{ fontFamily:'Orbitron,monospace', fontSize:isMobile?11:13, fontWeight:900, color:'#e0e8f0', letterSpacing:2, lineHeight:1.2 }}>
                 SHARE PORTFOLIO CARD
@@ -929,7 +929,7 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
             </div>
             <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4, flexShrink:0 }}>
               <div style={{ fontFamily:'Orbitron,monospace', fontSize:7, fontWeight:700, color:'#00c98d', background:'rgba(0,201,141,.12)', border:'1px solid rgba(0,201,141,.3)', borderRadius:4, padding:'2px 8px', letterSpacing:1 }}>NEW</div>
-              <div style={{ fontFamily:'Orbitron,monospace', fontSize:7, color:'#ff8c00', background:'rgba(255,140,0,.1)', border:'1px solid rgba(255,140,0,.2)', borderRadius:4, padding:'2px 8px', letterSpacing:1, whiteSpace:'nowrap' }}>🔒 PRIVACY FIRST</div>
+              <div style={{ fontFamily:'Orbitron,monospace', fontSize:7, color:'#f29030', background:'rgba(242,144,48,.1)', border:'1px solid rgba(242,144,48,.2)', borderRadius:4, padding:'2px 8px', letterSpacing:1, whiteSpace:'nowrap' }}>🔒 PRIVACY FIRST</div>
             </div>
           </div>
         </button>
@@ -939,11 +939,11 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
       {open && (
         <div
           onClick={ isCtrl ? (e) => e.stopPropagation() : undefined }
-          style={{ background:'linear-gradient(135deg,#0d1520,#0a1018)', border:'1px solid rgba(255,140,0,.15)', borderRadius:16, overflow:'hidden', animation:'psc-in .3s ease both', ...(isCtrl ? { width:'100%', maxWidth:480, alignSelf:'flex-start' } : {}) }}>
+          style={{ background:'linear-gradient(135deg,#0d1520,#0a1018)', border:'1px solid rgba(242,144,48,.15)', borderRadius:16, overflow:'hidden', animation:'psc-in .3s ease both', ...(isCtrl ? { width:'100%', maxWidth:480, alignSelf:'flex-start' } : {}) }}>
 
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:isMobile?'14px':'16px 22px', borderBottom:'1px solid rgba(255,255,255,.05)', background:'rgba(255,255,255,.02)' }}>
             <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-              <span style={{ fontSize:16, color:'#ff8c00' }}>⊞</span>
+              <span style={{ fontSize:16, color:'#f29030' }}>⊞</span>
               <span style={{ fontFamily:'Orbitron,monospace', fontSize:isMobile?10:12, fontWeight:700, color:'#e0e8f0', letterSpacing:2 }}>SHARE PORTFOLIO CARD</span>
             </div>
             <button onClick={() => setOpen(false)} style={{ background:'none', border:'none', color:'#4a6070', cursor:'pointer', fontSize:20, lineHeight:1, padding:4 }}>×</button>
@@ -967,7 +967,7 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
 
             {/* Card preview */}
             <div style={{ display:'flex', justifyContent:'center', marginBottom:20, position:'relative' }}>
-              <div style={{ position:'absolute', inset:-30, background:'radial-gradient(ellipse at 50% 40%,rgba(255,140,0,.07) 0%,rgba(0,212,255,.03) 50%,transparent 75%)', pointerEvents:'none', borderRadius:'50%' }} />
+              <div style={{ position:'absolute', inset:-30, background:'radial-gradient(ellipse at 50% 40%,rgba(242,144,48,.07) 0%,rgba(0,212,255,.03) 50%,transparent 75%)', pointerEvents:'none', borderRadius:'50%' }} />
               <div ref={null} style={{ position:'relative', zIndex:1 }}>
                 <CardCanvas
                   totalUSD={totalUSD} topHoldings={topHoldings}
@@ -985,7 +985,7 @@ export const PortfolioShareCard: FC<PortfolioShareCardProps> = ({
               <ShareBtn icon="𝕏"  label="POST TO X"   color="#e0e8f0" bg="rgba(255,255,255,.06)" border="rgba(255,255,255,.15)" onClick={() => setPicker('x')} />
               <ShareBtn icon="✈️" label="TELEGRAM"    color="#00cfc6" bg="rgba(0,212,255,.06)"   border="rgba(0,212,255,.2)"    onClick={() => setPicker('telegram')} />
               <ShareBtn icon="📋" label="COPY TEXT"   color="#bf5af2" bg="rgba(191,90,242,.06)"  border="rgba(191,90,242,.2)"   onClick={copyText} disabled={busy} />
-              <ShareBtn icon="💾" label="SAVE IMAGE"  color="#ff8c00" bg="rgba(255,140,0,.06)"   border="rgba(255,140,0,.2)"    onClick={() => setPicker('save')} disabled={busy} />
+              <ShareBtn icon="💾" label="SAVE IMAGE"  color="#f29030" bg="rgba(242,144,48,.06)"   border="rgba(242,144,48,.2)"    onClick={() => setPicker('save')} disabled={busy} />
             </div>
 
             {/* Status msg */}

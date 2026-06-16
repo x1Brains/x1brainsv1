@@ -28,7 +28,7 @@ const V2Admin       = lazy(() => import('./pages/V2Admin'));
 const LoadingScreen: FC = () => (
   <div style={{
     minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: '#080c0f', color: '#ff8c00',
+    background: '#080c0f', color: '#f29030',
     fontFamily: 'Orbitron, monospace', fontSize: 12, letterSpacing: 3, textTransform: 'uppercase',
   }}>
     Loading…

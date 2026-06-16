@@ -13,11 +13,11 @@ import { fetchNFTMeta } from './LBComponents';
 import { fetchSolarisNft } from '../lib/solarisIndexer';
 import { upsertNftMetadata } from '../lib/supabase';
 
-const ACCENT = '#ff8c00';
+const ACCENT = '#f29030';
 const TEXT   = 'var(--text-primary)';
 const MUTED  = 'var(--text-muted)';
 const DIM    = 'var(--text-faint)';
-const LINE   = 'rgba(255,140,0,0.13)';
+const LINE   = 'rgba(242,144,48,0.13)';
 const GRAY_BG = 'rgba(138,154,184,0.04)';
 const GRAY_BD = 'rgba(138,154,184,0.12)';
 
@@ -30,7 +30,7 @@ function rarityColor(r: string): string {
   const l = r.toLowerCase();
   if (l.includes('legendary')) return '#ffd700';
   if (l.includes('epic'))      return '#ffaa00';
-  if (l.includes('rare'))      return '#ff8c00';
+  if (l.includes('rare'))      return '#f29030';
   if (l.includes('uncommon'))  return '#ffba66';
   return '#cdd8e2';
 }
@@ -158,7 +158,7 @@ const V2NFTDetailModal: FC<Props> = ({
   const btnGhost: React.CSSProperties = {
     ...mono,
     flex: 1, padding: '10px 0', textAlign: 'center',
-    background: 'rgba(255,140,0,0.06)', color: ACCENT,
+    background: 'rgba(242,144,48,0.06)', color: ACCENT,
     border: `1px solid ${ACCENT}55`,
     borderRadius: 6, cursor: 'pointer', textDecoration: 'none',
     fontSize: 10, fontWeight: 800, letterSpacing: 1.5,
@@ -381,7 +381,7 @@ const V2NFTDetailModal: FC<Props> = ({
                 ...mono,
                 flexShrink: 0, padding: '4px 10px', borderRadius: 4,
                 cursor: 'pointer', border: 'none',
-                background: copied ? 'rgba(0,201,141,.18)' : 'rgba(255,140,0,.1)',
+                background: copied ? 'rgba(0,201,141,.18)' : 'rgba(242,144,48,.1)',
                 color: copied ? 'var(--neon-green, #00c98d)' : ACCENT,
                 fontSize: 8, fontWeight: 800, letterSpacing: 1,
               }}

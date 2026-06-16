@@ -37,11 +37,11 @@ const INCINERATOR = '1nc1nerator11111111111111111111111111111111';
     @keyframes sp-spin  { to{transform:rotate(360deg)} }
     .sp-input {
       width:100%; padding:8px 11px;
-      background:rgba(0,0,0,.4); border:1px solid rgba(255,140,0,.2);
+      background:rgba(0,0,0,.4); border:1px solid rgba(242,144,48,.2);
       border-radius:7px; font-family:'Sora',sans-serif; font-size:12px;
       color:#e0e8f0; outline:none; box-sizing:border-box; transition:border-color .2s;
     }
-    .sp-input:focus { border-color:rgba(255,140,0,.5); box-shadow:0 0 0 3px rgba(255,140,0,.08); }
+    .sp-input:focus { border-color:rgba(242,144,48,.5); box-shadow:0 0 0 3px rgba(242,144,48,.08); }
     .sp-input::placeholder { color:#3a5060; }
     .sp-btn {
       padding:8px 14px; border:none; border-radius:7px; cursor:pointer;
@@ -206,11 +206,11 @@ const AddressBookPicker: FC<{
       {savedAddresses.map(a => (
         <div key={a.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px',
           borderBottom:'1px solid rgba(255,255,255,.04)', cursor:'pointer', transition:'background .15s' }}
-          onMouseEnter={e => (e.currentTarget.style.background='rgba(255,140,0,.06)')}
+          onMouseEnter={e => (e.currentTarget.style.background='rgba(242,144,48,.06)')}
           onMouseLeave={e => (e.currentTarget.style.background='transparent')}
         >
           <div style={{ flex:1, minWidth:0 }} onClick={() => onSelect(a.wallet, a.nickname)}>
-            <div style={{ fontFamily:'Orbitron,monospace', fontSize:10, color:'#ff8c00', fontWeight:700 }}>{a.nickname}</div>
+            <div style={{ fontFamily:'Orbitron,monospace', fontSize:10, color:'#f29030', fontWeight:700 }}>{a.nickname}</div>
             <div style={{ fontFamily:'monospace', fontSize:10, color:'#5a7a90' }}>{short(a.wallet)}</div>
           </div>
           <button onClick={e => { e.stopPropagation(); onDelete(a.id); }}
@@ -227,12 +227,12 @@ export const SendHistoryRow: FC<{ record: SendRecord; isMobile: boolean }> = ({ 
   <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr 80px' : '1fr 120px 100px 120px',
     gap:8, padding:'9px 14px', borderBottom:'1px solid rgba(255,255,255,.04)',
     alignItems:'center', transition:'background .15s' }}
-    onMouseEnter={e => (e.currentTarget.style.background='rgba(255,140,0,.03)')}
+    onMouseEnter={e => (e.currentTarget.style.background='rgba(242,144,48,.03)')}
     onMouseLeave={e => (e.currentTarget.style.background='transparent')}
   >
     <div>
       <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-        <span style={{ fontFamily:'Orbitron,monospace', fontSize:11, fontWeight:700, color:'#ff8c00' }}>
+        <span style={{ fontFamily:'Orbitron,monospace', fontSize:11, fontWeight:700, color:'#f29030' }}>
           {record.amount.toLocaleString(undefined,{maximumFractionDigits:4})} {record.symbol}
         </span>
         <span style={{ fontFamily:'Sora,sans-serif', fontSize:10, color:'#5a7a90' }}>→</span>
@@ -253,8 +253,8 @@ export const SendHistoryRow: FC<{ record: SendRecord; isMobile: boolean }> = ({ 
       </>
     )}
     <a href={`${EXPLORER}${record.tx_sig}`} target="_blank" rel="noopener noreferrer"
-      style={{ fontFamily:'Orbitron,monospace', fontSize:8, color:'#ff8c00', textDecoration:'none',
-        padding:'3px 8px', background:'rgba(255,140,0,.06)', border:'1px solid rgba(255,140,0,.2)',
+      style={{ fontFamily:'Orbitron,monospace', fontSize:8, color:'#f29030', textDecoration:'none',
+        padding:'3px 8px', background:'rgba(242,144,48,.06)', border:'1px solid rgba(242,144,48,.2)',
         borderRadius:5, whiteSpace:'nowrap', textAlign:'center' }}>
       TX ↗
     </a>
@@ -367,7 +367,7 @@ export const SendPanel: FC<SendPanelProps> = ({
     }
   }, [mode, toAddr, amount, rows, token, wallet, connection, saveAddr, nickname, onSaveAddress, onSendComplete]);
 
-  const accent = '#ff8c00';
+  const accent = '#f29030';
   const isBurnTarget = toAddr.trim() === INCINERATOR;
 
   return (
@@ -375,7 +375,7 @@ export const SendPanel: FC<SendPanelProps> = ({
       animation: 'sp-slide-down .25s ease both',
       background: 'linear-gradient(180deg,#0b1018,#080c12)',
       border: '1px solid #1a2433',
-      borderTop: `2px solid ${isBurnTarget ? 'rgba(255,68,68,.5)' : 'rgba(255,140,0,.45)'}`,
+      borderTop: `2px solid ${isBurnTarget ? 'rgba(255,68,68,.5)' : 'rgba(242,144,48,.45)'}`,
       borderRadius: '0 0 14px 14px',
       padding: isMobile ? '13px 13px' : '15px 16px',
       marginTop: -2,
@@ -385,7 +385,7 @@ export const SendPanel: FC<SendPanelProps> = ({
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:13 }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <span style={{ width:4, height:14, borderRadius:2, background: isBurnTarget ? '#ff4444' : accent,
-            boxShadow:`0 0 8px ${isBurnTarget ? 'rgba(255,68,68,.6)' : 'rgba(255,140,0,.55)'}` }} />
+            boxShadow:`0 0 8px ${isBurnTarget ? 'rgba(255,68,68,.6)' : 'rgba(242,144,48,.55)'}` }} />
           <span style={{ fontFamily:'Orbitron,monospace', fontSize:11, fontWeight:700, color: isBurnTarget ? '#ff6666' : accent, letterSpacing:2 }}>
             {isBurnTarget ? 'BURN' : 'SEND'} {token.symbol}
           </span>
@@ -400,8 +400,8 @@ export const SendPanel: FC<SendPanelProps> = ({
       <div style={{ display:'flex', gap:6, marginBottom:12 }}>
         {(['single','batch'] as const).map(m => (
           <button type="button" key={m} onClick={() => setMode(m)} className="sp-btn" style={{
-            background: mode===m ? `rgba(255,140,0,.15)` : 'rgba(255,255,255,.04)',
-            border: `1px solid ${mode===m ? 'rgba(255,140,0,.5)' : 'rgba(255,255,255,.1)'}`,
+            background: mode===m ? `rgba(242,144,48,.15)` : 'rgba(255,255,255,.04)',
+            border: `1px solid ${mode===m ? 'rgba(242,144,48,.5)' : 'rgba(255,255,255,.1)'}`,
             color: mode===m ? accent : '#5a7a90',
             padding:'7px 16px',
           }}>
@@ -425,10 +425,10 @@ export const SendPanel: FC<SendPanelProps> = ({
                 style={{ flex:1 }}
               />
               <button type="button" onClick={() => setShowBook(v => !v)} title="Saved addresses"
-                style={{ background: showBook ? 'rgba(255,140,0,.12)' : 'rgba(255,255,255,.03)',
-                  border:`1px solid ${showBook ? 'rgba(255,140,0,.4)' : '#1a2433'}`,
+                style={{ background: showBook ? 'rgba(242,144,48,.12)' : 'rgba(255,255,255,.03)',
+                  border:`1px solid ${showBook ? 'rgba(242,144,48,.4)' : '#1a2433'}`,
                   borderRadius:8, padding:'0 13px', cursor:'pointer', flexShrink:0,
-                  fontFamily:'Orbitron,monospace', fontSize:9, fontWeight:700, letterSpacing:1, color: showBook ? '#ff8c00' : '#8a9ab8' }}>
+                  fontFamily:'Orbitron,monospace', fontSize:9, fontWeight:700, letterSpacing:1, color: showBook ? '#f29030' : '#8a9ab8' }}>
                 SAVED
               </button>
               <button type="button" onClick={() => setToAddr(isBurnTarget ? '' : INCINERATOR)}
@@ -449,7 +449,7 @@ export const SendPanel: FC<SendPanelProps> = ({
             )}
             {showBook && (
               <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, right:0, zIndex:50,
-                background:'#0d1520', border:'1px solid rgba(255,140,0,.25)', borderRadius:10,
+                background:'#0d1520', border:'1px solid rgba(242,144,48,.25)', borderRadius:10,
                 overflow:'hidden', boxShadow:'0 8px 32px rgba(0,0,0,.5)' }}>
                 <AddressBookPicker
                   savedAddresses={savedAddresses}
@@ -481,7 +481,7 @@ export const SendPanel: FC<SendPanelProps> = ({
                 style={{ flex:1 }}
               />
               <button type="button" onClick={() => setAmount(String(token.balance))} className="sp-btn"
-                style={{ background:'rgba(255,140,0,.08)', border:'1px solid rgba(255,140,0,.2)', color:'#ff8c00', padding:'0 14px', flexShrink:0 }}>
+                style={{ background:'rgba(242,144,48,.08)', border:'1px solid rgba(242,144,48,.2)', color:'#f29030', padding:'0 14px', flexShrink:0 }}>
                 MAX
               </button>
             </div>
@@ -533,7 +533,7 @@ export const SendPanel: FC<SendPanelProps> = ({
         <div style={{ display:'flex', alignItems:'center', marginTop:12, padding:'10px 13px',
           background:'rgba(255,255,255,.02)', border:'1px solid #1a2433', borderRadius:8 }}>
           <span style={{ fontFamily:'Orbitron,monospace', fontSize:8.5, color:'#566173', letterSpacing:1.5 }}>EST. NETWORK FEE</span>
-          <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:11.5, color:'#ff8c00', fontWeight:600, marginLeft:'auto' }}>~{feeEst.toFixed(5)} XNT</span>
+          <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:11.5, color:'#f29030', fontWeight:600, marginLeft:'auto' }}>~{feeEst.toFixed(5)} XNT</span>
         </div>
       )}
 
@@ -555,15 +555,15 @@ export const SendPanel: FC<SendPanelProps> = ({
       {sentReceipts.length > 0 && (
         <div style={{
           marginTop: 10, padding: '12px 14px',
-          background: 'rgba(255,140,0,.04)',
-          border: '1px solid rgba(255,140,0,.25)',
+          background: 'rgba(242,144,48,.04)',
+          border: '1px solid rgba(242,144,48,.25)',
           borderRadius: 8,
           display: 'flex', flexDirection: 'column', gap: 8,
         }}>
           <div style={{
             display:'flex', alignItems:'center', gap:7,
             fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
-            color: '#ff8c00', letterSpacing: 1.5,
+            color: '#f29030', letterSpacing: 1.5,
           }}>
             <span style={{ width:6, height:6, borderRadius:'50%', background:'#00c98d', boxShadow:'0 0 8px #00c98d' }} />
             TX RECEIPT{sentReceipts.length > 1 ? 'S' : ''}
@@ -595,8 +595,8 @@ export const SendPanel: FC<SendPanelProps> = ({
                   style={{
                     fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
                     padding: '5px 10px', borderRadius: 5,
-                    background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.35)',
-                    color: '#ff8c00', cursor: 'pointer', letterSpacing: 1.2,
+                    background: 'rgba(242,144,48,.08)', border: '1px solid rgba(242,144,48,.35)',
+                    color: '#f29030', cursor: 'pointer', letterSpacing: 1.2,
                   }}
                 >COPY</button>
                 <a
@@ -605,8 +605,8 @@ export const SendPanel: FC<SendPanelProps> = ({
                   style={{
                     fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
                     padding: '5px 10px', borderRadius: 5,
-                    background: 'rgba(255,140,0,.14)', border: '1px solid rgba(255,140,0,.55)',
-                    color: '#ff8c00', textDecoration: 'none', letterSpacing: 1.2,
+                    background: 'rgba(242,144,48,.14)', border: '1px solid rgba(242,144,48,.55)',
+                    color: '#f29030', textDecoration: 'none', letterSpacing: 1.2,
                   }}
                 >TX ↗</a>
               </div>
@@ -623,12 +623,12 @@ export const SendPanel: FC<SendPanelProps> = ({
         className="sp-btn"
         style={{
           marginTop:12, width:'100%', padding:'11px 0',
-          background: sending ? 'rgba(255,140,0,.3)'
+          background: sending ? 'rgba(242,144,48,.3)'
             : isBurnTarget ? 'linear-gradient(135deg,#ff4444,#cc2222)'
-            : 'linear-gradient(135deg,#ff8c00,#ffb700)',
+            : 'linear-gradient(135deg,#f29030,#ffb700)',
           color: isBurnTarget && !sending ? '#fff' : '#0a0e14', fontSize:12, opacity: sending ? 0.7 : 1,
           cursor: sending ? 'not-allowed' : 'pointer',
-          boxShadow: sending ? 'none' : isBurnTarget ? '0 4px 20px rgba(255,68,68,.35)' : '0 4px 20px rgba(255,140,0,.3)',
+          boxShadow: sending ? 'none' : isBurnTarget ? '0 4px 20px rgba(255,68,68,.35)' : '0 4px 20px rgba(242,144,48,.3)',
         }}
       >
         {sending

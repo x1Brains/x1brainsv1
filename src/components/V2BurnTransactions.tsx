@@ -2,11 +2,11 @@ import { FC, useEffect, useMemo, useState } from 'react';
 import type { BurnerEntry } from './BurnLeaderboard';
 import { fmtNum, fmtUSD, shortAddr } from '../utils/v2format';
 
-const ACCENT = '#ff8c00';
+const ACCENT = '#f29030';
 const MUTED  = '#5c7a90';
 const DIM    = '#3a4a5a';
 const TEXT   = '#cdd8e2';
-const LINE   = 'rgba(255,140,0,0.13)';
+const LINE   = 'rgba(242,144,48,0.13)';
 
 type FlatBurn = {
   sig: string;
@@ -49,12 +49,12 @@ function injectStyles() {
       gap: 12px;
       align-items: center;
       padding: 10px 12px;
-      background: rgba(255, 140, 0, 0.04);
-      border: 1px solid rgba(255, 140, 0, 0.13);
+      background: rgba(242, 144, 48, 0.04);
+      border: 1px solid rgba(242, 144, 48, 0.13);
       border-radius: 7px;
       transition: border-color .15s;
     }
-    .v2tx-row:hover { border-color: rgba(255, 140, 0, 0.33); }
+    .v2tx-row:hover { border-color: rgba(242, 144, 48, 0.33); }
     @media (max-width: 640px) {
       .v2tx-row {
         grid-template-columns: 1fr 80px;
@@ -175,8 +175,8 @@ export default function V2BurnTransactions({ entries, price, scanning, symbol = 
               className="v2tx-mono"
               style={{
                 padding: '4px 10px', borderRadius: 5,
-                background: filter === f.id ? 'rgba(255,140,0,0.1)' : 'rgba(255,255,255,0.02)',
-                border: `1px solid ${filter === f.id ? 'rgba(255,140,0,0.5)' : 'rgba(255,255,255,0.07)'}`,
+                background: filter === f.id ? 'rgba(242,144,48,0.1)' : 'rgba(255,255,255,0.02)',
+                border: `1px solid ${filter === f.id ? 'rgba(242,144,48,0.5)' : 'rgba(255,255,255,0.07)'}`,
                 color: filter === f.id ? ACCENT : MUTED,
                 fontSize: 8, fontWeight: 700, letterSpacing: 1.2,
                 cursor: 'pointer',
@@ -218,8 +218,8 @@ export default function V2BurnTransactions({ entries, price, scanning, symbol = 
           style={{
             marginTop: 10,
             width: '100%', padding: '8px 0',
-            background: 'rgba(255, 140, 0, 0.04)',
-            border: '1px solid rgba(255, 140, 0, 0.13)',
+            background: 'rgba(242, 144, 48, 0.04)',
+            border: '1px solid rgba(242, 144, 48, 0.13)',
             borderRadius: 7,
             color: MUTED, fontSize: 9, fontWeight: 700, letterSpacing: 1.5,
             cursor: 'pointer',

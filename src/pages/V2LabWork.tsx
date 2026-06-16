@@ -1057,6 +1057,11 @@ export default function V2LabWork() {
   // Featured collection (Brains Elites) for the hero banner — real floor +
   // listing count from the live collection stats; supply is the locked 444.
   const featuredBE = collectionStats.find(c => c.key === 'brains_elites');
+  // Stable banner image: starts with the bundled Brains Elites banner, upgrades
+  // to a live collection image once one resolves, and NEVER reverts to empty
+  // (featuredBE.image briefly goes undefined during enrichment → image vanished).
+  const [stableHeroImg, setStableHeroImg] = useState('/brains-elites-banner.jpg');
+  useEffect(() => { if (featuredBE?.image) setStableHeroImg(featuredBE.image); }, [featuredBE?.image]);
   // Other collections (excluding Brains Elites — it's the banner subject) shown
   // as compact story-circles in the banner's top-right corner. Cap at 3.
   const otherCollections = collectionStats.filter(c => c.key !== 'brains_elites').slice(0, 3);
@@ -1109,9 +1114,8 @@ export default function V2LabWork() {
         {/* ── Featured banner (Brains Elites) — minimal-mono (preview 11) style ── */}
         <div className="lw-hero">
           <div className="lw-hero-art">
-            {featuredBE?.image
-              ? <img src={featuredBE.image} alt="Brains Elites" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
-              : <div className="art-fallback">X1</div>}
+            <img src={stableHeroImg} alt="Brains Elites"
+              onError={(e) => { const el = e.currentTarget as HTMLImageElement; if (!el.src.includes('brains-elites-banner')) el.src = '/brains-elites-banner.jpg'; }} />
           </div>
           <div className="lw-hero-info">
             <div className="lw-hero-top">
@@ -1193,7 +1197,7 @@ export default function V2LabWork() {
         {/* ── NFT Marketplace (platform-wide) stats — labeled so they're not
               mistaken for the featured collection's numbers ── */}
         <div style={{ display:'flex', alignItems:'center', gap:8, margin:'6px 2px 10px', fontFamily:'Orbitron, monospace', fontSize:9, fontWeight:700, letterSpacing:2, color:'#7c8aa0', textTransform:'uppercase' }}>
-          <span style={{ color:'#ff8c00', fontSize:8, filter:'drop-shadow(0 0 5px rgba(255,140,0,.45))' }}>◆</span>
+          <span style={{ color:'#f29030', fontSize:8, filter:'drop-shadow(0 0 5px rgba(242,144,48,.45))' }}>◆</span>
           NFT Marketplace Stats
           <span style={{ flex:1, height:1, background:'linear-gradient(90deg,#1a2433,transparent)' }} />
         </div>
@@ -1255,7 +1259,7 @@ export default function V2LabWork() {
                   flex: isBrowse ? 1.4 : 1,
                   padding: isMobile ? '10px 6px' : '12px 16px',
                   background: active
-                    ? 'linear-gradient(135deg, #ff8c00, #ffb340)'
+                    ? 'linear-gradient(135deg, #f29030, #ffb340)'
                     : 'transparent',
                   border: 'none',
                   borderRadius: 10,
@@ -1265,7 +1269,7 @@ export default function V2LabWork() {
                   fontSize: isMobile ? 9 : 10, fontWeight: 800,
                   letterSpacing: 1.8,
                   color: active ? '#0a0e14' : 'var(--text-muted)',
-                  boxShadow: active ? '0 6px 22px rgba(255,140,0,.35)' : 'none',
+                  boxShadow: active ? '0 6px 22px rgba(242,144,48,.35)' : 'none',
                   transition: 'background .18s, color .18s, box-shadow .18s',
                   whiteSpace: 'nowrap',
                 }}
@@ -1280,8 +1284,8 @@ export default function V2LabWork() {
                 <span>{t.label}</span>
                 {t.badge != null && t.badge > 0 && (
                   <span style={{
-                    background: active ? 'rgba(10,14,20,.22)' : 'rgba(255,140,0,.14)',
-                    color: active ? '#0a0e14' : '#ff8c00',
+                    background: active ? 'rgba(10,14,20,.22)' : 'rgba(242,144,48,.14)',
+                    color: active ? '#0a0e14' : '#f29030',
                     borderRadius: 999, padding: '1px 7px',
                     fontFamily: 'Orbitron, monospace', fontSize: 8, fontWeight: 800,
                   }}>{t.badge}</span>
@@ -1328,7 +1332,7 @@ export default function V2LabWork() {
                   marginBottom: 12, flexWrap: 'wrap', gap: 10,
                 }}>
                   <div className="title" style={{ margin: 0 }}>
-                    My Active Listings <span style={{ color: '#ff8c00', marginLeft: 6 }}>· {myListings.length}</span>
+                    My Active Listings <span style={{ color: '#f29030', marginLeft: 6 }}>· {myListings.length}</span>
                   </div>
                   <button
                     type="button"
@@ -1336,8 +1340,8 @@ export default function V2LabWork() {
                     style={{
                       fontFamily: 'Orbitron, monospace', fontSize: 8, fontWeight: 700,
                       background: 'transparent',
-                      border: '1px solid rgba(255,140,0,.3)',
-                      color: '#ff8c00',
+                      border: '1px solid rgba(242,144,48,.3)',
+                      color: '#f29030',
                       padding: '4px 10px', borderRadius: 5,
                       letterSpacing: 1.5, cursor: 'pointer',
                     }}
@@ -1369,14 +1373,14 @@ export default function V2LabWork() {
                           borderRadius: 9, overflow: 'hidden',
                           flexShrink: 0,
                           background: '#06090d',
-                          border: '1px solid rgba(255,140,0,.4)',
+                          border: '1px solid rgba(242,144,48,.4)',
                         }}>
                           {(it.image || it.metaUri)
                             ? <V2NFTImage src={it.image || it.metaUri!} name={it.name} />
                             : <div style={{
                                 position: 'absolute', inset: 0,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                color: '#ff8c00', fontFamily: 'Orbitron, monospace',
+                                color: '#f29030', fontFamily: 'Orbitron, monospace',
                                 fontSize: 11, fontWeight: 800,
                               }}>{it.mint.slice(0, 4)}</div>}
                         </div>
@@ -1401,7 +1405,7 @@ export default function V2LabWork() {
                           <div style={{
                             fontFamily: 'Orbitron, monospace',
                             fontSize: isMobile ? 13 : 15, fontWeight: 900,
-                            color: '#ff8c00', letterSpacing: 0.5,
+                            color: '#f29030', letterSpacing: 0.5,
                           }}>
                             {priceLabel}
                             <span style={{ fontSize: 8, color: '#9a6a3a', marginLeft: 4, letterSpacing: 1.5 }}>XNT</span>
@@ -1419,13 +1423,13 @@ export default function V2LabWork() {
                           <button
                             type="button"
                             onClick={() => openBoost(it)}
-                            style={listingActionBtn('#ff8c00', isMobile)}
+                            style={listingActionBtn('#f29030', isMobile)}
                             title="Boost — promote on the carousel"
                           >{isMobile ? '⚡' : '⚡ BOOST'}</button>
                           <button
                             type="button"
                             onClick={() => openEditPrice(it)}
-                            style={listingActionBtn('#ff8c00', isMobile)}
+                            style={listingActionBtn('#f29030', isMobile)}
                             title="Edit price (delist + relist)"
                           >{isMobile ? '✏' : '✏ EDIT'}</button>
                           <button
@@ -1484,15 +1488,15 @@ export default function V2LabWork() {
                     <div style={{
                       display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10,
                     }}>
-                      <div style={{ width: 3, height: 22, background: '#ff8c00', borderRadius: 2 }} />
+                      <div style={{ width: 3, height: 22, background: '#f29030', borderRadius: 2 }} />
                       <div style={{
                         fontFamily: 'Orbitron, monospace', fontSize: 11, fontWeight: 800,
                         color: 'var(--text-primary)', letterSpacing: 1,
                       }}>{colName}</div>
                       <span style={{
                         fontFamily: 'Orbitron, monospace', fontSize: 8, fontWeight: 700,
-                        background: 'rgba(255,140,0,.10)', border: '1px solid rgba(255,140,0,.3)',
-                        borderRadius: 10, padding: '2px 8px', color: '#ff8c00',
+                        background: 'rgba(242,144,48,.10)', border: '1px solid rgba(242,144,48,.3)',
+                        borderRadius: 10, padding: '2px 8px', color: '#f29030',
                       }}>{items.length}</span>
                     </div>
                     <div style={{
@@ -1518,8 +1522,8 @@ export default function V2LabWork() {
                           onMouseEnter={(e) => {
                             (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-3px)';
                             (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,.06)';
-                            (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,140,0,.45)';
-                            (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 14px 36px rgba(0,0,0,.45), 0 0 0 1px rgba(255,140,0,.2), 0 6px 18px rgba(255,140,0,.18)';
+                            (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(242,144,48,.45)';
+                            (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 14px 36px rgba(0,0,0,.45), 0 0 0 1px rgba(242,144,48,.2), 0 6px 18px rgba(242,144,48,.18)';
                           }}
                           onMouseLeave={(e) => {
                             (e.currentTarget as HTMLButtonElement).style.transform = '';
@@ -1545,7 +1549,7 @@ export default function V2LabWork() {
                             <div style={{
                               position: 'absolute', top: 6, right: 6,
                               fontFamily: 'Orbitron, monospace', fontSize: 7, fontWeight: 800,
-                              background: '#ff8c00', color: '#0a0e14',
+                              background: '#f29030', color: '#0a0e14',
                               padding: '2px 7px', borderRadius: 4,
                               letterSpacing: 1,
                             }}>LIST</div>
@@ -1583,9 +1587,9 @@ export default function V2LabWork() {
                 disabled={tradesLoading}
                 style={{
                   fontFamily: 'Orbitron, monospace', fontSize: 9, fontWeight: 700,
-                  background: 'rgba(255,140,0,.06)',
-                  border: '1px solid rgba(255,140,0,.3)',
-                  color: '#ff8c00',
+                  background: 'rgba(242,144,48,.06)',
+                  border: '1px solid rgba(242,144,48,.3)',
+                  color: '#f29030',
                   padding: '5px 12px', borderRadius: 5,
                   letterSpacing: 1.5, cursor: tradesLoading ? 'wait' : 'pointer',
                 }}
@@ -1655,7 +1659,7 @@ export default function V2LabWork() {
                           {log.type === 'boost' && log.brains
                             ? <span style={{ color: '#bf5af2', marginRight: 8 }}>🔥 {log.brains.toLocaleString()} BRAINS</span>
                             : log.price
-                            ? <span style={{ color: '#ff8c00', marginRight: 8 }}>{(log.price / 1e9).toFixed(2)} XNT</span>
+                            ? <span style={{ color: '#f29030', marginRight: 8 }}>{(log.price / 1e9).toFixed(2)} XNT</span>
                             : null}
                           <span>{new Date(log.timestamp * 1000).toLocaleString()}</span>
                         </div>
@@ -1717,11 +1721,11 @@ export default function V2LabWork() {
                   style={{
                     padding: '8px 14px',
                     background: active
-                      ? 'linear-gradient(135deg, rgba(255,140,0,.28), rgba(255,140,0,.10))'
+                      ? 'linear-gradient(135deg, rgba(242,144,48,.28), rgba(242,144,48,.10))'
                       : 'rgba(255,255,255,.04)',
-                    border: `1px solid ${active ? 'rgba(255,140,0,.55)' : 'rgba(255,255,255,.08)'}`,
+                    border: `1px solid ${active ? 'rgba(242,144,48,.55)' : 'rgba(255,255,255,.08)'}`,
                     borderRadius: 999,
-                    color: active ? '#ff8c00' : 'var(--text-muted)',
+                    color: active ? '#f29030' : 'var(--text-muted)',
                     fontFamily: 'Orbitron, monospace',
                     fontSize: 9, fontWeight: 700, letterSpacing: 1.5,
                     cursor: 'pointer',
@@ -1780,10 +1784,10 @@ export default function V2LabWork() {
                   onClick={() => setSortMode(mode)}
                   style={{
                     padding: '7px 12px',
-                    background: active ? 'rgba(255,140,0,.14)' : 'rgba(255,255,255,.04)',
-                    border: `1px solid ${active ? 'rgba(255,140,0,.55)' : 'rgba(255,255,255,.08)'}`,
+                    background: active ? 'rgba(242,144,48,.14)' : 'rgba(255,255,255,.04)',
+                    border: `1px solid ${active ? 'rgba(242,144,48,.55)' : 'rgba(255,255,255,.08)'}`,
                     borderRadius: 999,
-                    color: active ? '#ff8c00' : 'var(--text-muted)',
+                    color: active ? '#f29030' : 'var(--text-muted)',
                     fontFamily: 'Orbitron, monospace', fontSize: 9, fontWeight: 800,
                     letterSpacing: 1.5, cursor: 'pointer', outline: 'none',
                     transition: 'background .15s, border-color .15s, color .15s',
@@ -2012,8 +2016,8 @@ export default function V2LabWork() {
             <div
               className="market-tile-rarity"
               style={{
-                color: '#ff8c00',
-                borderColor: 'rgba(255,140,0,0.45)',
+                color: '#f29030',
+                borderColor: 'rgba(242,144,48,0.45)',
                 background: 'rgba(6,9,13,0.85)',
                 backdropFilter: 'blur(2px)',
               }}
@@ -2119,7 +2123,7 @@ export default function V2LabWork() {
 // Fallback gradient for a collection's story-circle avatar when it has no
 // image. Brains Elites is always orange; others cycle a v2-palette set.
 function bcGrad(key: string, idx: number): string {
-  if (key === 'brains_elites') return 'linear-gradient(135deg,#ff8c00,#ffb700)';
+  if (key === 'brains_elites') return 'linear-gradient(135deg,#f29030,#ffb700)';
   const palette = [
     'linear-gradient(135deg,#00d4ff,#0088aa)',
     'linear-gradient(135deg,#bf5af2,#7b2dbf)',

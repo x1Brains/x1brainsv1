@@ -11,10 +11,10 @@ import { fmtNum, fmtUSD } from '../utils/v2format';
 
 const LB_MINT = 'Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6';
 
-const ACCENT = '#ff8c00';
+const ACCENT = '#f29030';
 const MUTED  = '#5c7a90';
 const TEXT   = '#cdd8e2';
-const LINE   = 'rgba(255,140,0,0.13)';
+const LINE   = 'rgba(242,144,48,0.13)';
 
 type Token = {
   symbol: 'BRAINS' | 'LB';
@@ -112,7 +112,7 @@ export default function V2BurnPanel() {
             style={{
               ...mono,
               flex: 1, padding: '10px 0',
-              background: tokenIdx === i ? 'rgba(255,140,0,0.08)' : 'transparent',
+              background: tokenIdx === i ? 'rgba(242,144,48,0.08)' : 'transparent',
               border: 'none',
               borderRight: i === 0 ? `1px solid ${LINE}` : 'none',
               cursor: pending ? 'not-allowed' : 'pointer',
@@ -205,8 +205,8 @@ export default function V2BurnPanel() {
         style={{
           ...mono,
           width: '100%', padding: '11px 0',
-          background: pending || !valid ? 'transparent' : 'rgba(255,140,0,0.08)',
-          border: `1px solid ${pending || !valid ? 'rgba(255,140,0,0.18)' : ACCENT}`,
+          background: pending || !valid ? 'transparent' : 'rgba(242,144,48,0.08)',
+          border: `1px solid ${pending || !valid ? 'rgba(242,144,48,0.18)' : ACCENT}`,
           borderRadius: 6,
           cursor: pending || !valid ? 'not-allowed' : 'pointer',
           fontSize: 10, fontWeight: 700,

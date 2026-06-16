@@ -56,7 +56,7 @@ const LB_MINT              = 'Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6';
 const CAROUSEL_INTERVAL_MS = 4_000;
 const BRAINS_INITIAL       = 8_880_000;
 const LB_INITIAL           = 100_000;
-const ACCENT               = '#ff8c00';
+const ACCENT               = '#f29030';
 const NET_POLL_MS          = 30_000;
 
 function fmtPriceUsd(p: number): string {
@@ -647,7 +647,7 @@ const TickerMarquee: FC<{
           </span>
         ) : it.kind === 'brains' ? (
           <span key={i} className="l-ticker-seg">
-            <span style={{ display: 'inline-flex', width: 16, height: 16, borderRadius: '50%', marginRight: 6, background: 'rgba(255,140,0,.15)', color: '#ff8c00', fontSize: 9, fontWeight: 800, alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle' }}>◆</span>
+            <span style={{ display: 'inline-flex', width: 16, height: 16, borderRadius: '50%', marginRight: 6, background: 'rgba(242,144,48,.15)', color: '#f29030', fontSize: 9, fontWeight: 800, alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle' }}>◆</span>
             <span className="l-ticker-nm">X1 BRAINS</span>
             <span className="l-ticker-sk">MCAP</span><span className="l-ticker-pr">{fmtK(it.mc)}</span>
             <span className="l-ticker-sk">DEX LIQ</span><span className="l-ticker-pr">{fmtK(it.tvl)}</span>
@@ -658,7 +658,7 @@ const TickerMarquee: FC<{
             {it.logo
               ? <img src={it.logo} alt="" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                   style={{ width: 16, height: 16, borderRadius: '50%', objectFit: 'cover', marginRight: 6, verticalAlign: 'middle', flexShrink: 0 }} />
-              : <span style={{ display: 'inline-flex', width: 16, height: 16, borderRadius: '50%', marginRight: 6, background: 'rgba(255,140,0,.15)', color: '#ff8c00', fontSize: 8, fontWeight: 800, alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle' }}>{it.sym[0]}</span>}
+              : <span style={{ display: 'inline-flex', width: 16, height: 16, borderRadius: '50%', marginRight: 6, background: 'rgba(242,144,48,.15)', color: '#f29030', fontSize: 8, fontWeight: 800, alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle' }}>{it.sym[0]}</span>}
             <span className="l-ticker-nm">{it.sym}</span>
             <span className="l-ticker-pr">{fmtPriceUsd(it.p)}</span>
             <span className={`l-ticker-ch ${(it.change ?? 0) >= 0 ? 'up' : 'dn'}`}>
@@ -748,7 +748,7 @@ const BurnReactors: FC<{
       <div className="f8hd"><h3>Burn Reactors</h3>
         <span className="f8rxtag"><span className="dot" />SUPPLY INCINERATED</span></div>
       <div className="f8rxgrid">
-        {cell('BRAINS', '#ff8c00', 'rgba(255,140,0,.55)', bPct, brainsBurned, (brainsBurned ?? 0) * brainsPrice)}
+        {cell('BRAINS', '#f29030', 'rgba(242,144,48,.55)', bPct, brainsBurned, (brainsBurned ?? 0) * brainsPrice)}
         {cell('LB', '#aeb9c7', 'rgba(174,185,199,.5)', lPct, lbBurned, (lbBurned ?? 0) * lbPrice)}
       </div>
     </div>
@@ -1139,7 +1139,7 @@ function injectStyles() {
   s.textContent = `
     /* ===== #08 flank-reactors module visuals (scoped under .f8) ===== */
     .f8 .f8panel{position:relative;background:var(--v2-glow),linear-gradient(180deg,#0c1118,#0f1620);border:1px solid #1a2433;border-radius:14px;overflow:hidden}
-    .f8 .f8panel::before{content:'';position:absolute;left:0;top:16px;bottom:16px;width:2px;background:linear-gradient(180deg,transparent,#ff8c00,transparent);box-shadow:0 0 10px rgba(255,140,0,.4);z-index:1}
+    .f8 .f8panel::before{content:'';position:absolute;left:0;top:16px;bottom:16px;width:2px;background:linear-gradient(180deg,transparent,#f29030,transparent);box-shadow:0 0 10px rgba(242,144,48,.4);z-index:1}
     .f8 .f8hd{display:flex;align-items:center;justify-content:space-between;padding:14px 18px 11px;border-bottom:1px solid #141d29}
     .f8 .f8hd h3{font-family:'Orbitron',sans-serif;font-size:10.5px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:#e8edf5;margin:0}
     .f8 .f8hd .meta{font-size:10px;letter-spacing:1px;color:#566173;text-transform:uppercase;font-family:'Sora'}
@@ -1179,21 +1179,21 @@ function injectStyles() {
     /* ── X1 Brains stats panel ── */
     .f8 .bstat{padding:12px 16px 14px;display:flex;flex-direction:column;gap:11px}
     .f8 .bstat-hero{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    .f8 .bstat-hcell{position:relative;padding:12px 13px;border-radius:12px;overflow:hidden;background:linear-gradient(160deg,rgba(255,140,0,.10),rgba(255,140,0,.015));border:1px solid rgba(255,140,0,.22)}
-    .f8 .bstat-hcell::after{content:'';position:absolute;right:-30%;top:-60%;width:90%;height:160%;background:radial-gradient(closest-side,rgba(255,140,0,.16),transparent);pointer-events:none}
+    .f8 .bstat-hcell{position:relative;padding:12px 13px;border-radius:12px;overflow:hidden;background:linear-gradient(160deg,rgba(242,144,48,.10),rgba(242,144,48,.015));border:1px solid rgba(242,144,48,.22)}
+    .f8 .bstat-hcell::after{content:'';position:absolute;right:-30%;top:-60%;width:90%;height:160%;background:radial-gradient(closest-side,rgba(242,144,48,.16),transparent);pointer-events:none}
     .f8 .bstat-hcell.teal{background:linear-gradient(160deg,rgba(0,207,198,.10),rgba(0,207,198,.015));border-color:rgba(0,207,198,.22)}
     .f8 .bstat-hcell.teal::after{background:radial-gradient(closest-side,rgba(0,207,198,.16),transparent)}
-    .f8 .bstat-hv{position:relative;z-index:1;font-family:'Sora';font-size:21px;font-weight:800;letter-spacing:.2px;line-height:1;color:#ff8c00}
+    .f8 .bstat-hv{position:relative;z-index:1;font-family:'Sora';font-size:21px;font-weight:800;letter-spacing:.2px;line-height:1;color:#f29030}
     .f8 .bstat-hcell.teal .bstat-hv{color:#00cfc6}
     .f8 .bstat-hk{position:relative;z-index:1;font-family:'Orbitron';font-size:8px;font-weight:600;letter-spacing:1.6px;color:#8a9ab8;text-transform:uppercase;margin-top:7px}
     .f8 .bstat-sl{display:flex;align-items:center;gap:7px;font-family:'Orbitron';font-size:8.5px;font-weight:600;letter-spacing:2px;color:#566173;text-transform:uppercase;margin-bottom:8px}
-    .f8 .bstat-sl::before{content:'';width:5px;height:5px;background:#ff8c00;box-shadow:0 0 7px rgba(255,140,0,.7);transform:rotate(45deg);flex-shrink:0}
+    .f8 .bstat-sl::before{content:'';width:5px;height:5px;background:#f29030;box-shadow:0 0 7px rgba(242,144,48,.7);transform:rotate(45deg);flex-shrink:0}
     .f8 .bstat-sl::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,#1a2433,transparent)}
     /* ── unified overview panel (split bar + grouped strips + pool table w/ logos) ── */
     .f8 .f8panel.ov{margin-top:14px}
     .f8 .ov-lf9{padding:16px 18px 14px}
     .f8 .ov-lf9 .lf9-head{margin-bottom:13px}
-    .f8 .ov-lf9 .ovh-ic{font-size:12px;color:#ff8c00;margin-right:9px;line-height:1;filter:drop-shadow(0 0 5px rgba(255,140,0,.45))}
+    .f8 .ov-lf9 .ovh-ic{font-size:12px;color:#f29030;margin-right:9px;line-height:1;filter:drop-shadow(0 0 5px rgba(242,144,48,.45))}
     .f8 .ov-lf9 .lf9-stat-row{row-gap:16px}
     .f8 .ov-lf9 .lf9-stat .v{font-size:18px}
     .f8 .ov-lf9 .lf9-stat .l{margin-bottom:6px}
@@ -1201,12 +1201,12 @@ function injectStyles() {
     .f8 .ov-lf9 .lf9-emissions{margin-top:14px;padding-top:12px}
     .f8 .ov-hero{display:flex;margin:14px 16px 0;border:1px solid #1d2838;border-radius:12px;overflow:hidden}
     .f8 .ov-hero > div{flex:1;padding:13px 16px}
-    .f8 .ov-hero .o{background:linear-gradient(135deg,rgba(255,140,0,.12),rgba(255,140,0,.02));border-right:1px solid #1d2838}
+    .f8 .ov-hero .o{background:linear-gradient(135deg,rgba(242,144,48,.12),rgba(242,144,48,.02));border-right:1px solid #1d2838}
     .f8 .ov-hero .teal{background:linear-gradient(135deg,rgba(0,207,198,.12),rgba(0,207,198,.02))}
     .f8 .ov-hero .teal .bstat-hv{color:#00cfc6}
     .f8 .ov-stats{padding:14px 16px 4px}
     .f8 .ov-grp{margin-bottom:11px}
-    .f8 .ov-strip{display:flex;border:1px solid #16202e;border-radius:10px;overflow:hidden;background:#0a0f17;box-shadow:inset 3px 0 0 rgba(255,140,0,.5)}
+    .f8 .ov-strip{display:flex;border:1px solid #16202e;border-radius:10px;overflow:hidden;background:#0a0f17;box-shadow:inset 3px 0 0 rgba(242,144,48,.5)}
     .f8 .ov-cell{flex:1;min-width:0;padding:10px 13px;border-right:1px solid #141d29}
     .f8 .ov-cell:last-child{border-right:none}
     .f8 .ov-cell .cv{font-family:'Orbitron';font-weight:700;font-size:15px;color:#e8edf5;line-height:1}
@@ -1225,8 +1225,8 @@ function injectStyles() {
     .f8 .ovp-row .num{text-align:right;font-family:'Sora';font-size:12.5px;font-weight:600;color:#e8edf5}
     .f8 .ovp-fee{text-align:right;font-family:'Sora';font-size:11px;font-weight:700;color:#00c98d}
     .f8 .bstat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-    .f8 .bstat-cell{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:10px 13px;border-radius:10px;background:#0a0f17;border:1px solid #16202e;box-shadow:inset 3px 0 0 rgba(255,140,0,.55);transition:background .15s,box-shadow .15s}
-    .f8 .bstat-cell:hover{background:#0e1622;box-shadow:inset 3px 0 0 #ff8c00,0 4px 14px rgba(255,140,0,.12)}
+    .f8 .bstat-cell{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:10px 13px;border-radius:10px;background:#0a0f17;border:1px solid #16202e;box-shadow:inset 3px 0 0 rgba(242,144,48,.55);transition:background .15s,box-shadow .15s}
+    .f8 .bstat-cell:hover{background:#0e1622;box-shadow:inset 3px 0 0 #f29030,0 4px 14px rgba(242,144,48,.12)}
     .f8 .bstat-cell .ck{font-family:'Sora';font-size:10.5px;letter-spacing:.3px;color:#7c8aa0;white-space:nowrap}
     .f8 .bstat-cell .cv{font-family:'Sora';font-size:13px;font-weight:700;color:#e8edf5;text-align:right}
     .f8 .f8cbody{padding:16px 18px 18px}
@@ -1256,7 +1256,7 @@ function injectStyles() {
     .f8 .f8rxsym{font-family:'Orbitron';font-size:9px;font-weight:600;letter-spacing:1px;margin-top:5px}
     .f8 .f8rxusd{font-size:12.5px;font-weight:600;color:#00c98d;margin-top:3px;letter-spacing:.2px}
     .f8 .f8rxtag{display:inline-flex;align-items:center;gap:6px;font-family:'Orbitron';font-size:8.5px;font-weight:600;letter-spacing:1.4px;color:#566173;text-transform:uppercase}
-    .f8 .f8rxtag .dot{width:6px;height:6px;border-radius:50%;background:#ff8c00;box-shadow:0 0 7px rgba(255,140,0,.7);animation:f8pulse 1.6s infinite}
+    .f8 .f8rxtag .dot{width:6px;height:6px;border-radius:50%;background:#f29030;box-shadow:0 0 7px rgba(242,144,48,.7);animation:f8pulse 1.6s infinite}
     /* right column = reactors (auto) + chart (fills) = carousel height */
     .f8 .l-side > .f8panel:last-child{flex:1;display:flex;flex-direction:column;min-height:0}
     .f8 .l-side > .f8panel:last-child .f8cbody{flex:1;display:flex;flex-direction:column;min-height:0}
@@ -1274,8 +1274,8 @@ function injectStyles() {
     /* ════════ TICKER ════════ */
     .l-ticker {
       position: relative;
-      background: rgba(255,140,0,.05);
-      border: 1px solid ${ACCENT}33;
+      background: rgba(0,207,198,.035);
+      border: 1px solid rgba(0,207,198,.16);
       border-radius: 8px;
       padding: 9px 0;
       margin-bottom: 14px;
@@ -1337,7 +1337,7 @@ function injectStyles() {
     }
     .l-thumb {
       position: absolute; inset: 0;
-      background: linear-gradient(155deg, rgba(255,140,0,.1), rgba(0,0,0,.4));
+      background: linear-gradient(155deg, rgba(242,144,48,.1), rgba(0,0,0,.4));
       animation: lh-fade .5s ease both;
     }
     .l-veil {
@@ -1430,18 +1430,18 @@ function injectStyles() {
     .l-card-reactors, .l-card-mon {
       position: relative;
       background: rgba(255, 255, 255, 0.015);
-      border: 1px solid rgba(255, 140, 0, 0.13);
+      border: 1px solid rgba(242, 144, 48, 0.13);
       border-radius: 16px;
       padding: 14px;
       overflow: hidden;
       transition: border-color 0.2s;
     }
     .l-card-reactors:hover, .l-card-mon:hover {
-      border-color: rgba(255, 140, 0, 0.33);
+      border-color: rgba(242, 144, 48, 0.33);
     }
     .l-card-reactors::before, .l-card-mon::before {
       content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(255, 140, 0, 0.4), transparent);
+      background: linear-gradient(90deg, transparent, rgba(242, 144, 48, 0.4), transparent);
     }
     .l-card-head, .l-mon-hd {
       display: flex; justify-content: space-between; align-items: center;
@@ -1463,7 +1463,7 @@ function injectStyles() {
     .l-reactor {
       position: relative; padding: 8px 8px 10px;
       background: rgba(138,154,184,.04);
-      border: 1px solid rgba(255,140,0,.22);
+      border: 1px solid rgba(242,144,48,.22);
       border-radius: 8px;
       text-align: center;
     }
@@ -1473,12 +1473,12 @@ function injectStyles() {
     }
     .l-ring {
       position: absolute; inset: 0; border-radius: 50%;
-      border: 1px solid rgba(255,140,0,.22);
+      border: 1px solid rgba(242,144,48,.22);
     }
-    .l-ring.r2 { inset: 5px; border-color: rgba(255,140,0,.35); }
+    .l-ring.r2 { inset: 5px; border-color: rgba(242,144,48,.35); }
     .l-ring.r3 {
       inset: 10px; border-style: dashed;
-      border-color: rgba(255,140,0,.5);
+      border-color: rgba(242,144,48,.5);
       animation: lh-spin-slow 70s linear infinite;
     }
     .l-arc {
@@ -1492,10 +1492,10 @@ function injectStyles() {
     .l-core {
       position: absolute; inset: 18px; border-radius: 50%;
       background:
-        radial-gradient(circle at 30% 30%, rgba(255,140,0,.2), transparent 60%),
-        linear-gradient(135deg, rgba(255,140,0,.14), rgba(0,0,0,.42));
-      border: 1px solid rgba(255,140,0,.5);
-      box-shadow: 0 0 10px rgba(255,140,0,.2);
+        radial-gradient(circle at 30% 30%, rgba(242,144,48,.2), transparent 60%),
+        linear-gradient(135deg, rgba(242,144,48,.14), rgba(0,0,0,.42));
+      border: 1px solid rgba(242,144,48,.5);
+      box-shadow: 0 0 10px rgba(242,144,48,.2);
       display: grid; place-items: center;
     }
     .l-core-pct {
@@ -1614,9 +1614,9 @@ function injectStyles() {
     .l-spot {
       position: relative;
       background:
-        radial-gradient(circle at 82% 50%, rgba(255,140,0,.10), transparent 55%),
+        radial-gradient(circle at 82% 50%, rgba(0,207,198,.07), transparent 55%),
         linear-gradient(110deg, #06090d 0%, #0a0e14 50%, #06090d 100%);
-      border: 1px solid rgba(255,140,0,.22);
+      border: 1px solid rgba(0,207,198,.16);
       border-radius: 10px;
       padding: 6px 12px;
       display: flex; align-items: center; justify-content: space-between;
@@ -1627,9 +1627,9 @@ function injectStyles() {
       content: ''; position: absolute; top: 0; bottom: 0; width: 35%;
       background: linear-gradient(100deg,
         transparent 0%,
-        rgba(255,140,0,.05) 40%,
-        rgba(255,140,0,.18) 50%,
-        rgba(255,140,0,.05) 60%,
+        rgba(0,207,198,.04) 40%,
+        rgba(0,207,198,.12) 50%,
+        rgba(0,207,198,.04) 60%,
         transparent 100%);
       transform: translateX(-150%);
       animation: lh-spot-shimmer 6s ease-in-out infinite;
@@ -1646,8 +1646,8 @@ function injectStyles() {
       100% { transform: translateX(450%); }
     }
     @keyframes lh-spot-pulse {
-      0%,100% { box-shadow: 0 0 0 0 rgba(255,140,0,0); }
-      50%     { box-shadow: 0 0 12px 0 rgba(255,140,0,.18); }
+      0%,100% { box-shadow: 0 0 0 0 rgba(0,207,198,0); }
+      50%     { box-shadow: 0 0 12px 0 rgba(0,207,198,.12); }
     }
     .l-spot { animation: lh-spot-pulse 5s ease-in-out infinite; }
     .l-spot-info {
@@ -1691,14 +1691,14 @@ function injectStyles() {
     }
     .l-spot-cta:hover {
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(255,140,0,.4);
+      box-shadow: 0 4px 12px rgba(242,144,48,.4);
     }
 
 
     /* ════════ ECOSYSTEM STRIP (xDEX-wide aggregates) ════════ */
     .l-eco {
       position: relative;
-      background: linear-gradient(155deg, rgba(255,140,0,.04), rgba(0,201,141,.02));
+      background: linear-gradient(155deg, rgba(242,144,48,.04), rgba(0,201,141,.02));
       border: 1px solid rgba(138,154,184,.14);
       border-radius: 10px;
       padding: 10px 14px;
@@ -1708,7 +1708,7 @@ function injectStyles() {
     .l-eco::after {
       /* slow scan line for "live data" effect */
       content: ''; position: absolute; top: 0; bottom: 0; width: 80px;
-      background: linear-gradient(90deg, transparent, rgba(255,140,0,.05), transparent);
+      background: linear-gradient(90deg, transparent, rgba(242,144,48,.05), transparent);
       animation: l-scan 8s linear infinite;
       pointer-events: none;
     }
@@ -1771,9 +1771,9 @@ function injectStyles() {
       font-family: 'Orbitron', monospace; font-size: 8px;
       letter-spacing: 1.5px; font-weight: 700; color: ${ACCENT};
       text-decoration: none; padding: 3px 8px;
-      border: 1px solid rgba(255,140,0,.3); border-radius: 4px;
+      border: 1px solid rgba(242,144,48,.3); border-radius: 4px;
     }
-    .l-pools-more:hover { background: rgba(255,140,0,.08); }
+    .l-pools-more:hover { background: rgba(242,144,48,.08); }
     .l-pools-grid {
       display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
     }
@@ -1789,12 +1789,12 @@ function injectStyles() {
     }
     .l-pool-card:hover {
       transform: translateY(-2px);
-      border-color: rgba(255,140,0,.4);
-      box-shadow: 0 6px 18px rgba(255,140,0,.08);
+      border-color: rgba(242,144,48,.4);
+      box-shadow: 0 6px 18px rgba(242,144,48,.08);
     }
     .l-pool-card.brains {
-      border-color: rgba(255,140,0,.35);
-      background: linear-gradient(155deg, rgba(255,140,0,.06), rgba(255,255,255,.01));
+      border-color: rgba(242,144,48,.35);
+      background: linear-gradient(155deg, rgba(242,144,48,.06), rgba(255,255,255,.01));
     }
     .l-pool-card.brains::before {
       content: '★'; position: absolute; top: 6px; right: 7px;
@@ -1807,13 +1807,13 @@ function injectStyles() {
     .l-pool-logo {
       width: 22px; height: 22px; border-radius: 50%;
       background: #06090d;
-      border: 1px solid rgba(255,140,0,.3);
+      border: 1px solid rgba(242,144,48,.3);
       display: inline-block;
       object-fit: cover;
     }
     .l-pool-logo.offset { margin-left: -8px; }
     .l-pool-logo.placeholder {
-      background: rgba(255,140,0,.08);
+      background: rgba(242,144,48,.08);
       display: inline-flex; align-items: center; justify-content: center;
       font-family: 'Orbitron', monospace; font-size: 10px; font-weight: 800;
       color: ${ACCENT};
@@ -1838,7 +1838,7 @@ function injectStyles() {
     /* ════════ XNT PRICE CARD (OHLCV chart) ════════ */
     .l-xnt, .l-xnt-empty {
       background: rgba(255,255,255,.015);
-      border: 1px solid rgba(255,140,0,.18);
+      border: 1px solid rgba(242,144,48,.18);
       border-radius: 10px;
       padding: 10px 14px;
       margin-bottom: 10px;
@@ -1894,8 +1894,8 @@ function injectStyles() {
     }
     .l-mover-card:hover {
       transform: translateY(-2px);
-      border-color: rgba(255,140,0,.4);
-      box-shadow: 0 6px 18px rgba(255,140,0,.08);
+      border-color: rgba(242,144,48,.4);
+      box-shadow: 0 6px 18px rgba(242,144,48,.08);
     }
     .l-mover-rank {
       font-family: 'Orbitron', monospace; font-size: 9px; font-weight: 800;

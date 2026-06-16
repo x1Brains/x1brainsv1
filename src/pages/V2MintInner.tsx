@@ -36,7 +36,7 @@ const XBLK_MINT_PK = new PublicKey('XBLKLmxhADMVX3DsdwymvHyYbBYfKa5eKhtpiQ2kj7T'
 const TIERS = [
   { label: 'TIER I',   brains: 8,  xntLamports: 1_110_000_000, color: '#00d4ff' },
   { label: 'TIER II',  brains: 18, xntLamports: 2_220_000_000, color: '#bf5af2' },
-  { label: 'TIER III', brains: 26, xntLamports: 3_330_000_000, color: '#ff8c00' },
+  { label: 'TIER III', brains: 26, xntLamports: 3_330_000_000, color: '#f29030' },
   { label: 'TIER IV',  brains: 33, xntLamports: 4_440_000_000, color: '#ff4444' },
 ];
 
@@ -483,9 +483,9 @@ export default function V2MintInner() {
                 <div
                   key={t.label}
                   className={`mint-tiers-row${active ? ' active' : ''}${past ? ' past' : ''}`}
-                  style={active ? { borderColor: '#ff8c0055' } : undefined}
+                  style={active ? { borderColor: '#f2903055' } : undefined}
                 >
-                  <div className="mint-tiers-cell" style={{ color: active ? '#ff8c00' : past ? 'var(--text-muted)' : 'var(--text-faint)' }}>
+                  <div className="mint-tiers-cell" style={{ color: active ? '#f29030' : past ? 'var(--text-muted)' : 'var(--text-faint)' }}>
                     {t.label} {past && '✓'}
                   </div>
                   <div className="mint-tiers-cell">{fmtNum(slotStart, 0)} – {fmtNum(slotEnd, 0)}</div>
@@ -493,7 +493,7 @@ export default function V2MintInner() {
                   <div className="mint-tiers-cell accent-cyan">{(t.xntLamports / LAMPORTS_PER_SOL).toFixed(2)}</div>
                   <div className="mint-tiers-cell">{usdCost > 0 ? fmtUSD(usdCost) : '—'}</div>
                   <div className="mint-tiers-cell" style={{ fontSize: 9 }}>
-                    {active ? <span style={{ color: '#ff8c00' }}>● ACTIVE</span> :
+                    {active ? <span style={{ color: '#f29030' }}>● ACTIVE</span> :
                       past  ? <span style={{ color: 'var(--neon-green)' }}>✓ DONE</span> :
                               <span style={{ color: 'var(--text-faint)' }}>○ UPCOMING</span>}
                   </div>

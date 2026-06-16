@@ -280,10 +280,10 @@ export const TokenLogo: FC<{ token: TokenData; size?: number }> = ({ token, size
       <img src={src} alt={token.symbol} crossOrigin="anonymous"
         onError={handleError}
         style={{ width:size, height:size, borderRadius:'50%', objectFit:'cover',
-          border:'2px solid rgba(255,140,0,0.35)', flexShrink:0, background:'#111820' }} />
+          border:'2px solid rgba(242,144,48,0.35)', flexShrink:0, background:'#111820' }} />
     );
   }
-  const colors = ['#ff8c00','#ffb700','#00d4ff','#00c98d','#bf5af2'];
+  const colors = ['#f29030','#ffb700','#00d4ff','#00c98d','#bf5af2'];
   const ci = (token.symbol?.charCodeAt(0) ?? 65) % colors.length;
   return (
     <div style={{ width:size, height:size, borderRadius:'50%',
@@ -291,7 +291,7 @@ export const TokenLogo: FC<{ token: TokenData; size?: number }> = ({ token, size
       display:'flex', alignItems:'center', justifyContent:'center',
       color:'#0a0e14', fontWeight:800, fontSize:size*0.38,
       fontFamily:'Orbitron, monospace', flexShrink:0,
-      border:'2px solid rgba(255,140,0,0.2)' }}>
+      border:'2px solid rgba(242,144,48,0.2)' }}>
       {(token.symbol ?? '?').charAt(0).toUpperCase()}
     </div>
   );
@@ -305,7 +305,7 @@ export const MetaBadge: FC<{ source?: string }> = ({ source }) => {
   const cfg: Record<string, { label: string; color: string }> = {
     token2022ext: { label:'T-2022 EXT', color:'#ffb700' },
     metaplex:     { label:'METAPLEX',   color:'#00d4ff' },
-    xdex:         { label:'XDEX',       color:'#ff8c00' },
+    xdex:         { label:'XDEX',       color:'#f29030' },
     fallback:     { label:'UNKNOWN',    color:'#6b7f90' },
   };
   const c = cfg[source] ?? cfg.fallback;
@@ -347,20 +347,20 @@ export const TokenCard: FC<{
 
   const borderColor =
     highlight === 'native' ? '#00d4ff' :
-    highlight === 'brains' ? '#ff8c00' :
+    highlight === 'brains' ? '#f29030' :
     isLP                   ? '#00c98d' :
     token.isToken2022      ? '#ffb700' : '#1e3050';
 
   const bgGradient =
     highlight === 'native' ? 'linear-gradient(135deg,rgba(0,212,255,0.07),rgba(0,212,255,0.02))' :
-    highlight === 'brains' ? 'linear-gradient(135deg,rgba(255,140,0,0.10),rgba(255,183,0,0.04))' :
+    highlight === 'brains' ? 'linear-gradient(135deg,rgba(242,144,48,0.10),rgba(255,183,0,0.04))' :
     isLP                   ? 'linear-gradient(135deg,rgba(0,201,141,0.08),rgba(0,201,141,0.02))' :
-    token.isToken2022      ? 'linear-gradient(135deg,rgba(255,183,0,0.06),rgba(255,140,0,0.02))' :
+    token.isToken2022      ? 'linear-gradient(135deg,rgba(255,183,0,0.06),rgba(242,144,48,0.02))' :
     'linear-gradient(135deg,#111820,#0d1520)';
 
   const accentColor =
     highlight === 'native' ? '#00d4ff' :
-    highlight === 'brains' ? '#ff8c00' :
+    highlight === 'brains' ? '#f29030' :
     isLP                   ? '#00c98d' :
     token.isToken2022      ? '#ffb700' : '#dce8f4';
 
@@ -471,9 +471,9 @@ export const TokenCard: FC<{
               {token.mint.slice(0,8)}…{token.mint.slice(-4)}
             </span>
             <button onClick={() => onCopy(token.mint)}
-              style={{ background:copiedAddress===token.mint?'rgba(0,201,141,0.2)':'rgba(255,140,0,0.1)',
-                border:`1px solid ${copiedAddress===token.mint?'rgba(0,201,141,0.4)':'rgba(255,140,0,0.22)'}`,
-                color:copiedAddress===token.mint?'#00c98d':'#ff8c00',
+              style={{ background:copiedAddress===token.mint?'rgba(0,201,141,0.2)':'rgba(242,144,48,0.1)',
+                border:`1px solid ${copiedAddress===token.mint?'rgba(0,201,141,0.4)':'rgba(242,144,48,0.22)'}`,
+                color:copiedAddress===token.mint?'#00c98d':'#f29030',
                 padding:'2px 7px', borderRadius:4, cursor:'pointer',
                 fontSize:10, fontFamily:'Orbitron, monospace', transition:'all 0.2s' }}>
               {copiedAddress===token.mint?'✓':'COPY'}
@@ -518,23 +518,23 @@ export const TokenCard: FC<{
             style={{
               display:'inline-flex', alignItems:'center', gap:5,
               padding:'5px 12px',
-              background: sendActive ? 'rgba(255,140,0,.15)' : 'transparent',
-              border: `1px solid ${sendActive ? 'rgba(255,140,0,.5)' : 'rgba(255,140,0,.2)'}`,
+              background: sendActive ? 'rgba(242,144,48,.15)' : 'transparent',
+              border: `1px solid ${sendActive ? 'rgba(242,144,48,.5)' : 'rgba(242,144,48,.2)'}`,
               borderRadius:6, cursor:'pointer', transition:'all .15s',
               fontFamily:'Orbitron,monospace', fontSize:8, fontWeight:700,
-              letterSpacing:2, color: sendActive ? '#ff8c00' : '#7a9ab8',
+              letterSpacing:2, color: sendActive ? '#f29030' : '#7a9ab8',
             }}
             onMouseEnter={e => {
               const b = e.currentTarget as HTMLButtonElement;
-              b.style.borderColor = 'rgba(255,140,0,.5)';
-              b.style.color = '#ff8c00';
-              b.style.background = 'rgba(255,140,0,.1)';
+              b.style.borderColor = 'rgba(242,144,48,.5)';
+              b.style.color = '#f29030';
+              b.style.background = 'rgba(242,144,48,.1)';
             }}
             onMouseLeave={e => {
               const b = e.currentTarget as HTMLButtonElement;
-              b.style.borderColor = sendActive ? 'rgba(255,140,0,.5)' : 'rgba(255,140,0,.2)';
-              b.style.color = sendActive ? '#ff8c00' : '#7a9ab8';
-              b.style.background = sendActive ? 'rgba(255,140,0,.15)' : 'transparent';
+              b.style.borderColor = sendActive ? 'rgba(242,144,48,.5)' : 'rgba(242,144,48,.2)';
+              b.style.color = sendActive ? '#f29030' : '#7a9ab8';
+              b.style.background = sendActive ? 'rgba(242,144,48,.15)' : 'transparent';
             }}
           >
             <svg width="9" height="9" viewBox="0 0 10 10" fill="none" style={{flexShrink:0}}>

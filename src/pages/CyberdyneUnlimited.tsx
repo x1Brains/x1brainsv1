@@ -610,7 +610,7 @@ export default function CyberdyneUnlimited() {
                   { icon:"💼", label:"PORTFOLIO",    route:"/portfolio",         color:"#00c98d" },
                   { icon:"🧪", label:"LAB WORK",     route:"/labwork",           color:"#ffb700" },
                   { icon:"⚔️", label:"CYBERDYNE",    route:"/cyberdyne",         color:"#00ffe5" },
-                  { icon:"🔥", label:"INCINERATOR",  route:"/incinerator-engine",color:"#ff8c00" },
+                  { icon:"🔥", label:"INCINERATOR",  route:"/incinerator-engine",color:"#f29030" },
                   { icon:"🏆", label:"REWARDS",      route:"/rewards",           color:"#ffcc00" },
                 ].map(item => (
                   <button

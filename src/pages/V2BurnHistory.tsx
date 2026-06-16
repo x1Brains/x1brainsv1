@@ -158,8 +158,8 @@ export default function V2BurnHistory() {
               marginTop: 10, padding: '8px 12px',
               fontFamily: 'Orbitron,monospace', fontSize: 9,
               color: '#8aaac8', letterSpacing: 1,
-              background: 'rgba(255,140,0,.05)',
-              border: '1px solid rgba(255,140,0,.15)',
+              background: 'rgba(242,144,48,.05)',
+              border: '1px solid rgba(242,144,48,.15)',
               borderRadius: 7,
             }}>
               ⟳ {scanMsg}

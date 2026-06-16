@@ -14,7 +14,7 @@ import { BRAINS_LOGO } from '../constants';
 const NFA_STORAGE_KEY = 'x1brainsv2.nfa.accepted.v2';
 const NFA_VERSION = '2.0';
 
-const ORANGE = '#ff8c00';
+const ORANGE = '#f29030';
 const AMBER  = '#ffb700';
 
 interface NfaRecord { version: string; anon: boolean; wallets: string[]; }
@@ -108,7 +108,7 @@ const V2NfaConsent: FC = () => {
         @keyframes v2nfaFade { from { opacity: 0 } to { opacity: 1 } }
         @keyframes v2nfaSlide { from { opacity: 0; transform: translateY(14px) scale(.975) } to { opacity: 1; transform: translateY(0) scale(1) } }
         .v2nfa-card::-webkit-scrollbar { width: 3px }
-        .v2nfa-card::-webkit-scrollbar-thumb { background: rgba(255,140,0,.3); border-radius: 2px }
+        .v2nfa-card::-webkit-scrollbar-thumb { background: rgba(242,144,48,.3); border-radius: 2px }
       `}</style>
 
       <div
@@ -116,15 +116,15 @@ const V2NfaConsent: FC = () => {
         style={{
           position: 'relative', width: '100%', maxWidth: 460,
           maxHeight: '90dvh', overflow: 'hidden auto', borderRadius: 14,
-          border: '1px solid rgba(255,140,0,.28)',
+          border: '1px solid rgba(242,144,48,.28)',
           background: `
-            radial-gradient(120% 70% at 0% 0%, rgba(255,140,0,.045), transparent 46%),
+            radial-gradient(120% 70% at 0% 0%, rgba(242,144,48,.045), transparent 46%),
             radial-gradient(120% 70% at 100% 0%, rgba(255,183,0,.03), transparent 46%),
             linear-gradient(160deg, #0c121c, #070b11)`,
           // Keep the gradient inside the border so it can't bleed past the
           // rounded corners; overflow-hidden(x) clips the top accent bar too.
           backgroundClip: 'padding-box',
-          boxShadow: '0 0 30px rgba(255,140,0,.05), 0 24px 60px rgba(0,0,0,.7)',
+          boxShadow: '0 0 30px rgba(242,144,48,.05), 0 24px 60px rgba(0,0,0,.7)',
           padding: '20px 20px 16px',
           animation: 'v2nfaSlide .3s cubic-bezier(.22,1,.36,1) both',
         }}
@@ -136,7 +136,7 @@ const V2NfaConsent: FC = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 13 }}>
           <div style={{
             width: 30, height: 30, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
-            border: `1px solid ${ORANGE}66`, boxShadow: '0 0 6px rgba(255,140,0,.14)', background: '#0a0e15',
+            border: `1px solid ${ORANGE}66`, boxShadow: '0 0 6px rgba(242,144,48,.14)', background: '#0a0e15',
           }}>
             <img src={BRAINS_LOGO} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           </div>
@@ -190,7 +190,7 @@ const V2NfaConsent: FC = () => {
             border: agreed ? 'none' : '1px solid rgba(255,255,255,.08)',
             cursor: agreed && !submitting ? 'pointer' : 'not-allowed',
             opacity: submitting ? 0.7 : 1,
-            boxShadow: agreed ? '0 0 14px rgba(255,140,0,.2)' : 'none',
+            boxShadow: agreed ? '0 0 14px rgba(242,144,48,.2)' : 'none',
             transition: 'all .15s',
           }}
         >

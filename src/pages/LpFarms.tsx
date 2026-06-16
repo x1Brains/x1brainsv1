@@ -47,7 +47,7 @@ const XDEX_BASE = '/api/xdex-price/api';
 export const LOCK_TIERS = [
   { id: 'locked30',  label: '30 DAYS',   days: 30,  multBps: 20_000, multDisplay: '2×', color: '#00d4ff' },
   { id: 'locked90',  label: '90 DAYS',   days: 90,  multBps: 40_000, multDisplay: '4×', color: '#00c98d' },
-  { id: 'locked365', label: '365 DAYS',  days: 365, multBps: 80_000, multDisplay: '8×', color: '#ff8c00' },
+  { id: 'locked365', label: '365 DAYS',  days: 365, multBps: 80_000, multDisplay: '8×', color: '#f29030' },
 ] as const;
 export type LockId = typeof LOCK_TIERS[number]['id'];
 

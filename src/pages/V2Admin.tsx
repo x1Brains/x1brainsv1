@@ -12,11 +12,11 @@ import { shortAddr } from '../utils/v2format';
 import V2AnalyticsPanel from '../components/V2AnalyticsPanel';
 import V2BotPanel from '../components/V2BotPanel';
 
-const ACCENT = '#ff8c00';
+const ACCENT = '#f29030';
 const MUTED  = '#5c7a90';
 const DIM    = '#3a4a5a';
 const TEXT   = '#cdd8e2';
-const LINE   = 'rgba(255,140,0,0.13)';
+const LINE   = 'rgba(242,144,48,0.13)';
 const BAD    = '#ff4466';
 const COUNCIL_COLOR = '#bf5af2';
 
@@ -167,7 +167,7 @@ const AnnouncementsPanel: FC<{
         ) : items.map(a => (
           <div key={a.id} style={{
             padding: '10px 12px',
-            background: 'rgba(255,140,0,0.04)',
+            background: 'rgba(242,144,48,0.04)',
             border: `1px solid ${LINE}`,
             borderRadius: 7,
             display: 'flex', gap: 12, alignItems: 'flex-start',

@@ -19,7 +19,7 @@ import type { PortfolioSnapshot, SnapshotToken } from '../lib/supabase';
     .pc-bar { animation: pc-bar .6s cubic-bezier(.4,0,.2,1) both; }
     .pc-tooltip {
       position:absolute; pointer-events:none;
-      background:rgba(8,12,16,.97); border:1px solid rgba(255,140,0,.3);
+      background:rgba(8,12,16,.97); border:1px solid rgba(242,144,48,.3);
       border-radius:8px; padding:8px 12px; white-space:nowrap;
       box-shadow:0 4px 20px rgba(0,0,0,.5);
       transform:translateX(-50%);
@@ -367,9 +367,9 @@ export const PortfolioChart: FC<PortfolioChartProps> = ({ snapshots, currentUSD,
             <button key={r} type="button" onClick={() => setRange(r)} style={{
               padding:'4px 10px', fontFamily:'Orbitron,monospace', fontSize:8, fontWeight:700,
               letterSpacing:1, borderRadius:6, cursor:'pointer', transition:'all .15s', border:'none',
-              background: range===r ? 'rgba(255,140,0,.15)' : 'transparent',
-              color: range===r ? '#ff8c00' : '#3a5060',
-              outline: range===r ? '1px solid rgba(255,140,0,.3)' : '1px solid transparent',
+              background: range===r ? 'rgba(242,144,48,.15)' : 'transparent',
+              color: range===r ? '#f29030' : '#3a5060',
+              outline: range===r ? '1px solid rgba(242,144,48,.3)' : '1px solid transparent',
             }}>
               {r === 'all' ? 'ALL' : r.toUpperCase()}
             </button>
@@ -490,7 +490,7 @@ export const PortfolioChart: FC<PortfolioChartProps> = ({ snapshots, currentUSD,
                 {topTokens.map((t, i) => {
                   const pct = latestSnap!.total_usd > 0 ? (t.usd / latestSnap!.total_usd) * 100 : 0;
                   const hist = tokenHistory.get(t.mint);
-                  const colors = ['#ff8c00','#00d4ff','#00c98d','#bf5af2','#ffb700','#ff4466'];
+                  const colors = ['#f29030','#00d4ff','#00c98d','#bf5af2','#ffb700','#ff4466'];
                   const c = colors[i % colors.length];
                   return (
                     <div key={t.mint} style={{ display:'grid',

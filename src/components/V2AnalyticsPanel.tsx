@@ -6,11 +6,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getAllPageViews, getAllSiteEvents } from '../lib/supabase';
 
-const ACCENT = '#ff8c00';
+const ACCENT = '#f29030';
 const MUTED  = '#5c7a90';
 const DIM    = '#3a4a5a';
 const TEXT   = '#cdd8e2';
-const LINE   = 'rgba(255,140,0,0.13)';
+const LINE   = 'rgba(242,144,48,0.13)';
 const GOOD   = '#00c98d';
 const COOL   = '#00d4ff';
 const PURPLE = '#bf5af2';
@@ -221,7 +221,7 @@ export default function V2AnalyticsPanel() {
         <>
           {/* By-site split — always shows both; click a card to filter the panel */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-            <div onClick={() => setSite('x1brains')} style={{ cursor: 'pointer', padding: '10px 14px', borderRadius: 7, background: 'rgba(255,140,0,0.05)', border: `1px solid ${site === 'x1city' ? 'rgba(255,255,255,.07)' : LINE}` }}>
+            <div onClick={() => setSite('x1brains')} style={{ cursor: 'pointer', padding: '10px 14px', borderRadius: 7, background: 'rgba(242,144,48,0.05)', border: `1px solid ${site === 'x1city' ? 'rgba(255,255,255,.07)' : LINE}` }}>
               <div style={{ ...mono, fontSize: 8, color: DIM, letterSpacing: 1.5, fontWeight: 700 }}>X1BRAINS.IO</div>
               <div style={{ ...mono, fontSize: 20, color: ACCENT, fontWeight: 800, marginTop: 4 }}>{fmtN(siteSplit.x1brains)}</div>
               <div style={{ fontFamily: 'Sora, sans-serif', fontSize: 9, color: MUTED }}>views · this range</div>
@@ -243,7 +243,7 @@ export default function V2AnalyticsPanel() {
           </div>
 
           {/* Daily trend sparkline */}
-          <div style={{ marginTop: 16, padding: '12px 14px', background: 'rgba(255,140,0,0.03)', border: `1px solid ${LINE}`, borderRadius: 7 }}>
+          <div style={{ marginTop: 16, padding: '12px 14px', background: 'rgba(242,144,48,0.03)', border: `1px solid ${LINE}`, borderRadius: 7 }}>
             <div style={{ ...mono, fontSize: 8, color: DIM, letterSpacing: 1.5, fontWeight: 700, marginBottom: 8 }}>
               DAILY VIEWS · {stats.daily.length}d
             </div>

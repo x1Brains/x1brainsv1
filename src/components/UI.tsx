@@ -278,7 +278,7 @@ export const TopBar: FC = () => {
             onMouseLeave={e => !navOpen && hoverOff(e)}
           >
             <span style={{ fontSize: 14 }}>{navOpen ? '✕' : '☰'}</span>
-            <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: navOpen ? '#ff8c00' : '#5c7a90', letterSpacing: 2, fontWeight: 700 }}>MENU</span>
+            <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: navOpen ? '#f29030' : '#5c7a90', letterSpacing: 2, fontWeight: 700 }}>MENU</span>
           </button>
 
           {navOpen && (
@@ -373,13 +373,13 @@ export const TopBar: FC = () => {
               {/* INCINERATOR */}
               <button
                 onClick={() => { navigate('/burn-history'); setNavOpen(false); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isBurnHistory ? 'rgba(255,140,0,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,140,0,0.1)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isBurnHistory ? 'rgba(255,140,0,0.1)' : 'transparent'; }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 7, background: isBurnHistory ? 'rgba(242,144,48,0.1)' : 'transparent', border: 'none', cursor: 'pointer', width: '100%', transition: 'all 0.15s' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(242,144,48,0.1)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isBurnHistory ? 'rgba(242,144,48,0.1)' : 'transparent'; }}
               >
                 <span style={{ fontSize: 14 }}>🔥</span>
-                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ff8c00', letterSpacing: 1.5, fontWeight: 700 }}>INCINERATOR</span>
-                {isBurnHistory && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#ff8c00' }} />}
+                <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#f29030', letterSpacing: 1.5, fontWeight: 700 }}>INCINERATOR</span>
+                {isBurnHistory && <span style={{ marginLeft: 'auto', width: 5, height: 5, borderRadius: '50%', background: '#f29030' }} />}
               </button>
 
               {/* BURN RANK ASCEND — sub item */}
@@ -446,9 +446,9 @@ export const TopBar: FC = () => {
 function navPillStyle(active: boolean): React.CSSProperties {
   return {
     background: active
-      ? 'linear-gradient(135deg, rgba(255,140,0,0.2), rgba(255,183,0,0.1))'
+      ? 'linear-gradient(135deg, rgba(242,144,48,0.2), rgba(255,183,0,0.1))'
       : 'rgba(13,21,32,0.92)',
-    border: `1px solid ${active ? '#ff8c00' : '#1e3050'}`,
+    border: `1px solid ${active ? '#f29030' : '#1e3050'}`,
     borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
     display: 'flex', alignItems: 'center', gap: 5,
     backdropFilter: 'blur(12px)', transition: 'all 0.2s',
@@ -474,7 +474,7 @@ function navPillStyleBurn(): React.CSSProperties {
 }
 
 // ─── HOVER HANDLERS ───────────────────────────────────────────────────────────
-function hoverOn(e: React.MouseEvent)  { (e.currentTarget as HTMLElement).style.borderColor = '#ff8c00'; }
+function hoverOn(e: React.MouseEvent)  { (e.currentTarget as HTMLElement).style.borderColor = '#f29030'; }
 function hoverOff(e: React.MouseEvent) { (e.currentTarget as HTMLElement).style.borderColor = '#1e3050'; }
 function hoverOnMint(e: React.MouseEvent) {
   const el = e.currentTarget as HTMLElement;
@@ -521,7 +521,7 @@ export const SideNav: FC<SideNavProps> = ({
   const navItems = [
     { id: 'top',        label: 'Top',           icon: '🏠',  color: '#00d4ff', show: true,                        isBurn: false },
     { id: 'burn',       label: 'Burn BRAINS',   icon: '🔥',  color: '#ff4422', show: hasBrains,                   isBurn: true  },
-    { id: 'spl',        label: 'SPL Tokens',    icon: '🪙',  color: '#ff8c00', show: showSPL && splCount > 0,     isBurn: false },
+    { id: 'spl',        label: 'SPL Tokens',    icon: '🪙',  color: '#f29030', show: showSPL && splCount > 0,     isBurn: false },
     { id: 't22',        label: 'Token-2022',    icon: '⚡',  color: '#ffb700', show: showT22 && t22Count > 0,     isBurn: false },
     { id: 'lp',         label: 'LP Tokens',     icon: '💧',  color: '#00c98d', show: showLP  && lpCount  > 0,     isBurn: false },
     { id: 'xenblocks',  label: 'XenBlocks',     icon: '⛏️', color: '#bf5af2', show: true,                        isBurn: false },
@@ -634,12 +634,12 @@ export const PageBackground: FC = () => (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 0,
       backgroundImage: `
-        linear-gradient(rgba(255,140,0,0.025) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,140,0,0.025) 1px, transparent 1px)
+        linear-gradient(rgba(242,144,48,0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(242,144,48,0.025) 1px, transparent 1px)
       `,
       backgroundSize: '48px 48px', pointerEvents: 'none',
     }} />
-    <div style={{ position: 'fixed', top: -200, right: -200, width: 600, height: 600, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,140,0,0.06) 0%, transparent 70%)', pointerEvents: 'none', zIndex: 0 }} />
+    <div style={{ position: 'fixed', top: -200, right: -200, width: 600, height: 600, borderRadius: '50%', background: 'radial-gradient(circle, rgba(242,144,48,0.06) 0%, transparent 70%)', pointerEvents: 'none', zIndex: 0 }} />
     <div style={{ position: 'fixed', bottom: -300, left: -200, width: 700, height: 700, borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,212,255,0.04) 0%, transparent 70%)', pointerEvents: 'none', zIndex: 0 }} />
   </>
 );
@@ -649,7 +649,7 @@ export const PageBackground: FC = () => (
 // ─────────────────────────────────────────────
 export const Spinner: FC<{ label?: string }> = ({ label = 'Loading...' }) => (
   <div style={{ textAlign: 'center', padding: '50px 20px' }}>
-    <div style={{ width: 48, height: 48, border: '3px solid rgba(255,140,0,0.15)', borderTop: '3px solid #ff8c00', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
+    <div style={{ width: 48, height: 48, border: '3px solid rgba(242,144,48,0.15)', borderTop: '3px solid #f29030', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
     <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 10, color: '#5c7a90', letterSpacing: 2, textTransform: 'uppercase' }}>{label}</div>
   </div>
 );
@@ -661,7 +661,7 @@ export const StatsBar: FC<{ items: { label: string; value: string | number; colo
   <div style={{ display: 'flex', gap: 1, marginBottom: 24, background: '#0d1520', borderRadius: 10, border: '1px solid #1e3050', overflow: 'hidden' }}>
     {items.map((item, i) => (
       <div key={i} style={{ flex: 1, padding: '12px 16px', textAlign: 'center', borderRight: i < items.length - 1 ? '1px solid #1e3050' : 'none' }}>
-        <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 14, fontWeight: 700, color: item.color || '#ff8c00', marginBottom: 3 }}>{item.value}</div>
+        <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 14, fontWeight: 700, color: item.color || '#f29030', marginBottom: 3 }}>{item.value}</div>
         <div style={{ fontSize: 9, color: '#6a8ea8', letterSpacing: 2, textTransform: 'uppercase', fontFamily: 'Orbitron, monospace' }}>{item.label}</div>
       </div>
     ))}
@@ -677,7 +677,7 @@ export const SectionHeader: FC<{
   color?: string;
   hiddenCount?: number;
   icon?: string;
-}> = ({ label, count, color = '#ff8c00', hiddenCount = 0, icon }) => (
+}> = ({ label, count, color = '#f29030', hiddenCount = 0, icon }) => (
   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, marginTop: 28 }}>
     {icon && <span style={{ fontSize: 16 }}>{icon}</span>}
     <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 10, fontWeight: 700, letterSpacing: 3, color, textTransform: 'uppercase' }}>
@@ -727,7 +727,7 @@ export const Footer: FC = () => (
         style={{
           fontFamily: 'Orbitron, monospace',
           fontSize: 9, fontWeight: 700,
-          color: '#ff8c00', letterSpacing: 1.5,
+          color: '#f29030', letterSpacing: 1.5,
           marginRight: 8, whiteSpace: 'nowrap',
         }}
       >
@@ -754,7 +754,7 @@ export const Footer: FC = () => (
       ].map(link => (
         <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer"
           style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, letterSpacing: 2, color: '#5c7a90', textDecoration: 'none', textTransform: 'uppercase', transition: 'color 0.2s' }}
-          onMouseEnter={e => (e.currentTarget as HTMLAnchorElement).style.color = '#ff8c00'}
+          onMouseEnter={e => (e.currentTarget as HTMLAnchorElement).style.color = '#f29030'}
           onMouseLeave={e => (e.currentTarget as HTMLAnchorElement).style.color = '#5c7a90'}
         >{link.label}</a>
       ))}
@@ -813,7 +813,7 @@ function readNfaAcceptance(): NfaAcceptance | null {
 }
 
 const NfaCornerBracket: FC<{ corner: 'tl' | 'tr' | 'bl' | 'br' }> = ({ corner }) => {
-  const c = '#ff8c00';
+  const c = '#f29030';
   const size = 14;
   const base: React.CSSProperties = { position: 'absolute', width: size, height: size, pointerEvents: 'none' };
   const styles: Record<typeof corner, React.CSSProperties> = {
@@ -912,14 +912,14 @@ export const NfaConsentModal: FC = () => {
         maxWidth: 640, width: '100%',
         maxHeight: '92vh', overflowY: 'auto',
         background: '#070b12',
-        border: '1px solid rgba(255,140,0,.4)',
-        boxShadow: '0 0 80px rgba(255,140,0,.18), 0 0 32px rgba(0,0,0,.6)',
+        border: '1px solid rgba(242,144,48,.4)',
+        boxShadow: '0 0 80px rgba(242,144,48,.18), 0 0 32px rgba(0,0,0,.6)',
         padding: '32px 28px 24px',
         // CRT scanline overlay
         backgroundImage: `repeating-linear-gradient(
           0deg,
-          rgba(255,140,0,.015) 0,
-          rgba(255,140,0,.015) 1px,
+          rgba(242,144,48,.015) 0,
+          rgba(242,144,48,.015) 1px,
           transparent 1px,
           transparent 3px
         )`,
@@ -936,17 +936,17 @@ export const NfaConsentModal: FC = () => {
           marginBottom: 6, textTransform: 'uppercase',
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
-          <span style={{ color: '#ff8c00' }}>[</span>
+          <span style={{ color: '#f29030' }}>[</span>
           <span>X1 BRAINS · LEGAL DISCLAIMER</span>
-          <span style={{ color: '#ff8c00' }}>]</span>
-          <span style={{ flex: 1, height: 1, background: 'linear-gradient(90deg, rgba(255,140,0,.5), transparent)' }} />
+          <span style={{ color: '#f29030' }}>]</span>
+          <span style={{ flex: 1, height: 1, background: 'linear-gradient(90deg, rgba(242,144,48,.5), transparent)' }} />
           <span style={{ color: 'rgba(255,178,100,.45)' }}>v{NFA_VERSION}</span>
         </div>
 
         <h2 id="nfa-modal-title" style={{
           fontFamily: 'Orbitron, monospace',
           fontSize: 20, fontWeight: 900,
-          letterSpacing: 2, color: '#ff8c00',
+          letterSpacing: 2, color: '#f29030',
           margin: '4px 0 18px', textTransform: 'uppercase',
         }}>
           Not Financial Advice
@@ -962,7 +962,7 @@ export const NfaConsentModal: FC = () => {
         }}>
           {bullets.map((text, i) => (
             <li key={i} style={{ display: 'flex', gap: 10 }}>
-              <span style={{ color: '#ff8c00', fontFamily: 'Orbitron, monospace', fontSize: 11, flexShrink: 0 }}>▸</span>
+              <span style={{ color: '#f29030', fontFamily: 'Orbitron, monospace', fontSize: 11, flexShrink: 0 }}>▸</span>
               <span>{text}</span>
             </li>
           ))}
@@ -970,12 +970,12 @@ export const NfaConsentModal: FC = () => {
 
         <div style={{
           marginTop: 18, padding: '12px 14px',
-          background: 'rgba(255,140,0,.05)',
-          border: '1px solid rgba(255,140,0,.18)',
+          background: 'rgba(242,144,48,.05)',
+          border: '1px solid rgba(242,144,48,.18)',
           fontFamily: 'Sora, sans-serif', fontSize: 11, lineHeight: 1.55,
           color: '#d6e0e8',
         }}>
-          By checking the box and clicking <strong style={{ color: '#ff8c00' }}>I ACCEPT</strong> you agree to all of
+          By checking the box and clicking <strong style={{ color: '#f29030' }}>I ACCEPT</strong> you agree to all of
           the above and waive any claim against the X1 Brains team for losses
           incurred while using this site.
         </div>
@@ -993,7 +993,7 @@ export const NfaConsentModal: FC = () => {
             onChange={e => setAgreed(e.target.checked)}
             style={{
               width: 16, height: 16, marginTop: 2, flexShrink: 0,
-              cursor: 'pointer', accentColor: '#ff8c00',
+              cursor: 'pointer', accentColor: '#f29030',
             }}
           />
           <span>
@@ -1015,14 +1015,14 @@ export const NfaConsentModal: FC = () => {
             textTransform: 'uppercase',
             color: agreed ? '#0a0a0a' : '#5c7a90',
             background: agreed
-              ? 'linear-gradient(135deg, #ff8c00, #ffb700)'
+              ? 'linear-gradient(135deg, #f29030, #ffb700)'
               : 'rgba(255,255,255,.04)',
             border: agreed
-              ? '1px solid #ff8c00'
+              ? '1px solid #f29030'
               : '1px solid rgba(255,255,255,.08)',
             cursor: agreed && !submitting ? 'pointer' : 'not-allowed',
             opacity: submitting ? 0.7 : 1,
-            boxShadow: agreed ? '0 0 24px rgba(255,140,0,.35)' : 'none',
+            boxShadow: agreed ? '0 0 24px rgba(242,144,48,.35)' : 'none',
             transition: 'all .15s',
           }}
         >

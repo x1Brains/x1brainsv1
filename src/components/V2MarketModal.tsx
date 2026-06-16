@@ -28,10 +28,10 @@ type Props = {
 // destructive "you're removing your listing" path still reads as destructive at
 // a glance.
 const ACCENT: Record<MarketAction, { color: string; bg: string; verb: string; cta: string; glyph: string }> = {
-  buy:         { color: '#ff8c00', bg: 'rgba(255,140,0,0.06)', verb: 'Buy',          cta: 'CONFIRM BUY',    glyph: '◆' },
-  list:        { color: '#ff8c00', bg: 'rgba(255,140,0,0.06)', verb: 'List',         cta: 'CONFIRM LIST',   glyph: '⌬' },
+  buy:         { color: '#f29030', bg: 'rgba(242,144,48,0.06)', verb: 'Buy',          cta: 'CONFIRM BUY',    glyph: '◆' },
+  list:        { color: '#f29030', bg: 'rgba(242,144,48,0.06)', verb: 'List',         cta: 'CONFIRM LIST',   glyph: '⌬' },
   cancel:      { color: '#ff4466', bg: 'rgba(255,68,102,0.06)', verb: 'Cancel',       cta: 'CONFIRM CANCEL', glyph: '✕' },
-  updatePrice: { color: '#ff8c00', bg: 'rgba(255,140,0,0.06)', verb: 'Update price', cta: 'UPDATE PRICE',   glyph: '✏' },
+  updatePrice: { color: '#f29030', bg: 'rgba(242,144,48,0.06)', verb: 'Update price', cta: 'UPDATE PRICE',   glyph: '✏' },
 };
 
 export default function V2MarketModal({ target, onClose, onDone }: Props) {
@@ -214,14 +214,14 @@ export default function V2MarketModal({ target, onClose, onDone }: Props) {
         {target.action === 'updatePrice' && target.priceLamports != null && (
           <div style={{
             marginBottom: 14, padding: '10px 14px',
-            background: 'rgba(255,140,0,0.06)', borderRadius: 9,
-            border: '1px solid rgba(255,140,0,0.25)',
+            background: 'rgba(242,144,48,0.06)', borderRadius: 9,
+            border: '1px solid rgba(242,144,48,0.25)',
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           }}>
             <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#9abacf', letterSpacing: 1.5 }}>
               CURRENT PRICE
             </span>
-            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 800, color: '#ff8c00' }}>
+            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 800, color: '#f29030' }}>
               {fmtNum(priceXnt, 4)} XNT
             </span>
           </div>

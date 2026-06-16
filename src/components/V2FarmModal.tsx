@@ -26,9 +26,9 @@ type Props = {
 // V2 brand orange for primary actions. Unstake stays red since it's the
 // destructive "pull funds out" path.
 const ACCENT: Record<FarmAction, { color: string; verb: string; cta: string; glyph: string }> = {
-  stake:   { color: '#ff8c00', verb: 'Stake LP',  cta: 'CONFIRM STAKE',   glyph: '⚡' },
-  donate:  { color: '#ff8c00', verb: 'Donate',    cta: 'CONFIRM DONATE',  glyph: '💧' },
-  claim:   { color: '#ff8c00', verb: 'Claim',     cta: 'CONFIRM CLAIM',   glyph: '💰' },
+  stake:   { color: '#f29030', verb: 'Stake LP',  cta: 'CONFIRM STAKE',   glyph: '⚡' },
+  donate:  { color: '#f29030', verb: 'Donate',    cta: 'CONFIRM DONATE',  glyph: '💧' },
+  claim:   { color: '#f29030', verb: 'Claim',     cta: 'CONFIRM CLAIM',   glyph: '💰' },
   unstake: { color: '#ff4466', verb: 'Unstake',   cta: 'CONFIRM UNSTAKE', glyph: '✕' },
 };
 

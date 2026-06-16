@@ -14,7 +14,7 @@ import { fmtUSD } from '../utils/v2format';
 const BRAINS_INITIAL = 8_880_000;
 const LB_INITIAL     = 100_000;
 
-const ACCENT = '#ff8c00';
+const ACCENT = '#f29030';
 const TEXT   = 'var(--text-primary)';
 const MUTED  = 'var(--text-muted)';
 const DIM    = 'var(--text-faint)';
@@ -56,8 +56,8 @@ function injectStyles() {
     }
     .v2bd-channel {
       position: relative;
-      background: linear-gradient(155deg, rgba(255,140,0,.06), rgba(255,140,0,.01));
-      border: 1px solid rgba(255,140,0,0.22);
+      background: linear-gradient(155deg, rgba(242,144,48,.06), rgba(242,144,48,.01));
+      border: 1px solid rgba(242,144,48,0.22);
       border-radius: 12px;
       padding: 13px 12px 12px;
       overflow: hidden;
@@ -90,21 +90,21 @@ function injectStyles() {
       position: absolute;
       inset: 0;
       border-radius: 50%;
-      border: 1px solid rgba(255,140,0,.18);
+      border: 1px solid rgba(242,144,48,.18);
     }
     .v2bd-ring.r2 {
       inset: 11px;
-      border-color: rgba(255,140,0,.3);
+      border-color: rgba(242,144,48,.3);
     }
     .v2bd-ring.r3 {
       inset: 21px;
-      border-color: rgba(255,140,0,.42);
+      border-color: rgba(242,144,48,.42);
       border-style: dashed;
       animation: v2bd-spin-slow 80s linear infinite;
     }
     .v2bd-ring.r4 {
       inset: 5px;
-      border: 1px dashed rgba(255,140,0,.15);
+      border: 1px dashed rgba(242,144,48,.15);
       animation: v2bd-spin-rev 120s linear infinite;
     }
     /* Tick marks layer — sits between r2 and r3 */
@@ -115,8 +115,8 @@ function injectStyles() {
       background:
         repeating-conic-gradient(
           from 0deg,
-          rgba(255,140,0,.32) 0deg,
-          rgba(255,140,0,.32) 0.6deg,
+          rgba(242,144,48,.32) 0deg,
+          rgba(242,144,48,.32) 0.6deg,
           transparent 0.6deg,
           transparent 30deg
         );
@@ -146,14 +146,14 @@ function injectStyles() {
       inset: 38px;
       border-radius: 50%;
       background:
-        radial-gradient(circle at 30% 30%, rgba(255,140,0,.18), transparent 60%),
-        linear-gradient(135deg, rgba(255,140,0,.14), rgba(0,0,0,.42));
+        radial-gradient(circle at 30% 30%, rgba(242,144,48,.18), transparent 60%),
+        linear-gradient(135deg, rgba(242,144,48,.14), rgba(0,0,0,.42));
       background-size: 200% 200%;
       animation: v2bd-core-drift 8s ease-in-out infinite;
-      border: 1px solid rgba(255,140,0,.5);
+      border: 1px solid rgba(242,144,48,.5);
       box-shadow:
-        0 0 24px rgba(255,140,0,.18),
-        inset 0 0 18px rgba(255,140,0,.12);
+        0 0 24px rgba(242,144,48,.18),
+        inset 0 0 18px rgba(242,144,48,.12);
       display: grid;
       place-items: center;
       text-align: center;

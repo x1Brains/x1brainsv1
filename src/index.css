@@ -7,7 +7,7 @@
   --bg-card-2: #111820;
   --bg-hover: #1a2535;
 
-  --accent-orange: #ff8c00;
+  --accent-orange: #f29030;
   --accent-orange-dim: #cc7000;
   --accent-purple: #bf5af2;
   --neon-cyan: #00d4ff;
@@ -25,7 +25,7 @@
 
   --border: #1e3050;
   --border-soft: rgba(255, 255, 255, 0.07);
-  --border-glow: rgba(255, 140, 0, 0.25);
+  --border-glow: rgba(242, 144, 48, 0.25);
 
   --sidebar-w: 218px;
   --header-h: 68px;
@@ -33,11 +33,11 @@
   /* ── v2 page-window glow (dual-top: faint orange TL · teal TR) ──────────
      Layer over any dark panel base: `background: var(--v2-glow), <base>;` */
   --v2-glow:
-    radial-gradient(110% 80% at 0% 0%, rgba(255, 140, 0, 0.018), transparent 46%),
+    radial-gradient(110% 80% at 0% 0%, rgba(242, 144, 48, 0.018), transparent 46%),
     radial-gradient(110% 80% at 100% 0%, rgba(0, 207, 198, 0.055), transparent 46%),
-    linear-gradient(135deg, rgba(255, 140, 0, 0.012), rgba(0, 207, 198, 0.012) 60%, transparent);
+    linear-gradient(135deg, rgba(242, 144, 48, 0.012), rgba(0, 207, 198, 0.012) 60%, transparent);
   --v2-glow-soft:
-    radial-gradient(110% 90% at 0% 0%, rgba(255, 140, 0, 0.012), transparent 55%),
+    radial-gradient(110% 90% at 0% 0%, rgba(242, 144, 48, 0.012), transparent 55%),
     radial-gradient(110% 90% at 100% 0%, rgba(0, 207, 198, 0.035), transparent 55%);
 }
 
@@ -59,8 +59,8 @@ input::placeholder { color: var(--text-faint); }
   z-index: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(rgba(255, 140, 0, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 140, 0, 0.025) 1px, transparent 1px);
+    linear-gradient(rgba(242, 144, 48, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(242, 144, 48, 0.025) 1px, transparent 1px);
   background-size: 48px 48px;
 }
 
@@ -76,7 +76,7 @@ input::placeholder { color: var(--text-faint); }
   right: -200px;
   width: 600px;
   height: 600px;
-  background: radial-gradient(circle, rgba(255, 140, 0, 0.06) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(242, 144, 48, 0.06) 0%, transparent 70%);
 }
 
 .bg-glow-cyan {

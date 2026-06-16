@@ -27,13 +27,13 @@ import { DepositModal, WithdrawModal, type PoolView } from '../pages/PoolsTab';
 import { buildXdexPoolView, fetchWalletLp } from '../lib/xdexPoolView';
 import type { V2SwapInitState } from '../pages/V2Swap';
 
-const ACCENT = '#ff8c00';
+const ACCENT = '#f29030';
 const TEXT   = '#e0f0ff';
 const MUTED  = '#8a9ab8';
 const DIM    = '#5a6a82';
 const GOOD   = '#00c98d';
 const BAD    = '#ff4466';
-const LINE   = 'rgba(255,140,0,0.13)';
+const LINE   = 'rgba(242,144,48,0.13)';
 
 const mono = { fontFamily: 'Orbitron, monospace', fontVariantNumeric: 'tabular-nums' as const };
 
@@ -318,7 +318,7 @@ const PoolCard: FC<{ pool: IndexerPool; pair: Pair }> = ({ pool, pair }) => {
   return (
     <div style={{
       background: 'var(--v2-glow), rgba(13,21,32,.55)',
-      border: '1px solid rgba(255,140,0,.12)', borderRadius: 16,
+      border: '1px solid rgba(242,144,48,.12)', borderRadius: 16,
       padding: '20px 22px',
       position: 'relative', overflow: 'hidden',
       display: 'flex', flexDirection: 'column', gap: 14,
@@ -326,7 +326,7 @@ const PoolCard: FC<{ pool: IndexerPool; pair: Pair }> = ({ pool, pair }) => {
       {/* Top accent stripe — orange-only for v2 cohesion. */}
       <div style={{
         position: 'absolute', top: 0, left: 0, right: 0, height: 2,
-        background: 'linear-gradient(90deg,rgba(255,140,0,.6),transparent)',
+        background: 'linear-gradient(90deg,rgba(242,144,48,.6),transparent)',
       }} />
 
       {/* ── HEADER ── stacked overlap logos + name + tag + big TVL ── */}
@@ -344,7 +344,7 @@ const PoolCard: FC<{ pool: IndexerPool; pair: Pair }> = ({ pool, pair }) => {
             }}>{tagLabel}</span>
             <span style={{
               ...mono, padding: '2px 7px', borderRadius: 5,
-              background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.25)',
+              background: 'rgba(242,144,48,.08)', border: '1px solid rgba(242,144,48,.25)',
               color: ACCENT, fontSize: 7, fontWeight: 800, letterSpacing: 1,
             }}>APR {(pool.apr_24h ?? 0).toFixed(2)}%</span>
           </div>
@@ -413,7 +413,7 @@ const PoolCard: FC<{ pool: IndexerPool; pair: Pair }> = ({ pool, pair }) => {
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         gap: 8, padding: '8px 12px',
-        background: 'rgba(255,140,0,0.04)',
+        background: 'rgba(242,144,48,0.04)',
         border: `1px solid ${LINE}`,
         borderRadius: 8,
       }}>
@@ -532,7 +532,7 @@ const LogoChip: FC<{ src?: string; fallback: string; size: number; style: React.
 const Stat: FC<{ label: string; value: string; color: string }> = ({ label, value, color }) => (
   <div style={{
     padding: '7px 9px',
-    background: 'rgba(255,140,0,0.03)',
+    background: 'rgba(242,144,48,0.03)',
     border: `1px solid ${LINE}`,
     borderRadius: 6,
   }}>

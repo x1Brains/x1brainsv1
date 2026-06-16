@@ -873,9 +873,9 @@ const StatusBox: FC<{ msg: string }> = ({ msg }) => {
     <div style={{
       margin: '12px 0', padding: '10px 14px', borderRadius: 10, fontSize: 12,
       fontFamily: 'Sora,sans-serif', lineHeight: 1.6, whiteSpace: 'pre-wrap',
-      background: isErr ? 'rgba(255,140,0,.08)' : isOk ? 'rgba(0,201,141,.08)' : 'rgba(255,255,255,.04)',
-      border: `1px solid ${isErr ? 'rgba(255,140,0,.25)' : isOk ? 'rgba(0,201,141,.25)' : 'rgba(255,255,255,.08)'}`,
-      color: isErr ? '#ff8c00' : isOk ? '#00c98d' : '#cdd8e2',
+      background: isErr ? 'rgba(242,144,48,.08)' : isOk ? 'rgba(0,201,141,.08)' : 'rgba(255,255,255,.04)',
+      border: `1px solid ${isErr ? 'rgba(242,144,48,.25)' : isOk ? 'rgba(0,201,141,.25)' : 'rgba(255,255,255,.08)'}`,
+      color: isErr ? '#f29030' : isOk ? '#00c98d' : '#cdd8e2',
     }}>{msg}</div>
   );
 };
@@ -884,12 +884,12 @@ const StatusBox: FC<{ msg: string }> = ({ msg }) => {
 const TokenLogo: FC<{ logo?: string; symbol: string; size?: number }> = ({ logo, symbol, size = 32 }) => (
   <div style={{
     width: size, height: size, borderRadius: '50%', overflow: 'hidden',
-    background: 'rgba(255,140,0,.12)', border: '1px solid rgba(255,140,0,.2)',
+    background: 'rgba(242,144,48,.12)', border: '1px solid rgba(242,144,48,.2)',
     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   }}>
     {logo
       ? <img src={logo} alt={symbol} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-      : <span style={{ fontSize: size * 0.35, fontWeight: 900, color: '#ff8c00', fontFamily: 'Orbitron,monospace' }}>{symbol.slice(0, 2)}</span>
+      : <span style={{ fontSize: size * 0.35, fontWeight: 900, color: '#f29030', fontFamily: 'Orbitron,monospace' }}>{symbol.slice(0, 2)}</span>
     }
   </div>
 );
@@ -1033,7 +1033,7 @@ export const WithdrawModal: FC<{
       <div onClick={e => e.stopPropagation()} style={{
         width: '100%', maxWidth: 420,
         background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-        border: '1px solid rgba(255,140,0,.15)', borderRadius: isMobile ? '20px 20px 0 0' : 16,
+        border: '1px solid rgba(242,144,48,.15)', borderRadius: isMobile ? '20px 20px 0 0' : 16,
         padding: isMobile ? '20px 16px 28px' : '24px 26px',
         maxHeight: isMobile ? '88vh' : 'calc(100vh - 32px)', overflowY: 'auto',
       }}>
@@ -1049,10 +1049,10 @@ export const WithdrawModal: FC<{
         </div>
 
         {/* LP balance */}
-        <div style={{ background: 'rgba(255,140,0,.04)', border: '1px solid rgba(255,140,0,.12)',
+        <div style={{ background: 'rgba(242,144,48,.04)', border: '1px solid rgba(242,144,48,.12)',
           borderRadius: 12, padding: 16, marginBottom: 16 }}>
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82', letterSpacing: 1, marginBottom: 6 }}>YOUR LP BALANCE</div>
-          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 18, fontWeight: 900, color: '#ff8c00' }}>
+          <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 18, fontWeight: 900, color: '#f29030' }}>
             {lpUi.toFixed(4)} LP
           </div>
         </div>
@@ -1061,18 +1061,18 @@ export const WithdrawModal: FC<{
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
             <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82' }}>AMOUNT TO REMOVE</span>
-            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900, color: '#ff8c00' }}>{pct}%</span>
+            <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900, color: '#f29030' }}>{pct}%</span>
           </div>
           <input type="range" min={1} max={100} value={pct} onChange={e => setPct(Number(e.target.value))}
-            style={{ width: '100%', accentColor: '#ff8c00', cursor: 'pointer' }} />
+            style={{ width: '100%', accentColor: '#f29030', cursor: 'pointer' }} />
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             {[25, 50, 75, 100].map(p => (
               <button key={p} onClick={() => setPct(p)} style={{
                 flex: 1, padding: '6px 0', borderRadius: 8, cursor: 'pointer', fontSize: 10,
                 fontFamily: 'Orbitron,monospace', fontWeight: 700,
-                background: pct === p ? 'rgba(255,140,0,.15)' : 'rgba(255,255,255,.04)',
-                border: `1px solid ${pct === p ? 'rgba(255,140,0,.4)' : 'rgba(255,255,255,.08)'}`,
-                color: pct === p ? '#ff8c00' : '#8a9ab8',
+                background: pct === p ? 'rgba(242,144,48,.15)' : 'rgba(255,255,255,.04)',
+                border: `1px solid ${pct === p ? 'rgba(242,144,48,.4)' : 'rgba(255,255,255,.08)'}`,
+                color: pct === p ? '#f29030' : '#8a9ab8',
               }}>{p}%</button>
             ))}
           </div>
@@ -1110,10 +1110,10 @@ export const WithdrawModal: FC<{
         <button onClick={handleWithdraw} disabled={pending || lpToRemove === 0n} style={{
           width: '100%', padding: '14px 0', borderRadius: 12,
           cursor: pending ? 'not-allowed' : 'pointer',
-          background: pending ? 'rgba(255,255,255,.04)' : 'linear-gradient(135deg,rgba(255,140,0,.2),rgba(255,140,0,.06))',
-          border: `1px solid ${pending ? 'rgba(255,255,255,.08)' : 'rgba(255,140,0,.45)'}`,
+          background: pending ? 'rgba(255,255,255,.04)' : 'linear-gradient(135deg,rgba(242,144,48,.2),rgba(242,144,48,.06))',
+          border: `1px solid ${pending ? 'rgba(255,255,255,.08)' : 'rgba(242,144,48,.45)'}`,
           fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-          color: pending ? '#5a6a82' : '#ff8c00',
+          color: pending ? '#5a6a82' : '#f29030',
         }}>
           {pending ? 'PROCESSING…' : `WITHDRAW ${pct}% LP`}
         </button>
@@ -1570,7 +1570,7 @@ const MiniChart: FC<{ points: PricePoint[]; sym0: string; sym1: string; color: s
         </div>
         {pctDisplay !== null && (
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 700,
-            color: up ? '#00c98d' : '#ff8c00' }}>
+            color: up ? '#00c98d' : '#f29030' }}>
             {up ? '▲' : '▼'} {Math.abs(pctDisplay).toFixed(2)}%
           </div>
         )}
@@ -1881,7 +1881,7 @@ export const SwapModal: FC<{
                 ≈ {fmtUSD(outUsd)}
               </span>
               <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10,
-                color: priceImpact > 5 ? '#ff8c00' : priceImpact > 2 ? '#ff8c00' : '#8a9ab8' }}>
+                color: priceImpact > 5 ? '#f29030' : priceImpact > 2 ? '#f29030' : '#8a9ab8' }}>
                 Impact: {priceImpact.toFixed(2)}%{priceImpact > 5 ? ' ⚠️' : ''}
               </span>
             </div>
@@ -1924,10 +1924,10 @@ export const SwapModal: FC<{
           width: '100%', padding: '14px 0', borderRadius: 12,
           cursor: (pending || rawIn === 0n) ? 'not-allowed' : 'pointer',
           background: pending ? 'rgba(255,255,255,.04)' : parsedIn > balIn
-            ? 'rgba(255,140,0,.1)' : 'linear-gradient(135deg,rgba(191,90,242,.2),rgba(191,90,242,.06))',
-          border: `1px solid ${pending ? 'rgba(255,255,255,.08)' : parsedIn > balIn ? 'rgba(255,140,0,.3)' : 'rgba(191,90,242,.45)'}`,
+            ? 'rgba(242,144,48,.1)' : 'linear-gradient(135deg,rgba(191,90,242,.2),rgba(191,90,242,.06))',
+          border: `1px solid ${pending ? 'rgba(255,255,255,.08)' : parsedIn > balIn ? 'rgba(242,144,48,.3)' : 'rgba(191,90,242,.45)'}`,
           fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-          color: pending ? '#5a6a82' : parsedIn > balIn ? '#ff8c00' : '#bf5af2',
+          color: pending ? '#5a6a82' : parsedIn > balIn ? '#f29030' : '#bf5af2',
         }}>
           {pending ? 'SWAPPING…'
             : parsedIn > balIn ? 'INSUFFICIENT BALANCE'
@@ -1982,7 +1982,7 @@ const PoolCard: FC<{
       }}>
         {/* Top accent */}
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2,
-          background: 'linear-gradient(90deg,rgba(255,140,0,.6),rgba(191,90,242,.4),transparent)' }} />
+          background: 'linear-gradient(90deg,rgba(242,144,48,.6),rgba(191,90,242,.4),transparent)' }} />
 
         {/* Pair header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
@@ -1999,8 +1999,8 @@ const PoolCard: FC<{
             <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
               {pool.seeded ? (
                 <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, letterSpacing: 1,
-                  color: '#ff8c00', background: 'rgba(255,140,0,.12)',
-                  border: '1px solid rgba(255,140,0,.35)', borderRadius: 5, padding: '2px 7px' }}>
+                  color: '#f29030', background: 'rgba(242,144,48,.12)',
+                  border: '1px solid rgba(242,144,48,.35)', borderRadius: 5, padding: '2px 7px' }}>
                   🧠 ECOSYSTEM
                 </span>
               ) : (
@@ -2012,8 +2012,8 @@ const PoolCard: FC<{
               )}
               {burnPct > 0 && (
                 <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, letterSpacing: 1,
-                  color: '#ff8c00', background: 'rgba(255,140,0,.1)',
-                  border: '1px solid rgba(255,140,0,.3)', borderRadius: 5, padding: '2px 7px' }}>
+                  color: '#f29030', background: 'rgba(242,144,48,.1)',
+                  border: '1px solid rgba(242,144,48,.3)', borderRadius: 5, padding: '2px 7px' }}>
                   🔥 {burnPct}% BURN
                 </span>
               )}
@@ -2022,14 +2022,14 @@ const PoolCard: FC<{
           <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
             {trendingRank && (
               <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 900,
-                color: trendingRank === 1 ? '#ff8c00' : trendingRank === 2 ? '#8a9ab8' : trendingRank === 3 ? '#ff8c00' : '#5a6a82',
+                color: trendingRank === 1 ? '#f29030' : trendingRank === 2 ? '#8a9ab8' : trendingRank === 3 ? '#f29030' : '#5a6a82',
                 background: trendingRank <= 3 ? 'rgba(255,215,0,.08)' : 'rgba(255,255,255,.04)',
                 border: `1px solid ${trendingRank === 1 ? 'rgba(255,215,0,.3)' : trendingRank === 2 ? 'rgba(192,192,192,.3)' : trendingRank === 3 ? 'rgba(205,127,50,.3)' : 'rgba(255,255,255,.08)'}`,
                 borderRadius: 6, padding: '2px 8px', marginBottom: 4, display: 'inline-block' }}>
                 {trendingRank === 1 ? '🥇' : trendingRank === 2 ? '🥈' : trendingRank === 3 ? '🥉' : `#${trendingRank}`} TRENDING
               </div>
             )}
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 13 : 15, fontWeight: 900, color: '#ff8c00' }}>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 13 : 15, fontWeight: 900, color: '#f29030' }}>
               {pool.loading
                 ? <span style={{ color: '#5a6a82' }}>…</span>
                 : pool.tvlUsd > 0
@@ -2061,7 +2061,7 @@ const PoolCard: FC<{
               points={chartData}
               sym0={pool.sym0}
               sym1={pool.sym1}
-              color={pool.burnBps > 0 ? '#bf5af2' : '#ff8c00'}
+              color={pool.burnBps > 0 ? '#bf5af2' : '#f29030'}
             />
           </div>
         )}
@@ -2071,9 +2071,9 @@ const PoolCard: FC<{
           <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#3a4150', marginBottom: 8 }}>LP DISTRIBUTION</div>
           {(() => {
             const rows = [
-              { label: 'BURNED',    val: pool.lpBurned,   color: '#ff8c00' },
-              { label: 'TREASURY',  val: pool.lpTreasury, color: '#ff8c00' },
-              { label: 'CREATOR A', val: pool.lpUserA,    color: '#ff8c00' },
+              { label: 'BURNED',    val: pool.lpBurned,   color: '#f29030' },
+              { label: 'TREASURY',  val: pool.lpTreasury, color: '#f29030' },
+              { label: 'CREATOR A', val: pool.lpUserA,    color: '#f29030' },
               { label: 'CREATOR B', val: pool.lpUserB,    color: '#bf5af2' },
             ];
             const totalLp = rows.reduce((s, r) => s + r.val, 0n);
@@ -2104,10 +2104,10 @@ const PoolCard: FC<{
 
         {/* Your LP */}
         {publicKey && hasLp && (
-          <div style={{ background: 'rgba(255,140,0,.04)', border: '1px solid rgba(255,140,0,.12)',
+          <div style={{ background: 'rgba(242,144,48,.04)', border: '1px solid rgba(242,144,48,.12)',
             borderRadius: 8, padding: '8px 12px', marginBottom: 14 }}>
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: '#5a6a82', marginBottom: 2 }}>YOUR LP</div>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900, color: '#ff8c00' }}>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900, color: '#f29030' }}>
               {lpUi.toFixed(4)} LP
             </div>
           </div>
@@ -2136,8 +2136,8 @@ const PoolCard: FC<{
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#3a4150' }}>CREATED BY:</span>
               <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
-                color: '#ff8c00', background: 'rgba(255,140,0,.08)',
-                border: '1px solid rgba(255,140,0,.2)', borderRadius: 5, padding: '2px 8px' }}>
+                color: '#f29030', background: 'rgba(242,144,48,.08)',
+                border: '1px solid rgba(242,144,48,.2)', borderRadius: 5, padding: '2px 8px' }}>
                 XDEX
               </span>
             </div>
@@ -2174,9 +2174,9 @@ const PoolCard: FC<{
             {hasLp && pool.walletLp > 0n && (
               <button onClick={() => openModal('withdraw')} style={{
                 flex: 1, minWidth: 80, padding: '10px 0', borderRadius: 10, cursor: 'pointer',
-                background: 'linear-gradient(135deg,rgba(255,140,0,.15),rgba(255,140,0,.05))',
-                border: '1px solid rgba(255,140,0,.35)',
-                fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 900, color: '#ff8c00',
+                background: 'linear-gradient(135deg,rgba(242,144,48,.15),rgba(242,144,48,.05))',
+                border: '1px solid rgba(242,144,48,.35)',
+                fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 900, color: '#f29030',
               }}>💧 WITHDRAW</button>
             )}
           </div>
@@ -2562,9 +2562,9 @@ const PoolsTab: FC = () => {
           <div style={{ display: 'flex', background: 'rgba(255,255,255,.04)',
             border: '1px solid rgba(255,255,255,.08)', borderRadius: 10, padding: 3, flexWrap: 'wrap', gap: 2 }}>
             {([
-              { id: 'all',       label: '🌐 ALL',        color: '#ff8c00' },
-              { id: 'ecosystem', label: '🧠 ECOSYSTEM',  color: '#ff8c00' },
-              { id: 'trending',  label: '🔥 TRENDING',   color: '#ff8c00' },
+              { id: 'all',       label: '🌐 ALL',        color: '#f29030' },
+              { id: 'ecosystem', label: '🧠 ECOSYSTEM',  color: '#f29030' },
+              { id: 'trending',  label: '🔥 TRENDING',   color: '#f29030' },
               { id: 'mine',      label: '👤 MINE',       color: '#bf5af2' },
             ] as { id: typeof filter; label: string; color: string }[]).map(f => (
               <button key={f.id} onClick={() => setFilter(f.id)} style={{

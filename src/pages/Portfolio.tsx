@@ -560,8 +560,8 @@ const PortfolioStatsBar: FC<{
       border: '1px solid #1e3050', borderBottom: 'none', overflow: 'hidden',
     }}>
       {([
-        { label: 'Total Tokens', value: String(totalTokens), color: '#ff8c00', glow: false },
-        { label: 'SPL Tokens',   value: String(splCount),    color: '#ff8c00', glow: false },
+        { label: 'Total Tokens', value: String(totalTokens), color: '#f29030', glow: false },
+        { label: 'SPL Tokens',   value: String(splCount),    color: '#f29030', glow: false },
         { label: 'Token-2022',   value: String(t22Count),    color: '#ffb700', glow: false },
         { label: 'XNT Balance',  value: xntBalance !== null
             ? xntBalance.toLocaleString(undefined, { maximumFractionDigits: 3 })
@@ -757,7 +757,7 @@ const PortfolioStatsBar: FC<{
     </div>
 
     {/* Section toggles */}
-    <ToggleRow icon="🪙" label="SPL Tokens"   count={splCount}  countLabel="TOKENS" active={showSPL}  color="#ff8c00" colorRgb="255,140,0"   onToggle={onToggleSPL} />
+    <ToggleRow icon="🪙" label="SPL Tokens"   count={splCount}  countLabel="TOKENS" active={showSPL}  color="#f29030" colorRgb="255,140,0"   onToggle={onToggleSPL} />
     <ToggleRow icon="⚡" label="Token-2022"   count={t22Count}  countLabel="TOKENS" active={showT22}  color="#ffb700" colorRgb="255,183,0"   onToggle={onToggleT22} />
     <ToggleRow icon="🖼️" label="NFTs"         count={nftCount}  countLabel="FOUND"  active={showNFT}  color="#bf5af2" colorRgb="191,90,242"  noneLabel="NONE FOUND"    onToggle={onToggleNFT} />
     <ToggleRow icon="💧" label="LP Tokens"    count={lpCount}   countLabel="FOUND"  active={showLP}   color="#00c98d" colorRgb="0,201,141"   noneLabel="NONE DETECTED" onToggle={onToggleLP}  isLast />
@@ -782,7 +782,7 @@ function injectBurnCelebrationStyles() {
     @keyframes bc-float{0%{transform:translateY(0) rotate(0)}50%{transform:translateY(-8px) rotate(3deg)}100%{transform:translateY(0) rotate(0)}}
     @keyframes bc-ring{0%{transform:scale(.5);opacity:.8}100%{transform:scale(2.5);opacity:0}}
     @keyframes bc-img{0%{filter:brightness(1) saturate(1)}25%{filter:brightness(1.3) saturate(1.5) sepia(.3)}50%{filter:brightness(1.6) saturate(2) sepia(.5) hue-rotate(-10deg)}75%{filter:brightness(1.2) saturate(1.3) sepia(.2)}100%{filter:brightness(1) saturate(1)}}
-    @keyframes bc-glow{0%,100%{text-shadow:0 0 10px rgba(255,140,0,.5),0 0 30px rgba(255,60,0,.3)}50%{text-shadow:0 0 20px rgba(255,140,0,.8),0 0 50px rgba(255,60,0,.5),0 0 80px rgba(255,30,0,.3)}}
+    @keyframes bc-glow{0%,100%{text-shadow:0 0 10px rgba(242,144,48,.5),0 0 30px rgba(255,60,0,.3)}50%{text-shadow:0 0 20px rgba(242,144,48,.8),0 0 50px rgba(255,60,0,.5),0 0 80px rgba(255,30,0,.3)}}
     @keyframes bc-spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
     @keyframes bc-burn{0%,100%{box-shadow:0 0 40px rgba(255,60,0,.5),0 0 80px rgba(255,30,0,.3),inset 0 0 30px rgba(255,80,0,.4)}50%{box-shadow:0 0 70px rgba(255,60,0,.8),0 0 120px rgba(255,30,0,.5),inset 0 0 50px rgba(255,80,0,.6)}}
     @keyframes bc-bloom{0%,100%{opacity:.3;transform:scale(1)}50%{opacity:.6;transform:scale(1.05)}}
@@ -828,7 +828,7 @@ const BurnCelebrationPortfolio: FC<{ amount: string; newPts: number; totalPts: n
       animation: phase === 'in' ? 'bc-in 0.5s cubic-bezier(.34,1.56,.64,1) both' : 'bc-out 0.5s ease both', cursor: 'pointer',
     }}>
       <div style={{ position: 'absolute', width: 120, height: 120, borderRadius: '50%',
-        border: '2px solid rgba(255,140,0,.3)', animation: 'bc-ring 1.5s ease infinite', pointerEvents: 'none' }} />
+        border: '2px solid rgba(242,144,48,.3)', animation: 'bc-ring 1.5s ease infinite', pointerEvents: 'none' }} />
       {embers.map(e => (
         <div key={e.id} style={{ position: 'absolute', width: e.size, height: e.size, borderRadius: '50%',
           background: e.color, boxShadow: `0 0 ${e.size * 2}px ${e.color}`,
@@ -836,7 +836,7 @@ const BurnCelebrationPortfolio: FC<{ amount: string; newPts: number; totalPts: n
           ['--ex' as any]: `${e.ex}px`, ['--ey' as any]: `${e.ey}px`, pointerEvents: 'none' }} />
       ))}
       <div style={{ position: 'absolute', width: mob ? 180 : 280, height: mob ? 180 : 280, borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(255,80,0,.25) 0%, rgba(255,140,0,.1) 40%, transparent 70%)',
+        background: 'radial-gradient(circle, rgba(255,80,0,.25) 0%, rgba(242,144,48,.1) 40%, transparent 70%)',
         animation: 'bc-bloom 2s ease infinite', pointerEvents: 'none' }} />
       <div style={{ position: 'relative', width: imgSz, height: imgSz, borderRadius: '50%', overflow: 'visible',
         animation: 'bc-float 2s ease infinite', marginBottom: mob ? 16 : 24 }}>
@@ -844,7 +844,7 @@ const BurnCelebrationPortfolio: FC<{ amount: string; newPts: number; totalPts: n
           background: 'conic-gradient(from 0deg, #ff2200, #ff8800, #ffcc00, #ff6600, #ff2200)',
           animation: 'bc-spin 3s linear infinite', filter: 'blur(8px)', opacity: 0.7 }} />
         <div style={{ position: 'absolute', inset: mob ? -4 : -6, borderRadius: '50%',
-          border: `${mob ? 2 : 3}px solid rgba(255,140,0,.6)`, animation: 'bc-burn 1.5s ease infinite' }} />
+          border: `${mob ? 2 : 3}px solid rgba(242,144,48,.6)`, animation: 'bc-burn 1.5s ease infinite' }} />
         <img src={burnBrainImg} alt="BURN" style={{
           width: imgSz, height: imgSz, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center top',
           position: 'relative', zIndex: 2, display: 'block', transform: 'scale(1.3)',
@@ -864,13 +864,13 @@ const BurnCelebrationPortfolio: FC<{ amount: string; newPts: number; totalPts: n
         INCINERATED
       </div>
       <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 14 : 18, fontWeight: 700, color: '#ffcc44',
-        letterSpacing: mob ? 2 : 3, marginBottom: mob ? 12 : 16, textShadow: '0 0 12px rgba(255,140,0,.5)' }}>
+        letterSpacing: mob ? 2 : 3, marginBottom: mob ? 12 : 16, textShadow: '0 0 12px rgba(242,144,48,.5)' }}>
         🔥 {amount} BRAINS 🔥
       </div>
 
       {/* LB Points earned panel */}
       <div style={{ display: 'flex', gap: mob ? 8 : 12, flexWrap: 'wrap', justifyContent: 'center', marginBottom: mob ? 8 : 10 }}>
-        <div style={{ background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.25)', borderRadius: mob ? 8 : 10, padding: mob ? '8px 14px' : '10px 18px', textAlign: 'center', minWidth: mob ? 100 : 120 }}>
+        <div style={{ background: 'rgba(242,144,48,.08)', border: '1px solid rgba(242,144,48,.25)', borderRadius: mob ? 8 : 10, padding: mob ? '8px 14px' : '10px 18px', textAlign: 'center', minWidth: mob ? 100 : 120 }}>
           <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 6 : 7, color: '#ff9955', letterSpacing: 2, marginBottom: 3 }}>◆ LB POINTS EARNED</div>
           <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 16 : 20, fontWeight: 900, color: '#ffcc44', textShadow: '0 0 8px rgba(255,204,68,.3)' }}>+{fP(newPts)}</div>
         </div>
@@ -1361,14 +1361,14 @@ const Portfolio: FC = () => {
           <div style={{ textAlign: 'center', marginBottom: isMobile ? 20 : 40, animation: 'fadeUp 0.5s ease both' }}>
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: isMobile ? 12 : 22 }}>
               <div style={{ position: 'relative', width: isMobile ? 80 : 140, height: isMobile ? 80 : 140 }}>
-                <div style={{ position: 'absolute', inset: -7, borderRadius: '50%', background: 'conic-gradient(from 0deg,#ff8c00,#ffb700,#00d4ff,#ff8c00)', animation: 'spin 4s linear infinite', opacity: 0.65 }} />
+                <div style={{ position: 'absolute', inset: -7, borderRadius: '50%', background: 'conic-gradient(from 0deg,#f29030,#ffb700,#00d4ff,#f29030)', animation: 'spin 4s linear infinite', opacity: 0.65 }} />
                 <img src={BRAINS_LOGO} alt="BRAINS"
                   style={{ position: 'relative', zIndex: 1, width: isMobile ? 80 : 140, height: isMobile ? 80 : 140, borderRadius: '50%', objectFit: 'cover', border: '4px solid #0a0e14' }}
                   onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
               </div>
             </div>
             <h1 style={{ fontFamily: 'Orbitron, monospace', fontSize: isMobile ? 24 : 42, fontWeight: 900, letterSpacing: isMobile ? 4 : 7,
-              background: 'linear-gradient(135deg,#ff8c00 0%,#ffb700 40%,#00d4ff 100%)',
+              background: 'linear-gradient(135deg,#f29030 0%,#ffb700 40%,#00d4ff 100%)',
               WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
               margin: '0 0 8px', textTransform: 'uppercase' }}>
               X1 BRAINS
@@ -1482,7 +1482,7 @@ const Portfolio: FC = () => {
                 {/* 2. BRAINS ECOSYSTEM — BRAINS + LB */}
                 {(brainsToken || lbToken) && !isReadOnly && (
                   <div ref={burnRef}>
-                    <SectionHeader label="BRAINS Ecosystem" color="#ff8c00" />
+                    <SectionHeader label="BRAINS Ecosystem" color="#f29030" />
 
                     {/* BRAINS token card */}
                     {brainsToken && (
@@ -1670,8 +1670,8 @@ const Portfolio: FC = () => {
                     <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#6a8ea8', letterSpacing: 1.5 }}>HIDE ZERO BALANCE</span>
                     <button type="button" onClick={() => setHideZeroBalance(v => !v)}
                       style={{ position: 'relative', width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', outline: 'none', flexShrink: 0, transition: 'all 0.25s',
-                        background: hideZeroBalance ? 'linear-gradient(135deg,#ff8c00,#ffb700)' : 'rgba(255,255,255,.1)',
-                        boxShadow: hideZeroBalance ? '0 0 10px rgba(255,140,0,.4)' : 'none' }}>
+                        background: hideZeroBalance ? 'linear-gradient(135deg,#f29030,#ffb700)' : 'rgba(255,255,255,.1)',
+                        boxShadow: hideZeroBalance ? '0 0 10px rgba(242,144,48,.4)' : 'none' }}>
                       <span style={{ position: 'absolute', top: 2, left: hideZeroBalance ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left 0.25s', boxShadow: '0 1px 4px rgba(0,0,0,.4)' }} />
                     </button>
                   </div>
@@ -1689,7 +1689,7 @@ const Portfolio: FC = () => {
                 {/* 2b. BRAINS ECOSYSTEM — read-only mode (no burn panel) */}
                 {isReadOnly && (brainsToken || lbToken) && (
                   <div>
-                    <SectionHeader label="BRAINS Ecosystem" color="#ff8c00" />
+                    <SectionHeader label="BRAINS Ecosystem" color="#f29030" />
                     {brainsToken && (
                       <TokenCard token={brainsToken} highlight="brains" copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.05}
                         usdPrice={tokenPrices.get(brainsToken.mint) ?? null}
@@ -1733,7 +1733,7 @@ const Portfolio: FC = () => {
                   const hidden = splTokens.filter(t => t.balance <= 0).length;
                   return visible.length > 0 ? (
                     <div ref={splRef}>
-                      <SectionHeader label="SPL Tokens" count={visible.length} color="#ff8c00" hiddenCount={hideZeroBalance ? hidden : 0} />
+                      <SectionHeader label="SPL Tokens" count={visible.length} color="#f29030" hiddenCount={hideZeroBalance ? hidden : 0} />
                       {visible.map((t, i) => (
                         <React.Fragment key={t.mint}>
                           <TokenCard token={t} copiedAddress={copiedAddress} onCopy={copyAddress} animDelay={0.04 * i}
@@ -1986,11 +1986,11 @@ const Portfolio: FC = () => {
                     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
                       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                         <span style={{ fontSize:14 }}>📤</span>
-                        <span style={{ fontFamily:'Orbitron,monospace', fontSize:11, fontWeight:700, color:'#ff8c00', letterSpacing:2 }}>
+                        <span style={{ fontFamily:'Orbitron,monospace', fontSize:11, fontWeight:700, color:'#f29030', letterSpacing:2 }}>
                           SEND HISTORY
                         </span>
                         <span style={{ fontFamily:'Orbitron,monospace', fontSize:9, color:'#5a7a90',
-                          background:'rgba(255,140,0,.08)', border:'1px solid rgba(255,140,0,.2)',
+                          background:'rgba(242,144,48,.08)', border:'1px solid rgba(242,144,48,.2)',
                           borderRadius:10, padding:'2px 8px' }}>{sendHistory.length}</span>
                       </div>
                       <button onClick={() => setShowSendHistory(v => !v)} style={{
@@ -2004,12 +2004,12 @@ const Portfolio: FC = () => {
 
                     {showSendHistory && (
                       <div style={{ background:'linear-gradient(135deg,#0d1520,#0a1018)',
-                        border:'1px solid rgba(255,140,0,.15)', borderRadius:14, overflow:'hidden',
+                        border:'1px solid rgba(242,144,48,.15)', borderRadius:14, overflow:'hidden',
                         animation:'fadeUp .3s ease both' }}>
                         {/* Column headers */}
                         <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr 80px' : '1fr 120px 100px 120px',
                           gap:8, padding:'8px 14px', borderBottom:'1px solid rgba(255,255,255,.05)',
-                          background:'rgba(255,140,0,.03)' }}>
+                          background:'rgba(242,144,48,.03)' }}>
                           {(isMobile ? ['SENT','TX'] : ['TOKEN · AMOUNT','TO','DATE','TX']).map(h => (
                             <span key={h} style={{ fontFamily:'Orbitron,monospace', fontSize:7, color:'#5a7a90', letterSpacing:2 }}>{h}</span>
                           ))}
@@ -2030,10 +2030,10 @@ const Portfolio: FC = () => {
                 {/* Refresh */}
                 <button onClick={loadTokens}
                   style={{ width: '100%', marginTop: 32, padding: '14px 0',
-                    background: 'linear-gradient(135deg,#ff8c00,#ffb700)', border: 'none', borderRadius: 12,
+                    background: 'linear-gradient(135deg,#f29030,#ffb700)', border: 'none', borderRadius: 12,
                     fontFamily: 'Orbitron, monospace', fontSize: 12, fontWeight: 700, letterSpacing: 2,
                     color: '#0a0e14', cursor: 'pointer', textTransform: 'uppercase', transition: 'all 0.2s' }}
-                  onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.transform = 'translateY(-2px)'; b.style.boxShadow = '0 8px 28px rgba(255,140,0,.45)'; }}
+                  onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.transform = 'translateY(-2px)'; b.style.boxShadow = '0 8px 28px rgba(242,144,48,.45)'; }}
                   onMouseLeave={e => { const b = e.currentTarget as HTMLButtonElement; b.style.transform = 'translateY(0)'; b.style.boxShadow = 'none'; }}>
                   ⟳ &nbsp;Refresh Balances
                 </button>
@@ -2049,9 +2049,9 @@ const Portfolio: FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 140px)', animation: 'fadeUp 0.6s ease both', padding: '0 24px' }}>
             {/* Logo */}
             <div style={{ position: 'relative', marginBottom: isMobile ? 28 : 48 }}>
-              <div style={{ position: 'absolute', inset: -50, borderRadius: '50%', background: 'radial-gradient(circle,rgba(255,140,0,.2) 0%,transparent 70%)', animation: 'pulse-orange 3s ease infinite' }} />
+              <div style={{ position: 'absolute', inset: -50, borderRadius: '50%', background: 'radial-gradient(circle,rgba(242,144,48,.2) 0%,transparent 70%)', animation: 'pulse-orange 3s ease infinite' }} />
               <div style={{ position: 'relative', width: isMobile ? 120 : 180, height: isMobile ? 120 : 180 }}>
-                <div style={{ position: 'absolute', inset: -7, borderRadius: '50%', background: 'conic-gradient(from 0deg,#ff8c00,#ffb700,#00d4ff,#ff8c00)', animation: 'spin 6s linear infinite', opacity: 0.65 }} />
+                <div style={{ position: 'absolute', inset: -7, borderRadius: '50%', background: 'conic-gradient(from 0deg,#f29030,#ffb700,#00d4ff,#f29030)', animation: 'spin 6s linear infinite', opacity: 0.65 }} />
                 <img src={BRAINS_LOGO} alt="X1 Brains"
                   style={{ position: 'relative', zIndex: 1, width: isMobile ? 120 : 180, height: isMobile ? 120 : 180, borderRadius: '50%', objectFit: 'cover', border: '4px solid #0a0e14' }}
                   onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
@@ -2059,7 +2059,7 @@ const Portfolio: FC = () => {
             </div>
 
             <h1 style={{ fontFamily: 'Orbitron, monospace', fontSize: isMobile ? 32 : 56, fontWeight: 900, letterSpacing: isMobile ? 4 : 9,
-              background: 'linear-gradient(135deg,#ff8c00 0%,#ffb700 45%,#00d4ff 100%)',
+              background: 'linear-gradient(135deg,#f29030 0%,#ffb700 45%,#00d4ff 100%)',
               WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
               margin: '0 0 12px', textTransform: 'uppercase', textAlign: 'center' }}>
               X1 BRAINS
@@ -2075,7 +2075,7 @@ const Portfolio: FC = () => {
                 CONNECT YOUR WALLET
               </div>
               <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
-                <div style={{ fontFamily: 'Orbitron, monospace', fontSize: isMobile ? 9 : 11, color: '#7a9ab8', padding: '12px 20px', letterSpacing: 2, border: '1px solid #1e3050', borderRadius: 12, background: 'rgba(255,140,0,.04)', textAlign: 'center' }}>
+                <div style={{ fontFamily: 'Orbitron, monospace', fontSize: isMobile ? 9 : 11, color: '#7a9ab8', padding: '12px 20px', letterSpacing: 2, border: '1px solid #1e3050', borderRadius: 12, background: 'rgba(242,144,48,.04)', textAlign: 'center' }}>
                   USE CONNECT BUTTON ↗
                 </div>
               </div>

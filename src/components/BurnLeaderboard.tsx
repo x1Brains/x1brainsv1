@@ -212,7 +212,7 @@ function useMarketData(): MarketData | null {
 const BrainsLogo: FC<{ size?: number }> = ({ size = 14 }) => (
   <img src={BRAINS_LOGO} alt="BRAINS" style={{
     width: size, height: size, borderRadius: '50%', objectFit: 'cover',
-    border: '1px solid rgba(255,140,0,.35)', background: '#111820', flexShrink: 0,
+    border: '1px solid rgba(242,144,48,.35)', background: '#111820', flexShrink: 0,
   }} />
 );
 
@@ -918,7 +918,7 @@ const PodiumSkeleton: FC<{ isMobile: boolean }> = ({ isMobile }) => {
           <div style={{ width:'60%', height:10, borderRadius:4, background:`${c.border}12`, marginBottom:8 }} />
           {/* Stat skeletons */}
           <div style={{ width:'100%', marginTop:'auto', display:'flex', flexDirection:'column', gap:5 }}>
-            <div style={{ height:28, borderRadius:6, background:'rgba(255,140,0,.04)', border:'1px solid rgba(255,140,0,.06)' }} />
+            <div style={{ height:28, borderRadius:6, background:'rgba(242,144,48,.04)', border:'1px solid rgba(242,144,48,.06)' }} />
             <div style={{ height:28, borderRadius:6, background:`${c.border}06`, border:`1px solid ${c.border}08` }} />
             <div style={{ display:'flex', justifyContent:'center', marginTop:3 }}>
               <div style={{ width:80, height:18, borderRadius:4, background:`${c.border}08` }} />
@@ -1034,11 +1034,11 @@ const PodiumPopup: FC<{
         </div>
 
         <div style={{ position:'relative', zIndex:1, display:'flex', flexDirection:'column', gap:6 }}>
-          <div style={{ padding:'8px 10px', background:'rgba(255,140,0,.06)', border:'1px solid rgba(255,140,0,.15)', borderRadius:8 }}>
+          <div style={{ padding:'8px 10px', background:'rgba(242,144,48,.06)', border:'1px solid rgba(242,144,48,.15)', borderRadius:8 }}>
             <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:4 }}><BrainsLogo size={12} /><span style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:'#ff9933', letterSpacing:2 }}>🔥 TOTAL BURNED</span></div>
-            <div key={isF?'f':'v'} style={{ fontFamily:'Orbitron, monospace', fontSize:18, fontWeight:900, background:'linear-gradient(135deg,#ff9933,#ffcc55,#ff9933)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', filter:'drop-shadow(0 0 4px rgba(255,140,0,.15))' }}>{fmtN(entry.burned,2)} <span style={{ fontSize:8, color:isF?'#cc7722':'#cc7722' }}>BRAINS</span></div>
+            <div key={isF?'f':'v'} style={{ fontFamily:'Orbitron, monospace', fontSize:18, fontWeight:900, background:'linear-gradient(135deg,#ff9933,#ffcc55,#ff9933)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', filter:'drop-shadow(0 0 4px rgba(242,144,48,.15))' }}>{fmtN(entry.burned,2)} <span style={{ fontSize:8, color:isF?'#cc7722':'#cc7722' }}>BRAINS</span></div>
           </div>
-          <div style={{ padding:'8px 10px', background:'linear-gradient(135deg,rgba(255,215,0,.06),rgba(255,140,0,.04))', border:'1px solid rgba(255,215,0,.2)', borderRadius:8 }}>
+          <div style={{ padding:'8px 10px', background:'linear-gradient(135deg,rgba(255,215,0,.06),rgba(242,144,48,.04))', border:'1px solid rgba(255,215,0,.2)', borderRadius:8 }}>
             <div style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:isF?'#d4a050':'#78c8a0', letterSpacing:2, marginBottom:4 }}>💰 USD VALUE (CURRENT PRICE)</div>
             {brainsPrice!==null&&usd!==null ? (<>
               <div key={isF?'f':'v'} style={{ fontFamily:'Orbitron, monospace', fontSize:18, fontWeight:900, background:isF?'linear-gradient(135deg,#ffbb33,#ffffffcc,#ffbb33)':'linear-gradient(135deg,#5ec99a,#88ddb8,#4db88a)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', filter:isF?'drop-shadow(0 0 5px rgba(255,187,51,.2))':'drop-shadow(0 0 5px rgba(57,255,136,.15))' }}>${usd>=1000?`${(usd/1000).toFixed(2)}K`:usd>=1?usd.toFixed(2):usd.toFixed(4)}</div>
@@ -1154,14 +1154,14 @@ const PodiumCard: FC<{ entry: BurnerEntry; rank: number; isYou: boolean; isMobil
       {/* Address + YOU badge */}
       <div style={{ textAlign:'center', marginBottom: isMobile?4:8, position:'relative', zIndex:2 }}>
         <div style={{ fontFamily:'monospace', fontSize: isMobile?9:11, color: isYou?'#ffbb77':label, letterSpacing:0.5 }}>{short(entry.address)}</div>
-        {isYou && <span style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:'#ff9933', background:'rgba(255,140,0,.15)', border:'1px solid rgba(255,140,0,.4)', borderRadius:3, padding:'2px 6px', marginTop:4, display:'inline-block' }}>YOU</span>}
+        {isYou && <span style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:'#ff9933', background:'rgba(242,144,48,.15)', border:'1px solid rgba(242,144,48,.4)', borderRadius:3, padding:'2px 6px', marginTop:4, display:'inline-block' }}>YOU</span>}
       </div>
 
       {/* Stats */}
       <div style={{ display:'flex', flexDirection:'column', gap:4, width:'100%', marginTop:'auto', position:'relative', zIndex:2 }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:isMobile?'4px 8px':'6px 10px', background:'rgba(255,140,0,.06)', borderRadius:6, border:'1px solid rgba(255,140,0,.08)' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:isMobile?'4px 8px':'6px 10px', background:'rgba(242,144,48,.06)', borderRadius:6, border:'1px solid rgba(242,144,48,.08)' }}>
           <span style={{ display:'flex', alignItems:'center', gap:4, fontFamily:'Orbitron, monospace', fontSize: isMobile?6:8, color:'#ff9933' }}><BrainsLogo size={isMobile?8:10} /> 🔥 BURNED</span>
-          <span style={{ fontFamily:'Orbitron, monospace', fontSize: isMobile?8:11, fontWeight:700, color:'#ff9933', textShadow:'0 0 8px rgba(255,140,0,.3)' }}>{fmtN(entry.burned,1)}</span>
+          <span style={{ fontFamily:'Orbitron, monospace', fontSize: isMobile?8:11, fontWeight:700, color:'#ff9933', textShadow:'0 0 8px rgba(242,144,48,.3)' }}>{fmtN(entry.burned,1)}</span>
         </div>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:isMobile?'4px 8px':'6px 10px', background:`${border}0a`, borderRadius:6, border:`1px solid ${border}12` }}>
           <span style={{ fontFamily:'Orbitron, monospace', fontSize: isMobile?6:8, color:label }}>◆ LB POINTS</span>
@@ -1196,14 +1196,14 @@ const LbRow: FC<{ entry: BurnerEntry; rank: number; isYou: boolean; delay: numbe
         gridTemplateColumns: isMobile ? '30px 1fr 90px 80px' : '42px 1fr 130px 120px 70px 50px',
         alignItems: 'center', gap: isMobile ? 4 : 8,
         padding: isMobile ? '9px 10px' : '11px 16px',
-        background: isYou ? 'linear-gradient(135deg,rgba(255,140,0,.06),rgba(255,140,0,.03))' : hov ? 'linear-gradient(135deg,#0a0618,#0e0a20)' : rank % 2 === 0 ? 'linear-gradient(135deg,#04030a,#060410)' : 'linear-gradient(135deg,#030208,#05040e)',
+        background: isYou ? 'linear-gradient(135deg,rgba(242,144,48,.06),rgba(242,144,48,.03))' : hov ? 'linear-gradient(135deg,#0a0618,#0e0a20)' : rank % 2 === 0 ? 'linear-gradient(135deg,#04030a,#060410)' : 'linear-gradient(135deg,#030208,#05040e)',
         border: `1px solid ${accentColor}`,
         borderLeft: `3px solid ${accentColor}`,
         borderRadius: 8,
         transition: 'all 0.15s',
         animation: `lb-row-in 0.35s ease ${delay}s both`,
         position: 'relative', overflow: 'hidden',
-        boxShadow: isYou ? '0 0 6px rgba(255,140,0,.05)' : 'none',
+        boxShadow: isYou ? '0 0 6px rgba(242,144,48,.05)' : 'none',
       }}
     >
       {/* grid texture */}
@@ -1220,7 +1220,7 @@ const LbRow: FC<{ entry: BurnerEntry; rank: number; isYou: boolean; delay: numbe
           <span style={{ fontFamily:'monospace', fontSize:isMobile?10:12, color: isYou?'#f0d0a0':hov?'#d0b8e8':'#dde4ec', letterSpacing:0.4 }}>
             {short(entry.address)}
           </span>
-          {isYou && <span style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:'#ff9933', background:'rgba(255,140,0,.1)', border:'1px solid rgba(255,140,0,.3)', borderRadius:3, padding:'1px 5px' }}>YOU</span>}
+          {isYou && <span style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:'#ff9933', background:'rgba(242,144,48,.1)', border:'1px solid rgba(242,144,48,.3)', borderRadius:3, padding:'1px 5px' }}>YOU</span>}
           <CopyBtn text={entry.address} />
         </div>
         <div style={{ fontFamily:'Orbitron, monospace', fontSize:7, marginTop:2, color:tier.neon, letterSpacing:1, display:'flex', alignItems:'center', gap:4 }}>
@@ -1290,7 +1290,7 @@ const MyScoreCard: FC<{
       <HeroBg intensity={0.85} accent={isF?'#ff6600':'#cc88ff'} />
       {/* Extra ambient orbs for richness */}
       <div style={{ position:'absolute', top:'8%', right:'3%', width:140, height:140, borderRadius:'50%', background:isF?'radial-gradient(circle,rgba(255,34,34,.03) 0%,transparent 70%)':'radial-gradient(circle,rgba(140,60,255,.03) 0%,transparent 70%)', pointerEvents:'none' }} />
-      <div style={{ position:'absolute', bottom:'5%', left:'3%', width:110, height:110, borderRadius:'50%', background:'radial-gradient(circle,rgba(255,140,0,.02) 0%,transparent 70%)', pointerEvents:'none' }} />
+      <div style={{ position:'absolute', bottom:'5%', left:'3%', width:110, height:110, borderRadius:'50%', background:'radial-gradient(circle,rgba(242,144,48,.02) 0%,transparent 70%)', pointerEvents:'none' }} />
       <div style={{ position:'absolute', top:'40%', left:'60%', width:80, height:80, borderRadius:'50%', background:isF?'radial-gradient(circle,rgba(255,187,51,.015) 0%,transparent 70%)':'radial-gradient(circle,rgba(0,200,255,.015) 0%,transparent 70%)', pointerEvents:'none' }} />
 
       {/* ── HEADER ROW ── */}
@@ -1300,7 +1300,7 @@ const MyScoreCard: FC<{
         {/* Animated orbital with BRAINS logo — hero style */}
         <div style={{ position:'relative', width:isMobile?40:60, height:isMobile?40:60, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
           {/* Outer ring — orange/gold with orbiting dot */}
-          <div style={{ position:'absolute', inset:0, borderRadius:'50%', border:isF?'1.5px solid rgba(255,34,34,.12)':'1.5px solid rgba(255,140,0,.1)', animation:'lb-spin 10s linear infinite' }}>
+          <div style={{ position:'absolute', inset:0, borderRadius:'50%', border:isF?'1.5px solid rgba(255,34,34,.12)':'1.5px solid rgba(242,144,48,.1)', animation:'lb-spin 10s linear infinite' }}>
             <div style={{ position:'absolute', top:-2, left:'50%', width:4, height:4, borderRadius:'50%', background:isF?'#ff2222':'#ff9933', boxShadow:isF?'0 0 3px rgba(255,34,34,.2)':'0 0 3px rgba(255,153,51,.2)' }} />
           </div>
           {/* Mid ring — purple/magenta with dot */}
@@ -1313,7 +1313,7 @@ const MyScoreCard: FC<{
           </div>
           {/* BRAINS token logo center */}
           <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', zIndex:2 }}>
-            <img src={BRAINS_LOGO} alt="BRAINS" style={{ width:isMobile?24:30, height:isMobile?24:30, borderRadius:'50%', objectFit:'cover', border:isF?'1.5px solid rgba(255,34,34,.3)':'1.5px solid rgba(255,140,0,.25)', boxShadow:isF?'0 0 5px rgba(255,34,34,.15)':'0 0 5px rgba(255,140,0,.1)', background:isF?'#0a090c':'#0a0a14' }} />
+            <img src={BRAINS_LOGO} alt="BRAINS" style={{ width:isMobile?24:30, height:isMobile?24:30, borderRadius:'50%', objectFit:'cover', border:isF?'1.5px solid rgba(255,34,34,.3)':'1.5px solid rgba(242,144,48,.25)', boxShadow:isF?'0 0 5px rgba(255,34,34,.15)':'0 0 5px rgba(242,144,48,.1)', background:isF?'#0a090c':'#0a0a14' }} />
           </div>
         </div>
 
@@ -1362,7 +1362,7 @@ const MyScoreCard: FC<{
           {/* Main stats grid */}
           <div style={{ display:'grid', gridTemplateColumns:isMobile?'1fr 1fr':'repeat(5,1fr)', borderBottom:isF?'1px solid rgba(255,34,34,.06)':'1px solid rgba(140,60,255,.08)' }}>
             {[
-              { label:'TOTAL BURNED',  value:fmtN(entry.burned,2), sub:'BRAINS', icon:'🔥', color:isF?'#c87040':'#d08050', grad:isF?'linear-gradient(135deg,#c85030,#c87040,#d4a050,#e8dcd0dd,#d4a050,#c87040)':'linear-gradient(135deg,#d4884f,#e8b870,#d4884f)', accent:isF?'rgba(255,102,0,.08)':'rgba(255,140,0,.08)', glow:isF?'rgba(255,102,0,.05)':'rgba(255,140,0,.05)', big:true },
+              { label:'TOTAL BURNED',  value:fmtN(entry.burned,2), sub:'BRAINS', icon:'🔥', color:isF?'#c87040':'#d08050', grad:isF?'linear-gradient(135deg,#c85030,#c87040,#d4a050,#e8dcd0dd,#d4a050,#c87040)':'linear-gradient(135deg,#d4884f,#e8b870,#d4884f)', accent:isF?'rgba(255,102,0,.08)':'rgba(242,144,48,.08)', glow:isF?'rgba(255,102,0,.05)':'rgba(242,144,48,.05)', big:true },
               { label:'USD VALUE',     value:usdValue!=null?(usdValue>=1000?`$${(usdValue/1000).toFixed(2)}K`:`$${usdValue.toFixed(2)}`):'—', sub:brainsPrice?`@ $${brainsPrice>=0.001?brainsPrice.toFixed(4):brainsPrice.toFixed(6)}`:'—', icon:'💰', color:isF?'#d4a050':'#78c8a0', grad:isF?'linear-gradient(135deg,#cc8800,#ffbb33,#ffffffcc,#ffbb33)':'linear-gradient(135deg,#5ec99a,#88ddb8,#4db88a)', accent:isF?'rgba(212,160,80,.04)':'rgba(57,255,136,.06)', glow:isF?'rgba(255,187,51,.04)':'rgba(57,255,136,.04)' },
               { label:'TOTAL LB POINTS',  value:fmtPts(entry.points), sub:'LB PTS EARNED', icon:'◆', color:isF?'#ff2222':'#ee55ff', grad:isF?'linear-gradient(135deg,#cc1111,#ff2222,#ffffffbb,#ff2222)':'linear-gradient(135deg,#c07ad4,#d8a0e0,#a860c0)', accent:isF?'rgba(200,56,56,.04)':'rgba(238,85,255,.05)', glow:isF?'rgba(200,56,56,.03)':'rgba(238,85,255,.03)' },
               { label:'SUPPLY IMPACT', value:`${supplyPct.toFixed(4)}%`, sub:'OF TOTAL', icon:'📊', color:isF?'#ffdd44':'#00ccff', grad:isF?'linear-gradient(135deg,#ccaa00,#ffdd44,#ffffffbb,#ffdd44)':'linear-gradient(135deg,#5bb8d4,#7ec8dd,#4aa0bc)', accent:isF?'rgba(255,221,68,.06)':'rgba(0,200,255,.05)', glow:isF?'rgba(255,221,68,.04)':'rgba(0,200,255,.03)' },
@@ -1445,7 +1445,7 @@ const MyScoreCard: FC<{
         <div style={{ position:'relative', zIndex:6 }}>
           <div style={{ display:'grid', gridTemplateColumns:isMobile?'1fr 1fr':'repeat(5,1fr)', borderBottom:isF?'1px solid rgba(255,34,34,.06)':'1px solid rgba(140,60,255,.08)' }}>
             {[
-              { label:'TOTAL BURNED', value:'0', sub:'BRAINS', icon:'🔥', color:isF?'#c87040':'#d08050', accent:isF?'rgba(255,102,0,.08)':'rgba(255,140,0,.08)' },
+              { label:'TOTAL BURNED', value:'0', sub:'BRAINS', icon:'🔥', color:isF?'#c87040':'#d08050', accent:isF?'rgba(255,102,0,.08)':'rgba(242,144,48,.08)' },
               { label:'USD VALUE', value:'$0.00', sub:'NO BURNS YET', icon:'💰', color:isF?'#d4a050':'#78c8a0', accent:isF?'rgba(212,160,80,.04)':'rgba(57,255,136,.06)' },
               { label:'TOTAL LB POINTS', value:'0', sub:'LB PTS EARNED', icon:'◆', color:isF?'#ff2222':'#ee55ff', accent:isF?'rgba(200,56,56,.04)':'rgba(238,85,255,.05)' },
               { label:'SUPPLY IMPACT', value:'0%', sub:'OF TOTAL', icon:'📊', color:isF?'#ffdd44':'#00ccff', accent:isF?'rgba(255,221,68,.06)':'rgba(0,200,255,.05)' },
@@ -1693,15 +1693,15 @@ export const BurnLeaderboard: FC<Props> = ({
 
         {/* Extra: Diagonal energy traces (Vegas only; fire has these in HeroBg) */}
         {!isF && <><div style={{ position:'absolute', top:0, left:'10%', width:'40%', height:1, background:'linear-gradient(90deg,transparent,rgba(0,200,255,.05),rgba(140,60,255,.03),transparent)', transform:'rotate(25deg)', transformOrigin:'left top', pointerEvents:'none' }} />
-        <div style={{ position:'absolute', top:'20%', right:'5%', width:'35%', height:1, background:'linear-gradient(90deg,transparent,rgba(255,140,0,.04),rgba(238,85,255,.03),transparent)', transform:'rotate(-15deg)', transformOrigin:'right top', pointerEvents:'none' }} /></>}
+        <div style={{ position:'absolute', top:'20%', right:'5%', width:'35%', height:1, background:'linear-gradient(90deg,transparent,rgba(242,144,48,.04),rgba(238,85,255,.03),transparent)', transform:'rotate(-15deg)', transformOrigin:'right top', pointerEvents:'none' }} /></>}
         {/* Extra: Ambient data orbs (Vegas only) */}
         {!isF && <><div style={{ position:'absolute', top:'8%', left:'2%', width:180, height:180, borderRadius:'50%', background:'radial-gradient(circle,rgba(0,200,255,.025) 0%,transparent 70%)', pointerEvents:'none' }} />
         <div style={{ position:'absolute', bottom:'5%', right:'5%', width:160, height:160, borderRadius:'50%', background:'radial-gradient(circle,rgba(238,85,255,.02) 0%,transparent 70%)', pointerEvents:'none' }} />
-        <div style={{ position:'absolute', top:'45%', left:'55%', width:120, height:120, borderRadius:'50%', background:'radial-gradient(circle,rgba(255,140,0,.018) 0%,transparent 70%)', pointerEvents:'none' }} />
+        <div style={{ position:'absolute', top:'45%', left:'55%', width:120, height:120, borderRadius:'50%', background:'radial-gradient(circle,rgba(242,144,48,.018) 0%,transparent 70%)', pointerEvents:'none' }} />
         <div style={{ position:'absolute', top:'20%', right:'25%', width:90, height:90, borderRadius:'50%', background:'radial-gradient(circle,rgba(140,60,255,.018) 0%,transparent 70%)', pointerEvents:'none' }} /></>}
 
         {/* ── HEADER BAR ── */}
-        <div style={{ position:'relative', zIndex:5, padding:isMobile?'18px 16px 14px':'22px 24px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10, borderBottom:isF?'1px solid rgba(255,34,34,.06)':'1px solid rgba(140,60,255,.1)', background:isF?'linear-gradient(90deg,rgba(255,34,34,.025),rgba(255,102,0,.015),rgba(255,187,51,.008),transparent)':'linear-gradient(90deg,rgba(140,60,255,.03),rgba(255,140,0,.02),rgba(57,255,136,.02),transparent)', overflow:'hidden' }}>
+        <div style={{ position:'relative', zIndex:5, padding:isMobile?'18px 16px 14px':'22px 24px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10, borderBottom:isF?'1px solid rgba(255,34,34,.06)':'1px solid rgba(140,60,255,.1)', background:isF?'linear-gradient(90deg,rgba(255,34,34,.025),rgba(255,102,0,.015),rgba(255,187,51,.008),transparent)':'linear-gradient(90deg,rgba(140,60,255,.03),rgba(242,144,48,.02),rgba(57,255,136,.02),transparent)', overflow:'hidden' }}>
           {/* Fire header background layers (fire only) */}
           {isF && <>
             {/* Static fire gradient */}
@@ -1715,7 +1715,7 @@ export const BurnLeaderboard: FC<Props> = ({
               {/* Fire ring glow behind orbital (fire only) */}
               {isF && <div style={{ position:'absolute', inset:-6, borderRadius:'50%', background:'radial-gradient(circle,rgba(255,34,34,.12) 0%,rgba(255,102,0,.06) 40%,transparent 70%)', pointerEvents:'none' }} />}
               {/* Outer ring */}
-              <div style={{ position:'absolute', inset:0, borderRadius:'50%', border:isF?'1.5px solid rgba(255,34,34,.2)':'1.5px solid rgba(255,140,0,.12)', animation:'lb-spin 12s linear infinite' }}>
+              <div style={{ position:'absolute', inset:0, borderRadius:'50%', border:isF?'1.5px solid rgba(255,34,34,.2)':'1.5px solid rgba(242,144,48,.12)', animation:'lb-spin 12s linear infinite' }}>
                 <div style={{ position:'absolute', top:-2, left:'50%', width:4, height:4, borderRadius:'50%', background:isF?'#ff2222':'#ff9933', boxShadow:isF?'0 0 4px rgba(255,34,34,.3)':'0 0 3px rgba(255,153,51,.3)' }} />
               </div>
               {/* Mid ring */}
@@ -1728,7 +1728,7 @@ export const BurnLeaderboard: FC<Props> = ({
               </div>
               {/* BRAINS token logo center */}
               <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', zIndex:2 }}>
-                <img src={BRAINS_LOGO} alt="BRAINS" style={{ width:isMobile?22:28, height:isMobile?22:28, borderRadius:'50%', objectFit:'cover', border:isF?'1.5px solid rgba(255,34,34,.4)':'1.5px solid rgba(255,140,0,.3)', boxShadow:isF?'0 0 6px rgba(255,34,34,.2)':'0 0 6px rgba(255,140,0,.15)', background:isF?'#0a090c':'#0a0a14' }} />
+                <img src={BRAINS_LOGO} alt="BRAINS" style={{ width:isMobile?22:28, height:isMobile?22:28, borderRadius:'50%', objectFit:'cover', border:isF?'1.5px solid rgba(255,34,34,.4)':'1.5px solid rgba(242,144,48,.3)', boxShadow:isF?'0 0 6px rgba(255,34,34,.2)':'0 0 6px rgba(242,144,48,.15)', background:isF?'#0a090c':'#0a0a14' }} />
               </div>
             </div>
             <div>
@@ -1755,7 +1755,7 @@ export const BurnLeaderboard: FC<Props> = ({
         {/* ── STAT CARDS GRID ── */}
         <div style={{ position:'relative', zIndex:5, display:'grid', gridTemplateColumns:isMobile?'1fr 1fr':'repeat(4,1fr)', borderBottom:isF?'1px solid rgba(255,34,34,.06)':'1px solid rgba(57,255,136,.06)' }}>
           {[
-            { label:'TOTAL BURNED',   value: globalBurned != null ? Math.round(globalBurned).toLocaleString() : '——', sub:'BRAINS DESTROYED', usd: globalBurned != null && brainsPrice ? `$${(globalBurned * brainsPrice).toLocaleString(undefined,{maximumFractionDigits:0})} USD` : null, color:isF?'#c87040':'#d08050', grad:isF?'linear-gradient(135deg,#c85030,#c87040,#d4a050,#e8dcd0dd,#d4a050,#c87040)':'linear-gradient(135deg,#d4884f,#e8b870,#d4884f)', icon:'🔥', accent:isF?'rgba(255,102,0,.08)':'rgba(255,140,0,.08)', glow:isF?'rgba(255,102,0,.05)':'rgba(255,140,0,.04)', big:true },
+            { label:'TOTAL BURNED',   value: globalBurned != null ? Math.round(globalBurned).toLocaleString() : '——', sub:'BRAINS DESTROYED', usd: globalBurned != null && brainsPrice ? `$${(globalBurned * brainsPrice).toLocaleString(undefined,{maximumFractionDigits:0})} USD` : null, color:isF?'#c87040':'#d08050', grad:isF?'linear-gradient(135deg,#c85030,#c87040,#d4a050,#e8dcd0dd,#d4a050,#c87040)':'linear-gradient(135deg,#d4884f,#e8b870,#d4884f)', icon:'🔥', accent:isF?'rgba(255,102,0,.08)':'rgba(242,144,48,.08)', glow:isF?'rgba(255,102,0,.05)':'rgba(242,144,48,.04)', big:true },
             { label:'INITIAL SUPPLY', value:(8_880_000).toLocaleString(), sub:'GENESIS ALLOCATION', usd:null, color:isF?'#ff2222':'#ee55ff', grad:isF?'linear-gradient(135deg,#a82020,#c83838,#d07070,#e0d0c8cc,#d07070,#c83838)':'linear-gradient(135deg,#c07ad4,#d8a0e0,#a860c0)', icon:'◆',  accent:isF?'rgba(200,56,56,.04)':'rgba(238,85,255,.05)', glow:isF?'rgba(200,56,56,.03)':'rgba(238,85,255,.03)' },
             { label:'CIRCULATING',    value: globalSupply != null ? Math.round(globalSupply).toLocaleString() : '——', sub:'REMAINING SUPPLY', usd:null, color:isF?'#d4a050':'#78c8a0', grad:isF?'linear-gradient(135deg,#a87020,#d4a050,#d8b870,#e0d8d0cc,#d8b870,#d4a050)':'linear-gradient(135deg,#5ec99a,#88ddbb,#4db88a)', icon:'◈',  accent:isF?'rgba(212,160,80,.04)':'rgba(57,255,136,.05)', glow:isF?'rgba(255,187,51,.04)':'rgba(57,255,136,.03)' },
             { label:'BURN RATE',      value: globalBurned != null ? `${((globalBurned/8_880_000)*100).toFixed(3)}%` : '——', sub:'SUPPLY DESTROYED', usd:null, color:isF?'#ffdd44':'#00ccff', grad:isF?'linear-gradient(135deg,#a89020,#d4b860,#d8c880,#e0d8d0cc,#d8c880,#d4b860)':'linear-gradient(135deg,#5bb8d4,#7ec8dd,#4aa0bc)', icon:'📊', accent:isF?'rgba(255,221,68,.06)':'rgba(0,200,255,.05)', glow:isF?'rgba(255,221,68,.04)':'rgba(0,200,255,.03)' },
@@ -1987,7 +1987,7 @@ export const BurnLeaderboard: FC<Props> = ({
             background:isF
               ?'linear-gradient(160deg,#0a0a0c 0%,#0c0b0e 40%,#0a0a0c 80%,#080808 100%)'
               :'linear-gradient(160deg,#0c0618 0%,#100a22 40%,#0a0516 80%,#06030e 100%)',
-            border:isF?'1px solid rgba(255,102,0,.2)':'1px solid rgba(255,140,0,.15)',
+            border:isF?'1px solid rgba(255,102,0,.2)':'1px solid rgba(242,144,48,.15)',
             padding: isMobile ? '22px 18px' : '28px 32px',
             transition:'all 0.35s cubic-bezier(.4,0,.2,1)',
             boxShadow:'0 4px 30px rgba(0,0,0,.3)',
@@ -2003,7 +2003,7 @@ export const BurnLeaderboard: FC<Props> = ({
           }}
           onMouseLeave={e => {
             const el = e.currentTarget;
-            el.style.border = isF?'1px solid rgba(255,102,0,.2)':'1px solid rgba(255,140,0,.15)';
+            el.style.border = isF?'1px solid rgba(255,102,0,.2)':'1px solid rgba(242,144,48,.15)';
             el.style.boxShadow = '0 4px 30px rgba(0,0,0,.3)';
             el.style.transform = 'translateY(0)';
             el.style.background = isF
@@ -2018,7 +2018,7 @@ export const BurnLeaderboard: FC<Props> = ({
           {/* Right side glow */}
           <div style={{ position:'absolute', top:'50%', right:'-5%', width:200, height:200, transform:'translateY(-50%)', borderRadius:'50%', background:isF?'radial-gradient(circle,rgba(255,102,0,.02) 0%,transparent 70%)':'radial-gradient(circle,rgba(140,60,255,.03) 0%,transparent 70%)', pointerEvents:'none', filter:'blur(30px)' }} />
           {/* Top edge highlight */}
-          <div style={{ position:'absolute', top:0, left:'10%', right:'10%', height:1, background:isF?'linear-gradient(90deg,transparent,rgba(255,102,0,.12),rgba(255,34,34,.08),transparent)':'linear-gradient(90deg,transparent,rgba(255,140,0,.12),rgba(238,85,255,.08),transparent)', pointerEvents:'none' }} />
+          <div style={{ position:'absolute', top:0, left:'10%', right:'10%', height:1, background:isF?'linear-gradient(90deg,transparent,rgba(255,102,0,.12),rgba(255,34,34,.08),transparent)':'linear-gradient(90deg,transparent,rgba(242,144,48,.12),rgba(238,85,255,.08),transparent)', pointerEvents:'none' }} />
           {/* Fire: bottom fire edge */}
           {isF && <div style={{ position:'absolute', bottom:0, left:'5%', right:'5%', height:2, background:'linear-gradient(90deg,transparent,#ff222233,#ff440044,#ff660055,#ffbb3344,#ff660044,#ff222033,transparent)', backgroundSize:'200% 100%', animation:'lb-fire-border 3s ease infinite', pointerEvents:'none' }} />}
 
@@ -2027,9 +2027,9 @@ export const BurnLeaderboard: FC<Props> = ({
             {/* ── Reactor Core with orbiting nodes ── */}
             <div style={{ position:'relative', width:isMobile?70:96, height:isMobile?70:96, flexShrink:0 }}>
               {/* Outer orbit ring with nodes */}
-              <div style={{ position:'absolute', inset:0, borderRadius:'50%', border:isF?'1px solid rgba(255,102,0,.1)':'1px solid rgba(255,140,0,.08)', animation:'lb-spin 12s linear infinite' }}>
+              <div style={{ position:'absolute', inset:0, borderRadius:'50%', border:isF?'1px solid rgba(255,102,0,.1)':'1px solid rgba(242,144,48,.08)', animation:'lb-spin 12s linear infinite' }}>
                 {[0,90,180,270].map(deg => (
-                  <div key={deg} style={{ position:'absolute', width:5, height:5, borderRadius:'50%', background:isF?'#ff4400':'#ff9933', boxShadow:isF?'0 0 3px rgba(255,68,0,.2)':'0 0 3px rgba(255,140,0,.2)', top:`${50+45*Math.sin(deg*Math.PI/180)}%`, left:`${50+45*Math.cos(deg*Math.PI/180)}%`, transform:'translate(-50%,-50%)' }} />
+                  <div key={deg} style={{ position:'absolute', width:5, height:5, borderRadius:'50%', background:isF?'#ff4400':'#ff9933', boxShadow:isF?'0 0 3px rgba(255,68,0,.2)':'0 0 3px rgba(242,144,48,.2)', top:`${50+45*Math.sin(deg*Math.PI/180)}%`, left:`${50+45*Math.cos(deg*Math.PI/180)}%`, transform:'translate(-50%,-50%)' }} />
                 ))}
               </div>
               {/* Middle orbit ring */}
@@ -2055,7 +2055,7 @@ export const BurnLeaderboard: FC<Props> = ({
               <div style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?7:8, color:isF?'#c87040':'#d08050', letterSpacing:isMobile?3:5, marginBottom:6 }}>
                 ⚡ INCINERATOR PROTOCOL
               </div>
-              <div key={isF?'f':'v'} style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?15:24, fontWeight:900, letterSpacing:isMobile?1:3, lineHeight:1.15, background:isF?'linear-gradient(90deg,#c83838,#c85030,#c87040,#d4a050,#e0d8d0cc,#d4a050)':'linear-gradient(90deg,#ff7700,#ff44ff,#ffaa33,#39ff88)', backgroundSize:isF?'200% 100%':undefined, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', filter:isF?'drop-shadow(0 0 5px rgba(255,34,34,.15))':'drop-shadow(0 0 5px rgba(255,140,0,.15))', animation:isF?'lb-grad-shift 5s ease infinite':undefined }}>
+              <div key={isF?'f':'v'} style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?15:24, fontWeight:900, letterSpacing:isMobile?1:3, lineHeight:1.15, background:isF?'linear-gradient(90deg,#c83838,#c85030,#c87040,#d4a050,#e0d8d0cc,#d4a050)':'linear-gradient(90deg,#ff7700,#ff44ff,#ffaa33,#39ff88)', backgroundSize:isF?'200% 100%':undefined, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', filter:isF?'drop-shadow(0 0 5px rgba(255,34,34,.15))':'drop-shadow(0 0 5px rgba(242,144,48,.15))', animation:isF?'lb-grad-shift 5s ease infinite':undefined }}>
                 RUN INCINERATOR ENGINE
               </div>
               <div style={{ fontFamily:'Sora, sans-serif', fontSize:isMobile?8:10, color:isF?'#b8b0c0':'#9ab0be', marginTop:6, letterSpacing:.5 }}>
@@ -2125,7 +2125,7 @@ export const BurnLeaderboard: FC<Props> = ({
             <div style={{ display:'flex', justifyContent:'center', gap:16, flexWrap:'wrap' }}>
               {[
                 { label:'WALLETS', value:String(entries.length), color:isF?'#d4a050':'#78c8a0', accent:isF?'rgba(212,160,80,.04)':'rgba(57,255,136,.06)' },
-                { label:'BURNED', value:globalBurned != null ? (globalBurned >= 1e6 ? `${(globalBurned/1e6).toFixed(2)}M` : Math.round(globalBurned).toLocaleString()) : '—', color:'#ff9933', accent:'rgba(255,140,0,.06)' },
+                { label:'BURNED', value:globalBurned != null ? (globalBurned >= 1e6 ? `${(globalBurned/1e6).toFixed(2)}M` : Math.round(globalBurned).toLocaleString()) : '—', color:'#ff9933', accent:'rgba(242,144,48,.06)' },
                 ...(brainsPrice != null && globalBurned != null ? [{ label:'VALUE', value:`$${(globalBurned * brainsPrice).toLocaleString(undefined,{maximumFractionDigits:0})}`, color:isF?'#d4a050':'#78c8a0', accent:isF?'rgba(212,160,80,.04)':'rgba(57,255,136,.06)' }] : []),
               ].map((s,i) => (
                 <div key={i} style={{ padding:'8px 18px', background:s.accent, border:`1px solid ${s.color}22`, borderRadius:10 }}>
@@ -2204,7 +2204,7 @@ export const BurnLeaderboard: FC<Props> = ({
       <div style={heroPanelStyle(20,isF)}>
         <HeroBg intensity={0.5} accent={isF?"#ffbb33":"#39ff88"} />
 {/* Header */}
-        <div style={{ position:'relative', zIndex:2, display:'flex', alignItems:'center', justifyContent:'space-between', padding:isMobile?'14px 14px':'16px 22px', background:'linear-gradient(90deg,rgba(140,60,255,.04),rgba(238,85,255,.02),rgba(255,140,0,.02),transparent)', borderBottom:isF?'1px solid rgba(255,34,34,.06)':'1px solid rgba(140,60,255,.08)', flexWrap:'wrap', gap:8 }}>
+        <div style={{ position:'relative', zIndex:2, display:'flex', alignItems:'center', justifyContent:'space-between', padding:isMobile?'14px 14px':'16px 22px', background:'linear-gradient(90deg,rgba(140,60,255,.04),rgba(238,85,255,.02),rgba(242,144,48,.02),transparent)', borderBottom:isF?'1px solid rgba(255,34,34,.06)':'1px solid rgba(140,60,255,.08)', flexWrap:'wrap', gap:8 }}>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
             <div style={{ display:'flex', alignItems:'center', gap:5, padding:'3px 10px', background:isF?'linear-gradient(135deg,rgba(255,187,51,.06),rgba(255,34,34,.04))':'linear-gradient(135deg,rgba(57,255,136,.06),rgba(0,200,255,.04))', border:isF?'1px solid rgba(255,187,51,.15)':'1px solid rgba(57,255,136,.15)', borderRadius:16 }}>
               <div style={{ width:5, height:5, borderRadius:'50%', background:isF?'#ffbb33':'#39ff88', animation:isF?'lb-fire-live 1.6s ease infinite':'lb-green-pulse 1.6s ease infinite' }} />
@@ -2236,8 +2236,8 @@ export const BurnLeaderboard: FC<Props> = ({
             <span style={{ fontFamily:'Orbitron, monospace', fontSize:7, color:isF?'#b8b0c0':'#b0bcc8', letterSpacing:2 }}>VIEW:</span>
             {([['all','🌐 ALL'],['burners','🔥 BURNERS'],['labwork','🧪 LAB WORK'],['weekly','⚡ WEEKLY']] as const).map(([key, label]) => (
               <button key={key} onClick={() => setLbView(key)} style={{
-                background: lbView===key ? (key==='labwork'?'rgba(0,204,255,.12)':key==='weekly'?'rgba(255,140,0,.12)':isF?'rgba(212,160,80,.08)':'rgba(57,255,136,.12)') : (isF?'rgba(200,56,56,.03)':'rgba(140,60,255,.04)'),
-                border: `1px solid ${lbView===key ? (key==='labwork'?'rgba(0,204,255,.3)':key==='weekly'?'rgba(255,140,0,.3)':isF?'rgba(212,160,80,.2)':'rgba(57,255,136,.3)') : (isF?'rgba(200,56,56,.08)':'rgba(140,60,255,.1)')}`,
+                background: lbView===key ? (key==='labwork'?'rgba(0,204,255,.12)':key==='weekly'?'rgba(242,144,48,.12)':isF?'rgba(212,160,80,.08)':'rgba(57,255,136,.12)') : (isF?'rgba(200,56,56,.03)':'rgba(140,60,255,.04)'),
+                border: `1px solid ${lbView===key ? (key==='labwork'?'rgba(0,204,255,.3)':key==='weekly'?'rgba(242,144,48,.3)':isF?'rgba(212,160,80,.2)':'rgba(57,255,136,.3)') : (isF?'rgba(200,56,56,.08)':'rgba(140,60,255,.1)')}`,
                 color: lbView===key ? (key==='labwork'?'#00ccff':key==='weekly'?'#ff9933':isF?'#ffbb33':'#39ff88') : (isF?'#a89cb0':'#8ebbcc'),
                 padding:'4px 12px', fontFamily:'Orbitron, monospace', fontSize:8, letterSpacing:1,
                 borderRadius:6, cursor:'pointer', transition:'all 0.15s',
@@ -2326,7 +2326,7 @@ export const BurnLeaderboard: FC<Props> = ({
             return (
             <>
               {lbView === 'weekly' && weekCfg?.status === 'active' && (
-                <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'rgba(255,140,0,.06)', border:'1px solid rgba(255,140,0,.15)', borderRadius:8, marginBottom:10 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'rgba(242,144,48,.06)', border:'1px solid rgba(242,144,48,.15)', borderRadius:8, marginBottom:10 }}>
                   <span style={{ fontSize:14 }}>⚡</span>
                   <div>
                     <div style={{ fontFamily:'Orbitron, monospace', fontSize:9, fontWeight:700, color:'#ff9933', letterSpacing:1 }}>{weekCfg.weekId?.toUpperCase() || 'ACTIVE CHALLENGE'}</div>

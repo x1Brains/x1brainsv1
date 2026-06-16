@@ -17,7 +17,7 @@ function injectMintStyles() {
       background: var(--v2-glow), rgba(12, 18, 28, .6);
       backdrop-filter: blur(14px) saturate(1.2);
       -webkit-backdrop-filter: blur(14px) saturate(1.2);
-      border: 1px solid rgba(255, 140, 0, .12);
+      border: 1px solid rgba(242, 144, 48, .12);
       border-radius: 18px;
       padding: 22px 26px;
       overflow: hidden;
@@ -27,7 +27,7 @@ function injectMintStyles() {
     .v2mh::before {
       /* Prismatic gradient hairline along the top — matches marketplace info-card */
       content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(255,140,0,.6), transparent);
+      background: linear-gradient(90deg, transparent, rgba(242,144,48,.6), transparent);
       opacity: .8;
     }
     @keyframes v2mh-sweep {
@@ -40,7 +40,7 @@ function injectMintStyles() {
       filter: blur(40px); opacity: .35;
       animation: v2mh-orb 8s ease-in-out infinite;
     }
-    .v2mh-orb.mint { right: -80px; top: -80px; background: radial-gradient(circle, #ff8c00 0%, transparent 70%); }
+    .v2mh-orb.mint { right: -80px; top: -80px; background: radial-gradient(circle, #f29030 0%, transparent 70%); }
     .v2mh-orb.burn { right: -80px; top: -80px; background: radial-gradient(circle, #00c98d 0%, transparent 70%); }
     @keyframes v2mh-orb {
       0%,100% { transform: translate(0,0) scale(1); }
@@ -62,7 +62,7 @@ function injectMintStyles() {
       font-weight: 900; letter-spacing: 1px; color: #fff;
       line-height: 1.05;
     }
-    .v2mh-title .accent { color: #ff8c00; }
+    .v2mh-title .accent { color: #f29030; }
     .v2mh-title.burn .accent { color: #00c98d; }
     .v2mh-sub {
       font-family: 'Sora', sans-serif; font-size: 12px;
@@ -92,9 +92,9 @@ function injectMintStyles() {
     }
     .v2mh-pill button:hover:not(.on) { color: rgba(230, 235, 242, .9); }
     .v2mh-pill button.on.mint {
-      background: linear-gradient(135deg, #ff8c00, #ffb340);
+      background: linear-gradient(135deg, #f29030, #ffb340);
       color: #0a0e14;
-      box-shadow: 0 6px 22px rgba(255, 140, 0, .35);
+      box-shadow: 0 6px 22px rgba(242, 144, 48, .35);
     }
     .v2mh-pill button.on.burn {
       background: linear-gradient(135deg, #00c98d, #00e0a0);
@@ -126,7 +126,7 @@ function injectMintStyles() {
       font-family: 'Orbitron', monospace; font-variant-numeric: tabular-nums;
       font-size: 14px; font-weight: 800; margin-top: 2px;
     }
-    .v2mh-stat-v.orange { color: #ff8c00; }
+    .v2mh-stat-v.orange { color: #f29030; }
     .v2mh-stat-v.green  { color: #00c98d; }
     .v2mh-stat-v.white  { color: #fff; }
   `;

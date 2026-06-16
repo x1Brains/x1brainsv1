@@ -3,11 +3,11 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import type { BurnerEntry } from './BurnLeaderboard';
 import { fmtNum, fmtUSD, shortAddr } from '../utils/v2format';
 
-const ACCENT = '#ff8c00';
+const ACCENT = '#f29030';
 const MUTED  = '#5c7a90';
 const DIM    = '#3a4a5a';
 const TEXT   = '#cdd8e2';
-const LINE   = 'rgba(255,140,0,0.13)';
+const LINE   = 'rgba(242,144,48,0.13)';
 
 function injectStyles() {
   if (typeof document === 'undefined') return;
@@ -25,15 +25,15 @@ function injectStyles() {
       gap: 12px;
       align-items: center;
       padding: 10px 12px;
-      background: rgba(255, 140, 0, 0.04);
-      border: 1px solid rgba(255, 140, 0, 0.13);
+      background: rgba(242, 144, 48, 0.04);
+      border: 1px solid rgba(242, 144, 48, 0.13);
       border-radius: 7px;
       transition: border-color .15s;
     }
-    .v2lb-row:hover { border-color: rgba(255, 140, 0, 0.33); }
+    .v2lb-row:hover { border-color: rgba(242, 144, 48, 0.33); }
     .v2lb-row.you {
-      border-color: rgba(255, 140, 0, 0.55);
-      box-shadow: inset 0 0 0 1px rgba(255, 140, 0, 0.2);
+      border-color: rgba(242, 144, 48, 0.55);
+      box-shadow: inset 0 0 0 1px rgba(242, 144, 48, 0.2);
     }
     @media (max-width: 640px) {
       .v2lb-row {
@@ -157,8 +157,8 @@ export default function V2BurnLeaderboard({ entries, price, scanning, totalBurne
               className="v2lb-mono"
               style={{
                 padding: '4px 10px', borderRadius: 5,
-                background: sortMode === m ? 'rgba(255,140,0,0.1)' : 'rgba(255,255,255,0.02)',
-                border: `1px solid ${sortMode === m ? 'rgba(255,140,0,0.5)' : 'rgba(255,255,255,0.07)'}`,
+                background: sortMode === m ? 'rgba(242,144,48,0.1)' : 'rgba(255,255,255,0.02)',
+                border: `1px solid ${sortMode === m ? 'rgba(242,144,48,0.5)' : 'rgba(255,255,255,0.07)'}`,
                 color: sortMode === m ? ACCENT : MUTED,
                 fontSize: 8, fontWeight: 700, letterSpacing: 1.2,
                 cursor: 'pointer',

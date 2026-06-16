@@ -16,12 +16,12 @@ const GLOBAL_CSS = `
 
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: #111820; }
-  ::-webkit-scrollbar-thumb { background: #ff8c00; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb { background: #f29030; border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: #ffb340; }
 
   /* Wallet adapter overrides */
   .wallet-adapter-button {
-    background: linear-gradient(135deg, #ff8c00, #ffb700) !important;
+    background: linear-gradient(135deg, #f29030, #ffb700) !important;
     color: #0a0e14 !important;
     font-family: 'Orbitron', monospace !important;
     font-size: 10px !important;
@@ -35,13 +35,13 @@ const GLOBAL_CSS = `
     white-space: nowrap !important;
   }
   .wallet-adapter-button:hover {
-    background: linear-gradient(135deg, #ffb700, #ff8c00) !important;
+    background: linear-gradient(135deg, #ffb700, #f29030) !important;
     transform: translateY(-1px) !important;
-    box-shadow: 0 4px 20px rgba(255, 140, 0, 0.5) !important;
+    box-shadow: 0 4px 20px rgba(242, 144, 48, 0.5) !important;
   }
   .wallet-adapter-modal-wrapper {
     background: #111820 !important;
-    border: 1px solid rgba(255,140,0,0.2) !important;
+    border: 1px solid rgba(242,144,48,0.2) !important;
     z-index: 99999 !important;
   }
   .wallet-adapter-modal { z-index: 99999 !important; position: fixed !important; }
@@ -50,7 +50,7 @@ const GLOBAL_CSS = `
   .wallet-adapter-dropdown-list {
     z-index: 9021 !important;
     background: rgba(10,14,20,0.98) !important;
-    border: 1px solid rgba(255,140,0,0.3) !important;
+    border: 1px solid rgba(242,144,48,0.3) !important;
     border-radius: 10px !important;
     box-shadow: 0 12px 48px rgba(0,0,0,0.85) !important;
     padding: 6px !important;
@@ -69,8 +69,8 @@ const GLOBAL_CSS = `
     text-transform: uppercase !important; text-align: left !important; width: 100% !important;
   }
   .wallet-adapter-dropdown-list-item:not([disabled]):hover {
-    background: rgba(255,140,0,0.1) !important;
-    color: #ff8c00 !important;
+    background: rgba(242,144,48,0.1) !important;
+    color: #f29030 !important;
   }
   .wallet-adapter-button-trigger { height: 36px !important; min-height: 36px !important; }
 
@@ -84,8 +84,8 @@ const GLOBAL_CSS = `
     to   { opacity: 1; }
   }
   @keyframes pulse-orange {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(255,140,0,0.4); }
-    50%       { box-shadow: 0 0 0 10px rgba(255,140,0,0); }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(242,144,48,0.4); }
+    50%       { box-shadow: 0 0 0 10px rgba(242,144,48,0); }
   }
   @keyframes spin {
     from { transform: rotate(0deg); }
@@ -119,7 +119,7 @@ const GLOBAL_CSS = `
   /* NFT card shimmer */
   .nft-card-shimmer {
     position: absolute; inset: 0;
-    background: linear-gradient(105deg, transparent 40%, rgba(255,140,0,0.06) 50%, transparent 60%);
+    background: linear-gradient(105deg, transparent 40%, rgba(242,144,48,0.06) 50%, transparent 60%);
     background-size: 200% 200%;
     opacity: 0; transition: opacity 0.3s;
     pointer-events: none; border-radius: inherit;
@@ -129,7 +129,7 @@ const GLOBAL_CSS = `
   /* Modal scrollbar */
   .modal-scroll::-webkit-scrollbar { width: 4px; }
   .modal-scroll::-webkit-scrollbar-track { background: #0d1520; }
-  .modal-scroll::-webkit-scrollbar-thumb { background: #ff8c00; border-radius: 2px; }
+  .modal-scroll::-webkit-scrollbar-thumb { background: #f29030; border-radius: 2px; }
 
   /* Page wrapper */
   .page-enter { animation: page-in 0.5s ease both; }

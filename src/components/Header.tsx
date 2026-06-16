@@ -89,7 +89,7 @@ export default function Header() {
       </div>
       <div className="header-right">
         {isAdmin && (() => {
-          const c = adminRole === 'council' ? '#bf5af2' : '#ff8c00';
+          const c = adminRole === 'council' ? '#bf5af2' : '#f29030';
           return (
             <Link
               to="/admin"

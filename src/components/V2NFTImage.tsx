@@ -209,7 +209,7 @@ export default function V2NFTImage({ src, name, priority = false, width = 600, f
         position: 'absolute', inset: 0,
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
-        background: 'rgba(255,140,0,.04)',
+        background: 'rgba(242,144,48,.04)',
       }}>
         <span style={{ fontSize: 28, opacity: 0.4 }}>🖼️</span>
         <span style={{

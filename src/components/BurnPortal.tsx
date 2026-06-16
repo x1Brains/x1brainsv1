@@ -30,7 +30,7 @@ export function injectPortalStyles() {
       100% { opacity: .95; transform: translateY(-9px) scale(1.1); }
     }
     @keyframes bp-node-glow {
-      0%,100% { opacity: .7; box-shadow: 0 0 8px #ff6600, 0 0 16px rgba(255,140,0,.6); }
+      0%,100% { opacity: .7; box-shadow: 0 0 8px #ff6600, 0 0 16px rgba(242,144,48,.6); }
       50%     { opacity: 1;  box-shadow: 0 0 18px #ff9900, 0 0 36px rgba(255,160,0,.8); }
     }
     @keyframes bp-node-glow-green {
@@ -264,7 +264,7 @@ const FlameRule: FC<{ width?: number | string; isF?: boolean }> = ({ width = '10
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, width, margin: '10px auto 0' }}>
     <div style={{
       flex: 1, height: 1,
-      background: isF?'linear-gradient(90deg,transparent,rgba(255,34,34,0.4),rgba(255,102,0,0.3))':'linear-gradient(90deg,transparent,rgba(255,80,0,0.7),rgba(255,140,0,0.4))',
+      background: isF?'linear-gradient(90deg,transparent,rgba(255,34,34,0.4),rgba(255,102,0,0.3))':'linear-gradient(90deg,transparent,rgba(255,80,0,0.7),rgba(242,144,48,0.4))',
     }} />
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <div style={{ width: 4, height: 4, borderRadius: '50%', background: isF?'#ff6600':'#39ff88', boxShadow: isF?'0 0 8px #ff6600':'0 0 8px #39ff88', animation: isF?'bp-node-glow 2s ease infinite':'bp-green-pulse 2s ease infinite' }} />
@@ -273,7 +273,7 @@ const FlameRule: FC<{ width?: number | string; isF?: boolean }> = ({ width = '10
     </div>
     <div style={{
       flex: 1, height: 1,
-      background: isF?'linear-gradient(90deg,rgba(255,102,0,0.3),rgba(255,34,34,0.4),transparent)':'linear-gradient(90deg,rgba(255,140,0,0.4),rgba(255,80,0,0.7),transparent)',
+      background: isF?'linear-gradient(90deg,rgba(255,102,0,0.3),rgba(255,34,34,0.4),transparent)':'linear-gradient(90deg,rgba(242,144,48,0.4),rgba(255,80,0,0.7),transparent)',
     }} />
   </div>
 );
@@ -396,12 +396,12 @@ export const BurnPortal: FC<BurnPortalProps> = ({ isMobile, themeName: themeName
           rings={isF?[
             { size: ring1Size, borderColor: 'rgba(255,34,34,0.25)',  glowColor: 'rgba(255,34,34,0.08)',   spinDuration: 14,  nodeCount: 8, nodeColor: '#ff4400' },
             { size: ring2Size, borderColor: 'rgba(255,102,0,0.45)', glowColor: 'rgba(255,102,0,0.15)',   spinDuration: 9,   reverse: true, nodeCount: 6, nodeColor: '#ff6600' },
-            { size: ring3Size, borderColor: 'rgba(255,140,0,0.5)',  glowColor: 'rgba(255,140,0,0.12)',   spinDuration: 5,   nodeCount: 4, nodeColor: '#ffbb33' },
+            { size: ring3Size, borderColor: 'rgba(242,144,48,0.5)',  glowColor: 'rgba(242,144,48,0.12)',   spinDuration: 5,   nodeCount: 4, nodeColor: '#ffbb33' },
             { size: isMobile ? 86 : 136, borderColor: 'rgba(255,187,51,0.55)', glowColor: 'rgba(255,187,51,0.18)', spinDuration: 3.5, reverse: true, nodeCount: 3, nodeColor: '#ffdd44' },
           ]:[
             { size: ring1Size, borderColor: 'rgba(140,70,255,0.55)',  glowColor: 'rgba(57,255,136,0.22)',  spinDuration: 14,  nodeCount: 8, nodeColor: '#cc66ff' },
-            { size: ring2Size, borderColor: 'rgba(255,140,0,0.75)',  glowColor: 'rgba(255,120,0,0.35)',   spinDuration: 9,   reverse: true, nodeCount: 6, nodeColor: '#ffcc55' },
-            { size: ring3Size, borderColor: 'rgba(255,160,0,0.65)',  glowColor: 'rgba(255,140,0,0.3)',    spinDuration: 5,   nodeCount: 4, nodeColor: '#ffdd66' },
+            { size: ring2Size, borderColor: 'rgba(242,144,48,0.75)',  glowColor: 'rgba(255,120,0,0.35)',   spinDuration: 9,   reverse: true, nodeCount: 6, nodeColor: '#ffcc55' },
+            { size: ring3Size, borderColor: 'rgba(255,160,0,0.65)',  glowColor: 'rgba(242,144,48,0.3)',    spinDuration: 5,   nodeCount: 4, nodeColor: '#ffdd66' },
             { size: isMobile ? 86 : 136, borderColor: 'rgba(57,255,136,0.85)', glowColor: 'rgba(57,255,136,0.45)', spinDuration: 3.5, reverse: true, nodeCount: 3, nodeColor: '#39ff88' },
           ]}
           sparks={sparks}
@@ -450,7 +450,7 @@ export const BurnPortal: FC<BurnPortalProps> = ({ isMobile, themeName: themeName
           fontSize: isMobile ? 10 : 12,
           letterSpacing: isMobile ? 4 : 6,
           color: isF?'#a89cb0':'#ff9933',
-          textShadow: isF?'0 0 10px rgba(255,140,0,0.3)':'0 0 10px rgba(255,140,0,0.8), 0 0 22px rgba(255,100,0,0.4)',
+          textShadow: isF?'0 0 10px rgba(242,144,48,0.3)':'0 0 10px rgba(242,144,48,0.8), 0 0 22px rgba(255,100,0,0.4)',
           textTransform: 'uppercase',
           marginBottom: 4,
           fontWeight: 600,
@@ -566,18 +566,18 @@ export const BurnTransactions: FC<BurnTxProps> = ({ entries: externalEntries, is
       position:'relative', overflow:'hidden', borderRadius:14,
       background:'linear-gradient(160deg,#08060f,#0a0818,#06040e)',
       border:'1px solid rgba(140,60,255,.12)',
-      boxShadow:'0 4px 40px rgba(0,0,0,.4), 0 0 60px rgba(255,140,0,.02)',
+      boxShadow:'0 4px 40px rgba(0,0,0,.4), 0 0 60px rgba(242,144,48,.02)',
     }}>
       <div style={{ position:'absolute', inset:0, backgroundImage:'linear-gradient(rgba(100,60,255,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(100,60,255,.02) 1px,transparent 1px)', backgroundSize:'24px 24px', pointerEvents:'none' }} />
 
       {/* Header */}
-      <div style={{ position:'relative', zIndex:2, display:'flex', alignItems:'center', justifyContent:'space-between', padding:isMobile?'14px 14px':'16px 22px', background:'linear-gradient(90deg,rgba(255,140,0,.04),rgba(238,85,255,.02),rgba(140,60,255,.02),transparent)', borderBottom:'1px solid rgba(255,140,0,.08)', flexWrap:'wrap', gap:8 }}>
+      <div style={{ position:'relative', zIndex:2, display:'flex', alignItems:'center', justifyContent:'space-between', padding:isMobile?'14px 14px':'16px 22px', background:'linear-gradient(90deg,rgba(242,144,48,.04),rgba(238,85,255,.02),rgba(140,60,255,.02),transparent)', borderBottom:'1px solid rgba(242,144,48,.08)', flexWrap:'wrap', gap:8 }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:5, padding:'3px 10px', background:'linear-gradient(135deg,rgba(255,140,0,.08),rgba(255,80,0,.04))', border:'1px solid rgba(255,140,0,.2)', borderRadius:16 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:5, padding:'3px 10px', background:'linear-gradient(135deg,rgba(242,144,48,.08),rgba(255,80,0,.04))', border:'1px solid rgba(242,144,48,.2)', borderRadius:16 }}>
             <div style={{ width:5, height:5, borderRadius:'50%', background:'#ff9933', boxShadow:'0 0 8px #ff9933', animation:'bp-green-pulse 1.6s ease infinite' }} />
             <span style={{ fontFamily:'Orbitron, monospace', fontSize:8, color:'#ff9933', letterSpacing:2 }}>LIVE</span>
           </div>
-          <div style={{ width:1, height:14, background:'rgba(255,140,0,.15)' }} />
+          <div style={{ width:1, height:14, background:'rgba(242,144,48,.15)' }} />
           <span style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?11:13, fontWeight:700, letterSpacing:3, background:'linear-gradient(90deg,#ff9933,#ee55ff,#aa44ff)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text' }}>
             BURN TRANSACTIONS
           </span>
@@ -633,14 +633,14 @@ export const BurnTransactions: FC<BurnTxProps> = ({ entries: externalEntries, is
       <div style={{ position:'relative', zIndex:1, padding:'4px 0' }}>
         {loading && allTxs.length === 0 && (
           <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:12, padding:'30px 20px' }}>
-            <div style={{ width:18, height:18, border:'2px solid rgba(255,140,0,.2)', borderTop:'2px solid #ff9933', borderRadius:'50%', animation:'bp-spin .7s linear infinite' }} />
+            <div style={{ width:18, height:18, border:'2px solid rgba(242,144,48,.2)', borderTop:'2px solid #ff9933', borderRadius:'50%', animation:'bp-spin .7s linear infinite' }} />
             <span style={{ fontFamily:'Orbitron, monospace', fontSize:10, color:'#ff9933', letterSpacing:2 }}>SCANNING CHAIN…</span>
           </div>
         )}
 
         {!loading && allTxs.length === 0 && connection && selfEntries.length === 0 && !hasExternal && (
           <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:12, padding:'30px 20px' }}>
-            <div style={{ width:18, height:18, border:'2px solid rgba(255,140,0,.2)', borderTop:'2px solid #ff9933', borderRadius:'50%', animation:'bp-spin .7s linear infinite' }} />
+            <div style={{ width:18, height:18, border:'2px solid rgba(242,144,48,.2)', borderTop:'2px solid #ff9933', borderRadius:'50%', animation:'bp-spin .7s linear infinite' }} />
             <span style={{ fontFamily:'Orbitron, monospace', fontSize:10, color:'#ff9933', letterSpacing:2 }}>LOADING BURN DATA…</span>
           </div>
         )}
@@ -671,7 +671,7 @@ export const BurnTransactions: FC<BurnTxProps> = ({ entries: externalEntries, is
                   <button onClick={() => navigator.clipboard.writeText(w.wallet)} style={{ background:'none', border:'none', color:'#8ebbcc', cursor:'pointer', fontSize:10, padding:'0 2px', flexShrink:0, opacity:.7 }} title="Copy address">📋</button>
                   <a href={`https://explorer.mainnet.x1.xyz/address/${w.wallet}`} target="_blank" rel="noopener noreferrer" style={{ color:'#aa44ff', fontSize:10, textDecoration:'none', flexShrink:0, opacity:.7 }} title="Explorer">🔗</a>
                 </div>
-                <span style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?9:11, color:'#ff9933', fontWeight:700, textShadow:'0 0 6px rgba(255,140,0,.2)' }}>🔥 {fmtN2(w.total,1)}</span>
+                <span style={{ fontFamily:'Orbitron, monospace', fontSize:isMobile?9:11, color:'#ff9933', fontWeight:700, textShadow:'0 0 6px rgba(242,144,48,.2)' }}>🔥 {fmtN2(w.total,1)}</span>
                 {!isMobile && <span style={{ fontFamily:'Orbitron, monospace', fontSize:9, color:'#39ff88' }}>{fmtN2(Math.floor(w.total*1.888),0)} PTS</span>}
                 <span style={{ fontFamily:'Orbitron, monospace', fontSize:8, color:'#8ebbcc' }}>{w.txs}</span>
               </div>

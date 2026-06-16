@@ -36,7 +36,7 @@ export default function V2Charts() {
             padding: '7px 13px', borderRadius: 9, border: '1px solid #1a2433',
             background: 'rgba(255,255,255,.02)', transition: 'color .15s, border-color .15s',
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = '#ff8c00'; e.currentTarget.style.borderColor = 'rgba(255,140,0,.4)'; }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = '#f29030'; e.currentTarget.style.borderColor = 'rgba(242,144,48,.4)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = '#8a9ab8'; e.currentTarget.style.borderColor = '#1a2433'; }}
         >
           ← LP Pairing

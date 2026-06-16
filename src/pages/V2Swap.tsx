@@ -39,16 +39,16 @@ function injectV2PaletteOverrides() {
   s.id = 'v2-palette-overrides';
   s.textContent = `
     /* ════════ V2 palette overrides for v1-derived modules ════════
-       Only orange (#ff8c00), dark, neon green (#00c98d), and minimal purple.
+       Only orange (#f29030), dark, neon green (#00c98d), and minimal purple.
        Cyan, red, yellow, pink are all remapped to orange or gray. */
     .v2-palette {
-      --accent-orange: #ff8c00;
-      --neon-cyan:     #ff8c00;
-      --neon-pink:     #ff8c00;
-      --neon-yellow:   #ff8c00;
+      --accent-orange: #f29030;
+      --neon-cyan:     #f29030;
+      --neon-pink:     #f29030;
+      --neon-yellow:   #f29030;
       --neon-purple:   #bf5af2;
       --neon-green:    #00c98d;
-      --neon-red:      #ff8c00;
+      --neon-red:      #f29030;
       --text-primary:  #e6ebf2;
       --text-secondary:#cdd8e2;
       --text-muted:    #8a9ab8;
@@ -57,17 +57,17 @@ function injectV2PaletteOverrides() {
       --bg-card:       rgba(255,255,255,.015);
     }
     /* Force any inline cyan / blue / yellow / red token color → orange */
-    .v2-palette [style*="#00d4ff"]      { color: #ff8c00 !important; }
-    .v2-palette [style*="#5be5ff"]      { color: #ff8c00 !important; }
-    .v2-palette [style*="#00B8E6"]      { color: #ff8c00 !important; }
-    .v2-palette [style*="#ffdd44"]      { color: #ff8c00 !important; }
-    .v2-palette [style*="#ff4466"]      { color: #ff8c00 !important; }
-    .v2-palette [style*="#ff4444"]      { color: #ff8c00 !important; }
-    .v2-palette [style*="#ff0066"]      { color: #ff8c00 !important; }
+    .v2-palette [style*="#00d4ff"]      { color: #f29030 !important; }
+    .v2-palette [style*="#5be5ff"]      { color: #f29030 !important; }
+    .v2-palette [style*="#00B8E6"]      { color: #f29030 !important; }
+    .v2-palette [style*="#ffdd44"]      { color: #f29030 !important; }
+    .v2-palette [style*="#ff4466"]      { color: #f29030 !important; }
+    .v2-palette [style*="#ff4444"]      { color: #f29030 !important; }
+    .v2-palette [style*="#ff0066"]      { color: #f29030 !important; }
     /* Borders + backgrounds with the same colors get gray fallback */
     .v2-palette [style*="border-color: #00d4ff"]   { border-color: rgba(138,154,184,.18) !important; }
     .v2-palette [style*="border-color:#00d4ff"]    { border-color: rgba(138,154,184,.18) !important; }
-    .v2-palette [style*="background: #00d4ff"]     { background: rgba(255,140,0,.08) !important; }
+    .v2-palette [style*="background: #00d4ff"]     { background: rgba(242,144,48,.08) !important; }
 
     /* Side panel wrap */
     .v2-swap-grid {

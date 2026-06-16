@@ -46,7 +46,7 @@ function injectIEStyles() {
     @keyframes ie-skull-float{0%{transform:translateY(0) rotate(0)}50%{transform:translateY(-8px) rotate(3deg)}100%{transform:translateY(0) rotate(0)}}
     @keyframes ie-ring-expand{0%{transform:scale(.5);opacity:.8}100%{transform:scale(2.5);opacity:0}}
     @keyframes ie-img-burn{0%{filter:brightness(1) saturate(1)}25%{filter:brightness(1.3) saturate(1.5) sepia(.3)}50%{filter:brightness(1.6) saturate(2) sepia(.5) hue-rotate(-10deg)}75%{filter:brightness(1.2) saturate(1.3) sepia(.2)}100%{filter:brightness(1) saturate(1)}}
-    @keyframes ie-text-glow{0%,100%{text-shadow:0 0 10px rgba(255,140,0,.5),0 0 30px rgba(255,60,0,.3)}50%{text-shadow:0 0 20px rgba(255,140,0,.8),0 0 50px rgba(255,60,0,.5),0 0 80px rgba(255,30,0,.3)}}
+    @keyframes ie-text-glow{0%,100%{text-shadow:0 0 10px rgba(242,144,48,.5),0 0 30px rgba(255,60,0,.3)}50%{text-shadow:0 0 20px rgba(242,144,48,.8),0 0 50px rgba(255,60,0,.5),0 0 80px rgba(255,30,0,.3)}}
   `;
   document.head.appendChild(s);
 }
@@ -138,7 +138,7 @@ const BurnCelebration: FC<{ amount: string; newPts: number; totalPts: number; la
       {/* Expanding ring burst */}
       <div style={{
         position: 'absolute', width: 120, height: 120, borderRadius: '50%',
-        border: '2px solid rgba(255,140,0,.3)',
+        border: '2px solid rgba(242,144,48,.3)',
         animation: 'ie-ring-expand 1.5s ease infinite',
         pointerEvents: 'none',
       }} />
@@ -157,7 +157,7 @@ const BurnCelebration: FC<{ amount: string; newPts: number; totalPts: number; la
       {/* Central flame aura */}
       <div style={{
         position: 'absolute', width: mob ? 180 : 280, height: mob ? 180 : 280, borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(255,80,0,.25) 0%, rgba(255,140,0,.1) 40%, transparent 70%)',
+        background: 'radial-gradient(circle, rgba(255,80,0,.25) 0%, rgba(242,144,48,.1) 40%, transparent 70%)',
         animation: 'ie-bloom 2s ease infinite',
         pointerEvents: 'none',
       }} />
@@ -177,7 +177,7 @@ const BurnCelebration: FC<{ amount: string; newPts: number; totalPts: number; la
         }} />
         <div style={{
           position: 'absolute', inset: mob ? -4 : -6, borderRadius: '50%',
-          border: `${mob ? 2 : 3}px solid rgba(255,140,0,.6)`,
+          border: `${mob ? 2 : 3}px solid rgba(242,144,48,.6)`,
           boxShadow: '0 0 30px rgba(255,80,0,.5), 0 0 60px rgba(255,40,0,.3), inset 0 0 20px rgba(255,100,0,.4)',
           animation: 'ie-burn 1.5s ease infinite',
         }} />
@@ -217,7 +217,7 @@ const BurnCelebration: FC<{ amount: string; newPts: number; totalPts: number; la
       <div style={{
         fontFamily: 'Orbitron, monospace', fontSize: mob ? 14 : 18, fontWeight: 700, color: '#ffcc44',
         letterSpacing: mob ? 2 : 3, marginBottom: mob ? 12 : 16,
-        textShadow: '0 0 12px rgba(255,140,0,.5)',
+        textShadow: '0 0 12px rgba(242,144,48,.5)',
       }}>
         🔥 {amount} BRAINS 🔥
       </div>
@@ -227,7 +227,7 @@ const BurnCelebration: FC<{ amount: string; newPts: number; totalPts: number; la
         display: 'flex', gap: mob ? 8 : 12, flexWrap: 'wrap', justifyContent: 'center', marginBottom: mob ? 8 : 10,
       }}>
         <div style={{
-          background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.25)', borderRadius: mob ? 8 : 10,
+          background: 'rgba(242,144,48,.08)', border: '1px solid rgba(242,144,48,.25)', borderRadius: mob ? 8 : 10,
           padding: mob ? '8px 14px' : '10px 18px', textAlign: 'center', minWidth: mob ? 100 : 120,
         }}>
           <div style={{ fontFamily: 'Orbitron, monospace', fontSize: mob ? 6 : 7, color: '#ff9955', letterSpacing: 2, marginBottom: 3 }}>◆ LB POINTS EARNED</div>
@@ -419,12 +419,12 @@ const IncineratorEngine:FC=()=>{
             const rings = isF ? [
               { sz:r1, bc:'rgba(255,34,34,0.25)',  gc:'rgba(255,34,34,0.08)',  dur:14, rev:false, nc:8, nd:'#ff4400' },
               { sz:r2, bc:'rgba(255,102,0,0.45)',  gc:'rgba(255,102,0,0.15)',  dur:9,  rev:true,  nc:6, nd:'#ff6600' },
-              { sz:r3, bc:'rgba(255,140,0,0.5)',   gc:'rgba(255,140,0,0.12)',  dur:5,  rev:false, nc:4, nd:'#ffbb33' },
+              { sz:r3, bc:'rgba(242,144,48,0.5)',   gc:'rgba(242,144,48,0.12)',  dur:5,  rev:false, nc:4, nd:'#ffbb33' },
               { sz:r4, bc:'rgba(255,187,51,0.55)', gc:'rgba(255,187,51,0.18)', dur:3.5,rev:true,  nc:3, nd:'#ffdd44' },
             ] : [
               { sz:r1, bc:'rgba(140,70,255,0.55)',  gc:'rgba(57,255,136,0.22)', dur:14, rev:false, nc:8, nd:'#cc66ff' },
-              { sz:r2, bc:'rgba(255,140,0,0.75)',   gc:'rgba(255,120,0,0.35)',  dur:9,  rev:true,  nc:6, nd:'#ffcc55' },
-              { sz:r3, bc:'rgba(255,160,0,0.65)',   gc:'rgba(255,140,0,0.3)',   dur:5,  rev:false, nc:4, nd:'#ffdd66' },
+              { sz:r2, bc:'rgba(242,144,48,0.75)',   gc:'rgba(255,120,0,0.35)',  dur:9,  rev:true,  nc:6, nd:'#ffcc55' },
+              { sz:r3, bc:'rgba(255,160,0,0.65)',   gc:'rgba(242,144,48,0.3)',   dur:5,  rev:false, nc:4, nd:'#ffdd66' },
               { sz:r4, bc:'rgba(57,255,136,0.85)',  gc:'rgba(57,255,136,0.45)', dur:3.5,rev:true,  nc:3, nd:'#39ff88' },
             ];
             const sparks = isF ? [
@@ -471,7 +471,7 @@ const IncineratorEngine:FC=()=>{
           {/* Title block */}
           <div style={{position:'relative',zIndex:2}}>
             {/* Eyebrow */}
-            <div style={{fontFamily:'Orbitron,monospace',fontSize:mob?11:14,letterSpacing:mob?4:7,color:isF?'#ff9944':'#cc88ff',textShadow:isF?'0 0 12px rgba(255,140,0,0.6), 0 0 28px rgba(255,102,0,0.3)':'0 0 12px rgba(180,80,255,0.9), 0 0 28px rgba(140,50,255,0.5)',textTransform:'uppercase',marginBottom:mob?8:12,fontWeight:700}}>
+            <div style={{fontFamily:'Orbitron,monospace',fontSize:mob?11:14,letterSpacing:mob?4:7,color:isF?'#ff9944':'#cc88ff',textShadow:isF?'0 0 12px rgba(242,144,48,0.6), 0 0 28px rgba(255,102,0,0.3)':'0 0 12px rgba(180,80,255,0.9), 0 0 28px rgba(140,50,255,0.5)',textTransform:'uppercase',marginBottom:mob?8:12,fontWeight:700}}>
               BRAINS 🧪 LAB WORK · BURN ENGINE
             </div>
             {/* Main title */}
@@ -481,18 +481,18 @@ const IncineratorEngine:FC=()=>{
               </h1>
             </div>
             {/* Sub-label */}
-            <div style={{fontFamily:'Orbitron,monospace',fontSize:mob?10:12,letterSpacing:mob?4:6,color:isF?'#a89cb0':'#ff9933',textShadow:isF?'0 0 10px rgba(255,140,0,0.3)':'0 0 10px rgba(255,140,0,0.8), 0 0 22px rgba(255,100,0,0.4)',textTransform:'uppercase',marginBottom:4,fontWeight:600}}>
+            <div style={{fontFamily:'Orbitron,monospace',fontSize:mob?10:12,letterSpacing:mob?4:6,color:isF?'#a89cb0':'#ff9933',textShadow:isF?'0 0 10px rgba(242,144,48,0.3)':'0 0 10px rgba(242,144,48,0.8), 0 0 22px rgba(255,100,0,0.4)',textTransform:'uppercase',marginBottom:4,fontWeight:600}}>
               INCINERATOR PROTOCOL
             </div>
             {/* FlameRule-style decorative line */}
             <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:14,width:mob?'85%':'60%',margin:'10px auto 0'}}>
-              <div style={{flex:1,height:1,background:isF?'linear-gradient(90deg,transparent,rgba(255,34,34,0.4),rgba(255,102,0,0.3))':'linear-gradient(90deg,transparent,rgba(255,80,0,0.7),rgba(255,140,0,0.4))'}}/>
+              <div style={{flex:1,height:1,background:isF?'linear-gradient(90deg,transparent,rgba(255,34,34,0.4),rgba(255,102,0,0.3))':'linear-gradient(90deg,transparent,rgba(255,80,0,0.7),rgba(242,144,48,0.4))'}}/>
               <div style={{display:'flex',alignItems:'center',gap:8}}>
                 <div style={{width:4,height:4,borderRadius:'50%',background:isF?'#ff6600':'#39ff88',boxShadow:isF?'0 0 8px #ff6600':'0 0 8px #39ff88',animation:isF?'bp-node-glow 2s ease infinite':'bp-green-pulse 2s ease infinite'}}/>
                 <span style={{fontSize:18,filter:'drop-shadow(0 0 8px #ff6600) drop-shadow(0 0 16px rgba(255,80,0,.5))'}}>🔥</span>
                 <div style={{width:4,height:4,borderRadius:'50%',background:isF?'#ff6600':'#39ff88',boxShadow:isF?'0 0 8px #ff6600':'0 0 8px #39ff88',animation:isF?'bp-node-glow 2s ease 1s infinite':'bp-green-pulse 2s ease 1s infinite'}}/>
               </div>
-              <div style={{flex:1,height:1,background:isF?'linear-gradient(90deg,rgba(255,102,0,0.3),rgba(255,34,34,0.4),transparent)':'linear-gradient(90deg,rgba(255,140,0,0.4),rgba(255,80,0,0.7),transparent)'}}/>
+              <div style={{flex:1,height:1,background:isF?'linear-gradient(90deg,rgba(255,102,0,0.3),rgba(255,34,34,0.4),transparent)':'linear-gradient(90deg,rgba(242,144,48,0.4),rgba(255,80,0,0.7),transparent)'}}/>
             </div>
             {/* Heat wave line */}
             <div style={{height:1,width:mob?'70%':'50%',margin:'10px auto 12px',background:'linear-gradient(90deg,transparent,rgba(255,80,0,0.8),rgba(255,160,0,1.0),rgba(255,80,0,0.8),transparent)',backgroundSize:'200% 100%',animation:'bp-heat-wave 5s ease infinite'}}/>

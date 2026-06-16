@@ -11,11 +11,11 @@ import {
   type BotSettings, type BotConnection, type BotChat,
 } from '../lib/supabase';
 
-const ACCENT = '#ff8c00';
+const ACCENT = '#f29030';
 const MUTED  = '#5c7a90';
 const DIM    = '#3a4a5a';
 const TEXT   = '#cdd8e2';
-const LINE   = 'rgba(255,140,0,0.13)';
+const LINE   = 'rgba(242,144,48,0.13)';
 const GOOD   = '#00c98d';
 const BAD    = '#ff4466';
 const COOL   = '#00d4ff';

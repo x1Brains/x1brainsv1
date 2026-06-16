@@ -22,7 +22,7 @@ function fmtDuration(secs: number): string {
 // Single round token image with a colored letter fallback when no logo is found.
 const TokenImg: FC<{ src?: string; symbol: string; size: number }> = ({ src, symbol, size }) => {
   const [failed, setFailed] = useState(false);
-  const COLORS = ['#ff8c00', '#ffb700', '#00d4ff', '#00c98d', '#bf5af2'];
+  const COLORS = ['#f29030', '#ffb700', '#00d4ff', '#00c98d', '#bf5af2'];
   const ci = (symbol?.charCodeAt(0) ?? 65) % COLORS.length;
   const style: CSSProperties = {
     width: size, height: size, borderRadius: '50%',
@@ -220,7 +220,7 @@ export default function V2LpPools() {
                 const aprMin   = computeApr(farm, 20_000);
                 const aprMax   = computeApr(farm, 80_000);
                 const mine     = positions[farm.pubkey]?.length ?? 0;
-                const accent   = farm.rewardSymbol === 'BRAINS' ? '#ff8c00' : '#00c98d';
+                const accent   = farm.rewardSymbol === 'BRAINS' ? '#f29030' : '#00c98d';
                 return (
                   <div className="lf9-row" key={farm.pubkey}>
                     <div className="lf9-pair">

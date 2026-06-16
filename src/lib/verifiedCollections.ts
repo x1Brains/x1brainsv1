@@ -16,7 +16,7 @@ export type VerifiedCollection = {
 };
 
 // Per-collection palette — accent color used for verified badges.
-const C_ORANGE = '#ff8c00';
+const C_ORANGE = '#f29030';
 const C_CYAN   = '#00d4ff';
 const C_PURPLE = '#bf5af2';
 const C_GREEN  = '#00c98d';

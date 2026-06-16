@@ -7,7 +7,7 @@
 import { FC } from 'react';
 import { fmtUSD, fmtNum, shortAddr } from '../utils/v2format';
 
-const ACCENT  = '#ff8c00';
+const ACCENT  = '#f29030';
 const TEXT    = 'var(--text-primary)';
 const MUTED   = 'var(--text-muted)';
 const DIM     = 'var(--text-faint)';
@@ -176,8 +176,8 @@ export default function PortfolioStats(props: Props) {
         {/* ── HERO ── */}
         <div style={{
           position: 'relative',
-          background: 'linear-gradient(155deg, rgba(255,140,0,.12), rgba(255,140,0,.02))',
-          border: '1px solid rgba(255,140,0,0.3)',
+          background: 'linear-gradient(155deg, rgba(242,144,48,.12), rgba(242,144,48,.02))',
+          border: '1px solid rgba(242,144,48,0.3)',
           borderRadius: 12,
           padding: '20px 22px',
           display: 'flex',

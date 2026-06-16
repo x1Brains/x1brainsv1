@@ -41,8 +41,8 @@ function isNftLike(r: { decimals: number; balance: number }): boolean {
 }
 
 const KNOWN: Record<string, { symbol: string; logo?: string; color: string }> = {
-  [XNT_MINT]:    { symbol: 'XNT',    logo: XNT_LOGO,    color: '#ff8c00' },
-  [BRAINS_MINT]: { symbol: 'BRAINS', logo: BRAINS_LOGO, color: '#ff8c00' },
+  [XNT_MINT]:    { symbol: 'XNT',    logo: XNT_LOGO,    color: '#f29030' },
+  [BRAINS_MINT]: { symbol: 'BRAINS', logo: BRAINS_LOGO, color: '#f29030' },
   [LB_MINT]:     { symbol: 'LB',                          color: '#bf5af2' },
 };
 
@@ -160,7 +160,7 @@ export default function Portfolio() {
           mint: XNT_MINT, symbol: 'XNT', balance: lamports / 1e9, program: 'spl',
           price: priceMap[XNT_MINT] ?? 0,
           usd: (lamports / 1e9) * (priceMap[XNT_MINT] ?? 0),
-          logo: XNT_LOGO, color: '#ff8c00', decimals: 9,
+          logo: XNT_LOGO, color: '#f29030', decimals: 9,
         };
 
         const built: Row[] = [xntRow, ...raw.map(r => {
@@ -234,7 +234,7 @@ export default function Portfolio() {
         <div className="title" style={{ margin: 0 }}>Portfolio</div>
         {loading && (
           <span style={{
-            fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#ff8c00',
+            fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#f29030',
             letterSpacing: 1.5, fontWeight: 700,
           }}>SCANNING</span>
         )}
@@ -243,7 +243,7 @@ export default function Portfolio() {
       {!connected ? (
         <div style={{
           padding: '14px 12px', textAlign: 'center',
-          background: 'rgba(255,140,0,0.04)', border: '1px solid rgba(255,140,0,0.18)',
+          background: 'rgba(242,144,48,0.04)', border: '1px solid rgba(242,144,48,0.18)',
           borderRadius: 7,
         }}>
           <div style={{
@@ -253,9 +253,9 @@ export default function Portfolio() {
             type="button" onClick={() => setVisible(true)}
             style={{
               fontFamily: 'Orbitron, monospace', fontSize: 9, fontWeight: 700,
-              letterSpacing: 1.8, color: '#ff8c00',
+              letterSpacing: 1.8, color: '#f29030',
               padding: '6px 16px', borderRadius: 6, cursor: 'pointer',
-              background: 'rgba(255,140,0,0.1)', border: '1px solid rgba(255,140,0,0.55)',
+              background: 'rgba(242,144,48,0.1)', border: '1px solid rgba(242,144,48,0.55)',
             }}
           >CONNECT</button>
         </div>

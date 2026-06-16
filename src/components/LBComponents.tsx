@@ -1110,7 +1110,7 @@ const CollectionSection: FC<{
   const [traitFilter, setTraitFilter]         = useState<{ type: string; value: string } | null>(null);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
 
-  const colors = ['#00d4ff','#bf5af2','#00c98d','#ffd700','#ff8c00'];
+  const colors = ['#00d4ff','#bf5af2','#00c98d','#ffd700','#f29030'];
   const col    = colors[colIndex % colors.length];
   const rgba   = col==='#00d4ff'?'0,212,255':col==='#bf5af2'?'191,90,242':col==='#00c98d'?'0,201,141':col==='#ffd700'?'255,215,0':'255,140,0';
 
@@ -1568,7 +1568,7 @@ const ListingCard: FC<{
         {rarity && <div style={{ position:'absolute', bottom:4, left:4, background:'rgba(0,0,0,.82)',
           border:`1px solid ${rcol}44`, borderRadius:4, padding:'1px 5px',
           fontFamily:'Orbitron,monospace', fontSize:6, color:rcol, fontWeight:700 }}>{rarity.toUpperCase()}</div>}
-        {isOwner && <div style={{ position:'absolute', top:4, right:4, background:'rgba(255,140,0,.85)',
+        {isOwner && <div style={{ position:'absolute', top:4, right:4, background:'rgba(242,144,48,.85)',
           borderRadius:4, padding:'1px 6px', fontFamily:'Orbitron,monospace', fontSize:6, color:'#000', fontWeight:700 }}>YOURS</div>}
       </div>
       <div style={{ padding: isMobile ? '8px 8px 10px' : '10px 12px 12px' }}>

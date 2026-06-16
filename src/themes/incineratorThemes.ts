@@ -111,35 +111,35 @@ export const FIRE: IncTheme = {
 
 // ═══════════════════════════════════════════════
 // V2 — X1 Brains v2 palette
-// Orange #ff8c00 / Cyan #00d4ff / Purple #bf5af2
+// Orange #f29030 / Cyan #00d4ff / Purple #bf5af2
 // ═══════════════════════════════════════════════
 export const V2: IncTheme = {
   name:'v2', label:'V2', icon:'⌬',
   pageBg:'linear-gradient(180deg,#080c0f 0%,#0a0e16 40%,#080c0f 100%)',
-  glow1:'radial-gradient(circle,rgba(255,140,0,.05) 0%,transparent 70%)',
+  glow1:'radial-gradient(circle,rgba(242,144,48,.05) 0%,transparent 70%)',
   glow2:'radial-gradient(circle,rgba(0,212,255,.04) 0%,transparent 70%)',
   cardBg:'linear-gradient(135deg,rgba(12,18,28,.96),rgba(8,12,15,.96))',
-  cardBorder:'rgba(255,140,0,.14)',
-  cardGlow:'linear-gradient(90deg,transparent,rgba(255,140,0,.5),rgba(0,212,255,.3),transparent)',
-  primary:'#ff8c00', primaryRgb:'255,140,0',
+  cardBorder:'rgba(242,144,48,.14)',
+  cardGlow:'linear-gradient(90deg,transparent,rgba(242,144,48,.5),rgba(0,212,255,.3),transparent)',
+  primary:'#f29030', primaryRgb:'255,140,0',
   secondary:'#00d4ff', secondaryRgb:'0,212,255',
   accent:'#bf5af2', accentRgb:'191,90,242',
   textMuted:'#9abacf', textDim:'#6a7a94',
-  gradText:'linear-gradient(90deg,#ff8c00,#00d4ff,#bf5af2)',
-  ring1:'rgba(255,140,0,.16)', ring2:'rgba(0,212,255,.13)', ring3:'rgba(191,90,242,.10)',
-  node1:'radial-gradient(circle,#ffb340,#ff8c00)', node1G:'0 0 8px rgba(255,140,0,.85),0 0 20px rgba(255,140,0,.28)',
+  gradText:'linear-gradient(90deg,#f29030,#00d4ff,#bf5af2)',
+  ring1:'rgba(242,144,48,.16)', ring2:'rgba(0,212,255,.13)', ring3:'rgba(191,90,242,.10)',
+  node1:'radial-gradient(circle,#ffb340,#f29030)', node1G:'0 0 8px rgba(242,144,48,.85),0 0 20px rgba(242,144,48,.28)',
   node2:'radial-gradient(circle,#5be5ff,#00d4ff)', node2G:'0 0 6px rgba(0,212,255,.85),0 0 16px rgba(0,212,255,.28)',
   node3:'radial-gradient(circle,#d68bff,#bf5af2)', node3G:'0 0 6px rgba(191,90,242,.85),0 0 14px rgba(191,90,242,.28)',
-  coreBg:'radial-gradient(circle,rgba(255,140,0,.13) 0%,rgba(0,212,255,.07) 60%,transparent 100%)',
-  coreBurn:'radial-gradient(circle,rgba(255,140,0,.32) 0%,rgba(255,90,0,.13) 60%,transparent 100%)',
-  conic:'conic-gradient(from 0deg,#ff8c00,#00d4ff,#bf5af2,#ff8c00)',
+  coreBg:'radial-gradient(circle,rgba(242,144,48,.13) 0%,rgba(0,212,255,.07) 60%,transparent 100%)',
+  coreBurn:'radial-gradient(circle,rgba(242,144,48,.32) 0%,rgba(255,90,0,.13) 60%,transparent 100%)',
+  conic:'conic-gradient(from 0deg,#f29030,#00d4ff,#bf5af2,#f29030)',
   innerBg:'radial-gradient(circle,#0c1218 0%,#080c0f 100%)',
-  btnBg:'linear-gradient(135deg,#ff8c00,#cc6600,#993300)', btnBorder:'rgba(255,140,0,.65)',
-  btnOff:'linear-gradient(135deg,rgba(255,140,0,.2),rgba(120,60,0,.2))',
-  inputBorder:'rgba(255,140,0,.3)', inputFocus:'rgba(0,212,255,.6)',
-  warnBg:'rgba(255,140,0,.08)', warnBorder:'rgba(255,140,0,.25)', warnAccent:'#ff8c00', warnText:'#ffb340',
+  btnBg:'linear-gradient(135deg,#f29030,#cc6600,#993300)', btnBorder:'rgba(242,144,48,.65)',
+  btnOff:'linear-gradient(135deg,rgba(242,144,48,.2),rgba(120,60,0,.2))',
+  inputBorder:'rgba(242,144,48,.3)', inputFocus:'rgba(0,212,255,.6)',
+  warnBg:'rgba(242,144,48,.08)', warnBorder:'rgba(242,144,48,.25)', warnAccent:'#f29030', warnText:'#ffb340',
   okColor:'#00c98d', okRgb:'0,201,141', errColor:'#ff4444', errRgb:'255,68,68',
-  statBorder:'rgba(255,140,0,.12)',
+  statBorder:'rgba(242,144,48,.12)',
   qBg:'rgba(255,255,255,.04)', qBorder:'1px solid rgba(0,212,255,.18)', qColor:'#00d4ff',
 };
 

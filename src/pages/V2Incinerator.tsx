@@ -17,7 +17,7 @@ import V2PageHeader from '../components/V2PageHeader';
 
 const BRAINS_INITIAL = 8_880_000;
 
-const ACCENT = '#ff8c00';
+const ACCENT = '#f29030';
 const MUTED  = '#5c7a90';
 
 const mono = { fontFamily: 'Orbitron, monospace', fontVariantNumeric: 'tabular-nums' as const };
@@ -209,12 +209,12 @@ export default function V2Incinerator() {
                     ...mono,
                     padding: '8px 16px', borderRadius: 999,
                     background: tab === t
-                      ? 'linear-gradient(135deg, #ff8c00, #ffb340)'
+                      ? 'linear-gradient(135deg, #f29030, #ffb340)'
                       : 'rgba(255,255,255,.04)',
                     border: `1px solid ${tab === t ? 'transparent' : 'rgba(255,255,255,.08)'}`,
                     color: tab === t ? '#0a0e14' : MUTED,
                     fontSize: 9, fontWeight: 800, letterSpacing: 1.8,
-                    boxShadow: tab === t ? '0 6px 18px rgba(255,140,0,.35)' : 'none',
+                    boxShadow: tab === t ? '0 6px 18px rgba(242,144,48,.35)' : 'none',
                     transition: 'background .15s, color .15s, box-shadow .15s',
                     cursor: 'pointer',
                   }}

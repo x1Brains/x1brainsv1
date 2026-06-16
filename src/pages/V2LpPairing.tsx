@@ -158,16 +158,16 @@ export default function V2LpPairing() {
                       </div>
                     </div>
                     <div className="lf9-col">{fmtNum(l.amountUi, 2)}</div>
-                    <div className="lf9-col" style={{ color: '#ff8c00', fontFamily: 'Orbitron, monospace', fontWeight: 700 }}>{fmtUSD(l.usdValUi)}</div>
+                    <div className="lf9-col" style={{ color: '#f29030', fontFamily: 'Orbitron, monospace', fontWeight: 700 }}>{fmtUSD(l.usdValUi)}</div>
                     <div className="lf9-col">{l.burnBps / 100}%</div>
                     <div>
-                      <div className="lf9-apr" style={{ color: '#ff8c00', fontSize: 12 }}>{totalTvl > 0 ? `${sharePct.toFixed(1)}%` : '—'}</div>
+                      <div className="lf9-apr" style={{ color: '#f29030', fontSize: 12 }}>{totalTvl > 0 ? `${sharePct.toFixed(1)}%` : '—'}</div>
                       <div className="lf9-sharebar">
                         <div style={{
                           width: `${Math.min(100, sharePct)}%`,
                           background: l.isEcosystem
                             ? 'linear-gradient(90deg, rgba(0,201,141,.9), rgba(0,201,141,.4))'
-                            : 'linear-gradient(90deg, #ff8c00, rgba(255,140,0,.5))',
+                            : 'linear-gradient(90deg, #f29030, rgba(242,144,48,.5))',
                         }} />
                       </div>
                     </div>

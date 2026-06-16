@@ -34,7 +34,7 @@ function renderRich(text: string): ReactNode[] {
     const label = m[1] ?? m[3];
     out.push(
       <a key={`lk${i++}`} href={href} target="_blank" rel="noopener noreferrer"
-         style={{ color: '#ff8c00', textDecoration: 'underline', wordBreak: 'break-word' }}>
+         style={{ color: '#f29030', textDecoration: 'underline', wordBreak: 'break-word' }}>
         {label}
       </a>,
     );

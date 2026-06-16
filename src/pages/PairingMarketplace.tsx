@@ -53,9 +53,9 @@ const LB_DISCOUNT_THRESHOLD = 3_300;     // 33 LB at 2 decimals
 // ─── Burn BPS whitelist — matches program VALID_BURN_BPS ─────────────────────
 const BURN_OPTIONS = [
   { pct: 0,    bps: 0,     label: '0%',   desc: 'No burn · LP split 50/50',     color: '#5a6a82', eachPct: 50   },
-  { pct: 25,   bps: 2500,  label: '25%',  desc: '25% burned · 75% split 50/50', color: '#ff8c00', eachPct: 37.5 },
+  { pct: 25,   bps: 2500,  label: '25%',  desc: '25% burned · 75% split 50/50', color: '#f29030', eachPct: 37.5 },
   { pct: 50,   bps: 5000,  label: '50%',  desc: '50% burned · 50% split 50/50', color: '#bf5af2', eachPct: 25   },
-  { pct: 100,  bps: 10000, label: '100%', desc: 'All burned · max LB points',   color: '#ff8c00', eachPct: 0    },
+  { pct: 100,  bps: 10000, label: '100%', desc: 'All burned · max LB points',   color: '#f29030', eachPct: 0    },
 ] as const;
 
 
@@ -805,21 +805,21 @@ const StatusBox: FC<{ msg: string }> = ({ msg }) => {
   return (
     <div style={{
       padding: '10px 14px', borderRadius: 10, marginBottom: 16,
-      background: isErr ? 'rgba(255,140,0,.08)' : isOk ? 'rgba(0,201,141,.08)' : 'rgba(255,140,0,.06)',
-      border: `1px solid ${isErr ? 'rgba(255,140,0,.25)' : isOk ? 'rgba(0,201,141,.25)' : 'rgba(255,140,0,.15)'}`,
+      background: isErr ? 'rgba(242,144,48,.08)' : isOk ? 'rgba(0,201,141,.08)' : 'rgba(242,144,48,.06)',
+      border: `1px solid ${isErr ? 'rgba(242,144,48,.25)' : isOk ? 'rgba(0,201,141,.25)' : 'rgba(242,144,48,.15)'}`,
       fontFamily: 'Sora,sans-serif', fontSize: 12,
-      color: isErr ? '#ff8c00' : isOk ? '#00c98d' : '#cdd8e2', lineHeight: 1.6,
+      color: isErr ? '#f29030' : isOk ? '#00c98d' : '#cdd8e2', lineHeight: 1.6,
     }} dangerouslySetInnerHTML={{ __html: msg }} />
   );
 };
 
-const TxLink: FC<{ sig: string; color?: string }> = ({ sig, color = "#ff8c00" }) => {
+const TxLink: FC<{ sig: string; color?: string }> = ({ sig, color = "#f29030" }) => {
   if (!sig) return null;
   const url = `https://explorer.mainnet.x1.xyz/tx/${sig}`;
   return (
     <a href={url} target="_blank" rel="noopener noreferrer" style={{
       display: "block", textAlign: "center", padding: "10px 14px", marginBottom: 16,
-      borderRadius: 10, background: "rgba(255,140,0,.04)",
+      borderRadius: 10, background: "rgba(242,144,48,.04)",
       border: `1px solid ${color}40`, textDecoration: "none",
       fontFamily: "Orbitron,monospace", fontSize: 11, fontWeight: 700,
       color, letterSpacing: 1, transition: "all .15s",
@@ -857,7 +857,7 @@ const TokenLogo: FC<{ mint: string; logo?: string; symbol: string; size?: number
   );
 
   // Gradient fallback — same palette as TokenComponents
-  const COLORS = ['#ff8c00','#ff8c00','#ff8c00','#00c98d','#bf5af2'];
+  const COLORS = ['#f29030','#f29030','#f29030','#00c98d','#bf5af2'];
   const ci  = (symbol?.charCodeAt(0) ?? 65) % COLORS.length;
   const ci2 = (ci + 2) % COLORS.length;
   return (
@@ -927,9 +927,9 @@ const ListingCard: FC<{
         animation: `fadeUp 0.4s ease ${idx * 0.04}s both`,
       }}>
         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 1,
-          background: 'linear-gradient(90deg,transparent,rgba(255,140,0,.25),transparent)' }} />
+          background: 'linear-gradient(90deg,transparent,rgba(242,144,48,.25),transparent)' }} />
         <div style={{ position: 'absolute', left: 0, top: '15%', bottom: '15%', width: 2, borderRadius: 2,
-          background: listing.isEcosystem ? 'rgba(255,140,0,.4)' : 'rgba(255,140,0,.4)' }} />
+          background: listing.isEcosystem ? 'rgba(242,144,48,.4)' : 'rgba(242,144,48,.4)' }} />
 
         {/* Row 1 — logo + title + match button */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -942,16 +942,16 @@ const ListingCard: FC<{
                 {listing.tokenASymbol} / ANY
               </span>
               <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 8, flexShrink: 0,
-                color: listing.isEcosystem ? 'rgba(255,140,0,.8)' : 'rgba(255,255,255,.4)',
-                background: listing.isEcosystem ? 'rgba(255,140,0,.07)' : 'rgba(255,255,255,.05)',
-                border: `1px solid ${listing.isEcosystem ? 'rgba(255,140,0,.2)' : 'rgba(255,255,255,.1)'}`,
+                color: listing.isEcosystem ? 'rgba(242,144,48,.8)' : 'rgba(255,255,255,.4)',
+                background: listing.isEcosystem ? 'rgba(242,144,48,.07)' : 'rgba(255,255,255,.05)',
+                border: `1px solid ${listing.isEcosystem ? 'rgba(242,144,48,.2)' : 'rgba(255,255,255,.1)'}`,
                 borderRadius: 3, padding: '1px 5px' }}>
                 {listing.isEcosystem ? 'ECO' : 'OPEN'}
               </span>
               {listing.burnBps > 0 && (
                 <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 8, flexShrink: 0,
-                  color: 'rgba(255,140,0,.8)', background: 'rgba(255,140,0,.07)',
-                  border: '1px solid rgba(255,140,0,.2)', borderRadius: 3, padding: '1px 5px' }}>
+                  color: 'rgba(242,144,48,.8)', background: 'rgba(242,144,48,.07)',
+                  border: '1px solid rgba(242,144,48,.2)', borderRadius: 3, padding: '1px 5px' }}>
                   {burn.label} 🔥
                 </span>
               )}
@@ -965,14 +965,14 @@ const ListingCard: FC<{
             <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
               <button onClick={e => { e.stopPropagation(); onEdit(listing); }}
                 style={{ padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
-                  background: 'rgba(255,140,0,.06)', border: '1px solid rgba(255,140,0,.2)',
-                  fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700, color: '#ff8c00' }}>
+                  background: 'rgba(242,144,48,.06)', border: '1px solid rgba(242,144,48,.2)',
+                  fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700, color: '#f29030' }}>
                 EDIT
               </button>
               <button onClick={e => { e.stopPropagation(); onDelist(listing); }}
                 style={{ padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
-                  background: 'rgba(255,140,0,.04)', border: '1px solid rgba(255,140,0,.15)',
-                  fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700, color: '#ff8c00' }}>
+                  background: 'rgba(242,144,48,.04)', border: '1px solid rgba(242,144,48,.15)',
+                  fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700, color: '#f29030' }}>
                 DELIST
               </button>
             </div>
@@ -1002,8 +1002,8 @@ const ListingCard: FC<{
             </span>
             {listing.burnBps > 0 && (
               <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 8,
-                color: 'rgba(255,140,0,.6)', background: 'rgba(255,140,0,.05)',
-                border: '1px solid rgba(255,140,0,.12)', borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap' }}>
+                color: 'rgba(242,144,48,.6)', background: 'rgba(242,144,48,.05)',
+                border: '1px solid rgba(242,144,48,.12)', borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap' }}>
                 ×1.888 LB
               </span>
             )}
@@ -1019,9 +1019,9 @@ const ListingCard: FC<{
               </span>
               {!priceLoading && showBadge && (
                 <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 8,
-                  color: priceUp ? '#00c98d' : '#ff8c00',
-                  background: priceUp ? 'rgba(0,201,141,.08)' : 'rgba(255,140,0,.08)',
-                  border: `1px solid ${priceUp ? 'rgba(0,201,141,.2)' : 'rgba(255,140,0,.2)'}`,
+                  color: priceUp ? '#00c98d' : '#f29030',
+                  background: priceUp ? 'rgba(0,201,141,.08)' : 'rgba(242,144,48,.08)',
+                  border: `1px solid ${priceUp ? 'rgba(0,201,141,.2)' : 'rgba(242,144,48,.2)'}`,
                   borderRadius: 3, padding: '1px 4px' }}>
                   {priceUp ? '▲' : '▼'}{Math.abs(priceDiff).toFixed(1)}%
                 </span>
@@ -1043,16 +1043,16 @@ const ListingCard: FC<{
       animation: `fadeUp 0.4s ease ${idx * 0.04}s both`, transition: 'border-color 0.18s',
       display: 'flex', alignItems: 'center', gap: 14,
     }}
-    onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,140,0,.25)'; }}
+    onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(242,144,48,.25)'; }}
     onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,255,255,.07)'; }}>
 
       {/* Orange bottom accent line */}
       <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 1,
-        background: 'linear-gradient(90deg,transparent,rgba(255,140,0,.3),transparent)' }} />
+        background: 'linear-gradient(90deg,transparent,rgba(242,144,48,.3),transparent)' }} />
 
       {/* Left accent bar */}
       <div style={{ position: 'absolute', left: 0, top: '15%', bottom: '15%', width: 2, borderRadius: 2,
-        background: listing.isEcosystem ? 'rgba(255,140,0,.4)' : 'rgba(255,140,0,.4)' }} />
+        background: listing.isEcosystem ? 'rgba(242,144,48,.4)' : 'rgba(242,144,48,.4)' }} />
 
       {/* Logo */}
       <TokenLogo mint={listing.tokenAMint} logo={logo} symbol={listing.tokenASymbol} size={42} />
@@ -1065,16 +1065,16 @@ const ListingCard: FC<{
             {listing.tokenASymbol} / ANY TOKEN
           </span>
           <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 9,
-            color: listing.isEcosystem ? 'rgba(255,140,0,.8)' : 'rgba(255,255,255,.4)',
-            background: listing.isEcosystem ? 'rgba(255,140,0,.07)' : 'rgba(255,255,255,.05)',
-            border: `1px solid ${listing.isEcosystem ? 'rgba(255,140,0,.2)' : 'rgba(255,255,255,.1)'}`,
+            color: listing.isEcosystem ? 'rgba(242,144,48,.8)' : 'rgba(255,255,255,.4)',
+            background: listing.isEcosystem ? 'rgba(242,144,48,.07)' : 'rgba(255,255,255,.05)',
+            border: `1px solid ${listing.isEcosystem ? 'rgba(242,144,48,.2)' : 'rgba(255,255,255,.1)'}`,
             borderRadius: 4, padding: '1px 7px', textTransform: 'uppercase', letterSpacing: .5 }}>
             {listing.isEcosystem ? 'ECOSYSTEM' : 'OPEN'}
           </span>
           {listing.burnBps > 0 && (
             <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 9,
-              color: 'rgba(255,140,0,.8)', background: 'rgba(255,140,0,.07)',
-              border: '1px solid rgba(255,140,0,.2)',
+              color: 'rgba(242,144,48,.8)', background: 'rgba(242,144,48,.07)',
+              border: '1px solid rgba(242,144,48,.2)',
               borderRadius: 4, padding: '1px 7px', textTransform: 'uppercase', letterSpacing: .5 }}>
               {burn.label} BURN
             </span>
@@ -1098,8 +1098,8 @@ const ListingCard: FC<{
           </span>
           {listing.burnBps > 0 && (
             <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 9,
-              color: 'rgba(255,140,0,.6)', background: 'rgba(255,140,0,.05)',
-              border: '1px solid rgba(255,140,0,.12)', borderRadius: 4, padding: '1px 7px' }}>
+              color: 'rgba(242,144,48,.6)', background: 'rgba(242,144,48,.05)',
+              border: '1px solid rgba(242,144,48,.12)', borderRadius: 4, padding: '1px 7px' }}>
               LB PTS ×1.888
             </span>
           )}
@@ -1120,9 +1120,9 @@ const ListingCard: FC<{
             </span>
             {!priceLoading && showBadge && (
               <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 9,
-                color: priceUp ? '#00c98d' : '#ff8c00',
-                background: priceUp ? 'rgba(0,201,141,.08)' : 'rgba(255,140,0,.08)',
-                border: `1px solid ${priceUp ? 'rgba(0,201,141,.2)' : 'rgba(255,140,0,.2)'}`,
+                color: priceUp ? '#00c98d' : '#f29030',
+                background: priceUp ? 'rgba(0,201,141,.08)' : 'rgba(242,144,48,.08)',
+                border: `1px solid ${priceUp ? 'rgba(0,201,141,.2)' : 'rgba(242,144,48,.2)'}`,
                 borderRadius: 4, padding: '1px 5px' }}>
                 {priceUp ? '▲' : '▼'}{Math.abs(priceDiff).toFixed(1)}%
               </span>
@@ -1141,14 +1141,14 @@ const ListingCard: FC<{
             <>
               <button onClick={(e) => { e.stopPropagation(); onEdit(listing); }}
                 style={{ padding: '7px 12px', borderRadius: 8, cursor: 'pointer',
-                  background: 'rgba(255,140,0,.06)', border: '1px solid rgba(255,140,0,.2)',
-                  fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#ff8c00' }}>
+                  background: 'rgba(242,144,48,.06)', border: '1px solid rgba(242,144,48,.2)',
+                  fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#f29030' }}>
                 EDIT
               </button>
               <button onClick={(e) => { e.stopPropagation(); onDelist(listing); }}
                 style={{ padding: '7px 12px', borderRadius: 8, cursor: 'pointer',
-                  background: 'rgba(255,140,0,.04)', border: '1px solid rgba(255,140,0,.15)',
-                  fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#ff8c00' }}>
+                  background: 'rgba(242,144,48,.04)', border: '1px solid rgba(242,144,48,.15)',
+                  fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#f29030' }}>
                 DELIST
               </button>
             </>
@@ -1492,15 +1492,15 @@ export const CreateListingModal: FC<{
       <div onClick={e => e.stopPropagation()} style={{
         width: '100%', maxWidth: isMobile ? '100%' : 520,
         background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-        border: '1px solid rgba(255,140,0,.2)',
+        border: '1px solid rgba(242,144,48,.2)',
         borderRadius: isMobile ? '20px 20px 0 0' : 16,
         padding: isMobile ? '18px 14px 24px' : '22px 24px',
         animation: 'modal-in .22s cubic-bezier(.22,1,.36,1) both',
         maxHeight: isMobile ? '88vh' : 'calc(100vh - 32px)', overflowY: 'auto', position: 'relative',
       }}>
         <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16,
-          width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(255,140,0,.2)',
-          background: 'rgba(8,12,15,.9)', cursor: 'pointer', color: '#ff8c00', fontSize: 16,
+          width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(242,144,48,.2)',
+          background: 'rgba(8,12,15,.9)', cursor: 'pointer', color: '#f29030', fontSize: 16,
           display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
 
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 15 : 18,
@@ -1512,9 +1512,9 @@ export const CreateListingModal: FC<{
 
         {/* LB discount badge */}
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, marginBottom: 12,
-          color: hasLbDiscount ? '#00c98d' : '#ff8c00',
-          background: hasLbDiscount ? 'rgba(0,201,141,.08)' : 'rgba(255,140,0,.08)',
-          border: `1px solid ${hasLbDiscount ? 'rgba(0,201,141,.25)' : 'rgba(255,140,0,.25)'}`,
+          color: hasLbDiscount ? '#00c98d' : '#f29030',
+          background: hasLbDiscount ? 'rgba(0,201,141,.08)' : 'rgba(242,144,48,.08)',
+          border: `1px solid ${hasLbDiscount ? 'rgba(0,201,141,.25)' : 'rgba(242,144,48,.25)'}`,
           borderRadius: 8, padding: '6px 12px', display: 'inline-block' }}>
           {hasLbDiscount
             ? (isEcosystem ? '✓ 0.888% FEE RATE (ecosystem token)' : '✓ 0.888% FEE RATE (33+ LB held)')
@@ -1527,7 +1527,7 @@ export const CreateListingModal: FC<{
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
           {[
-            { key: 'brains', label: 'BRAINS', bal: balances.brains, price: prices.brains, color: '#ff8c00' },
+            { key: 'brains', label: 'BRAINS', bal: balances.brains, price: prices.brains, color: '#f29030' },
             { key: 'lb',     label: 'LB',     bal: balances.lb,     price: prices.lb,     color: '#00c98d' },
             { key: 'other',  label: 'OTHER',  bal: otherMeta?.balance ?? 0, price: otherMeta?.price ?? 0, color: '#bf5af2' },
           ].map(t => (
@@ -1618,8 +1618,8 @@ export const CreateListingModal: FC<{
             </div>
             {otherMeta && (
               <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 10,
-                background: otherMeta.hasPool ? 'rgba(0,201,141,.06)' : 'rgba(255,140,0,.06)',
-                border: `1px solid ${otherMeta.hasPool ? 'rgba(0,201,141,.25)' : 'rgba(255,140,0,.25)'}` }}>
+                background: otherMeta.hasPool ? 'rgba(0,201,141,.06)' : 'rgba(242,144,48,.06)',
+                border: `1px solid ${otherMeta.hasPool ? 'rgba(0,201,141,.25)' : 'rgba(242,144,48,.25)'}` }}>
                 {otherMeta.checking ? (
                   <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82' }}>Checking pool…</div>
                 ) : otherMeta.hasPool ? (
@@ -1637,7 +1637,7 @@ export const CreateListingModal: FC<{
                       borderRadius: 6, padding: '4px 10px' }}>ELIGIBLE</div>
                   </div>
                 ) : (
-                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#ff8c00' }}>
+                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#f29030' }}>
                     ✗ No XNT pool found on XDEX — create one first
                   </div>
                 )}
@@ -1650,7 +1650,7 @@ export const CreateListingModal: FC<{
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#5a6a82', marginBottom: 10 }}>
           AMOUNT TO LIST
         </div>
-        <div style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,140,0,.18)',
+        <div style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(242,144,48,.18)',
           borderRadius: 12, padding: '14px 16px', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <TokenLogo mint={selMint} symbol={selSymbol} size={32} />
@@ -1658,9 +1658,9 @@ export const CreateListingModal: FC<{
               style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none',
                 fontFamily: 'Orbitron,monospace', fontSize: 24, fontWeight: 900, color: '#fff' }} />
             <button onClick={() => setAmount(String(Math.floor(selBal)))}
-              style={{ background: 'rgba(255,140,0,.1)', border: '1px solid rgba(255,140,0,.25)',
+              style={{ background: 'rgba(242,144,48,.1)', border: '1px solid rgba(242,144,48,.25)',
                 borderRadius: 7, padding: '5px 12px', cursor: 'pointer',
-                fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#ff8c00' }}>MAX</button>
+                fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700, color: '#f29030' }}>MAX</button>
           </div>
           {amt > 0 && (
             <div style={{ display: 'flex', gap: 14, marginTop: 8 }}>
@@ -1710,17 +1710,17 @@ export const CreateListingModal: FC<{
               sub: `${usdVal6.toLocaleString()} (6 dec)`, color: '#8a9ab8' },
             { label: `FEE RATE (${hasLbDiscount ? '0.888' : '1.888'}% · BPS=${hasLbDiscount ? FEE_BPS_ECOSYSTEM : FEE_BPS_STANDARD})`,
               val: feeXntUi > 0 ? `${feeXntUi.toFixed(6)} XNT` : '—',
-              sub: feeUsdUi > 0 ? fmtUSD(feeUsdUi) : '', color: '#ff8c00' },
+              sub: feeUsdUi > 0 ? fmtUSD(feeUsdUi) : '', color: '#f29030' },
             { label: 'MINIMUM FLOOR',
               val: `${(FEE_MINIMUM_XNT / LAMPORTS_PER_SOL).toFixed(3)} XNT`,
               sub: 'min floor', color: '#5a6a82' },
             { label: 'YOU PAY',
               val: feeLamps > 0 ? `${(feeLamps / LAMPORTS_PER_SOL).toFixed(6)} XNT` : '—',
               sub: feeLamps > 0 ? `${feeLamps.toLocaleString()} lamports` : '',
-              color: xntBal >= feeXntUi ? '#00c98d' : '#ff8c00' },
+              color: xntBal >= feeXntUi ? '#00c98d' : '#f29030' },
             { label: 'YOUR XNT BALANCE',
               val: `${xntBal.toFixed(4)} XNT`,
-              sub: '', color: xntBal >= feeXntUi ? '#00c98d' : '#ff8c00' },
+              sub: '', color: xntBal >= feeXntUi ? '#00c98d' : '#f29030' },
           ].map(row => (
             <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between',
               alignItems: 'flex-start', padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
@@ -1739,21 +1739,21 @@ export const CreateListingModal: FC<{
         </div>
 
         <StatusBox msg={status} />
-        <TxLink sig={txSig} color="#ff8c00" />
+        <TxLink sig={txSig} color="#f29030" />
 
         <button onClick={handleCreate} disabled={!canSubmit}
           style={{ width: '100%', padding: '15px 0', borderRadius: 12,
             cursor: canSubmit ? 'pointer' : 'not-allowed',
             background: canSubmit
-              ? 'linear-gradient(135deg,rgba(255,140,0,.2),rgba(255,140,0,.08))'
+              ? 'linear-gradient(135deg,rgba(242,144,48,.2),rgba(242,144,48,.08))'
               : 'rgba(255,255,255,.04)',
-            border: `1px solid ${canSubmit ? 'rgba(255,140,0,.5)' : 'rgba(255,255,255,.08)'}`,
+            border: `1px solid ${canSubmit ? 'rgba(242,144,48,.5)' : 'rgba(255,255,255,.08)'}`,
             fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-            color: canSubmit ? '#ff8c00' : '#5a6a82',
+            color: canSubmit ? '#f29030' : '#5a6a82',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           {pending
             ? <><div style={{ width: 14, height: 14, borderRadius: '50%',
-                border: '2px solid rgba(255,140,0,.2)', borderTop: '2px solid #ff8c00',
+                border: '2px solid rgba(242,144,48,.2)', borderTop: '2px solid #f29030',
                 animation: 'spin .8s linear infinite' }} />CREATING…</>
             : `⚡ LIST ${fmtNum(amt)} ${selSymbol} · PAY ${feeXntUi.toFixed(4)} XNT`}
         </button>
@@ -2274,7 +2274,7 @@ export const MatchModal: FC<{
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <TokenLogo mint={listing.tokenAMint} logo={listing.tokenALogo} symbol={listing.tokenASymbol} size={36} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900, color: '#ff8c00' }}>
+              <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900, color: '#f29030' }}>
                 {fmtNum(listing.amountUi)} {listing.tokenASymbol}
               </div>
               <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#8a9ab8', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -2283,7 +2283,7 @@ export const MatchModal: FC<{
               </div>
             </div>
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 900,
-              color: '#ff8c00', background: 'rgba(255,140,0,.1)', border: '1px solid rgba(255,140,0,.25)',
+              color: '#f29030', background: 'rgba(242,144,48,.1)', border: '1px solid rgba(242,144,48,.25)',
               borderRadius: 8, padding: '4px 12px' }}>
               YOU NEED ≈{fmtUSD(liveUsdValUi)}
             </div>
@@ -2299,9 +2299,9 @@ export const MatchModal: FC<{
             Loading your tokens…
           </div>
         ) : walletTokens.length === 0 ? (
-          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#ff8c00', marginBottom: 12,
-            padding: '10px 14px', background: 'rgba(255,140,0,.06)', borderRadius: 8,
-            border: '1px solid rgba(255,140,0,.15)' }}>
+          <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#f29030', marginBottom: 12,
+            padding: '10px 14px', background: 'rgba(242,144,48,.06)', borderRadius: 8,
+            border: '1px solid rgba(242,144,48,.15)' }}>
             No eligible tokens found in your wallet. You need tokens with an XNT pool on XDEX.
           </div>
         ) : (
@@ -2335,11 +2335,11 @@ export const MatchModal: FC<{
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 700,
-                      color: usdVal >= liveUsdValUi * 0.995 ? '#00c98d' : usdVal > 0 ? '#ff8c00' : '#5a6a82' }}>
+                      color: usdVal >= liveUsdValUi * 0.995 ? '#00c98d' : usdVal > 0 ? '#f29030' : '#5a6a82' }}>
                       {fmtUSD(usdVal)}
                     </div>
                     {usdVal < liveUsdValUi * 0.995 && usdVal > 0 && (
-                      <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#ff8c00' }}>
+                      <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#f29030' }}>
                         INSUFFICIENT
                       </div>
                     )}
@@ -2375,8 +2375,8 @@ export const MatchModal: FC<{
 
         {tokenBMeta && !tokenBMeta.checking && !tokenBMeta.hasPool && (
           <div style={{ marginBottom: 12, padding: '8px 14px', borderRadius: 8,
-            background: 'rgba(255,140,0,.06)', border: '1px solid rgba(255,140,0,.2)' }}>
-            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#ff8c00' }}>
+            background: 'rgba(242,144,48,.06)', border: '1px solid rgba(242,144,48,.2)' }}>
+            <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#f29030' }}>
               ✗ No XNT pool found — create one on XDEX first
             </div>
           </div>
@@ -2403,10 +2403,10 @@ export const MatchModal: FC<{
               {amt > 0 && (
                 <div style={{ display: 'flex', gap: 14, marginTop: 8, alignItems: 'center' }}>
                   <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11,
-                    color: priceMatch ? '#00c98d' : '#ff8c00' }}>{fmtUSD(usdValB)}</span>
+                    color: priceMatch ? '#00c98d' : '#f29030' }}>{fmtUSD(usdValB)}</span>
                   {priceMatch
                     ? <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#00c98d' }}>✓ PRICE MATCH</span>
-                    : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#ff8c00' }}>
+                    : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#f29030' }}>
                         ✗ needs to be ≈{fmtUSD(liveUsdValUi)} (±0.5%)
                       </span>}
                 </div>
@@ -2418,7 +2418,7 @@ export const MatchModal: FC<{
               borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82' }}>MATCH FEE ({isEcoB || lbRaw >= LB_DISCOUNT_THRESHOLD ? '0.888%' : '1.888%'})</span>
-                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700, color: '#ff8c00' }}>{matchFeeXnt.toFixed(4)} XNT</span>
+                <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700, color: '#f29030' }}>{matchFeeXnt.toFixed(4)} XNT</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82' }}>LP SPLIT</span>
@@ -2577,13 +2577,13 @@ const EditModal: FC<{
       <div onClick={e => e.stopPropagation()} style={{
         width: '100%', maxWidth: isMobile ? '100%' : 460,
         background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-        border: '1px solid rgba(255,140,0,.2)', borderRadius: isMobile ? '20px 20px 0 0' : 16,
+        border: '1px solid rgba(242,144,48,.2)', borderRadius: isMobile ? '20px 20px 0 0' : 16,
         padding: isMobile ? '20px 16px 28px' : '24px 26px',
         maxHeight: isMobile ? '88vh' : 'calc(100vh - 32px)', overflowY: 'auto', position: 'relative',
       }}>
         <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16,
-          width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(255,140,0,.2)',
-          background: 'rgba(8,12,15,.9)', cursor: 'pointer', color: '#ff8c00', fontSize: 16,
+          width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(242,144,48,.2)',
+          background: 'rgba(8,12,15,.9)', cursor: 'pointer', color: '#f29030', fontSize: 16,
           display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
 
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 15 : 18,
@@ -2612,7 +2612,7 @@ const EditModal: FC<{
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 2, color: '#5a6a82', marginBottom: 8 }}>
           NEW AMOUNT (leave blank to keep current)
         </div>
-        <div style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,140,0,.15)',
+        <div style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(242,144,48,.15)',
           borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <TokenLogo mint={listing.tokenAMint} logo={listing.tokenALogo} symbol={listing.tokenASymbol} size={28} />
@@ -2621,9 +2621,9 @@ const EditModal: FC<{
               style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none',
                 fontFamily: 'Orbitron,monospace', fontSize: 20, fontWeight: 900, color: '#fff' }} />
             <button onClick={() => setNewAmount(String(Math.floor(tokenBal + listing.amountUi)))}
-              style={{ background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.2)',
+              style={{ background: 'rgba(242,144,48,.08)', border: '1px solid rgba(242,144,48,.2)',
                 borderRadius: 6, padding: '4px 10px', cursor: 'pointer',
-                fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700, color: '#ff8c00' }}>MAX</button>
+                fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700, color: '#f29030' }}>MAX</button>
           </div>
           {newAmount && parseFloat(newAmount) > 0 && (
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#00c98d', marginTop: 6 }}>
@@ -2648,20 +2648,20 @@ const EditModal: FC<{
         </div>
 
         <StatusBox msg={status} />
-        <TxLink sig={txSig} color="#ff8c00" />
+        <TxLink sig={txSig} color="#f29030" />
 
         <button onClick={handleEdit} disabled={pending || (newBurnBps === listing.burnBps && !newAmount)}
           style={{ width: '100%', padding: '15px 0', borderRadius: 12,
             cursor: (!pending && (newBurnBps !== listing.burnBps || !!newAmount)) ? 'pointer' : 'not-allowed',
             background: (!pending && newBurnBps !== listing.burnBps)
-              ? 'linear-gradient(135deg,rgba(255,140,0,.18),rgba(255,140,0,.06))' : 'rgba(255,255,255,.04)',
-            border: `1px solid ${(!pending && (newBurnBps !== listing.burnBps || !!newAmount)) ? 'rgba(255,140,0,.45)' : 'rgba(255,255,255,.08)'}`,
+              ? 'linear-gradient(135deg,rgba(242,144,48,.18),rgba(242,144,48,.06))' : 'rgba(255,255,255,.04)',
+            border: `1px solid ${(!pending && (newBurnBps !== listing.burnBps || !!newAmount)) ? 'rgba(242,144,48,.45)' : 'rgba(255,255,255,.08)'}`,
             fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-            color: (!pending && (newBurnBps !== listing.burnBps || !!newAmount)) ? '#ff8c00' : '#5a6a82',
+            color: (!pending && (newBurnBps !== listing.burnBps || !!newAmount)) ? '#f29030' : '#5a6a82',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           {pending
             ? <><div style={{ width: 14, height: 14, borderRadius: '50%',
-                border: '2px solid rgba(255,140,0,.2)', borderTop: '2px solid #ff8c00',
+                border: '2px solid rgba(242,144,48,.2)', borderTop: '2px solid #f29030',
                 animation: 'spin .8s linear infinite' }} />UPDATING…</>
             : `✏️ UPDATE BURN TO ${newBurnBps / 100}% · PAY 0.001 XNT`}
         </button>
@@ -2772,13 +2772,13 @@ export const DelistModal: FC<{
       <div onClick={e => e.stopPropagation()} style={{
         width: '100%', maxWidth: isMobile ? '100%' : 440,
         background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-        border: '1px solid rgba(255,140,0,.2)', borderRadius: isMobile ? '20px 20px 0 0' : 16,
+        border: '1px solid rgba(242,144,48,.2)', borderRadius: isMobile ? '20px 20px 0 0' : 16,
         padding: isMobile ? '20px 16px 28px' : '24px 26px',
         maxHeight: isMobile ? '88vh' : 'calc(100vh - 32px)', overflowY: 'auto', position: 'relative',
       }}>
         <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16,
-          width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(255,140,0,.2)',
-          background: 'rgba(8,12,15,.9)', cursor: 'pointer', color: '#ff8c00', fontSize: 16,
+          width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(242,144,48,.2)',
+          background: 'rgba(8,12,15,.9)', cursor: 'pointer', color: '#f29030', fontSize: 16,
           display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
 
         <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 15 : 18,
@@ -2788,7 +2788,7 @@ export const DelistModal: FC<{
         </div>
 
         {/* Listing summary */}
-        <div style={{ background: 'rgba(255,140,0,.04)', border: '1px solid rgba(255,140,0,.15)',
+        <div style={{ background: 'rgba(242,144,48,.04)', border: '1px solid rgba(242,144,48,.15)',
           borderRadius: 12, padding: '16px', marginBottom: 18 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
             <TokenLogo mint={listing.tokenAMint} logo={logo} symbol={listing.tokenASymbol} size={44} />
@@ -2805,7 +2805,7 @@ export const DelistModal: FC<{
           {/* Fee breakdown */}
           {[
             { label: 'YOU GET BACK',  val: `${fmtNum(listing.amountUi)} ${listing.tokenASymbol}`, color: '#00c98d' },
-            { label: 'DELIST FEE (0.444%)', val: `${delistFeeXnt.toFixed(4)} XNT`, color: '#ff8c00',
+            { label: 'DELIST FEE (0.444%)', val: `${delistFeeXnt.toFixed(4)} XNT`, color: '#f29030',
               sub: fmtUSD(delistFeeUsd) },
             { label: 'RENT REFUND',   val: '~0.002 XNT',  color: '#8a9ab8' },
           ].map(row => (
@@ -2838,14 +2838,14 @@ export const DelistModal: FC<{
           <button onClick={handleDelist} disabled={pending}
             style={{ flex: 2, padding: '14px 0', borderRadius: 12,
               cursor: pending ? 'not-allowed' : 'pointer',
-              background: pending ? 'rgba(255,255,255,.04)' : 'linear-gradient(135deg,rgba(255,140,0,.2),rgba(255,140,0,.06))',
-              border: `1px solid ${pending ? 'rgba(255,255,255,.08)' : 'rgba(255,140,0,.45)'}`,
+              background: pending ? 'rgba(255,255,255,.04)' : 'linear-gradient(135deg,rgba(242,144,48,.2),rgba(242,144,48,.06))',
+              border: `1px solid ${pending ? 'rgba(255,255,255,.08)' : 'rgba(242,144,48,.45)'}`,
               fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
-              color: pending ? '#5a6a82' : '#ff8c00',
+              color: pending ? '#5a6a82' : '#f29030',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
             {pending
               ? <><div style={{ width: 14, height: 14, borderRadius: '50%',
-                  border: '2px solid rgba(255,140,0,.2)', borderTop: '2px solid #ff6666',
+                  border: '2px solid rgba(242,144,48,.2)', borderTop: '2px solid #ff6666',
                   animation: 'spin .8s linear infinite' }} />DELISTING…</>
               : `🗑️ DELIST · PAY ${delistFeeXnt.toFixed(4)} XNT`}
           </button>
@@ -3678,22 +3678,22 @@ export const SwapTab: FC<{
       <div key={t.mint + i} onClick={() => { onSelect(t); onClose(); }}
         style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
           borderRadius: 10, cursor: 'pointer', marginBottom: 4,
-          background: t.pinned ? 'rgba(255,140,0,.04)' : 'rgba(255,255,255,.02)',
-          border: `1px solid ${t.pinned ? 'rgba(255,140,0,.12)' : 'rgba(255,255,255,.05)'}`,
+          background: t.pinned ? 'rgba(242,144,48,.04)' : 'rgba(255,255,255,.02)',
+          border: `1px solid ${t.pinned ? 'rgba(242,144,48,.12)' : 'rgba(255,255,255,.05)'}`,
           transition: 'all .15s' }}
-        onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(255,140,0,.35)')}
-        onMouseLeave={e => (e.currentTarget.style.borderColor = t.pinned ? 'rgba(255,140,0,.12)' : 'rgba(255,255,255,.05)')}>
+        onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(242,144,48,.35)')}
+        onMouseLeave={e => (e.currentTarget.style.borderColor = t.pinned ? 'rgba(242,144,48,.12)' : 'rgba(255,255,255,.05)')}>
         <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
-          background: 'rgba(255,140,0,.1)', border: '1px solid rgba(255,140,0,.2)',
+          background: 'rgba(242,144,48,.1)', border: '1px solid rgba(242,144,48,.2)',
           display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {t.logo
             ? <img src={t.logo} alt={t.symbol} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-            : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 900, color: '#ff8c00' }}>{t.symbol.slice(0,2)}</span>}
+            : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 900, color: '#f29030' }}>{t.symbol.slice(0,2)}</span>}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 700, color: '#e6ebf2' }}>{t.symbol}</span>
-            {t.pinned && <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#ff8c00', background: 'rgba(255,140,0,.1)', padding: '1px 5px', borderRadius: 4 }}>★</span>}
+            {t.pinned && <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, color: '#f29030', background: 'rgba(242,144,48,.1)', padding: '1px 5px', borderRadius: 4 }}>★</span>}
             {!t.pinned && t.balance === 0 && <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 8, color: '#5a6a82', background: 'rgba(255,255,255,.04)', padding: '1px 5px', borderRadius: 4 }}>XDEX</span>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -3713,9 +3713,9 @@ export const SwapTab: FC<{
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
         <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 420,
           background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-          border: '1px solid rgba(255,140,0,.45)', borderRadius: 20,
+          border: '1px solid rgba(242,144,48,.45)', borderRadius: 20,
           padding: '20px 16px', maxHeight: '80vh', display: 'flex', flexDirection: 'column',
-          boxShadow: '0 24px 80px rgba(0,0,0,.65), 0 0 0 1px rgba(255,140,0,.18)' }}>
+          boxShadow: '0 24px 80px rgba(0,0,0,.65), 0 0 0 1px rgba(242,144,48,.18)' }}>
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 900, color: '#fff' }}>{title}</div>
@@ -3728,7 +3728,7 @@ export const SwapTab: FC<{
             <input value={search} onChange={e => setSearch(e.target.value)} autoFocus
               placeholder="Search name, symbol, address or paste mint…"
               style={{ width: '100%', padding: '10px 12px 10px 36px', borderRadius: 12, boxSizing: 'border-box',
-                background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,140,0,.15)',
+                background: 'rgba(255,255,255,.04)', border: '1px solid rgba(242,144,48,.15)',
                 color: '#e6ebf2', fontFamily: 'Sora,sans-serif', fontSize: 12, outline: 'none' }} />
             {searching && <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: '#5a6a82' }}>⟳</span>}
           </div>
@@ -3762,7 +3762,7 @@ export const SwapTab: FC<{
 
   // ── Token Button ──────────────────────────────────────────────────────────────
   // Token logo with proper fallback to colored letter avatar
-  const SwapLogo: FC<{ token: WalletToken; size?: number; color?: string }> = ({ token, size = 22, color = '#ff8c00' }) => {
+  const SwapLogo: FC<{ token: WalletToken; size?: number; color?: string }> = ({ token, size = 22, color = '#f29030' }) => {
     const [imgFailed, setImgFailed] = useState(false);
     return (
       <div style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
@@ -3797,7 +3797,7 @@ export const SwapTab: FC<{
   return (
     <div style={{ maxWidth: 500, margin: '0 auto', animation: 'fadeUp 0.4s ease both' }}>
       <div style={{ background: 'linear-gradient(155deg,#0d1622,#080c0f)',
-        border: '1px solid rgba(255,140,0,.12)', borderRadius: 20,
+        border: '1px solid rgba(242,144,48,.12)', borderRadius: 20,
         padding: isMobile ? '20px 16px' : '28px 28px' }}>
 
         {/* Header */}
@@ -3811,7 +3811,7 @@ export const SwapTab: FC<{
                 height={22}
                 style={{
                   borderRadius: '50%',
-                  border: '1px solid rgba(255,140,0,.45)',
+                  border: '1px solid rgba(242,144,48,.45)',
                   background: '#06090d',
                   display: 'inline-block',
                   verticalAlign: 'middle',
@@ -3827,8 +3827,8 @@ export const SwapTab: FC<{
             <button onClick={() => refreshAll()} disabled={refreshing || !publicKey}
               title="Refresh balances & prices"
               style={{ width: 32, height: 32, borderRadius: '50%', cursor: refreshing || !publicKey ? 'not-allowed' : 'pointer',
-                background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.2)',
-                color: '#ff8c00', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: 'rgba(242,144,48,.08)', border: '1px solid rgba(242,144,48,.2)',
+                color: '#f29030', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 transition: 'all .2s', opacity: !publicKey ? 0.4 : 1 }}>
               <span style={{ display: 'inline-block', animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>↻</span>
             </button>
@@ -3838,16 +3838,16 @@ export const SwapTab: FC<{
               {[10, 50, 100].map(b => (
                 <button key={b} onClick={() => setSlipBps(b)} style={{ padding: '3px 8px', borderRadius: 6, cursor: 'pointer',
                   fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
-                  background: slipBps === b ? 'rgba(255,140,0,.15)' : 'rgba(255,255,255,.04)',
-                  border: `1px solid ${slipBps === b ? 'rgba(255,140,0,.35)' : 'rgba(255,255,255,.08)'}`,
-                  color: slipBps === b ? '#ff8c00' : '#5a6a82' }}>{b / 100}%</button>
+                  background: slipBps === b ? 'rgba(242,144,48,.15)' : 'rgba(255,255,255,.04)',
+                  border: `1px solid ${slipBps === b ? 'rgba(242,144,48,.35)' : 'rgba(255,255,255,.08)'}`,
+                  color: slipBps === b ? '#f29030' : '#5a6a82' }}>{b / 100}%</button>
               ))}
             </div>
           </div>
         </div>
 
         {/* YOU PAY */}
-        <div style={{ background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,140,0,.1)', borderRadius: 16, padding: '16px', marginBottom: 6 }}>
+        <div style={{ background: 'rgba(255,255,255,.025)', border: '1px solid rgba(242,144,48,.1)', borderRadius: 16, padding: '16px', marginBottom: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 11, color: '#5a6a82' }}>You Pay</span>
             {publicKey && (
@@ -3861,10 +3861,10 @@ export const SwapTab: FC<{
               <input value={amtIn} onChange={e => { setAmtIn(e.target.value); setExactSide('in'); }} placeholder="0.00" type="number" min="0"
                 style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none',
                   fontFamily: 'Orbitron,monospace', fontSize: 28, fontWeight: 700,
-                  color: insufficientBal ? '#ff8c00' : '#e6ebf2', boxSizing: 'border-box' }} />
+                  color: insufficientBal ? '#f29030' : '#e6ebf2', boxSizing: 'border-box' }} />
               {inUsd > 0 && <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82' }}>≈ ${inUsd.toFixed(4)} USD</div>}
             </div>
-            <TokenBtn token={tokenIn} color="#ff8c00" onClick={() => setShowInPicker(true)} />
+            <TokenBtn token={tokenIn} color="#f29030" onClick={() => setShowInPicker(true)} />
           </div>
           {/* % preset buttons */}
           {publicKey && tokenIn.balance > 0 && (
@@ -3873,10 +3873,10 @@ export const SwapTab: FC<{
                 <button key={pct} onClick={() => { setExactSide('in'); setAmtIn((tokenIn.balance * pct / 100).toFixed(Math.min(tokenIn.decimals, 6))); }}
                   style={{ flex: 1, padding: '5px 0', borderRadius: 8, cursor: 'pointer',
                     fontFamily: 'Orbitron,monospace', fontSize: 9, fontWeight: 700,
-                    background: 'rgba(255,140,0,.06)', border: '1px solid rgba(255,140,0,.15)',
+                    background: 'rgba(242,144,48,.06)', border: '1px solid rgba(242,144,48,.15)',
                     color: '#8a9ab8', transition: 'all .15s' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,140,0,.15)'; (e.currentTarget as HTMLButtonElement).style.color = '#ff8c00'; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,140,0,.06)'; (e.currentTarget as HTMLButtonElement).style.color = '#8a9ab8'; }}>
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(242,144,48,.15)'; (e.currentTarget as HTMLButtonElement).style.color = '#f29030'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(242,144,48,.06)'; (e.currentTarget as HTMLButtonElement).style.color = '#8a9ab8'; }}>
                   {pct === 100 ? 'MAX' : `${pct}%`}
                 </button>
               ))}
@@ -3890,8 +3890,8 @@ export const SwapTab: FC<{
             const tmp = tokenIn; setTokenIn(tokenOut); setTokenOut(tmp);
             setAmtIn(''); setAmtOut(''); setQuoteOut(0); setExactSide('in');
           }} style={{ width: 36, height: 36, borderRadius: '50%', cursor: 'pointer',
-            background: 'linear-gradient(135deg,rgba(255,140,0,.15),rgba(191,90,242,.1))',
-            border: '1px solid rgba(255,140,0,.3)', color: '#ff8c00', fontSize: 16,
+            background: 'linear-gradient(135deg,rgba(242,144,48,.15),rgba(191,90,242,.1))',
+            border: '1px solid rgba(242,144,48,.3)', color: '#f29030', fontSize: 16,
             transition: 'transform .2s' }}
             onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'rotate(180deg)'; }}
             onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'rotate(0deg)'; }}>⇅</button>
@@ -3912,10 +3912,10 @@ export const SwapTab: FC<{
               <input value={amtOut} onChange={e => { setAmtOut(e.target.value); setExactSide('out'); }} placeholder="0.00" type="number" min="0"
                 style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none',
                   fontFamily: 'Orbitron,monospace', fontSize: 28, fontWeight: 700,
-                  color: amtOut ? '#ff8c00' : '#1a1f28', boxSizing: 'border-box' }} />
+                  color: amtOut ? '#f29030' : '#1a1f28', boxSizing: 'border-box' }} />
               {outUsd > 0 && <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82' }}>≈ ${outUsd.toFixed(4)} USD</div>}
             </div>
-            <TokenBtn token={tokenOut} color="#ff8c00" onClick={() => setShowOutPicker(true)} />
+            <TokenBtn token={tokenOut} color="#f29030" onClick={() => setShowOutPicker(true)} />
           </div>
         </div>
 
@@ -3945,7 +3945,7 @@ export const SwapTab: FC<{
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 9, color: '#5a6a82', marginBottom: 3 }}>Price Impact</div>
                 <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700,
-                  color: priceImpact > 5 ? '#ff8c00' : priceImpact > 2 ? '#ff8c00' : '#00c98d' }}>
+                  color: priceImpact > 5 ? '#f29030' : priceImpact > 2 ? '#f29030' : '#00c98d' }}>
                   {priceImpact.toFixed(2)}%{priceImpact > 5 ? ' ⚠️' : ''}
                 </div>
               </div>
@@ -3963,7 +3963,7 @@ export const SwapTab: FC<{
             {/* Route */}
             <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,.04)',
               display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
-              <SwapLogo token={tokenIn} size={24} color="#ff8c00" />
+              <SwapLogo token={tokenIn} size={24} color="#f29030" />
               <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82' }}>→</span>
               <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#5a6a82', background: 'rgba(255,255,255,.04)', padding: '2px 8px', borderRadius: 6 }}>XDEX Pool</span>
               <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#5a6a82' }}>→</span>
@@ -3976,9 +3976,9 @@ export const SwapTab: FC<{
         {status && (
           <div style={{ margin: '10px 0 14px', padding: '10px 14px', borderRadius: 10,
             fontFamily: 'Sora,sans-serif', fontSize: 12, lineHeight: 1.6,
-            background: isErr ? 'rgba(255,140,0,.08)' : isOk ? 'rgba(0,201,141,.08)' : isWarn ? 'rgba(255,140,0,.08)' : 'rgba(255,255,255,.04)',
-            border: `1px solid ${isErr ? 'rgba(255,140,0,.25)' : isOk ? 'rgba(0,201,141,.25)' : isWarn ? 'rgba(255,140,0,.25)' : 'rgba(255,255,255,.08)'}`,
-            color: isErr ? '#ff8c00' : isOk ? '#00c98d' : isWarn ? '#ff8c00' : '#cdd8e2' }}>{status}</div>
+            background: isErr ? 'rgba(242,144,48,.08)' : isOk ? 'rgba(0,201,141,.08)' : isWarn ? 'rgba(242,144,48,.08)' : 'rgba(255,255,255,.04)',
+            border: `1px solid ${isErr ? 'rgba(242,144,48,.25)' : isOk ? 'rgba(0,201,141,.25)' : isWarn ? 'rgba(242,144,48,.25)' : 'rgba(255,255,255,.08)'}`,
+            color: isErr ? '#f29030' : isOk ? '#00c98d' : isWarn ? '#f29030' : '#cdd8e2' }}>{status}</div>
         )}
 
         {/* Explorer button — shown after swap attempt with a tx sig */}
@@ -4001,12 +4001,12 @@ export const SwapTab: FC<{
               style={{ width: '100%', padding: '15px 0', borderRadius: 14, cursor: (pending || !poolState || !amtIn || parsedAmt <= 0) ? 'not-allowed' : 'pointer',
                 fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 900, transition: 'all .15s',
                 background: pending || !poolState ? 'rgba(255,255,255,.04)'
-                  : insufficientBal ? 'rgba(255,140,0,.1)'
-                  : 'linear-gradient(135deg,rgba(255,140,0,.22),rgba(255,140,0,.12))',
+                  : insufficientBal ? 'rgba(242,144,48,.1)'
+                  : 'linear-gradient(135deg,rgba(242,144,48,.22),rgba(242,144,48,.12))',
                 border: `1px solid ${pending || !poolState ? 'rgba(255,255,255,.08)'
-                  : insufficientBal ? 'rgba(255,140,0,.35)' : 'rgba(255,140,0,.45)'}`,
-                color: pending || !poolState ? '#5a6a82' : insufficientBal ? '#ff8c00' : '#ff8c00',
-                boxShadow: (!pending && poolState && !insufficientBal && parsedAmt > 0) ? '0 0 20px rgba(255,140,0,.12)' : 'none' }}>
+                  : insufficientBal ? 'rgba(242,144,48,.35)' : 'rgba(242,144,48,.45)'}`,
+                color: pending || !poolState ? '#5a6a82' : insufficientBal ? '#f29030' : '#f29030',
+                boxShadow: (!pending && poolState && !insufficientBal && parsedAmt > 0) ? '0 0 20px rgba(242,144,48,.12)' : 'none' }}>
               {pending ? 'SWAPPING…'
                 : loadingPool ? 'FINDING POOL…'
                 : !poolState && tokenIn.mint !== tokenOut.mint ? 'NO POOL FOUND'
@@ -4258,7 +4258,7 @@ const PairingMarketplace: FC = () => {
       <NfaConsentModal />
 
       <div style={{ position: 'fixed', top: '20%', left: '10%', width: 600, height: 600, borderRadius: '50%',
-        background: 'radial-gradient(circle,rgba(255,140,0,0.04) 0%,transparent 60%)', pointerEvents: 'none', zIndex: 0 }} />
+        background: 'radial-gradient(circle,rgba(242,144,48,0.04) 0%,transparent 60%)', pointerEvents: 'none', zIndex: 0 }} />
       <div style={{ position: 'fixed', top: '60%', right: '5%', width: 500, height: 500, borderRadius: '50%',
         background: 'radial-gradient(circle,rgba(191,90,242,0.05) 0%,transparent 60%)', pointerEvents: 'none', zIndex: 0 }} />
 
@@ -4285,7 +4285,7 @@ const PairingMarketplace: FC = () => {
 
           <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
             width: isMobile ? 320 : 600, height: isMobile ? 180 : 280, borderRadius: '50%',
-            background: 'radial-gradient(ellipse,rgba(255,140,0,.07) 0%,rgba(191,90,242,.04) 40%,transparent 70%)',
+            background: 'radial-gradient(ellipse,rgba(242,144,48,.07) 0%,rgba(191,90,242,.04) 40%,transparent 70%)',
             pointerEvents: 'none', animation: 'hdr-orb 4s ease-in-out infinite', zIndex: 0 }} />
 
           <div style={{ position: 'relative', zIndex: 1, width: '100%' }}>
@@ -4293,7 +4293,7 @@ const PairingMarketplace: FC = () => {
               <h1 style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 22 : 42,
                 fontWeight: 900, letterSpacing: isMobile ? 1 : 3, margin: '0 0 4px',
                 lineHeight: 1.05, textTransform: 'uppercase' }}>
-                <span style={{ color: '#ff8c00' }}>
+                <span style={{ color: '#f29030' }}>
                   X1 Brains
                 </span>
                 <span style={{ color: 'rgba(255,255,255,.15)', margin: isMobile ? '0 6px' : '0 12px', fontWeight: 300 }}>·</span>
@@ -4321,8 +4321,8 @@ const PairingMarketplace: FC = () => {
             <div className="ticker-scroll" style={{
               width: '100%', maxWidth: 900, margin: '0 auto 0',
               animation: 'fadeUp 0.5s ease 0.18s both',
-              background: 'rgba(255,140,0,.06)',
-              border: '1px solid rgba(255,140,0,.18)',
+              background: 'rgba(242,144,48,.06)',
+              border: '1px solid rgba(242,144,48,.18)',
               borderBottom: 'none',
               borderRadius: '10px 10px 0 0',
               padding: isMobile ? '7px 10px' : '10px 28px',
@@ -4342,16 +4342,16 @@ const PairingMarketplace: FC = () => {
                 { sym: 'TVL',    val: totalTVL > 0 ? fmtUSD(totalTVL) : '…', chg: null, up: true },
               ].map((t, i) => (
                 <React.Fragment key={t.sym}>
-                  {i > 0 && <div style={{ width: 1, height: 14, background: 'rgba(255,140,0,.2)', flexShrink: 0 }} />}
+                  {i > 0 && <div style={{ width: 1, height: 14, background: 'rgba(242,144,48,.2)', flexShrink: 0 }} />}
                   <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 6,
                     padding: isMobile ? '0 8px' : '0 12px', flexShrink: 0 }}>
                     <span style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 7 : 8, letterSpacing: 1,
-                      color: 'rgba(255,140,0,.6)', fontWeight: 700 }}>{t.sym}</span>
+                      color: 'rgba(242,144,48,.6)', fontWeight: 700 }}>{t.sym}</span>
                     <span style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 10 : 12,
                       fontWeight: 700, color: '#e6ebf2' }}>{t.val}</span>
                     {t.chg && !isMobile && (
                       <span style={{ fontFamily: 'Sora,sans-serif', fontSize: 9,
-                        color: t.up ? '#00c98d' : '#ff8c00' }}>{t.chg}</span>
+                        color: t.up ? '#00c98d' : '#f29030' }}>{t.chg}</span>
                     )}
                   </div>
                 </React.Fragment>
@@ -4362,9 +4362,9 @@ const PairingMarketplace: FC = () => {
             <div style={{
               width: '100%', maxWidth: 900, margin: '0 auto 10px',
               height: 2,
-              background: 'linear-gradient(90deg, transparent, #ff8c00, #ffb700, #ff8c00, transparent)',
+              background: 'linear-gradient(90deg, transparent, #f29030, #ffb700, #f29030, transparent)',
               borderRadius: '0 0 2px 2px',
-              boxShadow: '0 0 12px rgba(255,140,0,.4), 0 0 24px rgba(255,140,0,.15)',
+              boxShadow: '0 0 12px rgba(242,144,48,.4), 0 0 24px rgba(242,144,48,.15)',
             }} />
 
             {/* ── STAT CARDS WITH ORBS ── */}
@@ -4376,9 +4376,9 @@ const PairingMarketplace: FC = () => {
               gap: 8,
             }}>
               {[
-                { label: 'Platform Volume', value: fmtUSD(platformVolume), sub: 'all-time matched',  color: '#ff8c00' },
+                { label: 'Platform Volume', value: fmtUSD(platformVolume), sub: 'all-time matched',  color: '#f29030' },
                 { label: 'Pools Created',   value: String(totalPools),      sub: 'via lp pairing',   color: '#00c98d' },
-                { label: 'Open Listings',   value: String(listings.filter(l => l.status === 'open').length), sub: 'awaiting match', color: '#ff8c00' },
+                { label: 'Open Listings',   value: String(listings.filter(l => l.status === 'open').length), sub: 'awaiting match', color: '#f29030' },
                 { label: 'Ecosystem TVL',   value: totalTVL > 0 ? fmtUSD(totalTVL) : '…', sub: 'xdex pools total', color: '#bf5af2' },
               ].map(({ label, value, sub, color }) => (
                 <div key={label} style={{
@@ -4418,19 +4418,19 @@ const PairingMarketplace: FC = () => {
         <div
           onClick={() => window.location.href = '/lpfarms'}
           onMouseEnter={e => {
-            (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,140,0,.35)';
-            (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,140,0,.04)';
+            (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(242,144,48,.35)';
+            (e.currentTarget as HTMLDivElement).style.background = 'rgba(242,144,48,.04)';
           }}
           onMouseLeave={e => {
-            (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,140,0,.18)';
-            (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,140,0,.02)';
+            (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(242,144,48,.18)';
+            (e.currentTarget as HTMLDivElement).style.background = 'rgba(242,144,48,.02)';
           }}
           style={{
             marginBottom: isMobile ? 16 : 20,
             padding: isMobile ? '10px 14px' : '11px 18px',
             borderRadius: 10,
-            background: 'rgba(255,140,0,.02)',
-            border: '1px solid rgba(255,140,0,.18)',
+            background: 'rgba(242,144,48,.02)',
+            border: '1px solid rgba(242,144,48,.18)',
             cursor: 'pointer',
             display: 'flex', alignItems: 'center',
             gap: isMobile ? 10 : 14,
@@ -4441,9 +4441,9 @@ const PairingMarketplace: FC = () => {
           {/* NEW badge */}
           <div style={{
             fontFamily: 'Orbitron,monospace', fontSize: 8, fontWeight: 700,
-            color: '#ff8c00', letterSpacing: 1.5, padding: '3px 7px',
-            borderRadius: 4, background: 'rgba(255,140,0,.1)',
-            border: '1px solid rgba(255,140,0,.3)', flexShrink: 0,
+            color: '#f29030', letterSpacing: 1.5, padding: '3px 7px',
+            borderRadius: 4, background: 'rgba(242,144,48,.1)',
+            border: '1px solid rgba(242,144,48,.3)', flexShrink: 0,
           }}>
             NEW
           </div>
@@ -4470,10 +4470,10 @@ const PairingMarketplace: FC = () => {
           {/* Arrow */}
           <div style={{
             fontFamily: 'Orbitron,monospace', fontSize: 10, fontWeight: 700,
-            color: '#ff8c00', letterSpacing: 1, flexShrink: 0,
+            color: '#f29030', letterSpacing: 1, flexShrink: 0,
             padding: isMobile ? '4px 8px' : '5px 11px', borderRadius: 5,
-            border: '1px solid rgba(255,140,0,.3)',
-            background: 'rgba(255,140,0,.05)',
+            border: '1px solid rgba(242,144,48,.3)',
+            background: 'rgba(242,144,48,.05)',
           }}>
             OPEN →
           </div>
@@ -4501,22 +4501,22 @@ const PairingMarketplace: FC = () => {
                   background: isActive && isMarket
                     ? 'linear-gradient(135deg,rgba(0,255,128,.18),rgba(0,200,100,.08))'
                     : isActive && !isCreate
-                    ? 'linear-gradient(135deg,rgba(255,140,0,.15),rgba(191,90,242,.08))'
+                    ? 'linear-gradient(135deg,rgba(242,144,48,.15),rgba(191,90,242,.08))'
                     : isCreate
-                    ? 'linear-gradient(135deg,rgba(255,140,0,.08),rgba(255,140,0,.03))'
+                    ? 'linear-gradient(135deg,rgba(242,144,48,.08),rgba(242,144,48,.03))'
                     : 'transparent',
                   border: isActive && isMarket ? '1px solid rgba(0,255,128,.7)'
-                        : isActive && !isCreate ? '1px solid rgba(255,140,0,.35)'
-                        : isCreate ? '1px solid rgba(255,140,0,.3)'
+                        : isActive && !isCreate ? '1px solid rgba(242,144,48,.35)'
+                        : isCreate ? '1px solid rgba(242,144,48,.3)'
                         : '1px solid transparent',
                   borderRadius: 11, cursor: 'pointer', transition: 'all 0.18s', textAlign: 'center',
                   animation: isMarket && !isActive ? 'lp-pulse 2s ease-in-out infinite' : 'none',
                 }}>
                 <div style={{ fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 9 : 11, fontWeight: 900,
-                  color: isActive && isMarket ? '#00c98d' : isActive && !isCreate ? '#ff8c00'
-                       : isCreate ? '#ff8c00' : '#5a6a82', marginBottom: 2 }}>{m.label}</div>
+                  color: isActive && isMarket ? '#00c98d' : isActive && !isCreate ? '#f29030'
+                       : isCreate ? '#f29030' : '#5a6a82', marginBottom: 2 }}>{m.label}</div>
                 <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 7, letterSpacing: 1,
-                  color: isActive && isMarket ? 'rgba(0,255,128,.55)' : isActive ? 'rgba(255,140,0,.55)' : '#3a4150' }}>
+                  color: isActive && isMarket ? 'rgba(0,255,128,.55)' : isActive ? 'rgba(242,144,48,.55)' : '#3a4150' }}>
                   {m.sub}
                 </div>
               </button>
@@ -4537,8 +4537,8 @@ const PairingMarketplace: FC = () => {
                 style={{ padding: isMobile ? '6px 12px' : '7px 16px', borderRadius: 8,
                   cursor: 'pointer', border: 'none',
                   fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 8 : 9, letterSpacing: 1, fontWeight: 700,
-                  background: filter === f.key ? 'rgba(255,140,0,.12)' : 'rgba(255,255,255,.04)',
-                  color: filter === f.key ? '#ff8c00' : '#5a6a82' }}>
+                  background: filter === f.key ? 'rgba(242,144,48,.12)' : 'rgba(255,255,255,.04)',
+                  color: filter === f.key ? '#f29030' : '#5a6a82' }}>
                 {f.label}
               </button>
             ))}
@@ -4586,9 +4586,9 @@ const PairingMarketplace: FC = () => {
             {publicKey && (
               <button onClick={() => setShowCreate(true)}
                 style={{ padding: isMobile ? '12px 24px' : '14px 32px', borderRadius: 12, cursor: 'pointer',
-                  background: 'linear-gradient(135deg,rgba(255,140,0,.18),rgba(255,140,0,.06))',
-                  border: '1px solid rgba(255,140,0,.4)',
-                  fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 10 : 11, fontWeight: 900, color: '#ff8c00' }}>
+                  background: 'linear-gradient(135deg,rgba(242,144,48,.18),rgba(242,144,48,.06))',
+                  border: '1px solid rgba(242,144,48,.4)',
+                  fontFamily: 'Orbitron,monospace', fontSize: isMobile ? 10 : 11, fontWeight: 900, color: '#f29030' }}>
                 ⚡ CREATE LISTING
               </button>
             )}
@@ -4617,7 +4617,7 @@ const PairingMarketplace: FC = () => {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3,1fr)', gap: isMobile ? 14 : 18 }}>
               {[
-                { n: '01', title: 'LIST YOUR TOKENS', color: '#ff8c00',
+                { n: '01', title: 'LIST YOUR TOKENS', color: '#f29030',
                   desc: 'Any token with an XNT pool on XDEX. Choose burn % (0/25/50/100). Fee: 0.888% with 33+ LB, 1.888% standard.' },
                 { n: '02', title: 'GET MATCHED',      color: '#00c98d',
                   desc: 'Anyone brings equal USD value of any token. Price verified across 3 sources within ±0.5%. Pool must be 24h+ old with $300+ TVL.' },

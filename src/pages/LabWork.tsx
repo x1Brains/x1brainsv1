@@ -1163,7 +1163,7 @@ const LabWork: FC = () => {
               letterSpacing: isMobile ? 1 : 3, margin:'0 0 4px', lineHeight:1.05,
               textTransform:'uppercase', position:'relative' }}>
               <span style={{
-                background:'linear-gradient(90deg,#ff8c00,#ffb700)',
+                background:'linear-gradient(90deg,#f29030,#ffb700)',
                 backgroundSize:'200% auto',
                 WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text',
                 display:'inline',
@@ -1218,7 +1218,7 @@ const LabWork: FC = () => {
                 <React.Fragment key={label}>
                   <div style={{ flex:1, textAlign:'center', padding: isMobile ? '2px 2px' : '2px 8px' }}>
                     <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 14 : 22,
-                      fontWeight:900, color: orange ? '#ff8c00' : '#8aa0b8', lineHeight:1, marginBottom:2,
+                      fontWeight:900, color: orange ? '#f29030' : '#8aa0b8', lineHeight:1, marginBottom:2,
                       whiteSpace:'nowrap' }}>{value}</div>
                     <div style={{ fontFamily:'Orbitron,monospace', fontSize: isMobile ? 5 : 7,
                       color:'#4a6070', letterSpacing:1.5, whiteSpace:'nowrap' }}>{label}</div>
@@ -2296,7 +2296,7 @@ const LabWork: FC = () => {
                       SELLER GETS {lamportsToXnt(calcSellerCut(l.price))} XNT
                     </div>
                   </div>
-                  {isOwner && <div style={{ position:'absolute', top:12, left:12, background:'rgba(255,140,0,.9)',
+                  {isOwner && <div style={{ position:'absolute', top:12, left:12, background:'rgba(242,144,48,.9)',
                     borderRadius:5, padding:'2px 8px', fontFamily:'Orbitron,monospace', fontSize:7, color:'#000', fontWeight:700 }}>YOURS</div>}
                 </div>
 

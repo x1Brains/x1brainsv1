@@ -6,6 +6,15 @@ Living doc. Anything load-bearing about the project belongs here so it isn't los
 
 ## 0. Outstanding work · do this in order
 
+> **⚠️ DEPLOY: build + push from `~/bt/x1brainsv2` (it's now the git repo → `github.com/x1Brains/x1brainsv1` → Vercel → x1brains.io). `~/bt/x1brainsv1` = backup only. See §13.1.** v2 went LIVE 2026-06-15.
+
+**New since launch (2026-06-15 PM) — run these:**
+| # | Task | Status |
+|---|------|--------|
+| N1 | Run [`SUPABASE_NFT_METADATA.sql`](./SUPABASE_NFT_METADATA.sql) → `nft_metadata` indexer cache (§13.3) | **TODO** |
+| N2 | Run [`SUPABASE_MARKET_STATS.sql`](./SUPABASE_MARKET_STATS.sql) → `marketplace_stats` cache (§13.7) | **TODO** |
+| N3 | After deploy: CSP smoke-test (chat/NFT images+traits/swap/portfolio/mint, console open) — add blocked hosts to `vercel.json` connect-src if any | **TODO** |
+
 | # | Task | Status |
 |---|------|--------|
 | 1 | Run [`SUPABASE_SCHEMA_BOOSTS.sql`](./SUPABASE_SCHEMA_BOOSTS.sql) in Supabase SQL editor | ✅ **done** — `labwork_boosts` + `labwork_points` both live (REST 200, data present) 2026-06-15 |
@@ -97,13 +106,13 @@ Used by `PairingMarketplace.tsx` and `PoolsTab.tsx` to compute prices entirely o
 ### Burn → Supabase flow
 
 1. Citizen opens `V2BoostModal` from a listing they own on `/labwork`
-2. Picks tier: SPARK (1,000 BRAINS / 24h) · GODSLAYER (2,500 BRAINS / 3d) · INCINERATOR (5,000 BRAINS / 7d)
-3. Tx: `createBurnCheckedInstruction` against `BRAINS_MINT` via Token-2022 program (NOT classic SPL — BRAINS is Token-2022)
+2. Picks tier + currency (2026-06-15): SPARK (200 BRAINS **or** 0.05 LB / 24h) · GODSLAYER (444 BRAINS **or** 1 LB / 3d) · INCINERATOR (888 BRAINS **or** 1.11 LB / 7d). See §13.5.
+3. Tx: `createBurnCheckedInstruction` against the chosen mint (`BRAINS_MINT` or `LB_MINT`) via Token-2022 program (both are Token-2022, NOT classic SPL)
 4. On confirm, two Supabase upserts run in parallel:
    - `labwork_boosts` row (UPSERT on `listing_pda` — one active boost per listing)
    - `labwork_points` row (UPSERT on `tx_sig` — prevents double-credit on retry)
-5. Earn rate: **1.888 labwork points per BRAINS burned**
-6. Slot cap: **3 active boosts site-wide**, ordered `tier DESC, created_at ASC`
+5. Earn rate: **1.888 labwork points per BRAINS burned** (tier-based; same points whether paid in BRAINS or LB, LB rows tagged `source:'boost-lb'`)
+6. Slot cap: **8 active boosts site-wide** (`BOOST_SLOTS`), ordered `tier DESC, created_at ASC`
 
 ### Where it surfaces
 
@@ -603,3 +612,70 @@ changes live in the files only):
 **Still open / tomorrow:** scaffold `brains_nft_farm` (§11.7 resume block). Optional
 follow-up: verify labwork_marketplace source (rebuild+diff, §11.3) before the
 zero-fee idea. (~~local Supabase creds~~ done 2026-06-15, see §0.)
+
+---
+
+## 13. Session log — 2026-06-15 PM · LAUNCH + repo migration
+
+**🚀 v2 WENT LIVE on x1brains.io (2026-06-15).** Pushed commit `3694faf` + follow-ups.
+
+### 13.1 DEPLOY TOPOLOGY — CHANGED (read this first)
+`~/bt/x1brainsv2` **IS NOW THE GIT REPO.** Its `.git` was moved out of `~/bt/x1brainsv1`
+into v2, so v2's `origin` = `github.com/x1Brains/x1brainsv1` (the repo Vercel watches → x1brains.io).
+**Build AND push from `~/bt/x1brainsv2`** (`git push origin main`). It's a monorepo:
+v2 frontend + the 4 on-chain Anchor programs + Anchor/Cargo + tests + `bot/` + `api/`.
+`~/bt/x1brainsv1` is now a **plain backup folder (no .git)** — do NOT push from it.
+`.gitignore` merges v1's keypair/.env/target/ops-script protections.
+
+### 13.2 New Supabase tables to run (operator)
+- **`SUPABASE_NFT_METADATA.sql`** → `nft_metadata` (shared NFT image/traits indexer cache).
+- **`SUPABASE_MARKET_STATS.sql`** → `marketplace_stats` (XNT volume / sales / biggest-buy cache).
+- (`nfa_acceptances` already exists — used by the consent gate below.)
+
+### 13.3 NFT metadata indexer cache (speed)
+`lib/supabase.ts`: `getNftMetadataBatch()` / `upsertNftMetadata()`. V2LabWork reads the
+cache FIRST (instant paint, skips Solaris + per-NFT JSON for cached mints) and write-throughs
+newly-resolved NFTs; V2NFTDetailModal also write-throughs. First viewer resolves → everyone
+else loads instantly. Graceful no-op if the table doesn't exist.
+
+### 13.4 NFA consent gate (`components/V2NfaConsent.tsx`, mounted in V2Layout)
+Blocks first visit, **per-wallet** (each connected wallet must accept once → logged to
+`nfa_acceptances` {version,page,wallet,user_agent}; `anon` flag covers no-wallet browsing).
+Storage key `x1brainsv2.nfa.accepted.v2`, version `2.0`. v2-styled (orange/amber, BRAINS-logo
+header, teal "◆ AUDITED" box disclosing the internal/AI audits — still NFA/no-liability).
+
+### 13.5 Boost tiers retuned + LB payment (`components/V2BoostModal.tsx`)
+Tiers now **200 / 444 / 888 BRAINS** (24h/3d/7d). Added a **BRAINS | LB currency toggle** —
+LB alts **0.05 / 1 / 1.11 LB**. LB is Token-2022 (`LB_MINT` from constants), same `burnChecked`
+path. Points stay **tier-based** (`brains×1.888`) regardless of currency; LB rows tagged
+`source:'boost-lb'`. `BoostCurrency` type exported.
+
+### 13.6 vercel.json — CSP + cron restored
+Re-added a **comprehensive CSP** (v1's policy extended for every v2 endpoint: solaris, weserv,
+api.x1.city, x1city, r2.dev, x1pups/punks, corsproxy/allorigins, all IPFS gateways, etc.;
+`img-src https:`). Restored the **`cron-collect-lb-fees`** daily cron (function preserved).
+
+### 13.7 Marketplace fixes
+- **Biggest Buy** stat shows the sold NFT thumbnail; `marketStats.ts` `isComplete()` forces a
+  self-healing rescan when the stored biggest sale lacks `nftMint` (LS key `v5`).
+- **NFT traits** now populate: V2LabWork enrichment carries `attributes`+`externalUrl`; modal
+  fetches on open (metaUri JSON ‖ Solaris race). Solaris cache key bumped `v2` (was masking
+  attrs). Traits render as **v1-style inline `Label: Value` pills**; rarity from `rarity/tier/grade`.
+- **Card↔modal image mismatch** fixed — `openDetail` pins the modal image to the card's
+  (`it.image`) and stops enrichNFT from re-resolving it. X1 Punks fallback uses the LAST URL
+  number. V2NFTImage cache key bumped `v2`.
+- **Card hover** = border-color only (no lift/translate).
+
+### 13.8 Other
+- Network Monitor **slot/block flicker** fixed (monotonic `Math.max` clamp — load-balanced RPC).
+- **Portfolio**: snapshot share-card embeds token logos as canvas-safe data-URIs; Key-Metrics +
+  Holdings panels vertically centered (`.pfx-panel` flex column + `flex:1`).
+- **Mobile pass**: NFA + NFT modal stack on phones; buy/boost modals `maxHeight:92dvh`+scroll;
+  chat widget clamps to viewport; new `@media(max-width:560px)` block.
+- **Font tightening**: `.lf9-stat` scale (Overview + LP Farms) reduced toward Portfolio density
+  (value 22→18px, head 11→9.5px, labels trimmed).
+- **API build fix** (Vercel node16): `./_bot-actions` → `.js`; `getParsedTokenAccountsByOwner`
+  3rd arg is a `Commitment` string not `{commitment}`.
+- **cf-worker (separate repo `x1city-react/cf-worker`)**: corrected Brains Elites mint price to
+  **linear 33→444 XNT** (edition #1=33 … #444=444) for XT0 + X1B; deployed (worker `75ad0492`).
+  Also fixed X1B `IDENTITY.md` (had wrong 50→222).

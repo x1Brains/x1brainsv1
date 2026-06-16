@@ -164,8 +164,8 @@ const Home: FC = () => {
           {/* Spinning logo */}
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
             <div style={{ position: 'relative' }}>
-              <div style={{ position: 'absolute', inset: -10, borderRadius: '50%', background: 'conic-gradient(from 0deg, #ff8c00, #ffb700, #bf5af2, #00d4ff, #ff8c00)', animation: 'spin 8s linear infinite', opacity: 0.45 }} />
-              <div style={{ position: 'absolute', inset: -20, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,140,0,0.15) 0%, transparent 70%)', animation: 'pulse-orange 3s ease infinite' }} />
+              <div style={{ position: 'absolute', inset: -10, borderRadius: '50%', background: 'conic-gradient(from 0deg, #f29030, #ffb700, #bf5af2, #00d4ff, #f29030)', animation: 'spin 8s linear infinite', opacity: 0.45 }} />
+              <div style={{ position: 'absolute', inset: -20, borderRadius: '50%', background: 'radial-gradient(circle, rgba(242,144,48,0.15) 0%, transparent 70%)', animation: 'pulse-orange 3s ease infinite' }} />
               <img src={BRAINS_LOGO} alt="X1 Brains"
                 style={{ position: 'relative', zIndex: 1, width: 140, height: 140, borderRadius: '50%', objectFit: 'cover', border: '4px solid #0a0e14' }}
                 onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
@@ -181,7 +181,7 @@ const Home: FC = () => {
           {/* Main title */}
           <h1 style={{
             fontFamily: 'Orbitron, monospace', fontSize: 56, fontWeight: 900, letterSpacing: 8,
-            background: 'linear-gradient(135deg, #ff8c00 0%, #ffb700 35%, #bf5af2 65%, #00d4ff 100%)',
+            background: 'linear-gradient(135deg, #f29030 0%, #ffb700 35%, #bf5af2 65%, #00d4ff 100%)',
             WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
             margin: '0 0 16px', textTransform: 'uppercase', lineHeight: 1.1,
           }}>X1 BRAINS</h1>
@@ -193,18 +193,18 @@ const Home: FC = () => {
           {/* Stat pills */}
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 36 }}>
             <StatPill label="MAINNET"  value="X1"        color="#00c98d" />
-            <StatPill label="SOON"     value="88 NFT's"  color="#ff8c00" />
+            <StatPill label="SOON"     value="88 NFT's"  color="#f29030" />
             <StatPill label="TOKENS"   value="SPL + T22"  color="#00d4ff" />
             <StatPill label="MINT"     value="NFT's"      color="#bf5af2" />
           </div>
 
           {/* Divider */}
-          <div style={{ width: 280, height: 1, background: 'linear-gradient(to right, transparent, #ff8c0060, transparent)', margin: '0 auto 36px' }} />
+          <div style={{ width: 280, height: 1, background: 'linear-gradient(to right, transparent, #f2903060, transparent)', margin: '0 auto 36px' }} />
 
           {/* Wallet connect — only show if not connected */}
           {!connected && (
             <div style={{ display: 'inline-block', position: 'relative' }}>
-              <div style={{ position: 'absolute', inset: -3, borderRadius: 12, background: 'linear-gradient(135deg, #ff8c00, #ffb700, #00d4ff)', opacity: 0.5, filter: 'blur(10px)' }} />
+              <div style={{ position: 'absolute', inset: -3, borderRadius: 12, background: 'linear-gradient(135deg, #f29030, #ffb700, #00d4ff)', opacity: 0.5, filter: 'blur(10px)' }} />
               <div style={{ position: 'relative', zIndex: 1 }}>
                 <WalletMultiButton />
               </div>
@@ -256,7 +256,7 @@ const Home: FC = () => {
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
               {[
                 { text: '💰 XNT', color: '#00c98d' },
-                { text: '🪙 SPL', color: '#ff8c00' },
+                { text: '🪙 SPL', color: '#f29030' },
                 { text: '⚡ T22', color: '#ffb700' },
                 { text: '💧 LP', color: '#00c98d' },
                 { text: '⛏️ XENBLOCKS', color: '#bf5af2' },
@@ -525,7 +525,7 @@ const Home: FC = () => {
             style={{
               position: 'relative',
               background: 'linear-gradient(135deg, #0d1520, #0a1018)',
-              border: '1px solid #ff8c0030',
+              border: '1px solid #f2903030',
               borderRadius: 16,
               padding: '28px 24px',
               cursor: 'pointer',
@@ -534,15 +534,15 @@ const Home: FC = () => {
               transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             }}
             onClick={() => navigate('/burn-history')}
-            onMouseEnter={e => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = '#ff8c00'; el.style.transform = 'translateY(-6px)'; el.style.boxShadow = '0 16px 50px rgba(0,0,0,0.5), 0 0 30px #ff8c0020'; }}
-            onMouseLeave={e => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = '#ff8c0030'; el.style.transform = 'translateY(0)'; el.style.boxShadow = 'none'; }}
+            onMouseEnter={e => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = '#f29030'; el.style.transform = 'translateY(-6px)'; el.style.boxShadow = '0 16px 50px rgba(0,0,0,0.5), 0 0 30px #f2903020'; }}
+            onMouseLeave={e => { const el = e.currentTarget as HTMLDivElement; el.style.borderColor = '#f2903030'; el.style.transform = 'translateY(0)'; el.style.boxShadow = 'none'; }}
           >
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, transparent, #ff8c00, transparent)', opacity: 0.6 }} />
-            <div style={{ position: 'absolute', top: -40, right: -40, width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle, #ff8c0012 0%, transparent 70%)', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, transparent, #f29030, transparent)', opacity: 0.6 }} />
+            <div style={{ position: 'absolute', top: -40, right: -40, width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle, #f2903012 0%, transparent 70%)', pointerEvents: 'none' }} />
 
-            <div style={{ fontSize: 40, marginBottom: 18, display: 'block', filter: 'drop-shadow(0 0 12px #ff8c0060)' }}>🔥</div>
+            <div style={{ fontSize: 40, marginBottom: 18, display: 'block', filter: 'drop-shadow(0 0 12px #f2903060)' }}>🔥</div>
 
-            <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 16, fontWeight: 900, letterSpacing: 3, color: '#ff8c00', marginBottom: 6, textTransform: 'uppercase' }}>
+            <div style={{ fontFamily: 'Orbitron, monospace', fontSize: 16, fontWeight: 900, letterSpacing: 3, color: '#f29030', marginBottom: 6, textTransform: 'uppercase' }}>
               INCINERATOR
             </div>
 
@@ -554,7 +554,7 @@ const Home: FC = () => {
               {[
                 { text: '🔥 BURN', color: '#ff4422' },
                 { text: '⚡ AMP', color: '#ffb700' },
-                { text: '🏆 RANKS', color: '#ff8c00' },
+                { text: '🏆 RANKS', color: '#f29030' },
                 { text: '🎯 PRIZES', color: '#bf5af2' },
               ].map(tag => (
                 <span key={tag.text} style={{
@@ -586,8 +586,8 @@ const Home: FC = () => {
             </button>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#ff8c00', letterSpacing: 2, fontWeight: 700 }}>ENTER</span>
-              <span style={{ color: '#ff8c00', fontSize: 12 }}>→</span>
+              <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 9, color: '#f29030', letterSpacing: 2, fontWeight: 700 }}>ENTER</span>
+              <span style={{ color: '#f29030', fontSize: 12 }}>→</span>
             </div>
           </div>
 
@@ -624,7 +624,7 @@ const Home: FC = () => {
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
               {[
                 { text: '🏆 PRIZES', color: '#bf5af2' },
-                { text: '🔥 CHALLENGES', color: '#ff8c00' },
+                { text: '🔥 CHALLENGES', color: '#f29030' },
                 { text: '🧪 LAB WORK', color: '#00c98d' },
               ].map(tag => (
                 <span key={tag.text} style={{
@@ -692,9 +692,9 @@ const Home: FC = () => {
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
             {NAV_LINKS.map(link => (
               <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer"
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(255,140,0,0.04)', border: '1px solid rgba(255,140,0,0.1)', borderRadius: 8, textDecoration: 'none', transition: 'all 0.2s' }}
-                onMouseEnter={e => { const el = e.currentTarget as HTMLAnchorElement; el.style.borderColor = 'rgba(255,140,0,0.4)'; el.style.background = 'rgba(255,140,0,0.08)'; }}
-                onMouseLeave={e => { const el = e.currentTarget as HTMLAnchorElement; el.style.borderColor = 'rgba(255,140,0,0.1)'; el.style.background = 'rgba(255,140,0,0.04)'; }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'rgba(242,144,48,0.04)', border: '1px solid rgba(242,144,48,0.1)', borderRadius: 8, textDecoration: 'none', transition: 'all 0.2s' }}
+                onMouseEnter={e => { const el = e.currentTarget as HTMLAnchorElement; el.style.borderColor = 'rgba(242,144,48,0.4)'; el.style.background = 'rgba(242,144,48,0.08)'; }}
+                onMouseLeave={e => { const el = e.currentTarget as HTMLAnchorElement; el.style.borderColor = 'rgba(242,144,48,0.1)'; el.style.background = 'rgba(242,144,48,0.04)'; }}
               >
                 <span style={{ fontSize: 12 }}>{link.icon}</span>
                 <span style={{ fontFamily: 'Orbitron, monospace', fontSize: 8, color: '#8aa0b8', letterSpacing: 1.5, fontWeight: 700, textTransform: 'uppercase' }}>{link.label}</span>

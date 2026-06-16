@@ -91,7 +91,7 @@ export const RARITY_TIERS = {
   EPIC:      { label: 'EPIC',      color: '#bf5af2', bg: 'rgba(191,90,242,0.12)',  border: 'rgba(191,90,242,0.4)',  glow: '#bf5af2', minScore: 80, count: 12 },
   RARE:      { label: 'RARE',      color: '#00d4ff', bg: 'rgba(0,212,255,0.10)',   border: 'rgba(0,212,255,0.35)', glow: '#00d4ff', minScore: 60, count: 24 },
   UNCOMMON:  { label: 'UNCOMMON',  color: '#00c98d', bg: 'rgba(0,201,141,0.10)',   border: 'rgba(0,201,141,0.35)', glow: '#00c98d', minScore: 35, count: 28 },
-  COMMON:    { label: 'COMMON',    color: '#ff8c00', bg: 'rgba(255,140,0,0.08)',   border: 'rgba(255,140,0,0.3)',  glow: '#ff8c00', minScore: 0,  count: 20 },
+  COMMON:    { label: 'COMMON',    color: '#f29030', bg: 'rgba(242,144,48,0.08)',   border: 'rgba(242,144,48,0.3)',  glow: '#f29030', minScore: 0,  count: 20 },
 } as const;
 
 // ── Token Metadata ───────────────────────────
