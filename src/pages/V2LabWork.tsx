@@ -1080,11 +1080,38 @@ export default function V2LabWork() {
   // Featured collection (Brains Elites) for the hero banner — real floor +
   // listing count from the live collection stats; supply is the locked 444.
   const featuredBE = collectionStats.find(c => c.key === 'brains_elites');
-  // Banner image = the live Brains Elites listing image ONLY (no bundled promo
-  // placeholder). Starts empty (shows the dark frame) and, once a real image
-  // resolves, holds it and NEVER reverts to empty during enrichment.
+  // Banner art ROTATES through the actual LISTED Brains Elites NFTs — not the
+  // single static collection image. collectionStats only ever held one pick
+  // (first listing, or the Solaris collection art as fallback), so the banner
+  // looked "stuck" on the collection portrait while the other listed pieces
+  // never showed. Gather every listed BE that has a resolved image and cycle.
+  const beListingImgs = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { mint: string; image: string; name?: string }[] = [];
+    for (const it of merged) {
+      if (!it.listing || it.collectionKey !== 'brains_elites') continue;
+      const img = it.image || it.nftData?.image;
+      if (!img || seen.has(img)) continue;
+      seen.add(img);
+      out.push({ mint: it.mint, image: img, name: it.nftData?.name ?? it.name });
+    }
+    return out;
+  }, [merged]);
+  const [heroIdx, setHeroIdx] = useState(0);
+  useEffect(() => {
+    if (beListingImgs.length < 2) return;
+    const id = setInterval(() => setHeroIdx(i => (i + 1) % beListingImgs.length), 4000);
+    return () => clearInterval(id);
+  }, [beListingImgs.length]);
+  useEffect(() => { if (heroIdx >= beListingImgs.length && beListingImgs.length > 0) setHeroIdx(0); }, [beListingImgs.length, heroIdx]);
+  // Hold the last good image; only fall back to the collection portrait until
+  // the first listing image resolves, and NEVER revert to empty mid-rotation.
+  const heroRotImg = beListingImgs[heroIdx]?.image;
   const [stableHeroImg, setStableHeroImg] = useState('');
-  useEffect(() => { if (featuredBE?.image) setStableHeroImg(featuredBE.image); }, [featuredBE?.image]);
+  useEffect(() => {
+    const next = heroRotImg || featuredBE?.image;
+    if (next) setStableHeroImg(next);
+  }, [heroRotImg, featuredBE?.image]);
   // Other collections (excluding Brains Elites — it's the banner subject) shown
   // as compact story-circles in the banner's top-right corner. Cap at 3.
   const otherCollections = collectionStats.filter(c => c.key !== 'brains_elites').slice(0, 3);
