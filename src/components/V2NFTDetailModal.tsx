@@ -12,6 +12,7 @@ import type { NFTData } from './LBComponents';
 import { fetchNFTMeta } from './LBComponents';
 import { fetchSolarisNft } from '../lib/solarisIndexer';
 import { upsertNftMetadata } from '../lib/supabase';
+import { resolveGateway } from '../utils/nft';
 
 const ACCENT = '#f29030';
 const TEXT   = 'var(--text-primary)';
@@ -54,19 +55,35 @@ const V2NFTDetailModal: FC<Props> = ({
   onListThis, onBuyThis, onEditPrice, onDelist, onBoost,
 }) => {
   const [copied, setCopied] = useState(false);
-  const imgUri = nft.image || nft.metaUri || nft.logoUri;
 
-  // Grid listings often arrive without attributes — fetch them on open so the
-  // trait grid + rarity pill populate. Source priority, mirroring v1's modal:
-  //   1. the NFT's own metaUri JSON (authoritative per-edition attributes, e.g.
-  //      Brains Elites' 11 traits: Art Type, Tier, Edition, Citizenship, …)
-  //   2. the Solaris indexer's traits (for NFTs whose metaUri is unreachable)
-  const [fetchedAttrs, setFetchedAttrs] = useState<{ trait_type: string; value: string }[] | null>(null);
-  const [fetchedSite,  setFetchedSite]  = useState<string | null>(null);
+  // A "placeholder" name is the auto-generated mint-slice fallback raw listings
+  // carry before enrichment (e.g. "ERgVWq…" or "#ERgVWq"). Treat it as missing
+  // so we backfill the real name from Solaris / metaUri.
+  const looksPlaceholderName = (nm?: string) => {
+    if (!nm) return true;
+    const core = nm.replace(/[#…\s]/g, '');
+    return core.length >= 3 && core.length <= 8 && nft.mint.startsWith(core);
+  };
+
+  // Grid/deep-link listings often arrive without image, real name, collection,
+  // or attributes (the home carousel "VIEW DETAILS" hits the modal with a still-
+  // raw listing) — resolve them all on open. Source priority, mirroring v1:
+  //   1. the NFT's own metaUri JSON (authoritative per-edition metadata)
+  //   2. the Solaris indexer (fast, pre-resolved image + name + traits)
+  const [fetchedAttrs,      setFetchedAttrs]      = useState<{ trait_type: string; value: string }[] | null>(null);
+  const [fetchedSite,       setFetchedSite]       = useState<string | null>(null);
+  const [fetchedImg,        setFetchedImg]        = useState<string | null>(null);
+  const [fetchedName,       setFetchedName]       = useState<string | null>(null);
+  const [fetchedCollection, setFetchedCollection] = useState<string | null>(null);
   useEffect(() => {
     const haveAttrs = !!(nft.attributes && nft.attributes.length > 0);
     const haveSite  = !!nft.externalUrl;
-    if (haveAttrs && haveSite) { setFetchedAttrs(null); setFetchedSite(null); return; }
+    const haveImg   = !!nft.image;
+    const haveName  = !looksPlaceholderName(nft.name);
+    const haveColl  = !!nft.collection && nft.collection.toLowerCase() !== 'uncategorized';
+    setFetchedAttrs(null); setFetchedSite(null);
+    setFetchedImg(null); setFetchedName(null); setFetchedCollection(null);
+    if (haveAttrs && haveSite && haveImg && haveName && haveColl) return;
     let alive = true;
     const norm = (a: any[]) => a
       .map((x: any) => ({
@@ -75,47 +92,86 @@ const V2NFTDetailModal: FC<Props> = ({
       }))
       .filter((x: { trait_type: string; value: string }) => x.trait_type && x.value);
 
-    // Fire BOTH sources in PARALLEL (was sequential — fetchNFTMeta's 3s timeout
-    // blocked Solaris). The metaUri JSON is authoritative; Solaris is the fast,
-    // pre-indexed fallback. We take whichever yields traits first.
+    // Fire BOTH sources in PARALLEL. The metaUri JSON is authoritative; Solaris
+    // is the fast, pre-indexed fallback (and carries a proxy-safe image URL).
     const metaSrc = nft.metaUri || nft.logoUri;
     const metaP = metaSrc
       ? fetchNFTMeta(metaSrc).then((j: any) => j ? {
           attrs: Array.isArray(j.attributes) ? norm(j.attributes) : [],
           site:  (j.external_url ?? j.external_link ?? null) as string | null,
+          image: (j.image ? resolveGateway(j.image) : (j.image_url ?? j.imageUrl ?? null)) as string | null,
+          name:  (typeof j.name === 'string' ? j.name : null) as string | null,
+          collection: (typeof j.collection === 'string' ? j.collection : (j.collection?.name ?? null)) as string | null,
         } : null).catch(() => null)
       : Promise.resolve(null);
-    const solP = fetchSolarisNft(nft.mint).then(s => s?.attributes ?? []).catch(() => []);
+    const solP = fetchSolarisNft(nft.mint).then(s => s ?? null).catch(() => null);
 
-    // SITE link comes only from the metaUri JSON — set it whenever that lands.
+    // SITE link comes only from the metaUri JSON.
     if (!haveSite) metaP.then(m => { if (alive && m?.site) setFetchedSite(m.site); });
+
+    // IMAGE — prefer Solaris (already resolved + proxy-safe), then metaUri JSON.
+    if (!haveImg) (async () => {
+      const sol = await solP;
+      if (alive && sol?.image) { setFetchedImg(sol.image); return; }
+      const m = await metaP;
+      if (alive && m?.image) setFetchedImg(m.image);
+    })();
+
+    // NAME — metaUri JSON authoritative, else Solaris.
+    if (!haveName) (async () => {
+      const m = await metaP;
+      if (alive && m?.name) { setFetchedName(m.name); return; }
+      const sol = await solP;
+      if (alive && sol?.name) setFetchedName(sol.name);
+    })();
+
+    // COLLECTION — metaUri JSON, else Solaris collection name.
+    if (!haveColl) (async () => {
+      const m = await metaP;
+      if (alive && m?.collection) { setFetchedCollection(m.collection); return; }
+      const sol = await solP;
+      if (alive && sol?.collectionName) setFetchedCollection(sol.collectionName);
+    })();
 
     if (!haveAttrs) (async () => {
       // Resolve with the FIRST source that has traits; empty sources never settle
       // the race, and a final all-settled branch yields null if neither has any.
+      const solAttrsP = solP.then(s => s?.attributes ?? []);
       const never = new Promise<never>(() => {});
       const winner = await Promise.race([
         metaP.then(m => (m?.attrs?.length ? m.attrs : never)),
-        solP.then(a => (a.length ? a : never)),
-        Promise.all([metaP, solP]).then(([m, a]) => (m?.attrs?.length ? m!.attrs : (a.length ? a : null))),
+        solAttrsP.then(a => (a.length ? a : never)),
+        Promise.all([metaP, solAttrsP]).then(([m, a]) => (m?.attrs?.length ? m!.attrs : (a.length ? a : null))),
       ]).catch(() => null);
       if (alive && winner && winner.length) {
         setFetchedAttrs(winner);
-        // Write-through to the shared indexer so the grid + other visitors get
-        // these traits instantly next time (no re-fetch).
+        // Write-through to the shared indexer with RESOLVED fields (not the raw
+        // placeholder name / empty image) so the grid + other visitors get the
+        // real image, name, collection, and traits instantly next time.
+        const [m, sol] = await Promise.all([metaP, solP]);
         upsertNftMetadata([{
-          mint: nft.mint, name: nft.name, symbol: nft.symbol,
-          image: nft.image, description: nft.description,
-          externalUrl: nft.externalUrl, collection: nft.collection,
+          mint: nft.mint,
+          name: (!looksPlaceholderName(nft.name) ? nft.name : (m?.name || sol?.name)) || nft.name,
+          symbol: nft.symbol,
+          image: nft.image || sol?.image || m?.image || '',
+          description: nft.description,
+          externalUrl: nft.externalUrl || m?.site || undefined,
+          collection: (nft.collection && nft.collection.toLowerCase() !== 'uncategorized')
+            ? nft.collection : (m?.collection || sol?.collectionName || nft.collection),
           attributes: winner,
         }]).catch(() => {});
       }
     })();
     return () => { alive = false; };
-  }, [nft.mint, nft.metaUri, nft.logoUri, nft.attributes, nft.externalUrl]);
+  }, [nft.mint, nft.metaUri, nft.logoUri, nft.attributes, nft.externalUrl, nft.image, nft.name, nft.collection]);
 
   const effectiveAttrs = (nft.attributes && nft.attributes.length > 0) ? nft.attributes : (fetchedAttrs ?? []);
   const siteUrl = nft.externalUrl || fetchedSite || '';
+  const effectiveName = (!looksPlaceholderName(nft.name) ? nft.name : (fetchedName || nft.name)) || '';
+  const effectiveCollection = (nft.collection && nft.collection.toLowerCase() !== 'uncategorized')
+    ? nft.collection
+    : (fetchedCollection || nft.collection || '');
+  const imgUri = nft.image || fetchedImg || nft.metaUri || nft.logoUri;
   // Rarity = first trait whose name is a rarity synonym (rarity / tier / grade),
   // so collections that label it "Tier" (Brains Elites) still get the ★ ribbon.
   const RARITY_KEYS = ['rarity', 'tier', 'grade'];
@@ -270,16 +326,16 @@ const V2NFTDetailModal: FC<Props> = ({
               letterSpacing: 0.5, lineHeight: 1.2,
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
-              {nft.name || 'Unnamed NFT'}
+              {effectiveName || 'Unnamed NFT'}
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
-              {nft.collection && (
+              {effectiveCollection && (
                 <span style={{
                   fontFamily: 'Sora, sans-serif',
                   fontSize: isMobile ? 9 : 11, color: MUTED,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   maxWidth: 200,
-                }}>{nft.collection}</span>
+                }}>{effectiveCollection}</span>
               )}
               {nft.symbol && (
                 <span style={{

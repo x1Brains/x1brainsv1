@@ -931,6 +931,10 @@ export default function V2LabWork() {
     if (nftParamOpened.current === want) return;
     const item = merged.find(m => m.mint === want);
     if (item) {
+      // Open as soon as the listing is in `merged`, even if still raw (no image/
+      // name yet). The detail modal self-heals image + name + collection from
+      // the mint via Solaris, so it no longer matters that the listing hasn't
+      // finished enriching when the deep-link fires.
       nftParamOpened.current = want;
       openDetail(item);
       const next = new URLSearchParams(searchParams);
