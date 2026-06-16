@@ -3787,11 +3787,29 @@
   .header-left { gap: 10px; }
   .header-left h2 { font-size: 14px; line-height: 1.05; }
 
-  /* LabWork featured banner — image LEFT (cover, no black bars) · text RIGHT.
-     The base .lw-hero-art img is already object-fit:cover, so the narrow art
-     column fills cleanly without the contain letterboxing. */
-  .v2lw-v3 .lw-hero { grid-template-columns: 92px 1fr; }
-  .v2lw-v3 .lw-hero-art { width: 100%; min-height: 150px; background: #0a0e15; }
+  /* LabWork featured banner — CENTERED stacked card on mobile: image on top,
+     everything centered below. Kills the dead black space + black bars. */
+  .v2lw-v3 .lw-hero {
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center; gap: 12px; padding: 16px;
+  }
+  .v2lw-v3 .lw-hero-art {
+    width: 128px; height: 160px; min-height: 0; flex-shrink: 0;
+    border-radius: 10px; overflow: hidden; background: #0a0e15;
+  }
+  .v2lw-v3 .lw-hero-info { width: 100%; padding: 0; align-items: center; gap: 12px; }
+  .v2lw-v3 .lw-hero-top { justify-content: center; width: 100%; }
+  .v2lw-v3 .lw-hero-textcol { min-width: 0; width: 100%; }
+  .v2lw-v3 .lw-hero-eyebrow { justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .v2lw-v3 .lw-hero-title { font-size: 18px; margin-bottom: 8px; }
+  /* shorten the blurb — clamp to 2 lines, centered */
+  .v2lw-v3 .lw-hero-sub {
+    margin: 0 auto; max-width: 290px; font-size: 11px; line-height: 1.45;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .v2lw-v3 .lw-hero-bottom { flex-direction: column; align-items: center; gap: 12px; width: 100%; }
+  .v2lw-v3 .lw-hero-stats { justify-content: center; gap: 22px; }
+  .v2lw-v3 .lw-hero-actions { justify-content: center; }
 
   /* NFT marketplace stat row — centered + wraps (no cut-off) */
   .v2lw-v3 .lw-mkstatrow { justify-content: center; gap: 14px 18px; }
