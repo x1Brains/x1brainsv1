@@ -721,3 +721,19 @@ Fixes driven by real Backpack-WebView screenshots:
 - **Filter pills + toolbar**: `.market-filters`/`.market-toolbar` `flex-wrap:wrap` (were cut off).
 - **NFT marketplace stat row** (`.lw-mkstatrow`/`.lw-mkstat`): centered + wraps on mobile.
 - **Header title clearance**: mobile `.header padding-left:72px` (was flush against the menu toggle).
+
+### 13.11 Final polish (2026-06-15 latest)
+- **Featured collection banner (mobile)** — superseded the image-left layout (dead black space
+  under the short image) with a **centered stacked card**: art on top (128×160 cover, no bars),
+  centered eyebrow/title(18px)/stats/buttons, blurb `-webkit-line-clamp:2`. App.css 760px block.
+- **"Lab Work" → "LabWork"** (and `LAB WORK`→`LABWORK`) **renamed site-wide** (display only —
+  `find … sed`). The lowercase `namePrefixes:['lab work','labwork']` in `verifiedCollections.ts`
+  were left untouched so collection matching still works. NFT trait values (`Sub-collection: Lab
+  Work`) come from on-chain metadata, NOT code — they still read "Lab Work" until metadata changes.
+- **Boosted-listing deep-link**: home carousel **VIEW DETAILS** now → `/labwork?nft=<mint>`;
+  `V2LabWork` reads the `?nft=` param (new `useSearchParams`) and opens that NFT's detail modal
+  (traits + context BUY) once it lands in `merged`, then clears the param (ref resets on no-param
+  so re-clicks re-open). Mint field = `featuredListing.nftMint`.
+- **Wallet modal rebrand**: the lib hardcodes "Connect a wallet on Solana to continue" — overrode
+  in `utils/globalStyles.ts` (`.wallet-adapter-modal-title { font-size:0 }` + `::before` content
+  "Connect your X1 Blockchain Wallet to continue"). Wallet names/"Detected" labels stay (from adapters).
