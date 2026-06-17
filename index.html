@@ -18,13 +18,17 @@
     <style>
       html, body { margin: 0; background: #080c0f; color: #e6edf6; }
       #root { min-height: 100vh; }
-      /* Pre-mount splash — React replaces #root's contents on mount, so this is
-         shown only during the pre-hydration gap, then vanishes. */
+      /* Pre-mount splash — sits OUTSIDE #root (sibling) so React mounting #root
+         can't wipe it. It stays on top covering the app until main.tsx removes
+         it on the first STYLED frame (after the useEffect-injected page CSS has
+         landed), so the unstyled first paint is never visible. */
       #boot {
-        position: fixed; inset: 0; z-index: 1;
+        position: fixed; inset: 0; z-index: 99999;
         display: flex; align-items: center; justify-content: center;
         background: #080c0f;
+        transition: opacity .25s ease;
       }
+      #boot.hide { opacity: 0; pointer-events: none; }
       #boot .x1 {
         font-family: 'Orbitron', system-ui, sans-serif;
         font-weight: 900; font-size: 26px; letter-spacing: 4px;
@@ -35,9 +39,8 @@
     </style>
   </head>
   <body>
-    <div id="root">
-      <div id="boot"><div class="x1">X1 BRAINS</div></div>
-    </div>
+    <div id="root"></div>
+    <div id="boot"><div class="x1">X1 BRAINS</div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
