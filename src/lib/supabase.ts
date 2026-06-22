@@ -114,27 +114,19 @@ type Res = { success: boolean; error?: string };
 function res(error: any): Res { return error ? { success: false, error: error.message } : { success: true }; }
 
 // ═════════════════════════════════════════════
-// 1. LABWORK REWARDS
+// 1. LABWORK BOOST POINTS (labwork_points)
 // ═════════════════════════════════════════════
-export interface LabWorkReward {
-  id: string; address: string; lb_points: number; reason: string;
-  category: string; awarded_by: string; week_id: string; created_at: string;
-}
+// Points earned by burning BRAINS/LB for marketplace boost placement (see
+// V2BoostModal). The old `labwork_rewards` table (admin-awarded weekly-challenge
+// "LB points") was retired with the weekly challenge — no longer read or written.
 
 export async function getLabWorkMap(): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   if (!supabase) return map;
   try {
-    // Fetch both sources in parallel
-    const [rewardsRes, boostRes] = await Promise.all([
-      supabase.from('labwork_rewards').select('address, lb_points'),
-      supabase.from('labwork_points').select('wallet, points'),
-    ]);
-    if (rewardsRes.error) console.error('[SB] getLabWorkMap rewards:', rewardsRes.error.message);
-    for (const r of rewardsRes.data ?? [])
-      map.set(r.address, (map.get(r.address) || 0) + (r.lb_points ?? 0));
-    // Boost burns from labwork_points (wallet column)
-    for (const r of boostRes.data ?? [])
+    const { data, error } = await supabase.from('labwork_points').select('wallet, points');
+    if (error) { console.error('[SB] getLabWorkMap:', error.message); return map; }
+    for (const r of data ?? [])
       map.set(r.wallet, (map.get(r.wallet) || 0) + (r.points ?? 0));
   } catch (e) { console.error('[SB] getLabWorkMap:', e); }
   return map;
@@ -143,38 +135,9 @@ export async function getLabWorkMap(): Promise<Map<string, number>> {
 export async function getLabWorkPtsForWallet(address: string): Promise<number> {
   if (!supabase) return 0;
   try {
-    // Sum both sources in parallel:
-    // 1. labwork_rewards — admin-awarded challenge/promo points
-    // 2. labwork_points  — points earned from burning BRAINS for marketplace boosts (1.888 pts/BRAINS)
-    const [rewardsRes, boostRes] = await Promise.all([
-      supabase.from('labwork_rewards').select('lb_points').eq('address', address),
-      supabase.from('labwork_points').select('points').eq('wallet', address),
-    ]);
-    const rewardPts = (rewardsRes.data ?? []).reduce((s: number, r: any) => s + (r.lb_points ?? 0), 0);
-    const boostPts  = (boostRes.data  ?? []).reduce((s: number, r: any) => s + (r.points   ?? 0), 0);
-    return rewardPts + boostPts;
+    const { data } = await supabase.from('labwork_points').select('points').eq('wallet', address);
+    return (data ?? []).reduce((s: number, r: any) => s + (r.points ?? 0), 0);
   } catch { return 0; }
-}
-
-export async function getAllLabWorkRewards(): Promise<LabWorkReward[]> {
-  if (!supabase) return [];
-  try {
-    const { data, error } = await supabase.from('labwork_rewards').select('*').order('created_at', { ascending: false });
-    if (error) return [];
-    return data ?? [];
-  } catch { return []; }
-}
-
-export async function awardLabWorkPoints(address: string, lbPoints: number, reason: string, category?: string, weekId?: string): Promise<Res> {
-  return adminFetch('award_lbp', { address, lb_points: lbPoints, reason, category: category || 'other', week_id: weekId || '' });
-}
-
-export async function deleteLabWorkReward(id: string): Promise<Res> {
-  return adminFetch('delete_lbp', { id });
-}
-
-export async function clearAllLabWorkRewards(): Promise<Res> {
-  return adminFetch('clear_all_lbp');
 }
 
 // cache
@@ -202,77 +165,18 @@ export function setSupabaseLabWorkMap(m: Map<string, number>) { _sbLabWorkMap = 
 export function getSupabaseLabWorkMap(): Map<string, number> | null { return _sbLabWorkMap; }
 
 // ═════════════════════════════════════════════
-// 2. WEEKLY CONFIG (active challenge)
+// 2. WEEKLY CONFIG — retired
 // ═════════════════════════════════════════════
-export async function getWeeklyConfig(): Promise<any | null> {
-  if (!supabase) return null;
-  try {
-    const { data, error } = await supabase.from('weekly_config').select('*').eq('id', 'current').single();
-    if (error || !data) return null;
-    return {
-      weekId: data.week_id ?? '', status: data.status ?? 'upcoming',
-      startDate: data.start_date ?? '', endDate: data.end_date ?? '',
-      challenges: data.challenges ?? [], prizes: data.prizes ?? [[], [], []],
-      winners: data.winners ?? [], sendReceipts: data.send_receipts ?? [],
-      sectionConfirmed: data.section_confirmed ?? {},
-    };
-  } catch { return null; }
-}
-
-export async function saveWeeklyConfig(config: any): Promise<Res> {
-  return adminFetch('save_weekly_config', config);
-}
-
-// cache
-let _wcCache: { data: any; ts: number } | null = null;
-const WC_TTL = 15_000;
-export async function getCachedWeeklyConfig(): Promise<any | null> {
-  if (_wcCache && Date.now() - _wcCache.ts < WC_TTL) return _wcCache.data;
-  const d = await getWeeklyConfig();
-  _wcCache = { data: d, ts: Date.now() };
-  return d;
-}
-export function invalidateWeeklyConfigCache() { _wcCache = null; }
+// The weekly challenge ("Rewards Season") was removed in v2. The `weekly_config`
+// table is no longer read. Kept as a null stub so v1 carryover components compile.
+export async function getCachedWeeklyConfig(): Promise<any | null> { return null; }
 
 // ═════════════════════════════════════════════
-// 3. CHALLENGE LOGS (completed weeks)
+// 3. CHALLENGE LOGS — retired
 // ═════════════════════════════════════════════
-export async function getChallengeLogs(): Promise<any[]> {
-  if (!supabase) return [];
-  try {
-    const { data, error } = await supabase.from('challenge_logs').select('*').order('created_at', { ascending: false });
-    if (error) return [];
-    return (data ?? []).map(d => ({
-      weekId: d.week_id, status: d.status,
-      startDate: d.start_date, endDate: d.end_date, stoppedAt: d.stopped_at,
-      challenges: d.challenges ?? [], prizes: d.prizes ?? [[], [], []],
-      winners: d.winners ?? [], sendReceipts: d.send_receipts ?? [],
-    }));
-  } catch { return []; }
-}
-
-export async function addChallengeLog(log: any): Promise<Res> {
-  return adminFetch('add_challenge_log', log);
-}
-
-export async function updateChallengeLog(weekId: string, updates: any): Promise<Res> {
-  return adminFetch('update_challenge_log', { week_id: weekId, updates });
-}
-
-export async function deleteChallengeLog(weekId: string): Promise<Res> {
-  return adminFetch('delete_challenge_log', { week_id: weekId });
-}
-
-// cache
-let _clCache: { data: any[]; ts: number } | null = null;
-const CL_TTL = 30_000;
-export async function getCachedChallengeLogs(): Promise<any[]> {
-  if (_clCache && Date.now() - _clCache.ts < CL_TTL) return _clCache.data;
-  const d = await getChallengeLogs();
-  _clCache = { data: d, ts: Date.now() };
-  return d;
-}
-export function invalidateChallengeLogsCache() { _clCache = null; }
+// Completed-week archive for the removed weekly challenge. `challenge_logs` is no
+// longer read. Kept as an empty stub so v1 carryover components compile.
+export async function getCachedChallengeLogs(): Promise<any[]> { return []; }
 
 // ═════════════════════════════════════════════
 // 4. ANNOUNCEMENTS
@@ -822,93 +726,6 @@ export async function deleteSpotlightImage(id: string) {
 /** Admin — toggle whether an image shows in the carousel. */
 export async function setSpotlightActive(id: string, active: boolean) {
   return adminFetch('spotlight_set_active', { id, active });
-}
-
-// ═════════════════════════════════════════════
-// 8. MIGRATION — one-time import from localStorage
-// ═════════════════════════════════════════════
-export async function migrateAllToSupabase(): Promise<{ labwork: number; config: boolean; logs: number; announcements: number; submissions: number; errors: string[] }> {
-  const errors: string[] = [];
-  let labwork = 0, logs = 0, announcements = 0, submissions = 0;
-  let config = false;
-
-  // LabWork Rewards
-  try {
-    const raw = localStorage.getItem('brains_labwork_rewards');
-    if (raw) {
-      const rewards = JSON.parse(raw);
-      if (Array.isArray(rewards)) {
-        for (const r of rewards) {
-          const result = await adminFetch('insert_lbp_reward', {
-            address: r.address || '', lb_points: r.lbPoints || 0,
-            reason: r.reason || 'Migrated', category: r.category || 'other',
-            awarded_by: 'admin', week_id: r.weekId || '',
-          });
-          if (!result.success) errors.push(`LW: ${result.error}`); else labwork++;
-        }
-      }
-    }
-  } catch (e: any) { errors.push(`LW parse: ${e.message}`); }
-
-  // Weekly Config
-  try {
-    const raw = localStorage.getItem('brains_weekly_config');
-    if (raw) {
-      const cfg = JSON.parse(raw);
-      const r = await saveWeeklyConfig(cfg);
-      if (r.success) config = true; else if (r.error) errors.push(`WC: ${r.error}`);
-    }
-  } catch (e: any) { errors.push(`WC parse: ${e.message}`); }
-
-  // Challenge Logs
-  try {
-    const raw = localStorage.getItem('brains_challenge_log');
-    if (raw) {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) {
-        for (const log of arr) {
-          const r = await addChallengeLog(log);
-          if (r.success) logs++; else if (r.error) errors.push(`CL: ${r.error}`);
-        }
-      }
-    }
-  } catch (e: any) { errors.push(`CL parse: ${e.message}`); }
-
-  // Announcements
-  try {
-    const raw = localStorage.getItem('brains_announcements');
-    if (raw) {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) {
-        for (const a of arr) {
-          const result = await adminFetch('insert_announcement', {
-            title: a.title || '', body: a.message || '', category: a.type || 'info',
-            pinned: a.pinned || false, created_at: a.date || new Date().toISOString(),
-          });
-          if (!result.success) errors.push(`ANN: ${result.error}`); else announcements++;
-        }
-      }
-    }
-  } catch (e: any) { errors.push(`ANN parse: ${e.message}`); }
-
-  // Submissions
-  try {
-    const raw = localStorage.getItem('brains_labwork_submissions');
-    if (raw) {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) {
-        for (const s of arr) {
-          const result = await adminFetch('insert_submission', {
-            address: s.address || '', category: s.category || 'other',
-            links: s.links || [], description: s.description || '',
-          });
-          if (!result.success) errors.push(`SUB: ${result.error}`); else submissions++;
-        }
-      }
-    }
-  } catch (e: any) { errors.push(`SUB parse: ${e.message}`); }
-
-  return { labwork, config, logs, announcements, submissions, errors };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

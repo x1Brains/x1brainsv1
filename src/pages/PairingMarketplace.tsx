@@ -1,5 +1,4 @@
 import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
-import { awardLabWorkPoints } from '../lib/supabase';
 import { createPortal } from 'react-dom';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import {
@@ -2225,16 +2224,6 @@ export const MatchModal: FC<{
         }
         if (conf === 'confirmed' || conf === 'finalized') {
           setStatus(`✅ Match complete! XDEX pool created.\n\nDeposited: ${fmtNum(amt)} ${tokenBMeta?.symbol}\nPool: ${poolState.toBase58().slice(0,8)}…\nTx: ${sig.slice(0,20)}…`);
-          // Award LB points for LP burn (fire and forget — non-blocking)
-          if (listing.burnBps > 0) {
-            const burnedFraction = listing.burnBps / 10000;
-            const pointsEach = Math.floor(liveUsdValUi * burnedFraction * 1.888);
-            if (pointsEach > 0) {
-              const weekId = new Date().toISOString().slice(0, 7);
-              awardLabWorkPoints(listing.creator, pointsEach, `LP burn match — ${listing.burnBps/100}% burn · pool ${poolState.toBase58().slice(0,8)}`, 'defi_burn', weekId).catch(() => {});
-              awardLabWorkPoints(publicKey.toBase58(), pointsEach, `LP burn match — ${listing.burnBps/100}% burn · pool ${poolState.toBase58().slice(0,8)}`, 'defi_burn', weekId).catch(() => {});
-            }
-          }
           setTimeout(() => { onMatched(); onClose(); }, 4000);
           return;
         }
