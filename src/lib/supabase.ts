@@ -213,45 +213,10 @@ export async function getCachedAnnouncements(): Promise<any[]> {
 export function invalidateAnnouncementsCache() { _annCache = null; }
 
 // ═════════════════════════════════════════════
-// 5. LABWORK SUBMISSIONS
+// 5. LABWORK SUBMISSIONS — retired
 // ═════════════════════════════════════════════
-export interface LabWorkSubmission {
-  id: string; address: string; category: string; links: string[];
-  description: string; status: string; review_note: string; created_at: string;
-}
-
-export async function getSubmissions(): Promise<LabWorkSubmission[]> {
-  if (!supabase) return [];
-  try {
-    const { data, error } = await supabase.from('labwork_submissions').select('*').order('created_at', { ascending: false });
-    if (error) return [];
-    return (data ?? []).map(d => ({ ...d, links: d.links ?? [] }));
-  } catch { return []; }
-}
-
-export async function addSubmission(sub: { address: string; category: string; links: string[]; description: string }): Promise<Res> {
-  // Public submissions go via anon client (no admin needed)
-  const client = supabase;
-  if (!client) return { success: false, error: 'Supabase not configured' };
-  try {
-    const { error } = await client.from('labwork_submissions').insert({
-      address: sub.address, category: sub.category, links: sub.links, description: sub.description, status: 'pending',
-    });
-    return res(error);
-  } catch (e: any) { return { success: false, error: e.message }; }
-}
-
-export async function updateSubmissionStatus(id: string, status: string, reviewNote?: string): Promise<Res> {
-  return adminFetch('update_submission', { id, status, review_note: reviewNote || '' });
-}
-
-export async function deleteSubmission(id: string): Promise<Res> {
-  return adminFetch('delete_submission', { id });
-}
-
-export async function clearAllSubmissions(): Promise<Res> {
-  return adminFetch('clear_all_submissions');
-}
+// The submissions feature (public form + admin review panel) was removed in v2.
+// `labwork_submissions` is no longer read or written from the app.
 
 
 // ═════════════════════════════════════════════

@@ -199,46 +199,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return ok(res);
       }
 
-      // ── Submissions ──────────────────────────────────────────────
-      case 'update_submission': {
-        const { id, status, review_note } = payload;
-        const { error } = await sb.from('labwork_submissions').update({
-          status, review_note: review_note || '',
-        }).eq('id', id);
-        if (error) return err(res, error.message);
-        return ok(res);
-      }
-
-      case 'delete_submission': {
-        const { error } = await sb.from('labwork_submissions').delete().eq('id', payload.id);
-        if (error) return err(res, error.message);
-        return ok(res);
-      }
-
-      case 'clear_all_submissions': {
-        const { error } = await sb.from('labwork_submissions')
-          .delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        if (error) return err(res, error.message);
-        return ok(res);
-      }
-
-      case 'insert_submission': {
-        const { address, category, links, description } = payload;
-        const { error } = await sb.from('labwork_submissions').insert({
-          address, category, links, description, status: 'pending',
-        });
-        if (error) return err(res, error.message);
-        return ok(res);
-      }
-
-      // ── Misc inserts (migration / burn events) ───────────────────
-      case 'insert_burn_event': {
-        const { error } = await sb.from('burn_events')
-          .upsert(payload, { onConflict: 'sig', ignoreDuplicates: true });
-        if (error) return err(res, error.message);
-        return ok(res);
-      }
-
       // ── Saved Addresses ──────────────────────────────────────────
       case 'save_address': {
         const { owner_wallet, saved_wallet, nickname } = payload;
