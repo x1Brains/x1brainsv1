@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Optional
 
 import requests
@@ -23,6 +24,16 @@ import config
 log = logging.getLogger("storage")
 
 _lock = threading.Lock()
+
+# ── RAM caches (egress fix) ───────────────────────────────────
+# The bot polls every 5s and previously re-read connection, settings, and every
+# account's last_sig from Supabase on EVERY loop (~16 reads/loop, ~270k/day,
+# 24/7). That uncached REST traffic is what blew the Supabase egress quota.
+# These caches collapse it to ~2 reads/min: connection/settings are TTL-cached,
+# and last_sig lives in RAM (written on change, never re-read while up).
+_CONFIG_TTL = 60  # seconds — config edits propagate within this window
+_conn_cache: Optional[tuple[dict, float]] = None
+_settings_cache: Optional[tuple[dict, float]] = None
 
 
 def _hdr() -> dict:
@@ -45,25 +56,35 @@ def _check_creds() -> None:
 # ─────────────────────────────────────────────────────────────
 # CONNECTION
 # ─────────────────────────────────────────────────────────────
-def load_connection() -> dict:
-    """Returns the raw connection row including the unmasked telegram_token."""
+def load_connection(force: bool = False) -> dict:
+    """Returns the raw connection row including the unmasked telegram_token.
+
+    TTL-cached in RAM for _CONFIG_TTL seconds. The bot reads the connection
+    several times per 5s loop; the cache collapses that to one Supabase read
+    per minute. Pass force=True to bypass. Errors propagate (not cached) so a
+    transient failure retries next loop; a good value is served for the TTL.
+    """
+    global _conn_cache
+    if not force and _conn_cache and time.time() - _conn_cache[1] < _CONFIG_TTL:
+        return _conn_cache[0]
     _check_creds()
     with _lock:
         url = f"{config.SUPABASE_URL}/rest/v1/bot_connection?id=eq.main&select=*"
         r = requests.get(url, headers=_hdr(), timeout=10)
         r.raise_for_status()
         rows = r.json()
-        if not rows:
-            log.warning("No bot_connection row found — did you run SUPABASE_SCHEMA.sql?")
-            return {
-                "telegram_token": "", "chat_id": "", "chat_title": "",
-                "vaults": {
-                    "BRAINS": {"vault_token": "", "vault_quote": ""},
-                    "LB":     {"vault_token": "", "vault_quote": ""},
-                },
-            }
+    if not rows:
+        log.warning("No bot_connection row found — did you run SUPABASE_SCHEMA.sql?")
+        result = {
+            "telegram_token": "", "chat_id": "", "chat_title": "",
+            "vaults": {
+                "BRAINS": {"vault_token": "", "vault_quote": ""},
+                "LB":     {"vault_token": "", "vault_quote": ""},
+            },
+        }
+    else:
         row = rows[0]
-        return {
+        result = {
             "telegram_token": row.get("telegram_token") or "",
             "chat_id":        row.get("chat_id") or "",
             "chat_title":     row.get("chat_title") or "",
@@ -78,6 +99,8 @@ def load_connection() -> dict:
                 },
             },
         }
+    _conn_cache = (result, time.time())
+    return result
 
 
 def is_connection_complete() -> bool:
@@ -98,8 +121,15 @@ def is_connection_complete() -> bool:
 # ─────────────────────────────────────────────────────────────
 # SETTINGS
 # ─────────────────────────────────────────────────────────────
-def load_settings() -> dict:
+def load_settings(force: bool = False) -> dict:
+    """Event toggles + thresholds, merged over defaults. TTL-cached in RAM for
+    _CONFIG_TTL seconds (see load_connection). Only successful fetches are
+    cached, so an error falls back to defaults for one loop, not the full TTL."""
+    global _settings_cache
+    if not force and _settings_cache and time.time() - _settings_cache[1] < _CONFIG_TTL:
+        return _settings_cache[0]
     _check_creds()
+    ok = True
     with _lock:
         url = f"{config.SUPABASE_URL}/rest/v1/bot_settings?id=eq.main&select=config"
         try:
@@ -110,13 +140,27 @@ def load_settings() -> dict:
         except Exception as e:
             log.warning(f"load_settings failed, using defaults: {e}")
             stored = {}
-        return {**config.DEFAULT_SETTINGS, **stored}
+            ok = False
+    result = {**config.DEFAULT_SETTINGS, **stored}
+    if ok:
+        _settings_cache = (result, time.time())
+    return result
 
 
 # ─────────────────────────────────────────────────────────────
 # STATE (per-account last-seen sigs)
 # ─────────────────────────────────────────────────────────────
+# RAM cache of each account's last sig. The bot is a single long-running
+# process, so once it knows an account's last sig it never needs to re-read it
+# from Supabase — it only WRITEs when a new sig arrives (rare vs. the 5s poll).
+# This removes the ~12 per-loop reads (seed-check + scan) that dominated egress.
+# A restart loses the cache → one cold read per account, then RAM-only again.
+_last_sig_cache: dict[str, Optional[str]] = {}
+
+
 def get_last_sig(account: str) -> Optional[str]:
+    if account in _last_sig_cache:
+        return _last_sig_cache[account]
     _check_creds()
     with _lock:
         try:
@@ -124,13 +168,17 @@ def get_last_sig(account: str) -> Optional[str]:
             r = requests.get(url, headers=_hdr(), timeout=10)
             r.raise_for_status()
             rows = r.json()
-            return rows[0]["last_sig"] if rows else None
+            val = rows[0]["last_sig"] if rows else None
         except Exception as e:
+            # Transient failure — do NOT cache, so it retries next loop.
             log.warning(f"get_last_sig({account[:8]}…) failed: {e}")
             return None
+    _last_sig_cache[account] = val
+    return val
 
 
 def update_last_sig(account: str, sig: str) -> None:
+    _last_sig_cache[account] = sig  # RAM is the runtime source of truth
     _check_creds()
     with _lock:
         try:
