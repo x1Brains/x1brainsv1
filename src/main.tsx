@@ -14,11 +14,13 @@ injectGlobalCSS();
 // wallet-adapter handshake (Backpack approves but state never reconciles).
 createRoot(document.getElementById('root')!).render(<App />);
 
-// Remove the pre-mount splash only AFTER the first styled frame. React's passive
-// effects (which inject each page's <style>) run after the first paint, so the
-// unstyled DOM paints once — but it's hidden behind #boot. We wait two rAFs
-// (past that post-effect paint), then fade the splash out to reveal styled UI.
-// Hard fallback timeout guarantees removal even if a frame is dropped.
+// Remove the pre-mount splash only once the app signals a fully-styled frame has
+// painted ('app-styled', dispatched from V2Layout after the global + page <style>
+// injections have run). The old approach hid the splash after a fixed 2-rAF count,
+// which on slow mobile fired DURING the unstyled window — exposing raw DOM until
+// the useEffect-injected page CSS landed (~1s FOUC). The event makes removal track
+// the actual styled paint instead of a frame guess. Hard fallback guarantees the
+// splash never sticks if the signal is somehow missed.
 const boot = document.getElementById('boot');
 if (boot) {
   const hide = () => {
@@ -26,6 +28,6 @@ if (boot) {
     boot.classList.add('hide');
     setTimeout(() => boot.remove(), 300);
   };
-  requestAnimationFrame(() => requestAnimationFrame(hide));
-  setTimeout(hide, 2000);
+  window.addEventListener('app-styled', hide, { once: true });
+  setTimeout(hide, 3000);
 }

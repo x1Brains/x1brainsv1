@@ -13,6 +13,20 @@ export default function V2Layout() {
   // Close mobile menu when route changes
   useEffect(() => { setMobileOpen(false); }, [pathname]);
 
+  // Tell the pre-mount #boot splash (index.html) it can fade out. This parent
+  // effect runs AFTER child effects (React fires effects child-first), so the
+  // landing page's injectStyles() <style> is already in the head by now. We wait
+  // two rAFs so a fully-styled frame has painted, then signal. Replaces the old
+  // frame-count race in main.tsx that fired before page CSS landed on mobile →
+  // raw unstyled FOUC.
+  useEffect(() => {
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => window.dispatchEvent(new Event('app-styled')));
+    });
+    return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); };
+  }, []);
+
   return (
     <X1BChatProvider>
       <V2NfaConsent />
