@@ -108,7 +108,7 @@ export default function Header() {
                 transition: 'background .15s, border-color .15s',
               }}
             >
-              <span aria-hidden="true">⚙</span>
+              <span aria-hidden="true">{'⚙︎'}</span>
             </Link>
           );
         })()}

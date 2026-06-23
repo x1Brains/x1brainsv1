@@ -52,6 +52,11 @@ function isAction(item: NavItem): item is ActionItem {
   return 'action' in item;
 }
 
+// Append U+FE0E (variation selector-15) to force TEXT/monochrome rendering.
+// Without it, symbols with an emoji variant (☄ comet, ⚙ gear, ↗ arrow) render as
+// colorful emoji on iOS/Android. Harmless on glyphs that have no emoji variant.
+const textIcon = (g: string) => g + '\uFE0E';
+
 function shortAddr(s: string): string {
   return s.length > 12 ? `${s.slice(0, 4)}…${s.slice(-4)}` : s;
 }
@@ -100,8 +105,8 @@ export default function Sidebar() {
                     rel="noopener noreferrer"
                     className="nav-item"
                   >
-                    <span className="icon">{item.icon}</span> {item.label}
-                    <span className="nav-ext" aria-hidden="true">↗</span>
+                    <span className="icon">{textIcon(item.icon)}</span> {item.label}
+                    <span className="nav-ext" aria-hidden="true">{textIcon('↗')}</span>
                   </a>
                 );
               }
@@ -114,7 +119,7 @@ export default function Sidebar() {
                     onClick={openX1BChat}
                     style={{ width: '100%', textAlign: 'left', fontFamily: 'inherit', background: 'none' }}
                   >
-                    <span className="icon">{item.icon}</span> {item.label}
+                    <span className="icon">{textIcon(item.icon)}</span> {item.label}
                   </button>
                 );
               }
@@ -128,7 +133,7 @@ export default function Sidebar() {
                     to={item.to}
                     className={`nav-item${isActive ? ' active' : ''}`}
                   >
-                    <span className="icon">{item.icon}</span> {item.label}
+                    <span className="icon">{textIcon(item.icon)}</span> {item.label}
                     {children && <span className="nav-caret">{expanded ? '▾' : '▸'}</span>}
                   </Link>
                   {children && expanded && (
