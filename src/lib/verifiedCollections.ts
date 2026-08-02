@@ -13,6 +13,11 @@ export type VerifiedCollection = {
   namePrefixes: string[];
   mints?: string[];        // collection root / master mint(s)
   color: string;
+  /** Collection portrait, when the source registry supplies one. */
+  image?: string;
+  /** True when this entry came from the live Solaris sync rather than the
+   *  hardcoded list below — used only for diagnostics/labelling. */
+  dynamic?: boolean;
 };
 
 // Per-collection palette — accent color used for verified badges.
@@ -208,6 +213,165 @@ export const VERIFIED_COLLECTIONS: VerifiedCollection[] = [
   },
 ];
 
+// ═══════════════════════════════════════════════════════════════════════
+//  DYNAMIC REGISTRY — auto-synced from the Solaris indexer at runtime.
+// ═══════════════════════════════════════════════════════════════════════
+// The hardcoded list above is a *snapshot*, so every collection that launched
+// after it was written (FEDS, PotatoVamp, …) fell through `identifyCollection`
+// as null → hidden behind the VERIFIED browse filter and absent from the
+// collection rail, until someone hand-edited this file.
+//
+// `registerDynamicCollections()` folds the live Solaris allowlist in on top,
+// so a brand-new collection becomes visible the moment Solaris indexes it.
+// Rules:
+//   • The hardcoded entries always WIN — their `id` (e.g. `brains_elites`)
+//     and accent colour are load-bearing elsewhere in the UI, so a Solaris
+//     row whose name/symbol/mint matches a static entry is *aliased* onto it
+//     rather than creating a rival bucket.
+//   • Solaris ships several duplicate rows per collection (same name, extra
+//     collection_keys, `allowed:false`). Every key is registered for lookup,
+//     but only the allowed/verified row supplies the name + portrait.
+
+export type DynamicCollectionInput = {
+  key: string;
+  name?: string;
+  symbol?: string;
+  image?: string;
+  verified?: boolean;
+  allowed?: boolean;
+};
+
+const dynamicByKey    = new Map<string, VerifiedCollection>();
+const dynamicByName   = new Map<string, VerifiedCollection>();
+const dynamicBySymbol = new Map<string, VerifiedCollection>();
+/** Collection portrait keyed by Solaris collection_key AND by our bucket id. */
+const imageByKey      = new Map<string, string>();
+
+/** Bumped on every successful sync so React memos can depend on it. */
+let dynamicRevision = 0;
+export function getDynamicRevision(): number { return dynamicRevision; }
+
+const PALETTE = [C_ORANGE, C_CYAN, C_PURPLE, C_GREEN, C_RED, C_YELLOW, C_PINK];
+/** Stable per-collection accent — same key always gets the same colour. */
+function colorFor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return PALETTE[h % PALETTE.length];
+}
+
+const norm = (s: string | undefined) => (s ?? '').trim().toLowerCase();
+
+/** Collection portraits arrive as bare `ipfs://` / `ar://` URIs (X1Cats is
+ *  `ipfs://QmTvuas…`). Those are dead in an <img src>, so resolve to an HTTP
+ *  gateway here — at the registry boundary — rather than at each call site. */
+function gatewayUrl(u: string | undefined): string | undefined {
+  if (!u) return undefined;
+  return u
+    .replace(/^ipfs:\/\//, 'https://nftstorage.link/ipfs/')
+    .replace(/^ar:\/\//,   'https://arweave.net/');
+}
+
+/** Find the hardcoded entry a Solaris row corresponds to, if any. */
+function staticMatchFor(c: DynamicCollectionInput): VerifiedCollection | null {
+  const n = norm(c.name);
+  const s = norm(c.symbol);
+  for (const v of VERIFIED_COLLECTIONS) {
+    if (v.mints?.includes(c.key)) return v;
+    if (n && norm(v.name) === n) return v;
+    if (n && v.namePrefixes.some(p => n.startsWith(p))) return v;
+    if (s && v.namePrefixes.some(p => s.startsWith(p))) return v;
+  }
+  return null;
+}
+
+/**
+ * Merge the live Solaris collection list into the registry. Idempotent —
+ * safe to call on every load. Only collections Solaris marks `badge_verified`
+ * or `allowed` are trusted; the rest stay uncategorized.
+ */
+export function registerDynamicCollections(cols: DynamicCollectionInput[]): void {
+  const before = dynamicRevision;
+  const bump = () => { if (dynamicRevision === before) dynamicRevision++; };
+
+  // ── Group duplicate rows ────────────────────────────────────────────
+  // Solaris publishes several rows per collection — same name + symbol,
+  // different collection_key, most with `allowed:false` (FEDS has 3, Brains
+  // Elites has 4). They must collapse into ONE bucket, otherwise the same
+  // collection splits in the rail depending on which key a given NFT reports.
+  // Named rows group by name; unnamed rows can only stand alone.
+  const groups = new Map<string, DynamicCollectionInput[]>();
+  for (const c of cols) {
+    if (!c.key) continue;
+    if (c.verified !== true && c.allowed !== true) continue;  // untrusted
+    const g = norm(c.name) || `key:${c.key}`;
+    const arr = groups.get(g);
+    if (arr) arr.push(c); else groups.set(g, [c]);
+  }
+
+  // Best row wins the bucket's identity: allowed beats badge-only, and a row
+  // carrying a portrait beats one without. Key sort breaks ties so the chosen
+  // id stays stable across syncs.
+  const score = (c: DynamicCollectionInput) =>
+    (c.allowed === true ? 4 : 0) + (c.verified === true ? 2 : 0) + (c.image ? 1 : 0);
+
+  for (const rows of groups.values()) {
+    const canonical = [...rows].sort((a, b) => score(b) - score(a) || a.key.localeCompare(b.key))[0];
+    // Portrait MUST come from the canonical (allowed) row first. Taking the
+    // first row that merely *had* an image picked Brains Elites' dead
+    // `allowed:false` row (…r2.dev/test/images/collection.jpg → 404) over the
+    // live one, which blanked the featured-collection hero.
+    const image = gatewayUrl(canonical.image ?? rows.find(r => r.image)?.image);
+    const label = rows.map(r => r.name?.trim()).find(Boolean) ?? '';
+
+    // A hardcoded entry always owns the bucket when it matches — its `id` and
+    // accent colour are referenced elsewhere in the UI (`brains_elites`).
+    const stat = staticMatchFor(canonical);
+    let target: VerifiedCollection;
+    if (stat) {
+      target = stat;
+      if (image && !stat.image) { stat.image = image; bump(); }
+    } else {
+      const id = `sol:${canonical.key}`;
+      const existing = dynamicByKey.get(canonical.key);
+      target = (existing && existing.id === id) ? existing : {
+        id, name: label, hosts: [], namePrefixes: [], mints: [],
+        color: colorFor(canonical.key), image, dynamic: true,
+      };
+      if (label && target.name !== label) { target.name = label; bump(); }
+      if (image && target.image !== image) { target.image = image; bump(); }
+    }
+
+    for (const r of rows) {
+      if (dynamicByKey.get(r.key) !== target) { dynamicByKey.set(r.key, target); bump(); }
+      if (!target.mints?.includes(r.key)) (target.mints ??= []).push(r.key);
+      // Portrait is reachable by any of the group's keys and by the bucket id.
+      if (image) {
+        if (imageByKey.get(r.key) !== image) { imageByKey.set(r.key, image); bump(); }
+      }
+      // Name/symbol lookups rescue NFTs whose collection_key we never fetched —
+      // e.g. rows painted straight from the Supabase metadata cache, which
+      // stores `collection` + `symbol` but no key. Registered for aliased
+      // static buckets too, so "Pepe Coins" resolves by name alone.
+      const s = norm(r.symbol);
+      if (s && dynamicBySymbol.get(s) !== target) { dynamicBySymbol.set(s, target); bump(); }
+    }
+    if (image && imageByKey.get(target.id) !== image) { imageByKey.set(target.id, image); bump(); }
+
+    const n = norm(label);
+    if (n && dynamicByName.get(n) !== target) { dynamicByName.set(n, target); bump(); }
+    // Also index under the hardcoded label when it differs from Solaris's
+    // ("X1 Punks" vs "X1 Punk"), so either spelling resolves.
+    const sn = norm(target.name);
+    if (sn && sn !== n && !dynamicByName.has(sn)) { dynamicByName.set(sn, target); bump(); }
+  }
+}
+
+/** Portrait for a bucket id or a raw Solaris collection_key. */
+export function collectionImageFor(idOrKey: string | undefined): string | undefined {
+  if (!idOrKey) return undefined;
+  return imageByKey.get(idOrKey);
+}
+
 function hostOf(url: string | undefined): string {
   if (!url) return '';
   try { return new URL(url).host.toLowerCase(); }
@@ -219,20 +383,52 @@ export function identifyCollection(opts: {
   metaUri?: string;
   name?: string;
   mint?: string;
+  /** Solaris `collection_key` — the strongest signal when we have it. */
+  collectionKey?: string;
+  /** Collection name reported by the indexer / metadata JSON. */
+  collectionName?: string;
+  symbol?: string;
 }): VerifiedCollection | null {
   const host = hostOf(opts.metaUri);
   const url  = (opts.metaUri ?? '').toLowerCase();
-  const name = (opts.name ?? '').toLowerCase();
+  const name = norm(opts.name);
   const mint = opts.mint;
 
+  // 1) Hardcoded registry first — keeps ids + colours stable for the buckets
+  //    the rest of the UI hardcodes (hero banner keys off `brains_elites`).
   for (const c of VERIFIED_COLLECTIONS) {
     if (mint && c.mints?.includes(mint)) return c;
     if (host && c.hosts.some(h => host.includes(h) || url.includes(h.toLowerCase()))) return c;
     if (name && c.namePrefixes.some(p => name.startsWith(p))) return c;
   }
+
+  // 2) Live Solaris registry — collection_key is authoritative.
+  if (opts.collectionKey) {
+    const byKey = dynamicByKey.get(opts.collectionKey);
+    if (byKey) return byKey;
+  }
+  // 3) Fall back to the collection name / symbol reported alongside the NFT.
+  //    This is what rescues NFTs painted from the Supabase metadata cache,
+  //    which stores `collection` + `symbol` but no collection_key.
+  const cn = norm(opts.collectionName);
+  if (cn) {
+    const byName = dynamicByName.get(cn);
+    if (byName) return byName;
+  }
+  const sym = norm(opts.symbol);
+  if (sym) {
+    const bySym = dynamicBySymbol.get(sym);
+    if (bySym) return bySym;
+  }
+  // 4) NFT name starts with a known collection name ("FEDS #745" → "FEDS").
+  if (name) {
+    for (const [n, entry] of dynamicByName) {
+      if (n && name.startsWith(n)) return entry;
+    }
+  }
   return null;
 }
 
-export function isVerified(opts: { metaUri?: string; name?: string; mint?: string }): boolean {
+export function isVerified(opts: Parameters<typeof identifyCollection>[0]): boolean {
   return identifyCollection(opts) !== null;
 }

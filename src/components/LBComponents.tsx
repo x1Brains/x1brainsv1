@@ -270,6 +270,8 @@ export interface NFTData {
   attributes?:  { trait_type: string; value: string }[];
   externalUrl?: string;
   collection?:  string;
+  /** Solaris `collection_key` — the authoritative collection id when known. */
+  collectionKey?: string;
   image?:       string;
 }
 export interface Listing {

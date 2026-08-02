@@ -2,6 +2,8 @@
 // for every collection. The Solaris origin doesn't send CORS headers, so we
 // route every call through one of three paths and accept whichever responds OK.
 
+import { registerDynamicCollections } from './verifiedCollections';
+
 const DIRECT_BASE = 'https://solarisprime.xyz/api/indexer';
 const LOCAL_BASE  = '/api/solaris';  // dev: vite proxy → solarisprime.xyz/api/indexer
 const CORS_BASE   = 'https://corsproxy.io/?https%3A%2F%2Fsolarisprime.xyz%2Fapi%2Findexer';
@@ -23,6 +25,8 @@ export type SolarisCollection = {
   image?: string;
   verified: boolean;
   native: boolean;
+  /** Solaris `allowed` flag — its curation gate, independent of the badge. */
+  allowed: boolean;
   floorPrice?: number;
   listingCount?: number;
 };
@@ -140,11 +144,18 @@ export async function fetchSolarisCollections(): Promise<SolarisCollection[]> {
     image:         c.image,
     verified:      Number(c.badge_verified) === 1,
     native:        Number(c.badge_native)   === 1,
+    allowed:       c.allowed === true || Number(c.allowed) === 1,
     floorPrice:    c.floor_price,
     listingCount:  c.listing_count,
   }));
   collectionsCache = out;
   collectionsLoadedAt = Date.now();
+  // Fold the live allowlist into the verified-collection registry so newly
+  // launched collections stop needing a hand-edit of verifiedCollections.ts.
+  registerDynamicCollections(out.map(c => ({
+    key: c.key, name: c.name, symbol: c.symbol, image: c.image,
+    verified: c.verified, allowed: c.allowed,
+  })));
   return out;
 }
 

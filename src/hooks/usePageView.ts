@@ -6,6 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useWallet } from '@solana/wallet-adapter-react';
 
 // Don't track admin pages
 const EXCLUDED_PATHS = ['/x9b7r41ns/ctrl', '/x9b7r41ns/analytics'];
@@ -134,6 +135,29 @@ function useAutoTrack(path: string) {
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
   }, [path]);
+}
+
+// ─── WALLET CONNECT / DISCONNECT TRACKING ────────────────────────────────────
+// `trackWalletConnect` and `trackWalletDisconnect` above existed since day one
+// but were never called from anywhere — which is why `site_events` held 27 seed
+// rows and exactly one (fake) wallet_connect. This hook is the missing wiring.
+//
+// Fires on the RISING edge of `connected` only. `publicKey` is in the dep array
+// so a wallet swap (disconnect → connect a different account) still registers,
+// but re-renders with an unchanged address do not re-fire.
+export function useWalletTracking() {
+  const { connected, publicKey } = useWallet();
+  const lastTracked = useRef<string | null>(null);
+
+  useEffect(() => {
+    const addr = connected && publicKey ? publicKey.toBase58() : null;
+    if (addr === lastTracked.current) return;
+    // Don't log a disconnect for the initial null on first mount — nobody
+    // disconnected, the page just loaded.
+    if (addr) trackWalletConnect(addr);
+    else if (lastTracked.current) trackWalletDisconnect();
+    lastTracked.current = addr;
+  }, [connected, publicKey]);
 }
 
 // ─── MAIN HOOK ────────────────────────────────────────────────────────────────

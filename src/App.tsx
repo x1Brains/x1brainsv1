@@ -6,7 +6,7 @@ import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 import '@solana/wallet-adapter-react-ui/styles.css';
 import { RPC_ENDPOINT } from './constants';
 import { injectGlobalCSS } from './utils/globalStyles';
-import { usePageView } from './hooks/usePageView';
+import { usePageView, useWalletTracking } from './hooks/usePageView';
 import './App.css';
 
 import V2Layout from './components/V2Layout';
@@ -37,6 +37,11 @@ const LoadingScreen: FC = () => (
 
 const AppInner: FC = () => {
   usePageView();
+  // Records wallet_connect / wallet_disconnect into site_events. The tracker
+  // functions shipped long ago but nothing ever called them, so the table only
+  // ever held seed rows. AppInner is inside WalletProvider, so the adapter
+  // state is available here.
+  useWalletTracking();
   return (
     <Suspense fallback={<LoadingScreen />}>
       <Routes>

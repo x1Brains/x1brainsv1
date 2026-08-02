@@ -5,10 +5,17 @@ import { BRAINS_LOGO } from '../constants';
 import { ADMIN_WALLETS } from '../lib/admin';
 import { useX1BChat } from './X1BChat';
 
+// TEXT-ONLY MENU — no icon glyphs, deliberately.
+// The nav used to carry decorative glyphs with a U+FE0E variation selector
+// appended to force monochrome rendering. iOS and Android ignore FE0E for
+// several of them (☄ U+2604 on Incinerator, ⬢ U+2B22, ↗ U+2197, ⚙ U+2699),
+// so they still painted as colour emoji on phones — the comet in particular
+// read as a fire emoji next to the burn page. FE0E is not a guarantee on any
+// platform, so the glyphs are gone rather than re-patched. Labels only.
 type SubItem = { label: string; to: string };
-type InternalItem = { icon: string; label: string; to: string; children?: SubItem[] };
-type ExternalItem = { icon: string; label: string; href: string };
-type ActionItem = { icon: string; label: string; action: 'x1bChat' };
+type InternalItem = { label: string; to: string; children?: SubItem[] };
+type ExternalItem = { label: string; href: string };
+type ActionItem = { label: string; action: 'x1bChat' };
 type NavItem = InternalItem | ExternalItem | ActionItem;
 
 type NavSection = { title: string; items: NavItem[] };
@@ -17,22 +24,22 @@ const sections: NavSection[] = [
   {
     title: 'Explore LabWork',
     items: [
-      { icon: '◆', label: 'NFT Marketplace', to: '/labwork' },
-      { icon: '⟠', label: 'LP Farms',        to: '/lpfarms' },
-      { icon: '◈', label: 'LP Pairing',      to: '/labworkdefi', children: [
+      { label: 'NFT Marketplace', to: '/labwork' },
+      { label: 'LP Farms',        to: '/lpfarms' },
+      { label: 'LP Pairing',      to: '/labworkdefi', children: [
         { label: 'Pools & Charts', to: '/charts' },
       ] },
-      { icon: '⌬', label: 'Mint LabWork',    to: '/mint-labwork' },
+      { label: 'Mint LabWork',    to: '/mint-labwork' },
     ],
   },
   {
     title: 'Brains',
     items: [
-      { icon: '⊞', label: 'Portfolio',  to: '/portfolio' },
-      { icon: '⟷', label: 'Swap',       to: '/swap' },
-      { icon: '☄', label: 'Incinerator', to: '/incinerator-engine' },
-      { icon: '⬢', label: 'X1City',     href: 'https://x1city.io/' },
-      { icon: '⌬', label: 'X1B',        action: 'x1bChat' },
+      { label: 'Portfolio',   to: '/portfolio' },
+      { label: 'Swap',        to: '/swap' },
+      { label: 'Incinerator', to: '/incinerator-engine' },
+      { label: 'X1City',      href: 'https://x1city.io/' },
+      { label: 'X1B',         action: 'x1bChat' },
     ],
   },
 ];
@@ -40,7 +47,7 @@ const sections: NavSection[] = [
 const ADMIN_SECTION: NavSection = {
   title: 'Console',
   items: [
-    { icon: '⚙', label: 'Admin', to: '/admin' },
+    { label: 'Admin', to: '/admin' },
   ],
 };
 
@@ -51,11 +58,6 @@ function isExternal(item: NavItem): item is ExternalItem {
 function isAction(item: NavItem): item is ActionItem {
   return 'action' in item;
 }
-
-// Append U+FE0E (variation selector-15) to force TEXT/monochrome rendering.
-// Without it, symbols with an emoji variant (☄ comet, ⚙ gear, ↗ arrow) render as
-// colorful emoji on iOS/Android. Harmless on glyphs that have no emoji variant.
-const textIcon = (g: string) => g + '\uFE0E';
 
 function shortAddr(s: string): string {
   return s.length > 12 ? `${s.slice(0, 4)}…${s.slice(-4)}` : s;
@@ -105,8 +107,7 @@ export default function Sidebar() {
                     rel="noopener noreferrer"
                     className="nav-item"
                   >
-                    <span className="icon">{textIcon(item.icon)}</span> {item.label}
-                    <span className="nav-ext" aria-hidden="true">{textIcon('↗')}</span>
+                    {item.label}
                   </a>
                 );
               }
@@ -119,7 +120,7 @@ export default function Sidebar() {
                     onClick={openX1BChat}
                     style={{ width: '100%', textAlign: 'left', fontFamily: 'inherit', background: 'none' }}
                   >
-                    <span className="icon">{textIcon(item.icon)}</span> {item.label}
+                    {item.label}
                   </button>
                 );
               }
@@ -133,7 +134,7 @@ export default function Sidebar() {
                     to={item.to}
                     className={`nav-item${isActive ? ' active' : ''}`}
                   >
-                    <span className="icon">{textIcon(item.icon)}</span> {item.label}
+                    {item.label}
                     {children && <span className="nav-caret">{expanded ? '▾' : '▸'}</span>}
                   </Link>
                   {children && expanded && (
@@ -158,15 +159,15 @@ export default function Sidebar() {
 
       <div className="sidebar-footer">
         <div
-          className="wallet-info"
+          className={`wallet-info${connected ? '' : ' wallet-cta'}`}
           onClick={onWalletClick}
           style={{ cursor: 'pointer', userSelect: 'none' }}
           title={connected ? 'Click to disconnect' : 'Click to connect wallet'}
         >
-          <span
-            className="wallet-dot"
-            style={connected ? undefined : { background: '#5c7a90', boxShadow: 'none', animation: 'none' }}
-          />
+          {/* The disconnected look is driven entirely by `.wallet-cta` in CSS.
+              This used to carry an inline grey/no-glow override, which won over
+              the stylesheet and left the dot dead while the button pulsed. */}
+          <span className="wallet-dot" />
           <span className="wallet-addr">
             {publicKey ? shortAddr(publicKey.toBase58()) : 'CONNECT WALLET'}
           </span>

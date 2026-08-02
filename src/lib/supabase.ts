@@ -376,9 +376,22 @@ export interface SiteEventRow {
   fired_at:    string;
 }
 
-export async function insertSiteEvent(row: SiteEventRow): Promise<void> {
-  if (!supabase) return;
-  try { await supabase.from('site_events').insert(row); } catch {}
+export async function insertSiteEvent(row: SiteEventRow): Promise<Res> {
+  if (!supabase) return { success: false, error: 'supabase not configured' };
+  try {
+    // supabase-js RESOLVES with { error } instead of throwing, so the old
+    // `try { insert() } catch {}` swallowed every failure — a rejected insert
+    // looked identical to a successful one. Surface it.
+    const { error } = await supabase.from('site_events').insert(row);
+    if (error) {
+      console.warn('[site_events] insert failed:', error.message, row.event_type);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (e: any) {
+    console.warn('[site_events] insert threw:', e?.message);
+    return { success: false, error: e?.message ?? 'insert threw' };
+  }
 }
 
 export async function getAllSiteEvents(): Promise<any[]> {

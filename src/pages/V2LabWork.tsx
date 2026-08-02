@@ -23,7 +23,7 @@ import {
 } from '../lib/solarisIndexer';
 import type { SolarisCollection } from '../lib/solarisIndexer';
 import { shortAddr } from '../utils/v2format';
-import { identifyCollection } from '../lib/verifiedCollections';
+import { identifyCollection, collectionImageFor } from '../lib/verifiedCollections';
 import { supabase, getNftMetadataBatch, upsertNftMetadata } from '../lib/supabase';
 import type { NftMetaRow } from '../lib/supabase';
 import bs58 from 'bs58';
@@ -390,6 +390,7 @@ export default function V2LabWork() {
                     symbol: s.symbol ?? base.symbol,
                     image: s.image,
                     collection: s.collectionName ?? base.collection,
+                    collectionKey: s.collectionKey ?? base.collectionKey,
                   },
                 };
               }
@@ -410,6 +411,7 @@ export default function V2LabWork() {
             const cur = map.get(e.listingPda);
             const existingImg  = cur?.nftData?.image;
             const existingColl = cur?.nftData?.collection;
+            const existingKey  = cur?.nftData?.collectionKey;
             if (!cur) return e;
             return {
               ...cur,
@@ -418,6 +420,7 @@ export default function V2LabWork() {
                 ...(e.nftData ?? cur.nftData!),
                 ...(existingImg  ? { image: existingImg }   : {}),
                 ...(existingColl ? { collection: existingColl } : {}),
+                ...(existingKey  ? { collectionKey: existingKey } : {}),
               },
             };
           });
@@ -526,9 +529,10 @@ export default function V2LabWork() {
             if (sol?.image) {
               return {
                 ...n,
-                name:       sol.name ?? n.name,
-                image:      sol.image,
-                collection: sol.collectionName ?? n.collection,
+                name:          sol.name ?? n.name,
+                image:         sol.image,
+                collection:    sol.collectionName ?? n.collection,
+                collectionKey: sol.collectionKey ?? n.collectionKey,
               };
             }
             // Fallback to on-chain resolution
@@ -837,8 +841,13 @@ export default function V2LabWork() {
     for (const l of listings) {
       if (!l.nftMint) continue;
       const name = l.nftData?.name ?? `#${l.nftMint.slice(0, 6)}`;
-      const vc = identifyCollection({ metaUri: l.nftData?.metaUri, name, mint: l.nftMint });
-      const coll = vc?.name ?? l.nftData?.collection ?? inferCollection(name) ?? 'Uncategorized';
+      const vc = identifyCollection({
+        metaUri: l.nftData?.metaUri, name, mint: l.nftMint,
+        collectionKey: l.nftData?.collectionKey,
+        collectionName: l.nftData?.collection,
+        symbol: l.nftData?.symbol,
+      });
+      const coll = vc?.name || l.nftData?.collection || inferCollection(name) || 'Uncategorized';
       items.push({
         key: l.listingPda,
         mint: l.nftMint,
@@ -859,8 +868,13 @@ export default function V2LabWork() {
       if (!n.mint) continue;
       if (listingByMint.has(n.mint)) continue;
       const name = n.name || `#${n.mint.slice(0, 6)}`;
-      const vc = identifyCollection({ metaUri: n.metaUri, name, mint: n.mint });
-      const coll = vc?.name ?? n.collection ?? inferCollection(name) ?? 'Uncategorized';
+      const vc = identifyCollection({
+        metaUri: n.metaUri, name, mint: n.mint,
+        collectionKey: n.collectionKey,
+        collectionName: n.collection,
+        symbol: n.symbol,
+      });
+      const coll = vc?.name || n.collection || inferCollection(name) || 'Uncategorized';
       items.push({
         key: 'w-' + n.mint,
         mint: n.mint,
@@ -875,7 +889,10 @@ export default function V2LabWork() {
       });
     }
     return items;
-  }, [listings, walletNfts, publicKey]);
+    // `solarisCollections` is a dep because resolving it also populates the
+    // dynamic half of the verified registry — without it, listings classified
+    // before the Solaris sync landed would stay stuck as Uncategorized.
+  }, [listings, walletNfts, publicKey, solarisCollections]);
 
   // Newest-listing timestamp per mint — pulled from the labwork_trades feed
   // (`type === 'list'`). Most recent list-tx wins. Empty until trades load;
@@ -977,7 +994,7 @@ export default function V2LabWork() {
       if (!it.verified) continue; // ← verified-only
       const ex = map.get(it.collectionKey) ?? {
         key: it.collectionKey,
-        name: it.verified?.name ?? it.collection ?? 'Uncategorized',
+        name: it.verified?.name || it.collection || 'Uncategorized',
         total: 0, listed: 0,
         floorXnt: Infinity,
         image: it.image,
@@ -990,12 +1007,20 @@ export default function V2LabWork() {
       map.set(it.collectionKey, ex);
     }
     return [...map.values()]
-      // Brains Elites always qualifies; other collections need ≥3 listings.
-      .filter(c => c.key === 'brains_elites' || c.listed >= 3)
-      .map(c => ({
-        ...c,
-        image: c.image ?? solByName.get(c.name.toLowerCase()),
-      }))
+      // Brains Elites is always pinned. Every other verified collection earns
+      // a tile as soon as it has a live listing — the old ≥3 floor silently
+      // hid small/new collections (FEDS sat at 2) from the browse rail.
+      .filter(c => c.key === 'brains_elites' || c.listed >= 1)
+      .map(c => {
+        // Portrait fallback chain: first listing's own art → the registry's
+        // collection portrait (keyed by bucket id, survives name mismatches
+        // like "X1 Punks" vs Solaris's "X1 Punk") → Solaris name lookup.
+        // resolveUri is mandatory on the way out: Solaris hands back bare
+        // `ipfs://` URIs for some collections (X1Cats), and the rail renders a
+        // plain <img>, which can't load those.
+        const raw = c.image ?? collectionImageFor(c.key) ?? solByName.get(c.name.toLowerCase());
+        return { ...c, image: raw ? resolveUri(raw) : undefined };
+      })
       // Brains Elites is always pinned first; everything else by listing count.
       .sort((a, b) => {
         if (a.key === 'brains_elites') return -1;
@@ -1052,12 +1077,20 @@ export default function V2LabWork() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshotLocked, loading, listings.length, walletNfts.length]);
 
-  const verifiedCount         = snapshot.verifiedCount;
+  // ── Why these three are LIVE, not snapshotted ────────────────────
+  // The snapshot locks one frame after `loading` flips false — which is before
+  // collections are classified, so it froze "verified" at 0 and dumped every
+  // listing into "uncategorized" permanently, while the grid below correctly
+  // showed 123 verified. Classification now also waits on the Solaris fetch,
+  // so the lock lands even earlier. The rail already opts out for exactly this
+  // reason; these counts follow it. The remaining snapshot fields are genuinely
+  // stable at lock time and still suppress numeric flicker.
+  const verifiedCount         = liveVerifiedCount;
   const listedCount           = snapshot.listedCount;
   const mineCount             = snapshot.mineCount;
-  const uncategorizedCount    = snapshot.uncategorizedCount;
+  const uncategorizedCount    = liveUncategorizedCount;
   const totalVolXnt           = snapshot.totalVolXnt;
-  const verifiedListingsCount = snapshot.verifiedListingsCount;
+  const verifiedListingsCount = liveVerifiedListingsCount;
   // Rail uses LIVE collection stats so it appears as soon as listings load,
   // not 10s later when the snapshot debounce settles. The snapshot still
   // freezes the other stat tiles to stop their numeric flicker.
@@ -1099,18 +1132,27 @@ export default function V2LabWork() {
   }, [merged]);
   const beMintsKey = beMints.join(',');
   const [beImgs, setBeImgs] = useState<string[]>([]);
+  // False until the per-edition resolve pass has actually finished. Gates the
+  // collection-portrait fallback so the banner can't flash the generic brain
+  // art while the real listing images are still in flight.
+  const [beResolved, setBeResolved] = useState(false);
   useEffect(() => {
-    if (!beMints.length) { setBeImgs([]); return; }
+    if (!beMints.length) { setBeImgs([]); setBeResolved(false); return; }
     let alive = true;
+    setBeResolved(false);
     (async () => {
-      const resolved = await Promise.all(
-        beMints.map(m => enrichNFTFromMint(connection, m).then(n => n?.image || '').catch(() => '')),
-      );
-      if (!alive) return;
-      // Distinct real per-edition images only (drops empties + any Solaris
-      // collection-fallback dupes that slipped through).
-      const imgs = Array.from(new Set(resolved.filter(Boolean)));
-      if (imgs.length) setBeImgs(imgs);
+      try {
+        const resolved = await Promise.all(
+          beMints.map(m => enrichNFTFromMint(connection, m).then(n => n?.image || '').catch(() => '')),
+        );
+        if (!alive) return;
+        // Distinct real per-edition images only (drops empties + any Solaris
+        // collection-fallback dupes that slipped through).
+        const imgs = Array.from(new Set(resolved.filter(Boolean)));
+        if (imgs.length) setBeImgs(imgs);
+      } finally {
+        if (alive) setBeResolved(true);
+      }
     })();
     return () => { alive = false; };
   }, [beMintsKey, connection]);
@@ -1125,10 +1167,46 @@ export default function V2LabWork() {
   // the first real listing image resolves, and NEVER revert to empty.
   const heroRotImg = beImgs[heroIdx];
   const [stableHeroImg, setStableHeroImg] = useState('');
+  // URLs that 404'd. Tracked in state (not by mutating the <img>) so a later
+  // good URL can still render — see the note on the hero <img> below.
+  const [deadHeroImgs, setDeadHeroImgs] = useState<Set<string>>(new Set());
+  // Swap only once the next image has actually decoded. Assigning src directly
+  // left the box empty for however long the fetch took, which is what made a
+  // refresh flash blank → "X1" → brain → listing instead of holding one state.
   useEffect(() => {
-    const next = heroRotImg || featuredBE?.image;
-    if (next) setStableHeroImg(next);
-  }, [heroRotImg, featuredBE?.image]);
+    // The collection portrait is a LAST resort — only after the per-edition
+    // resolve finished and produced nothing. Before that we hold the skeleton.
+    const next = heroRotImg || (beResolved ? featuredBE?.image : undefined);
+    if (!next || deadHeroImgs.has(next)) return;
+    if (next === stableHeroImg) return;
+    let alive = true;
+    const pre = new Image();
+    pre.onload  = () => { if (alive) setStableHeroImg(next); };
+    pre.onerror = () => {
+      if (alive) setDeadHeroImgs(prev => prev.has(next) ? prev : new Set(prev).add(next));
+    };
+    pre.src = next;
+    return () => { alive = false; };
+  }, [heroRotImg, featuredBE?.image, beResolved, deadHeroImgs, stableHeroImg]);
+  // If the currently-shown hero art turns out to be dead, drop back to the
+  // first rotation image that still works rather than showing nothing.
+  useEffect(() => {
+    if (!stableHeroImg || !deadHeroImgs.has(stableHeroImg)) return;
+    const alt = [...beImgs, featuredBE?.image].find(
+      (u): u is string => !!u && !deadHeroImgs.has(u),
+    );
+    setStableHeroImg(alt ?? '');
+  }, [deadHeroImgs, stableHeroImg, beImgs, featuredBE?.image]);
+  // Show the "X1" placeholder ONLY when there is genuinely nothing left to
+  // paint. `beResolved` alone isn't enough: it flips true the moment the
+  // resolve pass ends, while the winning image may still be decoding in the
+  // preloader — and that gap is exactly what made the letters flash on every
+  // refresh. Hold the skeleton for as long as any candidate is still viable.
+  const heroArtEmpty =
+    beResolved &&
+    !beImgs.some(u => !deadHeroImgs.has(u)) &&
+    !(featuredBE?.image && !deadHeroImgs.has(featuredBE.image));
+
   // Other collections (excluding Brains Elites — it's the banner subject) shown
   // as compact story-circles in the banner's top-right corner. Cap at 3.
   const otherCollections = collectionStats.filter(c => c.key !== 'brains_elites').slice(0, 3);
@@ -1181,10 +1259,24 @@ export default function V2LabWork() {
         {/* ── Featured banner (Brains Elites) — minimal-mono (preview 11) style ── */}
         <div className="lw-hero">
           <div className="lw-hero-art">
-            {stableHeroImg
-              ? <img src={stableHeroImg} alt="Brains Elites"
-                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
-              : <div className="art-fallback">X1</div>}
+            {/* Three states, in strict order, so a refresh never flashes
+                through wrong art: decoded listing → skeleton while resolving →
+                "X1" only once we know there's genuinely nothing to show.
+                (The old code set style.display='none' on error; React reuses
+                the same <img> across src changes and never clears an inline
+                style it didn't set, so one 404 hid the banner for good.
+                Failures now go into `deadHeroImgs`.) */}
+            {stableHeroImg ? (
+              <img src={stableHeroImg} alt="Brains Elites"
+                onError={() => setDeadHeroImgs(prev =>
+                  prev.has(stableHeroImg) ? prev : new Set(prev).add(stableHeroImg))} />
+            ) : heroArtEmpty ? (
+              <div className="art-fallback">X1</div>
+            ) : (
+              <div className="art-skeleton" aria-hidden>
+                <span className="skel-mark">X1</span>
+              </div>
+            )}
           </div>
           <div className="lw-hero-info">
             <div className="lw-hero-top">

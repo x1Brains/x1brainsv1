@@ -144,16 +144,8 @@
   box-shadow: inset 2px 0 0 var(--accent-orange);
 }
 
-.nav-item .icon { font-size: 15px; width: 22px; text-align: center; }
-
-.nav-item .nav-ext {
-  margin-left: auto;
-  font-size: 10px;
-  color: var(--text-dim);
-  font-weight: 400;
-}
-
-.nav-item:hover .nav-ext { color: var(--accent-orange); }
+/* `.nav-item .icon` / `.nav-ext` removed with the menu glyphs — the nav is
+   text-only now, so the icon gutter and the external-link arrow are gone. */
 
 /* ════════ X1B chat widget (draggable + resizable) ════════ */
 .x1b-chat {
@@ -306,6 +298,73 @@
   font-family: 'Sora', monospace;
   font-size: 11px;
   color: var(--neon-cyan);
+}
+
+/* ── Disconnected state: make CONNECT WALLET impossible to miss ──────────
+   Reported problem: first-time visitors couldn't find where to connect. The
+   button looked identical to the connected state — a muted grey pill in the
+   footer. While disconnected it now breathes with an orange glow and sweeps a
+   soft highlight across itself. Applied only via `.wallet-cta`, so the moment
+   a wallet connects the pill goes back to being quiet chrome. */
+.wallet-info.wallet-cta {
+  cursor: pointer;
+  justify-content: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 9px;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #f29030, #ffb457 55%, #e07a1c);
+  animation: walletCtaPulse 2.4s ease-in-out infinite;
+}
+/* Dark text on the filled gradient — the contrast is the whole point.
+   Orbitron matches the page titles; the old Sora/monospace mix read cheap. */
+.wallet-info.wallet-cta .wallet-addr {
+  font-family: 'Orbitron', monospace;
+  font-size: 9.5px;
+  font-weight: 900;
+  letter-spacing: 1.7px;
+  color: #1a0e02;
+  text-shadow: none;
+  position: relative;
+  z-index: 2;
+}
+.wallet-info.wallet-cta .wallet-dot {
+  width: 6px; height: 6px;
+  background: #1a0e02;
+  box-shadow: none;
+  opacity: 0.75;
+  position: relative;
+  z-index: 2;
+  animation: none;
+}
+/* Specular sweep — reads as "interactive" without needing a hover. */
+.wallet-info.wallet-cta::after {
+  content: '';
+  position: absolute; top: 0; bottom: 0; left: -55%;
+  width: 45%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.40), transparent);
+  animation: walletCtaSweep 3s ease-in-out infinite;
+  pointer-events: none;
+}
+.wallet-info.wallet-cta:hover {
+  filter: brightness(1.08);
+}
+@keyframes walletCtaPulse {
+  0%, 100% { box-shadow: 0 4px 18px rgba(242, 144, 48, 0.32); }
+  50%      { box-shadow: 0 4px 26px rgba(242, 144, 48, 0.62); }
+}
+@keyframes walletCtaSweep {
+  0%        { left: -55%; }
+  60%, 100% { left: 120%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wallet-info.wallet-cta,
+  .wallet-info.wallet-cta .wallet-dot { animation: none; }
+  .wallet-info.wallet-cta::after { display: none; }
+  .wallet-info.wallet-cta { box-shadow: 0 0 16px rgba(242, 144, 48, 0.32); }
 }
 
 /* ═════════════════════════════ MAIN ═════════════════════════════ */
@@ -676,11 +735,21 @@
 .network-grid .value.up { color: var(--neon-green); }
 
 /* ═════════════════════════════ V2 LABWORK ═════════════════════════════ */
+/* Full-bleed scroll container with a centred 1100px column.
+   `.content` is the element that scrolls (`overflow-y: auto`), so the old
+   `max-width: 1100px; margin: 0 auto` here capped the SCROLLER itself — the
+   scrollbar rendered at the right edge of the 1100px column and left a wide
+   dead gap between it and the window edge on any display over ~1374px.
+   Expressing the cap as gutter padding instead keeps the scroller full width
+   (bar flush against the viewport) while the content still sits at 1100px
+   centred. Works for the grid pages and the ones that flip to `display:block`
+   (V2Home), since padding applies either way. The mobile `.content` padding
+   overrides below still win — same specificity, declared later. */
 .content-wide {
   grid-template-columns: 1fr;
-  max-width: 1100px;
-  margin: 0 auto;
   width: 100%;
+  padding-left:  max(28px, calc((100% - 1100px) / 2));
+  padding-right: max(28px, calc((100% - 1100px) / 2));
 }
 
 .lw-stack { display: flex; flex-direction: column; gap: 14px; }
@@ -1545,6 +1614,62 @@
 .v2lw-v3 .lw-hero-art .art-fallback {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   font-family: 'Orbitron', monospace; font-size: 40px; font-weight: 900; color: rgba(242, 144, 48, 0.85);
+}
+/* Held while the per-edition listing art is still resolving. A calm shimmer
+   beats cycling through the "X1" block and the generic collection portrait
+   before the real listing lands — that churn is what made a refresh look
+   broken. */
+.v2lw-v3 .lw-hero-art .art-skeleton {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(
+    100deg,
+    rgba(242,144,48,0.03) 30%,
+    rgba(242,144,48,0.10) 50%,
+    rgba(242,144,48,0.03) 70%
+  );
+  background-size: 220% 100%;
+  animation: heroArtShimmer 1.4s ease-in-out infinite;
+}
+@keyframes heroArtShimmer {
+  0%   { background-position: 120% 0; }
+  100% { background-position: -20% 0; }
+}
+
+/* Neon X1 mark that breathes while the listing art loads — the loading state
+   should read as branded and deliberate, not as a missing image. Slightly
+   slower than the sweep behind it so the two don't beat against each other. */
+.v2lw-v3 .lw-hero-art .art-skeleton .skel-mark {
+  font-family: 'Orbitron', monospace;
+  font-size: 34px; font-weight: 900; letter-spacing: 2px;
+  color: #f6b26b;
+  animation: heroMarkPulse 1.9s ease-in-out infinite;
+  will-change: opacity, transform;
+}
+@keyframes heroMarkPulse {
+  0%, 100% {
+    opacity: 0.5; transform: scale(0.98);
+    text-shadow: 0 0 5px rgba(242,144,48,0.40), 0 0 13px rgba(242,144,48,0.16);
+  }
+  50% {
+    opacity: 1; transform: scale(1.02);
+    text-shadow:
+      0 0 10px rgba(255,176,94,0.95),
+      0 0 24px rgba(242,144,48,0.55),
+      0 0 42px rgba(242,144,48,0.25);
+  }
+}
+
+/* Same glow on the genuine "no art at all" state, so the two never look like
+   different components. */
+.v2lw-v3 .lw-hero-art .art-fallback {
+  text-shadow: 0 0 10px rgba(242,144,48,0.5), 0 0 26px rgba(242,144,48,0.22);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v2lw-v3 .lw-hero-art .art-skeleton,
+  .v2lw-v3 .lw-hero-art .art-skeleton .skel-mark { animation: none; }
+  .v2lw-v3 .lw-hero-art .art-skeleton .skel-mark { opacity: 0.85; }
 }
 /* faint corner ticks on the art (minimal-mono motif) */
 .v2lw-v3 .lw-hero-art::before, .v2lw-v3 .lw-hero-art::after {
