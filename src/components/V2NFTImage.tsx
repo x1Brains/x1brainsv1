@@ -106,11 +106,18 @@ type Props = {
 //   • re-encodes to a smaller format
 // IPFS/Arweave URLs are already resolved to https://... by resolveGateway, so
 // they pass through fine.
+// Hosts weserv can't fetch reliably. Irys serves extensionless object ids and
+// 302s to a per-object CDN subdomain; weserv returns an error image for those,
+// which showed up as FEDS listings rendering a broken tile while the same URL
+// loaded fine when requested directly. Serve these raw.
+const CDN_BYPASS_HOSTS = ['irys.xyz', 'permagate.io'];
+
 function viaImageCDN(url: string, width: number): string {
   if (!url) return url;
   if (url.startsWith('data:')) return url;        // inline images — skip
   if (!url.startsWith('http')) return url;        // not http(s)
   if (url.includes('images.weserv.nl')) return url; // already wrapped
+  if (CDN_BYPASS_HOSTS.some(h => url.includes(h))) return url;
   // weserv expects url without protocol
   const stripped = url.replace(/^https?:\/\//, '');
   return `https://images.weserv.nl/?url=${encodeURIComponent(stripped)}&w=${width}&q=82&output=webp`;
