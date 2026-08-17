@@ -51,15 +51,29 @@ function persist() {
   }, 600);
 }
 
+/** Token logos arrive as bare `ipfs://` / `ar://` URIs from some issuers (PURGE
+ *  ships `ipfs://bafkrei…`). Those are DEAD in an `<img src>` — the browser has
+ *  no ipfs handler — so resolve to an HTTP gateway here, at the cache boundary,
+ *  instead of at each call site. Same fix `verifiedCollections.gatewayUrl` makes
+ *  for collection portraits. */
+export function normalizeLogoUrl(u: string | null | undefined): string | null {
+  if (!u) return null;
+  const s = String(u).trim();
+  if (!s) return null;
+  return s
+    .replace(/^ipfs:\/\//i, 'https://nftstorage.link/ipfs/')
+    .replace(/^ar:\/\//i,   'https://arweave.net/');
+}
+
 export function getCachedTokenLogo(mint: string): string | null {
   if (LOGOS[mint]) return LOGOS[mint];
-  return _cache.get(mint) ?? null;
+  return normalizeLogoUrl(_cache.get(mint) ?? null);
 }
 
 export function setCachedTokenLogo(mint: string, logo: string | null) {
   // Don't downgrade an already-resolved logo back to null.
   if (logo === null && _cache.get(mint)) return;
-  _cache.set(mint, logo);
+  _cache.set(mint, normalizeLogoUrl(logo));
   persist();
 }
 

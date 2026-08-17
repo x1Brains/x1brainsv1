@@ -13,6 +13,17 @@ import { TopBar, PageBackground, Footer, NfaConsentModal } from '../components/U
 import { BurnedBrainsBar } from '../components/BurnedBrainsBar';
 import { BRAINS_MINT as BRAINS_MINT_STR, BRAINS_LOGO, XNT_LOGO } from '../constants';
 import PoolsTab from './PoolsTab';
+// Shared token-logo cache — the SAME one Portfolio/Header/V2Home use. It is
+// pre-warmed at module load from the xDEX pool/list snapshot (78 of 79 ecosystem
+// tokens ship a working https logo there) and persisted to localStorage for 24h,
+// so a logo resolved on any page paints instantly on every other page.
+// This file's own `fetchTokenMeta` only tries Token-2022 ext → Metaplex PDA →
+// per-mint price API, so the swap used to miss logos the snapshot already had.
+// (tokenLogos imports fetchTokenMeta from here DYNAMICALLY, so this static edge
+// is not a cycle.)
+import {
+  getCachedTokenLogo, setCachedTokenLogo, fetchTokenLogo, normalizeLogoUrl,
+} from '../lib/tokenLogos';
 
 // ─── Program Constants — match deployed program exactly ───────────────────────
 const PROGRAM_ID      = 'DNSefSAJ41Fm3ijmEug8tkDYJrHDwYGVtFtn8wwvbgJM';
@@ -502,6 +513,59 @@ async function fetchXdexMeta(mint: string): Promise<TokenMeta | null> {
   } catch {}
   return null;
 }
+
+// ── Shared token-logo renderer ───────────────────────────────────────────────
+// One logo path for every swap surface (pay/receive buttons + picker rows), so
+// the swap resolves exactly like Portfolio does:
+//   1) the logo the caller already has        2) the shared prism-primed cache
+//   3) async `fetchTokenLogo` backfill        4) 2-letter placeholder
+//
+// Defined at MODULE level on purpose. The previous `SwapLogo`/`TokenRow` were
+// declared inside the component body, so every parent render produced a brand
+// new component type and React unmounted/remounted the whole subtree — throwing
+// away load state and re-requesting images on each keystroke.
+//
+// Failure is tracked in STATE, never by mutating `style.display`. React reuses
+// an <img> across src changes and never clears an inline style it didn't set, so
+// the old `onError` hid that avatar permanently and the letter fallback (in the
+// else branch) could never appear. Same trap as the featured banner in §4 of
+// SESSION_2026-08-01.
+const TokenLogoImg: FC<{
+  mint: string; symbol: string; logo?: string;
+  size?: number; color?: string; connection?: Connection;
+}> = ({ mint, symbol, logo, size = 22, color = '#f29030', connection }) => {
+  const [resolved, setResolved] = useState<string | null>(
+    () => normalizeLogoUrl(logo) ?? getCachedTokenLogo(mint),
+  );
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+    const direct = normalizeLogoUrl(logo) ?? getCachedTokenLogo(mint);
+    if (direct) { setResolved(direct); return; }
+    if (!connection) return;
+    let alive = true;
+    fetchTokenLogo(mint, connection)
+      .then(l => { if (alive && l) { setCachedTokenLogo(mint, l); setResolved(normalizeLogoUrl(l)); } })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [mint, logo, connection]);
+
+  const show = resolved && !failed;
+  return (
+    <div style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
+      background: show ? 'transparent' : `${color}18`,
+      border: `1px solid ${color}33`,
+      display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {show
+        ? <img src={resolved!} alt={symbol}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            onError={() => setFailed(true)} />
+        : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: Math.max(8, size * 0.38),
+            fontWeight: 900, color }}>{(symbol || mint).slice(0, 2).toUpperCase()}</span>}
+    </div>
+  );
+};
 
 export async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
   // Cache hit with logo — return immediately
@@ -3631,7 +3695,9 @@ export const SwapTab: FC<{
     const pinned: WalletToken[] = [XNT_TOKEN_DEFAULT, BRAINS_TOKEN_DEFAULT].map(p => {
       const found = walletTokens.find(t => t.mint === p.mint);
       const cached = _metaCache.get(p.mint);
-      const logo = found?.logo || cached?.logo;
+      // Shared cache last — it's primed from the pool/list snapshot, so it
+      // covers tokens whose T22-ext / Metaplex / price-API lookups all missed.
+      const logo = found?.logo || cached?.logo || getCachedTokenLogo(p.mint) || undefined;
       const symbol = HARDCODED_META[p.mint]?.symbol ?? found?.symbol ?? p.symbol;
       return found
         ? { ...found, pinned: true, symbol, logo }
@@ -3642,7 +3708,8 @@ export const SwapTab: FC<{
       .map(t => {
         const cached = _metaCache.get(t.mint);
         const known  = HARDCODED_META[t.mint];
-        return { ...t, symbol: known?.symbol ?? t.symbol, logo: t.logo || cached?.logo };
+        return { ...t, symbol: known?.symbol ?? t.symbol,
+                 logo: t.logo || cached?.logo || getCachedTokenLogo(t.mint) || undefined };
       });
     return [...pinned, ...rest].filter(t => t.mint !== exclude);
   }
@@ -3704,9 +3771,14 @@ export const SwapTab: FC<{
                 const symbol = c.symbol || c.ticker || (typeof c.name === 'string' ? c.name.slice(0,8) : '') || mint.slice(0,6).toUpperCase();
                 if (!symbol || symbol.length < 1) continue;
                 seen.add(mint);
+                const rawLogo = c.logo || c.logoUri || c.image || c.icon;
+                // Normalize ipfs://ar:// (PURGE ships a bare ipfs:// URI, dead in
+                // an <img>) and fall back to the shared cache. Feed anything new
+                // back into it so other pages paint this logo instantly too.
+                const logo = normalizeLogoUrl(rawLogo) ?? getCachedTokenLogo(mint) ?? undefined;
+                if (logo) setCachedTokenLogo(mint, logo);
                 tokens.push({
-                  mint, symbol, decimals,
-                  logo: c.logo || c.logoUri || c.image || c.icon,
+                  mint, symbol, decimals, logo,
                   balance: 0, rawBalance: 0n,
                   program: TOKEN_2022_PROGRAM_ID.toBase58(),
                 });
@@ -3740,7 +3812,9 @@ export const SwapTab: FC<{
           if (!walletMints.has(search) && search !== exclude) {
             if (metaRes && metaRes.decimals > 1) {
               results.push({ mint: search, symbol: metaRes.symbol, decimals: metaRes.decimals,
-                logo: metaRes.logo || priceRes?.data?.logo, balance: 0, rawBalance: 0n,
+                logo: normalizeLogoUrl(metaRes.logo || priceRes?.data?.logo)
+                      ?? getCachedTokenLogo(search) ?? undefined,
+                balance: 0, rawBalance: 0n,
                 program: TOKEN_2022_PROGRAM_ID.toBase58() });
             } else if (priceRes?.success && priceRes?.data?.symbol) {
               results.push({ mint: search, symbol: priceRes.data.symbol,
@@ -3781,13 +3855,8 @@ export const SwapTab: FC<{
           transition: 'all .15s' }}
         onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(242,144,48,.35)')}
         onMouseLeave={e => (e.currentTarget.style.borderColor = t.pinned ? 'rgba(242,144,48,.12)' : 'rgba(255,255,255,.05)')}>
-        <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
-          background: 'rgba(242,144,48,.1)', border: '1px solid rgba(242,144,48,.2)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {t.logo
-            ? <img src={t.logo} alt={t.symbol} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-            : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 900, color: '#f29030' }}>{t.symbol.slice(0,2)}</span>}
-        </div>
+        <TokenLogoImg mint={t.mint} symbol={t.symbol} logo={t.logo}
+          size={38} color="#f29030" connection={connection} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 13, fontWeight: 700, color: '#e6ebf2' }}>{t.symbol}</span>
@@ -3860,22 +3929,12 @@ export const SwapTab: FC<{
 
   // ── Token Button ──────────────────────────────────────────────────────────────
   // Token logo with proper fallback to colored letter avatar
-  const SwapLogo: FC<{ token: WalletToken; size?: number; color?: string }> = ({ token, size = 22, color = '#f29030' }) => {
-    const [imgFailed, setImgFailed] = useState(false);
-    return (
-      <div style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
-        background: imgFailed || !token.logo ? `${color}18` : 'transparent',
-        border: `1px solid ${color}33`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {token.logo && !imgFailed
-          ? <img src={token.logo} alt={token.symbol}
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              onError={() => setImgFailed(true)} />
-          : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: size * 0.38,
-              fontWeight: 900, color }}>{token.symbol.slice(0,2).toUpperCase()}</span>}
-      </div>
-    );
-  };
+  // Thin adapter onto the shared module-level renderer, so the pay/receive
+  // buttons and the picker rows resolve logos through one identical path.
+  const SwapLogo: FC<{ token: WalletToken; size?: number; color?: string }> = ({ token, size = 22, color = '#f29030' }) => (
+    <TokenLogoImg mint={token.mint} symbol={token.symbol} logo={token.logo}
+      size={size} color={color} connection={connection} />
+  );
 
   const TokenBtn: FC<{ token: WalletToken; color: string; onClick: () => void }> = ({ token, color, onClick }) => (
     <button onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px',
