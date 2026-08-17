@@ -62,7 +62,7 @@ See [`SUPABASE_TODO.md`](./SUPABASE_TODO.md) for the Supabase-specific checklist
 | Token | Mint | Decimals | Token Program |
 |---|---|---|---|
 | **BRAINS** | `EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC1EHUBtPN` | 9 | Token-2022 |
-| **LB** | `Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6` | 9 | Token-2022 |
+| **LB** | `Dj7AY5CXLHtcT5gZ59Kg3nYgx4FUNMR38dZdQcGT3PA6` | **2** | Token-2022 |
 | **wXNT** (wrapped native) | `So11111111111111111111111111111111111111112` | 9 | Classic SPL |
 
 Constants: `src/constants/index.ts` — `BRAINS_MINT`, `LB_MINT`, `XNT_WRAPPED`, `BRAINS_LOGO`, `XNT_LOGO`. `LB_LOGO` is `undefined` — letter placeholder; xDex API fills it in at runtime.
@@ -122,9 +122,9 @@ Used by `PairingMarketplace.tsx` and `PoolsTab.tsx` to compute prices entirely o
 ### Boost tier color/glyph mapping
 
 ```
-SPARK       — 24h  — 1,000 BRAINS — orange     — ⚡
-GODSLAYER   — 3d   — 2,500 BRAINS — purple     — ⚔️
-INCINERATOR — 7d   — 5,000 BRAINS — fire orange — 🔥
+SPARK       — 24h  — 200 BRAINS or 0.05 LB — orange      — ⚡
+GODSLAYER   — 3d   — 444 BRAINS or 1    LB — purple      — ⚔️
+INCINERATOR — 7d   — 888 BRAINS or 1.11 LB — fire orange — 🔥
 ```
 
 ### Known data drift
@@ -803,3 +803,137 @@ hash to the local build — Vercel bakes its own `VITE_*` env vars in, so the **
 differs even for identical source. Instead compare the lazy route chunk: fetch the live main bundle,
 grep the `V2LabWork-<hash>.js` it references, and match against local `dist/assets/V2LabWork-*.js`.
 That chunk has no env vars, so identical source → identical hash → proof the deploy landed.
+
+---
+
+## 15. Session log — 2026-08-17 · swap execution, pricing, charts, logos
+
+Commits `9b63334`, `a3e0ed7`, `4a67410`, `8c8cd31`, `f868940`. Trigger: AGI/BRAINS
+(a pairing-marketplace pair) could not be traded from the swap page.
+
+### 15.1 ⭐⭐⭐ xDEX quoting — reserve ≠ vault, and the fee is 0.28%
+
+**The single most important thing in this section.** CP-Swap trades against
+`vault_amount_without_fee` = **vault − protocol_fees − fund_fees**. Accrued fees sit
+*inside* the vault but are outside the curve. On live X1 pools they are **0.4 %–5.8 %
+of the vaults and ASYMMETRIC per side** (AGI: 5.64 % token0 vs 1.17 % token1), so a
+raw-vault quote misprices by ~5 % **with a sign that flips by direction** — which is
+why it looked random:
+
+| pair | app quoted | pool actually paid | error |
+|---|---|---|---|
+| MIND→BRAINS | 0.175364 | 0.165887 | **+5.7 %** → died 6005 |
+| BRAINS→AGI | 198.577 | 189.536 | **+4.8 %** → died 6005 |
+| AGI→BRAINS | 3.024 | 3.166 | −4.5 % (passed, underquoted) |
+
+Anything over the 0.5 % slippage bound was a guaranteed on-chain failure. Also the
+fee rate is per-AmmConfig **`trade_fee_rate` @ offset 12 = 2800 (0.28 %)**, not 0.25 %,
+and the program rounds the fee **UP**. Correct form, byte-exact vs the program:
+
+```
+fee = ceil(in · rate / 1e6) · out = floor((in − fee) · resOut / (resIn + (in − fee)))
+```
+
+Verified: 4 marketplace pools × both directions × slippage 0.5 / 0.1 / **0 %** = 24/24
+simulations pass. Passing at **0 %** is the proof the quote is exact.
+
+> ⚠️ **Do NOT apply this to the listing oracle.** `create_listing` and `prepare_match`
+> compute the XNT price from **RAW vault balances** on chain and cross-validate the
+> caller's `xnt_price_usd` within `XNT_PRICE_TOLERANCE_BPS = 500` (5 %). The frontend
+> must MIRROR the program, not abstract truth. Divergence on the oracle pools is only
+> 0.03–0.05 % anyway (fee ratios largely cancel in a *ratio*). Note also `SLIPPAGE_BPS
+> = 5` = **0.05 %** USD parity between match sides, despite the comment saying 0.5 %.
+
+### 15.2 PoolState / PoolRecord offsets (verified against 6 live pools)
+
+`PoolState` (absolute, incl. 8-byte disc): `232 token_0_program · 264 token_1_program ·
+296 observation_key · 328 auth_bump · 329 status · 330 lp_mint_decimals ·
+331 mint_0_decimals · 332 mint_1_decimals · 333 lp_supply · 341 protocol_fees_0 ·
+349 protocol_fees_1 · 357 fund_fees_0 · 365 fund_fees_1`.
+The swap page read decimals at 339/340 (inside `lp_supply`) → 0 on every pool, masked
+by a `|| 9` fallback. `PoolRecord` is `space = 8 + 274` (282 B) but the struct fills only
+268 — **`seeded` is at byte 274, not 281**; the old check read slack and never skipped
+admin-seeded records.
+
+### 15.3 Never default a token program to classic SPL
+
+BRAINS and LB are Token-2022, so nearly every pool is mixed or all-T22. A classic-SPL
+ATA for BRAINS points at an account that does not exist → Anchor **3012
+AccountNotInitialized**. Two places did this:
+- `SwapTab.makeShim` hardcoded classic SPL for deep-linked tokens; `handleSwap` now
+  takes BOTH programs from pool state, which records one per side.
+- `xdexPoolView` hardcoded both — and DepositModal/WithdrawModal derive their ATAs
+  from those fields, so **deposit/withdraw was broken on every BRAINS pool**.
+  `XdexPoolMeta` now carries `token0Prog`/`token1Prog`.
+
+**Anchor 3000-3999 are FRAMEWORK account errors; a program's own errors start at 6000.**
+The error map read 3008-3012 as slippage/liquidity, so a wrong-ATA failure was reported
+as "insufficient pool liquidity" on a pool with 398k AGI in it. Real slippage is
+**6005 ExceededSlippage**.
+
+### 15.4 Deep-linked tokens arrived with balance 0
+
+`V2XdexPoolsList.goSwap` → `/swap` builds a `makeShim` token (balance 0). The mount
+loader only reconciled XNT-as-input and BRAINS-as-output, so any other mint stayed at 0,
+`insufficientBal` was true for any amount, and the button sat dead on `INSUFFICIENT
+<TOKEN>` forever — a wallet holding 49 M AGI showed `Balance: 0`. Only `refreshAll()`
+patched generically, and it runs solely from the manual ⟳ button. Both sides are now
+reconciled against the wallet scan by mint as soon as it lands.
+
+### 15.5 Chart TWAP was 1/p², not price
+
+The observation account keeps TWO cumulative prices and they are **reciprocal**, so
+`d1/d0 = 1/p²`. History read 208,000× off on AGI and 2,200,000× off on BRAINS/XNT, and
+because `pct = (last − first)/first` compares a garbage first point against the correct
+appended spot, **every pool card showed ≈ −100 % 24h change**. Correct: **`p = sqrt(d0/d1)`**
+— the ratio cancels both Δt and the Q32.32 scaling, so no descaling constant is needed.
+BRAINS/XNT (observations minutes old) now sits 0.28 % from spot.
+
+### 15.6 Token logos
+
+- `PairingMarketplace` never imported `lib/tokenLogos.ts`, the shared resolver every
+  other surface uses — so the swap missed the pool/list prime (78 of 79 tokens ship a
+  working https logo) and the cross-page cache. Now wired through it.
+- **Issuers ship full art**: NECK 1.37 MB PNG 828×1022 (portrait → centre-crop reframes
+  it), $HOE 367 KB, DRC 1024², BRAINS 1288×1134. Browser downscaling to a 26-38px circle
+  is the "blurry/distorted" look. Logos now resize server-side at 2× the painted box
+  (NECK 1.37 MB → 3.7 KB). weserv **400s on `mint.xdex.xyz`** and other extensionless
+  IPFS paths (same limit as irys/permagate), so it falls back to the raw URL.
+- **X1X had no image although its art was fine.** Its metadata JSON is on
+  `gateway.pinata.cloud`, which answers in ~6.9 s cold and **stalls past 30 s once the
+  request carries an `Origin` header** (i.e. from a browser). Both readers aborted at
+  5 s. They now allow 9 s then retry same-origin via `/api/nft-meta`.
+- Prefer the shared cache over a caller-supplied URL so BRAINS/XNT/LB keep their curated
+  assets. `onError` must set STATE — the old `style.display='none'` hid an avatar
+  permanently, because React reuses an `<img>` across `src` changes and never clears an
+  inline style it didn't set (same trap as §14 / SESSION_2026-08-01 §4).
+
+### 15.7 degen.fyi launchpad — why DGN token prices show "—"
+
+`app.degen.fyi` is X1's launchpad. Tokens trade on a **bonding curve** until they
+**graduate**; only then is an xDEX LP created, and `pool/list` is the only price source
+v2 reads. So pre-graduation tokens legitimately show "—".
+Confirmed: NECK / $HOE / X1X in no pool → "—"; DRC / AGI in pools → priced. NECK's card
+reads Market Cap $306K, **79.568 % to graduation**, LP Lock 100 %.
+
+**Launchpad program: `degenDXVPhS7vgu3hcdzGA7T6dfCe6qTYyVM7npP3pc`** (144 program
+accounts ≈ tokens launched). Per-token curve PDA (NECK: `HV9xgjoJCe5FZXWPdKfm1hBi5dXu6AZgGUhNgHwJceCB`)
+is the mint authority AND holds the token reserve; account is 139 B, disc
+`da70069537baa8a3`, with total supply (1e18) at offset 72.
+**Not yet decoded** — showing pre-graduation prices means decoding the remaining curve
+fields (check for an on-chain Anchor IDL first). Deliberately not guessed: a wrong
+decode prints confident wrong prices, which is worse than "—".
+
+### 15.8 Verification notes for future sessions
+
+- `SwapTab` is **prop-driven** (`publicKey`/`connection`/`signTransaction`), so it can be
+  mounted standalone in a throwaway `probe.html` + `src/_probe.tsx` under vite and driven
+  headless. This is how the balance-0 and logo bugs were proven rather than argued.
+- ⛔ **`rpc.mainnet.x1.xyz` rate-limits hard and the failure MIMICS the bug** — one probe
+  page ≈ 77 RPC calls; 4 loads produced **270 × HTTP 429**, which made pool discovery fail
+  on *every* pair including known-good ones and left balances at 0. Intercept at the
+  browser boundary with a serialized + cached + retry-on-429 shim, and always run a
+  known-good control pair.
+- `tsc -p tsconfig.app.json` is **not clean at baseline** (76 errors in
+  `PairingMarketplace.tsx` alone: missing `@types/node` Buffer, unused vars). Compare
+  counts against `git stash`, don't chase absolutes.
