@@ -3160,6 +3160,34 @@ export const SwapTab: FC<{
         const brainsW = tokens.find(t => t.mint === BRAINS_TOKEN_DEFAULT.mint);
         if (brainsW) setTokenOut(prev => prev.mint === BRAINS_TOKEN_DEFAULT.mint ? { ...prev, balance: brainsW.balance, rawBalance: brainsW.rawBalance, logo: brainsW.logo || prev.logo } : prev);
         setTokenOut(prev => prev.logo ? prev : { ...prev, logo: tokens.find(t => t.mint === prev.mint)?.logo });
+
+        // Reconcile BOTH selected sides against the scan, by mint — not just the
+        // XNT/BRAINS special cases above.
+        //
+        // A deep-linked pair (V2XdexPoolsList.goSwap → /swap) arrives as a
+        // `makeShim` token: balance 0, and the token program GUESSED as classic
+        // SPL. Nothing here used to reconcile an arbitrary mint, so a citizen
+        // holding e.g. 49M AGI saw "Balance: 0" and the swap button sat dead on
+        // `INSUFFICIENT AGI` (insufficientBal = parsedAmt > tokenIn.balance).
+        // Only `refreshAll()` patched generically, and it runs solely from the
+        // manual refresh button — never on mount. This is that same patch,
+        // applied as soon as the scan lands.
+        //
+        // `program` comes from the token account's real owner program, so a
+        // Token-2022 pair stops inheriting makeShim's classic-SPL guess.
+        // `decimals` is authoritative from chain (see Step 5) — a wrong value
+        // corrupts every raw-amount conversion.
+        const reconcile = (prev: WalletToken): WalletToken => {
+          if (prev.mint === WXNT_MINT) return prev;          // native XNT handled above
+          const held = tokens.find(t => t.mint === prev.mint);
+          if (!held) return { ...prev, balance: 0, rawBalance: 0n };
+          return { ...prev,
+            balance: held.balance, rawBalance: held.rawBalance,
+            decimals: held.decimals, program: held.program,
+            symbol: prev.symbol || held.symbol, logo: prev.logo || held.logo };
+        };
+        setTokenIn(reconcile);
+        setTokenOut(reconcile);
       } catch (e) { console.error('wallet load error', e); }
       finally { setLoadingWallet(false); }
     })();
@@ -3187,8 +3215,14 @@ export const SwapTab: FC<{
             token0Prog:  readPk(data, D+224),
             token1Prog:  readPk(data, D+256),
             obsKey:      readPk(data, D+288),
-            dec0: data[D+331] || 9,
-            dec1: data[D+332] || 9,
+            // CP-Swap PoolState tail: 320 auth_bump · 321 status · 322 lp_mint_decimals
+            // · 323 mint_0_decimals · 324 mint_1_decimals (all relative to D).
+            // These were read at D+331/D+332, which lands inside lp_supply and
+            // returns 0 on every pool — masked by the `|| 9` fallback, so pairs
+            // like the 6-decimal and 8-decimal ones silently reported 9.
+            // Verified against 4 live pools; matches xdexPoolChart.ts.
+            dec0: data[D+323] || 9,
+            dec1: data[D+324] || 9,
           };
         };
 
@@ -3223,9 +3257,12 @@ export const SwapTab: FC<{
         // ── Method 2: XDEX pool list search ──────────────────────────────────────
         if (!foundPool) {
           try {
+            // `network=mainnet` returns `total: 0` from pool/list — the working
+            // value is `X1 Mainnet` (same as brainsIndexer). pool/tokens above
+            // tolerates either, which is why Method 1 still finds pools.
             const listEndpoints = [
-              `/api/xdex-price/api/xendex/pool/list?network=mainnet&token=${tokenIn.mint}`,
-              `/api/xdex-price/api/xendex/pool/list?network=mainnet&token=${tokenOut.mint}`,
+              `/api/xdex-price/api/xendex/pool/list?network=X1%20Mainnet&token=${tokenIn.mint}`,
+              `/api/xdex-price/api/xendex/pool/list?network=X1%20Mainnet&token=${tokenOut.mint}`,
               `/api/xdex-price/api/xendex/pools?network=mainnet&token0=${m0}&token1=${m1}`,
             ];
             for (const url of listEndpoints) {
@@ -3288,7 +3325,12 @@ export const SwapTab: FC<{
               const d = new Uint8Array(Buffer.from(account.data[0], 'base64'));
               const tokenA = readPk(d, 8 + 64);
               const tokenB = readPk(d, 8 + 96);
-              if (d[281] === 1) continue; // skip seeded
+              // PoolRecord is `space = 8 + 274` (282 B) but the struct only fills
+              // 268 — the last 6 bytes are slack. `seeded` sits at 274, not 281:
+              // 8 disc · 6×32 pubkeys · 2×12 syms · u16 · 4×u64 · u64 · i64.
+              // Reading 281 always saw a slack zero, so admin-seeded records were
+              // never skipped. Verified: all 5 seeded records have d[274]=1, d[281]=0.
+              if (d[274] === 1) continue; // skip admin-seeded xDEX pools
               const matches = (tokenA === m0 && tokenB === m1) || (tokenA === m1 && tokenB === m0);
               if (matches) {
                 const poolAddr = readPk(d, 8);
@@ -3376,7 +3418,13 @@ export const SwapTab: FC<{
       const minOut = rawOut * BigInt(10_000 - slipBps) / 10_000n;
       const inputMint  = new PublicKey(tokenIn.mint);
       const outputMint = new PublicKey(tokenOut.mint);
-      const inputProg  = new PublicKey(tokenIn.program);
+      // Both token programs come from the POOL, which records one per side.
+      // `tokenIn.program` used to supply the input side, but a deep-linked token
+      // carries makeShim's hardcoded classic-SPL guess — on a Token-2022 pair
+      // that derives the wrong input ATA and xDEX aborts with Anchor 3012
+      // AccountNotInitialized (verified on pool FnWbM7sQ…). The pool state is
+      // authoritative for both sides; never guess either one.
+      const inputProg  = new PublicKey(t0IsIn ? poolState.token0Prog : poolState.token1Prog);
       const outputProg = new PublicKey(t0IsIn ? poolState.token1Prog : poolState.token0Prog);
       const inputAta   = getAssociatedTokenAddressSync(inputMint, publicKey, false, inputProg);
       const outputAta  = getAssociatedTokenAddressSync(outputMint, publicKey, false, outputProg);
@@ -3459,19 +3507,25 @@ export const SwapTab: FC<{
           const st = await conn.getSignatureStatus(sig, { searchTransactionHistory: true });
           if (st?.value?.err) {
             const errStr = JSON.stringify(st.value.err);
-            // Decode XDEX program errors
-            const xdexMatch = errStr.match(/"Custom"\s*:\s*(\d+)/);
-            const xdexCode = xdexMatch ? parseInt(xdexMatch[1]) : null;
+            // Decode the failure code.
+            //
+            // The previous map read 3008-3012 as slippage/liquidity errors. Those
+            // are ANCHOR FRAMEWORK codes (2000s constraints, 3000s account errors),
+            // not xDEX's — a program's own errors start at 6000. So a wrong-ATA
+            // failure (3012 AccountNotInitialized) was reported to the citizen as
+            // "insufficient pool liquidity" on a pool with plenty of it, and REAL
+            // slippage (6005) had no entry and dumped raw JSON.
+            // Both codes below were observed live via simulateTransaction.
+            const errCodeMatch = errStr.match(/"Custom"\s*:\s*(\d+)/);
+            const code = errCodeMatch ? parseInt(errCodeMatch[1]) : null;
             const xdexMsgs: Record<number, string> = {
-              3012: '💧 Insufficient pool liquidity for this swap amount. Try a smaller amount.',
-              3011: '💧 Pool has insufficient liquidity.',
-              3010: '⚖️ Price impact too high. Try a smaller amount or increase slippage.',
-              3009: '⏱️ Transaction expired. Please retry.',
-              3008: '⚠️ Slippage exceeded. Price moved — try again or increase slippage.',
+              6005: '⚠️ Slippage exceeded (ExceededSlippage). Price moved — retry or raise slippage.',
             };
-            const msg = xdexCode && xdexMsgs[xdexCode]
-              ? xdexMsgs[xdexCode]
-              : `Transaction failed: ${errStr}`;
+            const msg =
+              code && xdexMsgs[code]                   ? xdexMsgs[code]
+              : code && code >= 3000 && code < 4000    ? `❌ Account setup rejected by xDEX (Anchor ${code}) — a token account or program was wrong for this pair. Refresh and retry; if it persists, report the code.`
+              : code                                   ? `Transaction failed: xDEX error ${code}`
+              :                                          `Transaction failed: ${errStr}`;
             throw new Error(msg);
           }
           if (st?.value?.confirmationStatus === 'confirmed' || st?.value?.confirmationStatus === 'finalized') {
