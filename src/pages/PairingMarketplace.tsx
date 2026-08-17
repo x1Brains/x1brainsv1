@@ -2981,6 +2981,46 @@ export const SwapTab: FC<{
     try { const r = await rpc('getAccountInfo', [addr, { encoding: 'base64' }]); if (!r?.value) return 0n; return readU64b(new Uint8Array(Buffer.from(r.value.data[0], 'base64')), 64); } catch { return 0n; }
   }
 
+  // ── CP-Swap curve, matched to the program byte-for-byte ─────────────────────
+  //
+  // TRADABLE RESERVE ≠ VAULT BALANCE. xDEX (Raydium CP-Swap) swaps against
+  // `vault_amount_without_fee` = vault − protocol_fees − fund_fees for that side.
+  // Those fees sit IN the vault but are not part of the curve. Quoting off the raw
+  // vault therefore misprices by however much fee has accrued — measured 0.4%–5.8%
+  // on live X1 pools, and ASYMMETRIC per side (AGI: 5.64% one side, 1.17% the
+  // other), so the error flips sign with trade direction. Any overstatement above
+  // the slippage tolerance made the swap fail on-chain with 6005 ExceededSlippage:
+  // MIND→BRAINS was over by 5.7%, BRAINS→AGI by 4.8% — dead in one direction while
+  // the other direction worked, which is why this looked random.
+  //
+  // Using reserves + the pool's real trade_fee_rate reproduces the program's output
+  // EXACTLY (verified to the raw unit on 3 live pairs, 0.0000% error).
+  const FEE_DEN = 1_000_000n;
+  const DEFAULT_TRADE_FEE_RATE = 2800n;              // live value on every X1 AmmConfig
+  const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
+  const feeRateOf = (ps: any): bigint => {
+    const r = ps?.tradeFeeRate;
+    return (typeof r === 'bigint' && r > 0n && r < 100_000n) ? r : DEFAULT_TRADE_FEE_RATE;
+  };
+  /** Exact-in: fee rounds UP, output floors — same order as the program. */
+  const swapOutFor = (rawIn: bigint, resIn: bigint, resOut: bigint, feeRate: bigint) => {
+    if (rawIn <= 0n || resIn <= 0n || resOut <= 0n) return { inAfterFee: 0n, out: 0n };
+    const fee = ceilDiv(rawIn * feeRate, FEE_DEN);
+    const inAfterFee = rawIn > fee ? rawIn - fee : 0n;
+    return { inAfterFee, out: (inAfterFee * resOut) / (resIn + inAfterFee) };
+  };
+  /** Reserves for the current direction: vault balance minus that side's accrued fees. */
+  async function getReserves(ps: any, t0IsIn: boolean): Promise<[bigint, bigint]> {
+    const [rawIn, rawOut] = await Promise.all([
+      getVaultBal(t0IsIn ? ps.token0Vault : ps.token1Vault),
+      getVaultBal(t0IsIn ? ps.token1Vault : ps.token0Vault),
+    ]);
+    const feeIn  = (t0IsIn ? ps.fees0 : ps.fees1) ?? 0n;
+    const feeOut = (t0IsIn ? ps.fees1 : ps.fees0) ?? 0n;
+    const net = (v: bigint, f: bigint) => (v > f ? v - f : 0n);
+    return [net(rawIn, feeIn), net(rawOut, feeOut)];
+  }
+
   // Fetch XNT price
   useEffect(() => {
     fetch(`/api/xdex-price/api/token-price/price?network=X1%20Mainnet&token_address=${WXNT_MINT}`, { signal: AbortSignal.timeout(5000) })
@@ -3016,10 +3056,7 @@ export const SwapTab: FC<{
       // Refresh vault balances if pool is loaded
       if (poolState) {
         const t0IsIn = poolState.token0Mint === tokenIn.mint;
-        const [vi, vo] = await Promise.all([
-          getVaultBal(t0IsIn ? poolState.token0Vault : poolState.token1Vault),
-          getVaultBal(t0IsIn ? poolState.token1Vault : poolState.token0Vault),
-        ]);
+        const [vi, vo] = await getReserves(poolState, t0IsIn);   // reserves, not raw vaults
         setVaultIn(vi); setVaultOut(vo);
       }
 
@@ -3223,6 +3260,11 @@ export const SwapTab: FC<{
             // Verified against 4 live pools; matches xdexPoolChart.ts.
             dec0: data[D+323] || 9,
             dec1: data[D+324] || 9,
+            // Accrued fees per side, which the curve EXCLUDES (see getReserves).
+            // Continuing the tail: 325 lp_supply · 333 protocol_fees_0 ·
+            // 341 protocol_fees_1 · 349 fund_fees_0 · 357 fund_fees_1 (rel. to D).
+            fees0: readU64b(data, D+333) + readU64b(data, D+349),
+            fees1: readU64b(data, D+341) + readU64b(data, D+357),
           };
         };
 
@@ -3350,13 +3392,20 @@ export const SwapTab: FC<{
           return;
         }
 
+        // The swap fee is per-AmmConfig (`trade_fee_rate` @ offset 12), NOT a fixed
+        // 0.25% — every live X1 config reads 2800 (0.28%). Reading it keeps the quote
+        // correct if the DEX ever retunes a config.
+        try {
+          const cfg = await rpc('getAccountInfo', [foundPool.ammConfig, { encoding: 'base64' }]);
+          if (cfg?.value) {
+            foundPool.tradeFeeRate = readU64b(new Uint8Array(Buffer.from(cfg.value.data[0], 'base64')), 12);
+          }
+        } catch (e) { console.warn('[swap] amm config read failed, using default fee rate', e); }
+
         setPoolState(foundPool);
-        // Pre-fetch vault balances
+        // Pre-fetch tradable reserves (vault minus accrued fees — see getReserves)
         const t0IsIn = foundPool.token0Mint === tokenIn.mint;
-        const [vi, vo] = await Promise.all([
-          getVaultBal(t0IsIn ? foundPool.token0Vault : foundPool.token1Vault),
-          getVaultBal(t0IsIn ? foundPool.token1Vault : foundPool.token0Vault),
-        ]);
+        const [vi, vo] = await getReserves(foundPool, t0IsIn);
         setVaultIn(vi); setVaultOut(vo);
         setStatus('');
       } catch (e) { console.error('pool find error', e); setPoolState(null); setStatus('❌ Error finding pool.'); }
@@ -3371,28 +3420,31 @@ export const SwapTab: FC<{
   // input from the CP-swap curve and the swap proceeds with that input.
   useEffect(() => {
     if (!poolState || vaultIn === 0n || vaultOut === 0n) { setQuoteOut(0); setPriceImpact(0); return; }
-    const FEE_NUM = 997500n, FEE_DEN = 1_000_000n; // 0.25% swap fee on input
+    // vaultIn/vaultOut hold TRADABLE RESERVES (fees already excluded, see getReserves).
+    const feeRate = feeRateOf(poolState);
     if (exactSide === 'out') {
       const v = parseFloat(amtOut);
       if (!amtOut || isNaN(v) || v <= 0) { setAmtIn(''); setAmtOut(''); setQuoteOut(0); setExactSide('in'); setPriceImpact(0); return; }
       const rawOut = BigInt(Math.floor(v * Math.pow(10, tokenOut.decimals)));
       if (rawOut >= vaultOut) { setAmtIn(''); setAmtOut(''); setQuoteOut(0); setExactSide('in'); setPriceImpact(0); return; } // can't drain pool
-      // rawIn = rawOut·vaultIn / (fee·(vaultOut − rawOut)); +1 raw unit rounds up
-      const rawIn = (rawOut * vaultIn * FEE_DEN) / (FEE_NUM * (vaultOut - rawOut)) + 1n;
+      // Invert the exact-in curve: first the post-fee input the curve needs for
+      // `rawOut`, then gross it back up through the fee. Both round UP so the
+      // quoted input is never a hair short of what the program requires.
+      const inAfterFee = ceilDiv(rawOut * vaultIn, vaultOut - rawOut);
+      const rawIn = ceilDiv(inAfterFee * FEE_DEN, FEE_DEN - feeRate);
       const inNum = Number(rawIn) / Math.pow(10, tokenIn.decimals);
       setAmtIn(inNum > 0 ? inNum.toFixed(Math.min(tokenIn.decimals, 6)) : '');
       setQuoteOut(v);
-      setPriceImpact(Number(rawIn * 10_000n / (vaultIn + rawIn)) / 100);
+      setPriceImpact(Number(inAfterFee * 10_000n / (vaultIn + inAfterFee)) / 100);
     } else {
       const v = parseFloat(amtIn);
       if (!amtIn || isNaN(v) || v <= 0) { setAmtOut(''); setQuoteOut(0); setPriceImpact(0); return; }
       const rawIn  = BigInt(Math.floor(v * Math.pow(10, tokenIn.decimals)));
-      const amtFee = rawIn * FEE_NUM / FEE_DEN;
-      const rawOut = amtFee * vaultOut / (vaultIn + amtFee);
+      const { inAfterFee, out: rawOut } = swapOutFor(rawIn, vaultIn, vaultOut, feeRate);
       const outNum = Number(rawOut) / Math.pow(10, tokenOut.decimals);
       setQuoteOut(outNum);
       setAmtOut(outNum > 0 ? outNum.toFixed(Math.min(tokenOut.decimals, 6)) : '');
-      setPriceImpact(Number(rawIn * 10_000n / (vaultIn + rawIn)) / 100);
+      setPriceImpact(Number(inAfterFee * 10_000n / (vaultIn + inAfterFee)) / 100);
     }
   }, [amtIn, amtOut, exactSide, vaultIn, vaultOut, tokenIn, tokenOut, poolState]);
 
@@ -3412,9 +3464,12 @@ export const SwapTab: FC<{
       const t0IsIn = poolState.token0Mint === tokenIn.mint;
       const rawIn  = BigInt(Math.floor(parseFloat(amtIn) * Math.pow(10, tokenIn.decimals)));
       // Refresh vault balances fresh
-      const [vi, vo] = await Promise.all([getVaultBal(t0IsIn ? poolState.token0Vault : poolState.token1Vault), getVaultBal(t0IsIn ? poolState.token1Vault : poolState.token0Vault)]);
-      const amtFee = rawIn * 997500n / 1_000_000n;
-      const rawOut = vi > 0n && vo > 0n ? amtFee * vo / (vi + amtFee) : 0n;
+      // Fresh TRADABLE RESERVES (not raw vaults) + the pool's real fee rate, so
+      // `rawOut` equals what the program will actually pay and `minOut` is a true
+      // slippage bound. Quoting off raw vaults overstated output by up to ~5.8% and
+      // the swap died on-chain with 6005 ExceededSlippage.
+      const [vi, vo] = await getReserves(poolState, t0IsIn);
+      const { out: rawOut } = swapOutFor(rawIn, vi, vo, feeRateOf(poolState));
       const minOut = rawOut * BigInt(10_000 - slipBps) / 10_000n;
       const inputMint  = new PublicKey(tokenIn.mint);
       const outputMint = new PublicKey(tokenOut.mint);

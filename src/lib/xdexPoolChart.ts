@@ -25,6 +25,10 @@ export interface XdexPoolMeta {
   token0Vault: string;
   token1Vault: string;
   lpMint:      string;
+  /** Token program owning each side. NOT always classic SPL — BRAINS/LB are
+   *  Token-2022, so consumers deriving ATAs must use these, never a default. */
+  token0Prog:  string;
+  token1Prog:  string;
   dec0:        number;
   dec1:        number;
   lpDecimals:  number;
@@ -60,6 +64,8 @@ function parsePoolMeta(data: Uint8Array | null): PoolMeta | null {
       lpMint:      readPubkey(data, D + 128),
       token0Mint:  readPubkey(data, D + 160),
       token1Mint:  readPubkey(data, D + 192),
+      token0Prog:  readPubkey(data, D + 224),
+      token1Prog:  readPubkey(data, D + 256),
       obsKey:      readPubkey(data, D + 288),
       lpDecimals:  data[D + 322],
       dec0:        data[D + 323],

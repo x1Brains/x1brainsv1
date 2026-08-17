@@ -81,8 +81,14 @@ export function buildXdexPoolView(opts: {
       lpMint:       state.lpMint,
       token0Mint:   state.token0Mint,
       token1Mint:   state.token1Mint,
-      token0Prog:   TOKEN_PROGRAM_ID.toBase58(),
-      token1Prog:   TOKEN_PROGRAM_ID.toBase58(),
+      // Real programs from pool state. These were hardcoded to classic SPL, but
+      // DepositModal/WithdrawModal derive their token ATAs from these fields
+      // (PoolsTab.tsx `t0Prog`/`t1Prog`) — and BRAINS is Token-2022, so EVERY
+      // BRAINS pool got a classic-SPL ATA that does not exist on chain
+      // (verified: classic-derived BRAINS ATA absent, T22 one present), which
+      // fails the deposit the same way the swap failed with Anchor 3012.
+      token0Prog:   state.token0Prog,
+      token1Prog:   state.token1Prog,
       obsKey:       state.obsKey,
       authBump:     0,
       status:       0,
