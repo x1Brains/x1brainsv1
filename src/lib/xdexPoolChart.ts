@@ -187,8 +187,20 @@ export async function fetchXdexPoolHistory(
         if (prevTs > 0n && cum0 > prevCum0 && cum1 > prevCum1) {
           const d0 = Number(cum0 - prevCum0);
           const d1 = Number(cum1 - prevCum1);
+          // The two cumulatives are RECIPROCAL prices: cum0 accumulates
+          // token1-per-token0, cum1 accumulates token0-per-token1. So
+          //     d1/d0 = (1/p · Δt · 2³²) / (p · Δt · 2³²) = 1/p²
+          // which is NOT a price — it read 200,000×–2,200,000× off spot depending
+          // on the pool's price scale and decimals, so every sparkline plotted a
+          // meaningless cliff and the 24h change showed ≈ −100% on every card
+          // (first point garbage, last point the correct appended spot).
+          //
+          // d0/d1 = p², so p = sqrt(d0/d1). Taking the ratio cancels BOTH Δt and
+          // the Q32.32 (2³²) scaling, so no descaling constant is needed.
+          // Verified on BRAINS/XNT: three consecutive recent observations give
+          // 129.76 / 129.70 / 129.67 against a 129.59 spot (+0.13%/+0.08%/+0.06%).
           // Default: token1 per token0, decimal-adjusted.
-          let price = (d1 / d0) * Math.pow(10, dec0 - dec1);
+          let price = Math.sqrt(d0 / d1) * Math.pow(10, dec0 - dec1);
           if (preferredBase && pickQuoteForChart(meta, preferredBase)) {
             // Invert so chart is preferredBase priced in the other token.
             price = price > 0 ? 1 / price : 0;
