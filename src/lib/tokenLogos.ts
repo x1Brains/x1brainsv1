@@ -65,6 +65,33 @@ export function normalizeLogoUrl(u: string | null | undefined): string | null {
     .replace(/^ar:\/\//i,   'https://arweave.net/');
 }
 
+/** Hosts weserv cannot fetch: extensionless IPFS paths that redirect per object.
+ *  Same limitation that kills irys/permagate for NFT art (SESSION_2026-08-01 §3). */
+const CDN_BLOCKED = /(^|\.)(mint\.xdex\.xyz|gateway\.irys\.xyz|permagate\.io)$/i;
+
+/**
+ * Downscale a token logo to the size it is actually painted at.
+ *
+ * Issuers ship full-art files — NECK is a 1.37 MB 828×1022 PNG, $HOE 367 KB,
+ * DRC 1024×1024 — and the browser was squeezing those into a 26-38px circle.
+ * That is both the "blurry / distorted" look (one-step downscale by ~30×, and a
+ * portrait source centre-cropped to a square) and megabytes of waste per row.
+ * Resizing server-side gives a properly filtered thumbnail: NECK 1.37 MB → 3.7 KB.
+ *
+ * Returns null when the URL can't be routed (local asset, data URI, or a host
+ * weserv rejects) so the caller keeps using the original.
+ */
+export function logoThumb(url: string | null | undefined, px: number): string | null {
+  const u = normalizeLogoUrl(url);
+  if (!u || !/^https?:\/\//i.test(u)) return null;      // local /brains-logo.png, data:, blob:
+  let host = '';
+  try { host = new URL(u).hostname; } catch { return null; }
+  if (CDN_BLOCKED.test(host)) return null;
+  const size = Math.max(32, Math.ceil(px));
+  return `https://images.weserv.nl/?url=${encodeURIComponent(u)}` +
+         `&w=${size}&h=${size}&fit=cover&a=attention&output=webp`;
+}
+
 export function getCachedTokenLogo(mint: string): string | null {
   if (LOGOS[mint]) return LOGOS[mint];
   return normalizeLogoUrl(_cache.get(mint) ?? null);

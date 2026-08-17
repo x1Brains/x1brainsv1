@@ -22,7 +22,7 @@ import PoolsTab from './PoolsTab';
 // (tokenLogos imports fetchTokenMeta from here DYNAMICALLY, so this static edge
 // is not a cycle.)
 import {
-  getCachedTokenLogo, setCachedTokenLogo, fetchTokenLogo, normalizeLogoUrl,
+  getCachedTokenLogo, setCachedTokenLogo, fetchTokenLogo, normalizeLogoUrl, logoThumb,
 } from '../lib/tokenLogos';
 
 // ─── Program Constants — match deployed program exactly ───────────────────────
@@ -422,6 +422,37 @@ const HARDCODED_META: Record<string, { symbol: string; name: string; decimals: n
 
 // ── Exact original working 3-layer system ─────────────────────────────────────
 
+/**
+ * Fetch a token's off-chain metadata JSON.
+ *
+ * X1X (classic SPL, Metaplex) has a perfectly good 66 KB WEBP logo, but its JSON
+ * lives on `gateway.pinata.cloud`, which answers in ~6.9s cold and STALLS past
+ * 30s when the request carries an `Origin` header (i.e. from a browser). The old
+ * inline `fetch(uri, { timeout: 5000 })` therefore always aborted and the token
+ * fell back to a letter tile.
+ *
+ * So: give the direct hit a realistic budget, then retry same-origin through the
+ * `/api/nft-meta/` rewrite (vercel.json in prod, the vite middleware in dev),
+ * which fetches server-side — no Origin header, no CORS, no gateway stalling.
+ * This is the proxy SESSION_2026-08-01 §3 recommended as the proper fix.
+ */
+async function fetchMetaJson(uri: string): Promise<any | null> {
+  const direct = uri
+    .replace(/^ipfs:\/\//i, 'https://nftstorage.link/ipfs/')
+    .replace(/^ar:\/\//i,   'https://arweave.net/');
+  try {
+    const r = await fetch(direct, { signal: AbortSignal.timeout(9000) });
+    if (r.ok) return await r.json();
+  } catch { /* fall through to the proxy */ }
+  if (!/^https?:\/\//i.test(direct)) return null;
+  try {
+    const r = await fetch(`/api/nft-meta/${direct.replace(/^https?:\/\//, '')}`,
+      { signal: AbortSignal.timeout(12000) });
+    if (r.ok) return await r.json();
+  } catch { /* give up — caller keeps symbol/name, just no logo */ }
+  return null;
+}
+
 async function fetchToken2022Meta(mint: string): Promise<TokenMeta | null> {
   try {
     // Use rpcCall (retry on 429) instead of fresh Connection.
@@ -437,11 +468,8 @@ async function fetchToken2022Meta(mint: string): Promise<TokenMeta | null> {
     if (!symbol && !name) return null;
     let logo: string | undefined;
     if (uri) {
-      try {
-        const r = await fetch(uri, { signal: AbortSignal.timeout(5000) });
-        const j = await r.json();
-        logo = j?.image || j?.logo || j?.icon;
-      } catch {}
+      const j = await fetchMetaJson(uri);
+      logo = j?.image || j?.logo || j?.icon;
     }
     return { symbol: symbol || mint.slice(0,6), name: name || mint.slice(0,6), logo, decimals, source: 'token2022ext' };
   } catch { return null; }
@@ -477,11 +505,8 @@ async function fetchMetaplexMeta(mint: string): Promise<TokenMeta | null> {
     if (!symbol && !name) return null;
     let logo: string | undefined;
     if (uri) {
-      try {
-        const r = await fetch(uri, { signal: AbortSignal.timeout(5000) });
-        const j = await r.json();
-        logo = j?.image || j?.logo || j?.icon;
-      } catch {}
+      const j = await fetchMetaJson(uri);
+      logo = j?.image || j?.logo || j?.icon;
     }
     // Decimals: read from the mint account itself (offset 44)
     let decimals = 9;
@@ -534,14 +559,19 @@ const TokenLogoImg: FC<{
   mint: string; symbol: string; logo?: string;
   size?: number; color?: string; connection?: Connection;
 }> = ({ mint, symbol, logo, size = 22, color = '#f29030', connection }) => {
+  // Shared cache FIRST: it returns the curated asset for BRAINS/XNT/LB — e.g.
+  // the tight-cropped 256² /brains-logo.png that exists precisely because the
+  // issuer's own art is a 1288×1134 cartoon on a big black canvas that reads as
+  // a muddy blob at 26-38px (see constants.ts). A caller-supplied prism URL
+  // would otherwise outrank it and reintroduce the muddy version.
   const [resolved, setResolved] = useState<string | null>(
-    () => normalizeLogoUrl(logo) ?? getCachedTokenLogo(mint),
+    () => getCachedTokenLogo(mint) ?? normalizeLogoUrl(logo),
   );
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     setFailed(false);
-    const direct = normalizeLogoUrl(logo) ?? getCachedTokenLogo(mint);
+    const direct = getCachedTokenLogo(mint) ?? normalizeLogoUrl(logo);
     if (direct) { setResolved(direct); return; }
     if (!connection) return;
     let alive = true;
@@ -551,16 +581,24 @@ const TokenLogoImg: FC<{
     return () => { alive = false; };
   }, [mint, logo, connection]);
 
-  const show = resolved && !failed;
+  // Paint a CDN thumbnail at 2× the box (retina) instead of letting the browser
+  // crush a 1MB+ full-art file into 38px. `cdnFailed` falls back to the original
+  // URL so a host weserv can't fetch still renders.
+  const [cdnFailed, setCdnFailed] = useState(false);
+  const dpr = typeof window !== 'undefined' ? Math.min(3, window.devicePixelRatio || 1) : 2;
+  const thumb = cdnFailed ? null : logoThumb(resolved, size * dpr);
+  const src = thumb ?? resolved;
+
+  const show = src && !failed;
   return (
     <div style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
       background: show ? 'transparent' : `${color}18`,
       border: `1px solid ${color}33`,
       display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {show
-        ? <img src={resolved!} alt={symbol}
+        ? <img src={src!} alt={symbol} loading="lazy" decoding="async"
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            onError={() => setFailed(true)} />
+            onError={() => { if (thumb) setCdnFailed(true); else setFailed(true); }} />
         : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: Math.max(8, size * 0.38),
             fontWeight: 900, color }}>{(symbol || mint).slice(0, 2).toUpperCase()}</span>}
     </div>
