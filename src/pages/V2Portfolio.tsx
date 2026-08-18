@@ -444,25 +444,25 @@ function injectPortfolioStyles() {
   /* ── watch mode ── */
   .pfx-watchbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
     padding:11px 16px;margin-bottom:14px;border-radius:12px;
-    background:linear-gradient(135deg,rgba(0,212,255,.09),rgba(0,212,255,.03));
-    border:1px solid rgba(0,212,255,.26)}
+    background:linear-gradient(135deg,rgba(0,201,141,.09),rgba(0,201,141,.03));
+    border:1px solid rgba(0,201,141,.26)}
   .pfx-watchbar-l{display:flex;align-items:center;gap:11px;min-width:0}
-  .pfx-watchbar .eye{font-size:15px;color:var(--cyan)}
-  .pfx-watchbar .t{font-family:'Orbitron',sans-serif;font-weight:700;font-size:10px;letter-spacing:2px;color:var(--cyan)}
+  .pfx-watchbar .eye{font-size:15px;color:var(--g)}
+  .pfx-watchbar .t{font-family:'Orbitron',sans-serif;font-weight:700;font-size:10px;letter-spacing:2px;color:var(--g)}
   .pfx-watchbar .s{font-size:11px;color:var(--muted);margin-top:3px}
   .pfx-watchbar .pfx-btn:hover{border-color:#ff4466;color:#ff4466}
 
   /* .pfx grid stretches its rows — hug the content instead of ballooning. */
   .pfx-watch{padding:34px 22px;text-align:center;align-self:start}
-  .pfx-watch .glyph{font-size:28px;color:var(--cyan);margin-bottom:10px}
+  .pfx-watch .glyph{font-size:28px;color:var(--g);margin-bottom:10px}
   .pfx-watch h3{font-family:'Orbitron',sans-serif;font-weight:800;font-size:14px;letter-spacing:2px;margin:0 0 10px}
   .pfx-watch p{font-size:12.5px;color:var(--muted);line-height:1.65;margin:0 auto 18px;max-width:520px}
-  .pfx-watch p b{color:var(--cyan);font-weight:600}
+  .pfx-watch p b{color:var(--g);font-weight:600}
   .pfx-watch-form{display:flex;gap:9px;max-width:560px;margin:0 auto}
   .pfx-watch-form input{flex:1;min-width:0;padding:12px 14px;border-radius:10px;box-sizing:border-box;
     background:#070b11;border:1px solid var(--line);color:var(--txt);
     font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;outline:none;transition:.15s}
-  .pfx-watch-form input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(0,212,255,.12)}
+  .pfx-watch-form input:focus{border-color:var(--g);box-shadow:0 0 0 3px rgba(0,201,141,.12)}
   .pfx-watch-form input.bad{border-color:#ff4466}
   .pfx-watch-form input::placeholder{color:var(--dim)}
   .pfx-watch-form .pfx-btn{white-space:nowrap}
