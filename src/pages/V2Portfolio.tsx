@@ -12,6 +12,7 @@ import { fetchXdexPoolState } from '../lib/xdexPoolChart';
 import { fetchFarms } from './LpFarms';
 import { fetchAllListings } from '../components/LBComponents';
 import V2NFTImage from '../components/V2NFTImage';
+import CopyButton from '../components/CopyButton';
 import {
   getPortfolioSnapshots, upsertPortfolioSnapshot,
   getSavedAddresses, insertSavedAddress, deleteSavedAddress,
@@ -1459,7 +1460,8 @@ export default function V2Portfolio() {
                           </div>
                           <div className="pfx-meta">
                             <span className="prog">{h.program === 't22' ? 'TOKEN-2022' : 'SPL'}</span>·
-                            <span className="mint">{shortAddr(h.mint, 4, 4)}</span>
+                            <span className="mint" title={h.mint}>{shortAddr(h.mint, 4, 4)}</span>
+                            <CopyButton value={h.mint} title={`Copy ${h.symbol} address`} />
                           </div>
                         </div>
                         <div className="pfx-cell-spark">

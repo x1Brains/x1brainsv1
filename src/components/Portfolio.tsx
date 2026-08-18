@@ -16,6 +16,7 @@ import {
   getCachedTokenLogo, setCachedTokenLogo, fetchTokenLogo, primeFromIndexer,
 } from '../lib/tokenLogos';
 import { fetchTokenMeta } from '../pages/PairingMarketplace';
+import CopyButton from './CopyButton';
 import { fetchAllPrices, fetchPrice } from '../lib/prices';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 
@@ -311,6 +312,7 @@ export default function Portfolio() {
                     color: r.color, letterSpacing: 0.5,
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }} title={r.symbol === shortMint(r.mint) ? r.mint : r.symbol}>{r.symbol}</span>
+                  <CopyButton value={r.mint} title={`Copy ${r.symbol} address`} size={10} />
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{

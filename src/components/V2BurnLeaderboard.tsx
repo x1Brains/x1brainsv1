@@ -2,6 +2,7 @@ import { FC, useEffect, useMemo, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import type { BurnerEntry } from './BurnLeaderboard';
 import { fmtNum, fmtUSD, shortAddr } from '../utils/v2format';
+import CopyButton from './CopyButton';
 
 const ACCENT = '#f29030';
 const MUTED  = '#5c7a90';
@@ -65,6 +66,7 @@ const Row: FC<{
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }} title={entry.address}>
           {shortAddr(entry.address, 5, 5)}
+          <CopyButton value={entry.address} title="Copy wallet address" size={10} />
           {isYou && (
             <span className="v2lb-mono" style={{
               marginLeft: 8, padding: '1px 5px', borderRadius: 2,

@@ -1,6 +1,7 @@
 import { FC, useEffect, useMemo, useState } from 'react';
 import type { BurnerEntry } from './BurnLeaderboard';
 import { fmtNum, fmtUSD, shortAddr } from '../utils/v2format';
+import CopyButton from './CopyButton';
 
 const ACCENT = '#f29030';
 const MUTED  = '#5c7a90';
@@ -70,18 +71,20 @@ function injectStyles() {
 const TxRow: FC<{ tx: FlatBurn; price: number; symbol: string }> = ({ tx, price, symbol }) => (
   <div className="v2tx-row">
     <div style={{ minWidth: 0 }}>
-      <a
-        href={`https://explorer.mainnet.x1.xyz/address/${tx.wallet}`}
-        target="_blank" rel="noopener noreferrer"
-        className="v2tx-mono"
-        style={{
-          display: 'block',
-          fontSize: 10, fontWeight: 600, color: TEXT, letterSpacing: 0.5,
-          textDecoration: 'none',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}
-        title={tx.wallet}
-      >{shortAddr(tx.wallet, 5, 5)}</a>
+      <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+        <a
+          href={`https://explorer.mainnet.x1.xyz/address/${tx.wallet}`}
+          target="_blank" rel="noopener noreferrer"
+          className="v2tx-mono"
+          style={{
+            fontSize: 10, fontWeight: 600, color: TEXT, letterSpacing: 0.5,
+            textDecoration: 'none',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}
+          title={tx.wallet}
+        >{shortAddr(tx.wallet, 5, 5)}</a>
+        <CopyButton value={tx.wallet} title="Copy wallet address" size={10} />
+      </div>
       <a
         href={`https://explorer.mainnet.x1.xyz/tx/${tx.sig}`}
         target="_blank" rel="noopener noreferrer"

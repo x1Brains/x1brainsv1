@@ -1,4 +1,5 @@
 import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
+import SharedCopyButton from '../components/CopyButton';
 import { createPortal } from 'react-dom';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import {
@@ -281,26 +282,17 @@ function fmtNum(v: number, dec = 2) {
 function truncAddr(a: string) { return `${a.slice(0,4)}…${a.slice(-4)}`; }
 
 // ─── Copy-to-clipboard button ─────────────────────────────────────────────────
-const CopyButton: FC<{ text: string; size?: number }> = ({ text, size = 11 }) => {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    }).catch(() => {});
-  };
-  return (
-    <button onClick={handleCopy} title={copied ? 'Copied!' : 'Copy address'} style={{
-      background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px',
-      color: copied ? '#00c98d' : '#3a4150', fontSize: size,
-      lineHeight: 1, borderRadius: 4, flexShrink: 0,
-      transition: 'color .15s',
-    }}>
-      {copied ? '✓' : '⎘'}
-    </button>
-  );
-};
+/**
+ * Kept as a thin `text`-prop wrapper so this file's existing call sites are
+ * unchanged, but the implementation is now the shared component. The old
+ * version called navigator.clipboard directly, which resolves to undefined on
+ * an insecure origin (http://<LAN-IP>) and made copying silently do nothing
+ * whenever the app was opened over the LAN — the same secure-context rule that
+ * hides window.crypto.subtle. SharedCopyButton falls back to execCommand.
+ */
+const CopyButton: FC<{ text: string; size?: number }> = ({ text, size = 11 }) => (
+  <SharedCopyButton value={text} size={size} title="Copy address" color="#3a4150" />
+);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface TokenPrice {
