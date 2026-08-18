@@ -560,41 +560,71 @@ async function fetchXdexMeta(mint: string): Promise<TokenMeta | null> {
 // the old `onError` hid that avatar permanently and the letter fallback (in the
 // else branch) could never appear. Same trap as the featured banner in §4 of
 // SESSION_2026-08-01.
-const TokenLogoImg: FC<{
-  mint: string; symbol: string; logo?: string;
-  size?: number; color?: string; connection?: Connection;
-}> = ({ mint, symbol, logo, size = 22, color = '#f29030', connection }) => {
-  // Shared cache FIRST: it returns the curated asset for BRAINS/XNT/LB — e.g.
-  // the tight-cropped 256² /brains-logo.png that exists precisely because the
-  // issuer's own art is a 1288×1134 cartoon on a big black canvas that reads as
-  // a muddy blob at 26-38px (see constants.ts). A caller-supplied prism URL
-  // would otherwise outrank it and reintroduce the muddy version.
-  const [resolved, setResolved] = useState<string | null>(
+/**
+ * One lazily-created read-only Connection for logo backfill. TokenLogo is used
+ * by five different modals, none of which had a connection prop — threading one
+ * through all of them purely to fetch an image is not worth it, and this is the
+ * same RPC every other read in this file uses.
+ */
+let _logoConn: Connection | null = null;
+const logoConnection = (): Connection => (_logoConn ??= new Connection(RPC, 'confirmed'));
+
+/**
+ * Shared logo RESOLUTION, separate from presentation.
+ *
+ * TokenLogoImg (round, swap surfaces) and TokenLogo (rounded square, listing
+ * modals) look deliberately different but were resolving differently too:
+ * TokenLogo read ONLY its `logo` prop, so any token whose caller had not
+ * already supplied a URL — NECK and DRC in the create-listing picker — dropped
+ * straight to the letter tile even though the shared cache held their art.
+ *
+ * Order: caller's logo / shared cache -> async fetchTokenLogo backfill ->
+ * CDN thumbnail at 2x the box -> caller's placeholder.
+ */
+function useResolvedTokenLogo(
+  mint: string, logo: string | undefined, size: number, connection?: Connection,
+) {
+  const [resolved,  setResolved]  = useState<string | null>(
     () => getCachedTokenLogo(mint) ?? normalizeLogoUrl(logo),
   );
-  const [failed, setFailed] = useState(false);
+  const [failed,    setFailed]    = useState(false);
+  const [cdnFailed, setCdnFailed] = useState(false);
 
   useEffect(() => {
     setFailed(false);
+    setCdnFailed(false);
     const direct = getCachedTokenLogo(mint) ?? normalizeLogoUrl(logo);
     if (direct) { setResolved(direct); return; }
-    if (!connection) return;
+    // Clear first, or a mint change would keep painting the previous token's art.
+    setResolved(null);
     let alive = true;
-    fetchTokenLogo(mint, connection)
+    fetchTokenLogo(mint, connection ?? logoConnection())
       .then(l => { if (alive && l) { setCachedTokenLogo(mint, l); setResolved(normalizeLogoUrl(l)); } })
       .catch(() => {});
     return () => { alive = false; };
   }, [mint, logo, connection]);
 
-  // Paint a CDN thumbnail at 2× the box (retina) instead of letting the browser
-  // crush a 1MB+ full-art file into 38px. `cdnFailed` falls back to the original
-  // URL so a host weserv can't fetch still renders.
-  const [cdnFailed, setCdnFailed] = useState(false);
-  const dpr = typeof window !== 'undefined' ? Math.min(3, window.devicePixelRatio || 1) : 2;
+  const dpr   = typeof window !== 'undefined' ? Math.min(3, window.devicePixelRatio || 1) : 2;
   const thumb = cdnFailed ? null : logoThumb(resolved, size * dpr);
-  const src = thumb ?? resolved;
+  const cand  = thumb ?? resolved;
 
-  const show = src && !failed;
+  return {
+    src: cand && !failed ? cand : null,
+    onError: () => { if (thumb) setCdnFailed(true); else setFailed(true); },
+  };
+}
+
+const TokenLogoImg: FC<{
+  mint: string; symbol: string; logo?: string;
+  size?: number; color?: string; connection?: Connection;
+}> = ({ mint, symbol, logo, size = 22, color = '#f29030', connection }) => {
+  // Resolution lives in useResolvedTokenLogo — shared cache first (it returns
+  // the curated asset for BRAINS/XNT/LB, e.g. the tight-cropped 256²
+  // /brains-logo.png that exists because the issuer's own art is a 1288×1134
+  // cartoon on a big black canvas that reads as a muddy blob at 26-38px), then
+  // an async backfill, then a retina CDN thumbnail.
+  const { src, onError } = useResolvedTokenLogo(mint, logo, size, connection);
+  const show = !!src;
   return (
     <div style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
       background: show ? 'transparent' : `${color}18`,
@@ -603,7 +633,7 @@ const TokenLogoImg: FC<{
       {show
         ? <img src={src!} alt={symbol} loading="lazy" decoding="async"
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            onError={() => { if (thumb) setCdnFailed(true); else setFailed(true); }} />
+            onError={onError} />
         : <span style={{ fontFamily: 'Orbitron,monospace', fontSize: Math.max(8, size * 0.38),
             fontWeight: 900, color }}>{(symbol || mint).slice(0, 2).toUpperCase()}</span>}
     </div>
@@ -969,29 +999,30 @@ const TxLink: FC<{ sig: string; color?: string }> = ({ sig, color = "#f29030" })
 };
 
 // ─── Token Logo — matches TokenComponents.tsx with CORS retry + gradient fallback
-const TokenLogo: FC<{ mint: string; logo?: string; symbol: string; size?: number }> = ({
-  mint, logo, symbol, size = 44,
+/**
+ * Rounded-square logo for the listing modals. Presentation only — resolution is
+ * useResolvedTokenLogo, the same path the swap uses.
+ *
+ * Previously this read ONLY its `logo` prop: no cache lookup, no backfill. Any
+ * token whose caller had not already attached a URL fell to the letter tile,
+ * which is why NECK and DRC showed "N" and "D" in the create-listing picker
+ * while AGI and X1X (whose callers did supply one) rendered fine.
+ *
+ * Two other things removed:
+ *   crossOrigin="anonymous" — forced a CORS preflight on an <img> that needs
+ *   no canvas access, so any host without ACAO failed outright even though a
+ *   plain <img> would have loaded it.
+ *   the corsproxy.io retry — that host now answers 403, so the "retry" only
+ *   ever converted one failure into two.
+ */
+const TokenLogo: FC<{ mint: string; logo?: string; symbol: string; size?: number; connection?: Connection }> = ({
+  mint, logo, symbol, size = 44, connection,
 }) => {
-  const [failed,  setFailed]  = useState(false);
-  const [retried, setRetried] = useState(false);
-  const [src, setSrc]         = useState(logo || '');
-
-  useEffect(() => { setSrc(logo || ''); setFailed(false); setRetried(false); }, [logo, mint]);
-
-  const handleError = () => {
-    if (!retried && src) {
-      setRetried(true);
-      const isLocal = typeof window !== 'undefined' &&
-        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-      if (isLocal) { setSrc(`https://corsproxy.io/?${encodeURIComponent(src)}`); return; }
-    }
-    setFailed(true);
-  };
-
+  const { src, onError } = useResolvedTokenLogo(mint, logo, size, connection);
   const radius = size * 0.22;
 
-  if (src && !failed) return (
-    <img src={src} alt={symbol} crossOrigin="anonymous" onError={handleError}
+  if (src) return (
+    <img src={src} alt={symbol} loading="lazy" decoding="async" onError={onError}
       style={{ width: size, height: size, borderRadius: radius,
         objectFit: 'cover', flexShrink: 0, background: '#111820',
         border: '1px solid rgba(255,255,255,.08)' }} />
