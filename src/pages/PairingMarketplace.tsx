@@ -353,6 +353,10 @@ async function fetchXdexPrice(mint: string): Promise<TokenPrice | null> {
 // Layer 3: XDEX API (fallback)
 
 interface TokenMeta { symbol: string; name: string; logo?: string; decimals: number; source: 'token2022ext' | 'metaplex' | 'xdex' | 'fallback';
+  /** The token's on-chain metadata URI, when it declares one. Exposed so a
+   *  consumer can resolve the artwork itself (V2NFTImage walks gateways and the
+   *  same-origin proxy) instead of depending on our logo fetch having won. */
+  uri?: string;
   /** The token declares a metadata URI but we could not read it this time
    *  (slow gateway, transient network). The symbol is real, the MISSING LOGO
    *  IS NOT — so such an entry must never be persisted or treated as final,
@@ -480,7 +484,7 @@ async function fetchToken2022Meta(mint: string): Promise<TokenMeta | null> {
       const j = await fetchMetaJson(uri);
       logo = j?.image || j?.logo || j?.icon;
     }
-    return { symbol: symbol || mint.slice(0,6), name: name || mint.slice(0,6), logo, decimals, source: 'token2022ext', logoPending: !!uri && !logo };
+    return { symbol: symbol || mint.slice(0,6), name: name || mint.slice(0,6), logo, decimals, source: 'token2022ext', uri: uri || undefined, logoPending: !!uri && !logo };
   } catch { return null; }
 }
 
@@ -526,7 +530,7 @@ async function fetchMetaplexMeta(mint: string): Promise<TokenMeta | null> {
         if (mintData.length > 44) decimals = mintData[44];
       }
     } catch {}
-    return { symbol: symbol || mint.slice(0,6), name: name || mint.slice(0,6), logo, decimals, source: 'metaplex', logoPending: !!uri && !logo };
+    return { symbol: symbol || mint.slice(0,6), name: name || mint.slice(0,6), logo, decimals, source: 'metaplex', uri: uri || undefined, logoPending: !!uri && !logo };
   } catch { return null; }
 }
 

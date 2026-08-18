@@ -235,6 +235,19 @@ async function withRetry<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
 
 // Run async tasks with a concurrency cap so background enrichment doesn't
 // burst the single rate-limited RPC. Each task swallows its own errors.
+/**
+ * Per-wallet lookup budgets.
+ *
+ * These were 12 and 30. A wallet holding 18 tokens + 102 NFTs therefore got
+ * metadata for 30 of 120 items and every other row rendered as a truncated
+ * mint with no symbol, no name and no art. Raised to cover a realistic wallet
+ * in one pass; results are cached in localStorage for 7 days, so only the
+ * first visit to a given wallet pays for them, and runThrottled still bounds
+ * concurrency so the X1 RPC is not stampeded.
+ */
+const PRICE_LOOKUP_CAP = 40;
+const META_LOOKUP_CAP  = 250;
+
 async function runThrottled(tasks: Array<() => Promise<void>>, limit = 4): Promise<void> {
   let idx = 0;
   const worker = async () => {
@@ -630,7 +643,7 @@ export default function V2Portfolio() {
   const isMobile = useIsMobile();
 
   const [holdings, setHoldings] = useState<Holding[]>([]);
-  const metaMap = useRef<Map<string, { symbol?: string; name?: string }>>(new Map());
+  const metaMap = useRef<Map<string, { symbol?: string; name?: string; uri?: string }>>(new Map());
   const myListingsRef = useRef<Map<string, number>>(new Map());
   const [xntBalance, setXntBalance] = useState(0);
   const [prices, setPrices] = useState<Record<string, number>>({});
@@ -793,6 +806,11 @@ export default function V2Portfolio() {
           symbol: displaySymbol, mint: r.mint, balance: r.balance,
           usd: r.balance * (priceMap[r.mint] || 0),
           logo: cachedLogo, iconClass: 'lb', color: C_PURPLE,
+          // NftHoverThumb renders `logo || metaUri`. Without metaUri, an NFT
+          // whose logo fetch came back empty had no src at all and fell to the
+          // placeholder — 63 of 102 on a real wallet. V2NFTImage can resolve a
+          // metadata URI itself, through gateways and the same-origin proxy.
+          metaUri: meta?.uri,
           program: r.program, category: 'nft', decimals: r.decimals,
           listedPrice,
         };
@@ -894,7 +912,13 @@ export default function V2Portfolio() {
           repaint();
         }).catch(() => {});
 
-        const unknownMints = raw.map(r => r.mint).filter(m => !priceMap[m] && !KNOWN[m]).slice(0, 12);
+        // Fungible tokens only — an NFT has no price feed entry, and in a wallet
+        // with 100+ NFTs they consumed the whole budget before a single real
+        // token was priced.
+        const unknownMints = raw
+          .filter(r => !isNftLike(r) && !priceMap[r.mint] && !KNOWN[r.mint])
+          .map(r => r.mint)
+          .slice(0, PRICE_LOOKUP_CAP);
         runThrottled(unknownMints.map(m => async () => {
           const p = await withRetry(() => fetchPrice(m));
           if (!alive || p <= 0) return;
@@ -902,12 +926,19 @@ export default function V2Portfolio() {
           repaint();
         }), 4);
 
-        const needMeta = raw.filter(r => {
+        const needMetaAll = raw.filter(r => {
           if (isNftLike(r)) return true;
           if (KNOWN[r.mint]?.logo) return false;
           if (metaMap.current.has(r.mint) && getCachedTokenLogo(r.mint)) return false;
           return true;
-        }).slice(0, 30);
+        });
+        // Fungible tokens first. They drive the symbol, price and value columns,
+        // and ordering by the raw RPC listing meant a big NFT collection could
+        // push every token past the cap.
+        const needMeta = [
+          ...needMetaAll.filter(r => !isNftLike(r)),
+          ...needMetaAll.filter(r => isNftLike(r)),
+        ].slice(0, META_LOOKUP_CAP);
         runThrottled(needMeta.map(r => async () => {
           const meta = await withRetry(() => fetchTokenMeta(r.mint));
           if (!alive || !meta) return;
@@ -915,8 +946,15 @@ export default function V2Portfolio() {
           if (meta.logo) { setCachedTokenLogo(r.mint, meta.logo); touched = true; }
           const sym = meta.symbol;
           const name = meta.name;
-          const looksReal = (s?: string) => !!s && s.length > 0 && s !== r.mint.slice(0, 6) && s !== r.mint.slice(0, 4).toUpperCase();
-          if (looksReal(sym) || looksReal(name)) { metaMap.current.set(r.mint, { symbol: sym, name }); touched = true; }
+          const looksReal = (s?: string) =>
+            !!s && s.length > 0
+            && s !== r.mint.slice(0, 6)
+            && s !== r.mint.slice(0, 8)
+            && s !== r.mint.slice(0, 4).toUpperCase();
+          if (looksReal(sym) || looksReal(name) || meta.uri) {
+            metaMap.current.set(r.mint, { symbol: sym, name, uri: meta.uri });
+            touched = true;
+          }
           if (touched) repaint();
         }), 4);
 

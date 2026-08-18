@@ -15,6 +15,7 @@ import {
 import {
   getCachedTokenLogo, setCachedTokenLogo, fetchTokenLogo, primeFromIndexer,
 } from '../lib/tokenLogos';
+import { fetchTokenMeta } from '../pages/PairingMarketplace';
 import { fetchAllPrices, fetchPrice } from '../lib/prices';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 
@@ -185,18 +186,52 @@ export default function Portfolio() {
         setRows(built);
         setLoading(false);
 
-        // ── Background enrichment: logos + prices for any unknown mint ──
+        // ── Background enrichment: symbols + logos + prices for unknown mints ──
+        // This panel only ever knew XNT/BRAINS/LB by name. It fetched LOGOS for
+        // everything else but never NAMES, so a token rendered with its artwork
+        // and a truncated mint beside it (48gU...BoUa instead of NECK).
+        // fetchTokenMeta shares the 7-day metadata cache with the Portfolio
+        // page, so after the first visit this costs nothing.
+        const symbols = new Map<string, string>();
+
         const repaint = () => {
           if (!alive) return;
           setRows(prev => [...prev]
             .map(r => {
               const logo = r.logo ?? getCachedTokenLogo(r.mint) ?? undefined;
               const p    = r.price > 0 ? r.price : (priceMap[r.mint] ?? 0);
-              return { ...r, logo, price: p, usd: r.balance * (p || 0) };
+              const sym  = symbols.get(r.mint) ?? r.symbol;
+              return { ...r, symbol: sym, logo, price: p, usd: r.balance * (p || 0) };
             })
             .sort((a, b) => b.usd - a.usd),
           );
         };
+
+        // Symbols. Capped because a big wallet holds 100+ mints and the panel
+        // renders only its top rows; the shared cache makes repeats free.
+        // Fungible tokens first: `raw` is in RPC order while the panel sorts by
+        // USD, so a wallet with 100 NFTs could push every real token past the cap.
+        const symbolOrder = [
+          ...raw.filter(r => r.decimals > 0),
+          ...raw.filter(r => r.decimals === 0),
+        ];
+        for (const r of symbolOrder.slice(0, 40)) {
+          if (KNOWN[r.mint]) continue;
+          fetchTokenMeta(r.mint).then(meta => {
+            if (!alive || !meta) return;
+            const sym = meta.symbol;
+            // Reject the mint-prefix placeholders the metadata layer emits when
+            // it has nothing real — they are no better than what we already show.
+            const isPlaceholder =
+              !sym || sym === shortMint(r.mint)
+              || sym === r.mint.slice(0, 4).toUpperCase()
+              || sym === r.mint.slice(0, 6) || sym === r.mint.slice(0, 8);
+            if (isPlaceholder) return;
+            symbols.set(r.mint, sym);
+            if (meta.logo) setCachedTokenLogo(r.mint, meta.logo);
+            repaint();
+          }).catch(() => {});
+        }
 
         // Logos
         for (const r of raw) {
