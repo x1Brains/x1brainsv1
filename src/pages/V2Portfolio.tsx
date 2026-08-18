@@ -305,9 +305,9 @@ function stddev(a: number[]): number {
 
 function injectPortfolioStyles() {
   if (typeof document === 'undefined') return;
-  if (document.getElementById('v2pf-x12')) return;
+  if (document.getElementById('v2pf-x13')) return;
   const s = document.createElement('style');
-  s.id = 'v2pf-x12';
+  s.id = 'v2pf-x13';
   s.textContent = `
   .pfx{--o:#f29030;--g:#00c98d;--pp:#bf5af2;--gy:#8a9ab8;--cyan:#00d4ff;
     --panel:#0c1118;--panel2:#0f1620;--line:#1a2433;--line2:#141d29;
@@ -418,6 +418,48 @@ function injectPortfolioStyles() {
   .pfx-place{padding:40px 16px;text-align:center}
   .pfx-place .glyph{font-size:30px;color:var(--o);margin-bottom:10px}
   .pfx-place .sub{color:var(--muted);font-size:13px}
+
+  /* ── group expand/collapse ── */
+  .pfx-more{display:block;width:100%;margin:6px 0 2px;padding:10px 0;border:1px dashed var(--line);
+    background:transparent;border-radius:9px;cursor:pointer;transition:.15s;
+    font-family:'Sora';font-weight:600;font-size:11px;letter-spacing:1.2px}
+  .pfx-more:hover{background:rgba(255,255,255,.03);border-style:solid}
+
+  /* ── watch mode ── */
+  .pfx-watchbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    padding:11px 16px;margin-bottom:14px;border-radius:12px;
+    background:linear-gradient(135deg,rgba(0,212,255,.09),rgba(0,212,255,.03));
+    border:1px solid rgba(0,212,255,.26)}
+  .pfx-watchbar-l{display:flex;align-items:center;gap:11px;min-width:0}
+  .pfx-watchbar .eye{font-size:15px;color:var(--cyan)}
+  .pfx-watchbar .t{font-family:'Orbitron',sans-serif;font-weight:700;font-size:10px;letter-spacing:2px;color:var(--cyan)}
+  .pfx-watchbar .s{font-size:11px;color:var(--muted);margin-top:3px}
+  .pfx-watchbar .pfx-btn:hover{border-color:#ff4466;color:#ff4466}
+
+  /* .pfx grid stretches its rows — hug the content instead of ballooning. */
+  .pfx-watch{padding:34px 22px;text-align:center;align-self:start}
+  .pfx-watch .glyph{font-size:28px;color:var(--cyan);margin-bottom:10px}
+  .pfx-watch h3{font-family:'Orbitron',sans-serif;font-weight:800;font-size:14px;letter-spacing:2px;margin:0 0 10px}
+  .pfx-watch p{font-size:12.5px;color:var(--muted);line-height:1.65;margin:0 auto 18px;max-width:520px}
+  .pfx-watch p b{color:var(--cyan);font-weight:600}
+  .pfx-watch-form{display:flex;gap:9px;max-width:560px;margin:0 auto}
+  .pfx-watch-form input{flex:1;min-width:0;padding:12px 14px;border-radius:10px;box-sizing:border-box;
+    background:#070b11;border:1px solid var(--line);color:var(--txt);
+    font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;outline:none;transition:.15s}
+  .pfx-watch-form input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(0,212,255,.12)}
+  .pfx-watch-form input.bad{border-color:#ff4466}
+  .pfx-watch-form input::placeholder{color:var(--dim)}
+  .pfx-watch-form .pfx-btn{white-space:nowrap}
+  .pfx-watch-err{margin:11px auto 0;max-width:560px;padding:8px 12px;border-radius:8px;font-size:11.5px;
+    color:#ff4466;background:rgba(255,68,102,.07);border:1px solid rgba(255,68,102,.22)}
+  .pfx-watch-foot{margin-top:16px;font-size:11px;color:var(--dim)}
+
+  @media(max-width:640px){
+    .pfx-watch-form{flex-direction:column}
+    .pfx-watch-form .pfx-btn{justify-content:center}
+    .pfx-watchbar{align-items:flex-start}
+    .pfx-watchbar .pfx-btn{width:100%;justify-content:center}
+  }
 
   /* ── compact scale + softer glow ── */
   .pfx-topbar{margin-bottom:13px}
@@ -586,6 +628,52 @@ export default function V2Portfolio() {
   const [snapStatus,      setSnapStatus]      = useState<'' | 'saving' | 'saved' | 'error'>('');
   const [shareOpen,       setShareOpen]       = useState(false);
 
+  // ── WATCH MODE — view any wallet without connecting ──────────────────────────
+  // Ported from the v1 Portfolio (src/pages/Portfolio.tsx). While `isWatching`
+  // is on, every READ path uses `activeKey` instead of the connected wallet and
+  // every WRITE path (SEND, snapshot saving) is disabled — you are looking at
+  // somebody else's wallet, so nothing may be signed or persisted for it.
+  const [watchAddress,    setWatchAddress]    = useState('');
+  const [watchInput,      setWatchInput]      = useState('');
+  const [watchInputError, setWatchInputError] = useState('');
+  const [isWatching,      setIsWatching]      = useState(false);
+
+  /** The wallet the page is currently showing: watched address, else connected. */
+  const activeKey: PublicKey | null = useMemo(() => {
+    if (isWatching && watchAddress) {
+      try { return new PublicKey(watchAddress); } catch { return null; }
+    }
+    return publicKey ?? null;
+  }, [publicKey, isWatching, watchAddress]);
+
+  const isReadOnly = isWatching;
+
+  const handleWatchSubmit = () => {
+    const addr = watchInput.trim();
+    if (!addr) return;
+    try { new PublicKey(addr); }
+    catch {
+      setWatchInputError('Invalid wallet address — must be a base58 X1 / SVM address.');
+      return;
+    }
+    setActiveSendMint(null);
+    setWatchAddress(addr);
+    setIsWatching(true);
+    setWatchInputError('');
+  };
+
+  const handleStopWatching = () => {
+    setIsWatching(false);
+    setWatchAddress('');
+    setWatchInput('');
+    setWatchInputError('');
+  };
+
+  // Per-group row caps — long wallets made the page unreadable, especially on
+  // mobile. Each group shows the top GROUP_PREVIEW rows by value until expanded.
+  const GROUP_PREVIEW = 20;
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
   // Load address book when wallet connects
   useEffect(() => {
     if (!publicKey) { setSavedAddresses([]); return; }
@@ -622,7 +710,7 @@ export default function V2Portfolio() {
 
   // ── Fetch balances + snapshot ──────────────────────────
   useEffect(() => {
-    if (!publicKey) {
+    if (!activeKey) {
       setHoldings([]); setXntBalance(0); setSnapshots([]);
       return;
     }
@@ -692,8 +780,8 @@ export default function V2Portfolio() {
     (async () => {
       try {
         const [lamports, { raw }] = await Promise.all([
-          withRetry(() => connection.getBalance(publicKey)),
-          withRetry(() => fetchTokenBalances(connection, publicKey)),
+          withRetry(() => connection.getBalance(activeKey)),
+          withRetry(() => fetchTokenBalances(connection, activeKey)),
         ]);
         if (!alive) return;
         lastRaw = raw;
@@ -724,7 +812,7 @@ export default function V2Portfolio() {
           repaint();
         }).catch(() => {});
 
-        const owner = publicKey.toBase58();
+        const owner = activeKey.toBase58();
         fetchAllListings(connection).then(listings => {
           if (!alive) return;
           const mine = new Map<string, number>();
@@ -759,7 +847,7 @@ export default function V2Portfolio() {
           if (touched) repaint();
         }), 4);
 
-        getPortfolioSnapshots(publicKey.toBase58()).then(snaps => {
+        getPortfolioSnapshots(activeKey.toBase58()).then(snaps => {
           if (alive) setSnapshots(snaps);
         }).catch(() => {});
       } catch (e: any) {
@@ -769,9 +857,9 @@ export default function V2Portfolio() {
       }
     })();
     return () => { alive = false; };
-  }, [publicKey, connection, reloadNonce]);
+  }, [activeKey, connection, reloadNonce]);
 
-  const xntHolding: Holding | null = publicKey
+  const xntHolding: Holding | null = activeKey
     ? {
         symbol: 'XNT', mint: XNT_MINT, balance: xntBalance,
         usd: xntBalance * (prices[XNT_MINT] || 0),
@@ -840,7 +928,7 @@ export default function V2Portfolio() {
 
   // Persist today's snapshot once we have full data
   useEffect(() => {
-    if (!publicKey || netWorth <= 0 || allRows.length === 0) return;
+    if (isReadOnly || !publicKey || netWorth <= 0 || allRows.length === 0) return;
     const today = new Date().toISOString().slice(0, 10);
     upsertPortfolioSnapshot({
       wallet: publicKey.toBase58(),
@@ -848,7 +936,7 @@ export default function V2Portfolio() {
       total_usd: netWorth,
       token_breakdown: allRows.map(h => ({ mint: h.mint, symbol: h.symbol, balance: h.balance, usd: h.usd ?? 0, price: prices[h.mint] || 0 })),
     }).catch(() => {});
-  }, [publicKey, netWorth, allRows, prices]);
+  }, [isReadOnly, publicKey, netWorth, allRows, prices]);
 
   // Live clock
   const [now, setNow] = useState(Date.now());
@@ -858,18 +946,25 @@ export default function V2Portfolio() {
   }, []);
   const utc = new Date(now).toISOString().slice(11, 19);
 
+  // Every group is sorted best-first so the collapsed preview really is the top
+  // N. Tokens rank by USD value; NFTs mostly have no USD price, so they rank by
+  // listed price and then alphabetically, which keeps the order stable.
+  const byUsd = (a: Holding, b: Holding) => (b.usd ?? 0) - (a.usd ?? 0);
+  const byNft = (a: Holding, b: Holding) =>
+    (b.listedPrice ?? -1) - (a.listedPrice ?? -1) || a.symbol.localeCompare(b.symbol);
+
   const groups: Array<{ key: Category; label: string; rows: Holding[]; accent: string }> = [
     { key: 'core',  label: 'Ecosystem · Core',  accent: C_ORANGE,
       rows: allRows.filter(h => h.category === 'core')
-        .sort((a, b) => (a.mint === XNT_MINT ? -1 : b.mint === XNT_MINT ? 1 : (b.usd ?? 0) - (a.usd ?? 0))) },
-    { key: 'other', label: 'SPL · Token-2022 Tokens', rows: allRows.filter(h => h.category === 'other'), accent: C_GRAY },
-    { key: 'lp',    label: 'LP Tokens',         rows: allRows.filter(h => h.category === 'lp'),    accent: C_SILVER },
-    { key: 'nft',   label: 'NFTs · Collectibles', rows: allRows.filter(h => h.category === 'nft'), accent: C_PURPLE },
+        .sort((a, b) => (a.mint === XNT_MINT ? -1 : b.mint === XNT_MINT ? 1 : byUsd(a, b))) },
+    { key: 'other', label: 'SPL · Token-2022 Tokens', rows: allRows.filter(h => h.category === 'other').sort(byUsd), accent: C_GRAY },
+    { key: 'lp',    label: 'LP Tokens',         rows: allRows.filter(h => h.category === 'lp').sort(byUsd),    accent: C_SILVER },
+    { key: 'nft',   label: 'NFTs · Collectibles', rows: allRows.filter(h => h.category === 'nft').sort(byNft), accent: C_PURPLE },
   ].filter(g => g.rows.length > 0);
 
   // Manual snapshot
   const handleSaveSnapshot = async () => {
-    if (!publicKey || netWorth <= 0 || allRows.length === 0) return;
+    if (isReadOnly || !publicKey || netWorth <= 0 || allRows.length === 0) return;
     setSnapStatus('saving');
     const today = new Date().toISOString().slice(0, 10);
     try {
@@ -926,7 +1021,7 @@ export default function V2Portfolio() {
   const rankMax = rankRows[0]?.usd || 1;
   const catColor = (c: Category) => c === 'lp' ? C_SILVER : c === 'nft' ? C_PURPLE : c === 'other' ? C_GRAY : C_ORANGE;
 
-  const hasData = connected && !loading && !err && allRows.length > 0 && netWorth > 0;
+  const hasData = !!activeKey && !loading && !err && allRows.length > 0 && netWorth > 0;
 
   return (
     <div className="content content-wide pfx">
@@ -935,7 +1030,7 @@ export default function V2Portfolio() {
         <div className="pfx-title">PORTFOLIO<span>ANALYTICS · X1 MAINNET</span></div>
         <div className="pfx-tb-right">
           <span className="pfx-clock num">{utc} UTC</span>
-          {connected && netWorth > 0 && (
+          {connected && !isReadOnly && netWorth > 0 && (
             <button
               type="button"
               className="pfx-btn primary"
@@ -955,26 +1050,68 @@ export default function V2Portfolio() {
           totalUSD={netWorth}
           snapshotTokens={shareTokens}
           snapshots={snapshots}
-          walletAddress={publicKey?.toBase58() ?? null}
+          walletAddress={activeKey?.toBase58() ?? null}
           burnedTotal={0}
           labWorkPts={0}
           isMobile={isMobile}
         />
       )}
 
-      {/* ── NOT CONNECTED ── */}
-      {!connected && (
-        <div className="pfx-panel"><div className="pfx-place">
-          <div className="glyph">◇</div>
-          <div className="sub">Connect a wallet to view your portfolio.</div>
-        </div></div>
+      {/* ── WATCH MODE BANNER ── */}
+      {isReadOnly && (
+        <div className="pfx-watchbar">
+          <div className="pfx-watchbar-l">
+            <span className="eye">◉</span>
+            <div>
+              <div className="t">WATCH MODE · READ ONLY</div>
+              <div className="s num">
+                Viewing {shortAddr(watchAddress, 6, 6)} · send &amp; snapshot are disabled
+              </div>
+            </div>
+          </div>
+          <button type="button" className="pfx-btn" onClick={handleStopWatching}>✕ STOP WATCHING</button>
+        </div>
+      )}
+
+      {/* ── NO WALLET ON SCREEN — offer the watch lookup instead of an empty page ── */}
+      {!activeKey && (
+        <div className="pfx-panel pfx-watch">
+          <div className="glyph">◉</div>
+          <h3>TRACK ANY WALLET</h3>
+          <p>
+            Paste any <b>X1 wallet address</b> to view its full portfolio — tokens, NFTs,
+            LP positions and net worth. No wallet connection required.
+          </p>
+          <div className="pfx-watch-form">
+            <input
+              type="text"
+              value={watchInput}
+              spellCheck={false}
+              autoComplete="off"
+              onChange={e => { setWatchInput(e.target.value); setWatchInputError(''); }}
+              onKeyDown={e => { if (e.key === 'Enter') handleWatchSubmit(); }}
+              placeholder="Paste wallet address…"
+              className={watchInputError ? 'bad' : ''}
+            />
+            <button
+              type="button"
+              className="pfx-btn primary"
+              disabled={!watchInput.trim()}
+              onClick={handleWatchSubmit}
+            >
+              ◉ WATCH
+            </button>
+          </div>
+          {watchInputError && <div className="pfx-watch-err">{watchInputError}</div>}
+          <div className="pfx-watch-foot">…or connect your own wallet to see your holdings and send tokens.</div>
+        </div>
       )}
 
       {/* ── LOADING ── */}
-      {connected && loading && allRows.length === 0 && <PortfolioLoader />}
+      {activeKey && loading && allRows.length === 0 && <PortfolioLoader />}
 
       {/* ── ERROR ── */}
-      {connected && !loading && err && (
+      {activeKey && !loading && err && (
         <div className="pfx-panel"><div className="pfx-place">
           <div className="glyph">⚠</div>
           <div className="sub">
@@ -987,7 +1124,7 @@ export default function V2Portfolio() {
       )}
 
       {/* ── EMPTY ── */}
-      {connected && !loading && !err && allRows.length === 0 && (
+      {activeKey && !loading && !err && allRows.length === 0 && (
         <div className="pfx-panel"><div className="pfx-place">
           <div className="glyph">◌</div>
           <div className="sub">No tokens detected for this wallet.</div>
@@ -1175,7 +1312,7 @@ export default function V2Portfolio() {
                   <span className="gcount num">{g.rows.length} · {fmtUSD(g.rows.reduce((s, h) => s + (h.usd ?? 0), 0))}</span>
                 </div>
 
-                {g.rows.map(h => {
+                {(expandedGroups[g.key] ? g.rows : g.rows.slice(0, GROUP_PREVIEW)).map(h => {
                   const price = prices[h.mint] || 0;
                   const series = mintSeries.get(h.mint);
                   const spark = sparkPts(series);
@@ -1227,11 +1364,11 @@ export default function V2Portfolio() {
                           <div className="c-lab">Value</div>
                           <div className={`num pfx-usd ${h.usd && h.usd > 0 ? '' : 'zero'}`}>{h.usd && h.usd > 0 ? fmtUSD(h.usd) : '—'}</div>
                         </div>
-                        {wallet && h.balance > 0
+                        {!isReadOnly && wallet && h.balance > 0
                           ? <button type="button" className="pfx-send" onClick={() => setActiveSendMint(m => m === h.mint ? null : h.mint)}>{isActive ? '✕ CLOSE' : 'SEND'}</button>
                           : <span />}
                       </div>
-                      {isActive && wallet && (
+                      {isActive && !isReadOnly && wallet && (
                         <div style={{ marginBottom: 8 }}>
                           <SendPanel
                             token={{
@@ -1253,6 +1390,19 @@ export default function V2Portfolio() {
                     </Fragment>
                   );
                 })}
+
+                {g.rows.length > GROUP_PREVIEW && (
+                  <button
+                    type="button"
+                    className="pfx-more"
+                    style={{ color: g.accent, borderColor: `${g.accent}44` }}
+                    onClick={() => setExpandedGroups(m => ({ ...m, [g.key]: !m[g.key] }))}
+                  >
+                    {expandedGroups[g.key]
+                      ? `▴  COLLAPSE · SHOW TOP ${GROUP_PREVIEW}`
+                      : `▾  SHOW ALL ${g.rows.length} · ${g.rows.length - GROUP_PREVIEW} HIDDEN`}
+                  </button>
+                )}
               </div>
             ))}
           </div>
