@@ -7,7 +7,7 @@ import { BRAINS_MINT, BRAINS_LOGO, XNT_LOGO, LB_LOGO } from '../constants';
 import { fmtUSD, fmtNum, shortAddr } from '../utils/v2format';
 import { fetchAllPrices, fetchPrice, getCachedPrice } from '../lib/prices';
 import { getCachedTokenLogo, setCachedTokenLogo, primeFromIndexer } from '../lib/tokenLogos';
-import { fetchTokenMeta } from './PairingMarketplace';
+import { fetchTokenMeta, fetchPairingLpMints } from './PairingMarketplace';
 import { fetchFarms } from './LpFarms';
 import { fetchAllListings } from '../components/LBComponents';
 import V2NFTImage from '../components/V2NFTImage';
@@ -36,6 +36,11 @@ const C_GREEN  = '#00c98d';
 const C_SILVER = '#aeb9c7';
 
 type TokenKind = 'ecosystem' | 'x1native' | 'other';
+/** An LP mint the portfolio can name. Farm pools supply `pair` + a USD price;
+ *  pairing-marketplace pools supply the two underlying mints instead, and the
+ *  label is derived from them once their metadata resolves. */
+interface LpEntry { pair: string; reward: string; lpPriceUsd: number; mintA?: string; mintB?: string }
+
 const KNOWN: Record<string, { symbol: string; logo?: string; iconClass: string; color: string; kind: TokenKind }> = {
   [BRAINS_MINT]: { symbol: 'BRAINS', logo: BRAINS_LOGO, iconClass: 'brains', color: C_ORANGE, kind: 'ecosystem' },
   [LB_MINT]:     { symbol: 'LB',     logo: LB_LOGO,     iconClass: 'lb',     color: C_PURPLE, kind: 'ecosystem' },
@@ -722,10 +727,17 @@ export default function V2Portfolio() {
       [LB_MINT]:     getCachedPrice(LB_MINT),
       [XNT_MINT]:    getCachedPrice(XNT_MINT),
     });
+    /** Best-known ticker for a mint: hardcoded > fetched metadata > short address. */
+    const symbolOf = (m: string): string =>
+      KNOWN[m]?.symbol
+      || metaMap.current.get(m)?.symbol
+      || metaMap.current.get(m)?.name
+      || shortAddr(m, 4, 4);
+
     const buildHoldings = (
       raw: RawEntry[],
       priceMap: Record<string, number>,
-      lpMap: Map<string, { pair: string; reward: string; lpPriceUsd: number }>,
+      lpMap: Map<string, LpEntry>,
     ): Holding[] => raw.map(r => {
       const known = KNOWN[r.mint];
       const lp    = lpMap.get(r.mint);
@@ -740,13 +752,18 @@ export default function V2Portfolio() {
         };
       }
       if (lp) {
+        // Farm LPs already carry a pair label. Pairing-marketplace LPs have no
+        // token metadata at all (nobody mints Metaplex data for an LP mint), so
+        // build the label from the two underlying mints at RENDER time — meta
+        // for those arrives asynchronously and each repaint re-resolves it.
+        const label = lp.pair || (lp.mintA && lp.mintB ? `${symbolOf(lp.mintA)}/${symbolOf(lp.mintB)}` : 'LP');
         return {
-          symbol: lp.pair, mint: r.mint, balance: r.balance,
+          symbol: label, mint: r.mint, balance: r.balance,
           usd: r.balance * lp.lpPriceUsd,
           iconClass: lp.reward === 'BRAINS' ? 'brains' : 'lb',
           color: C_SILVER,
           program: r.program, category: 'lp', decimals: r.decimals,
-          lpInfo: { pairSymbol: lp.pair, rewardSymbol: lp.reward },
+          lpInfo: { pairSymbol: label, rewardSymbol: lp.reward },
         };
       }
       if (isNftLike(r)) {
@@ -774,7 +791,7 @@ export default function V2Portfolio() {
     });
 
     let lastRaw: RawEntry[] = [];
-    const lpMap = new Map<string, { pair: string; reward: string; lpPriceUsd: number }>();
+    const lpMap = new Map<string, LpEntry>();
     let priceMap: Record<string, number> = seedPrices();
 
     (async () => {
@@ -810,6 +827,20 @@ export default function V2Portfolio() {
             lpMap.set(f.lpMint, { pair: f.lpSymbol || 'LP', reward: f.rewardSymbol || '', lpPriceUsd: f.lpPriceUsd ?? 0 });
           }
           repaint();
+        }).catch(() => {});
+
+        // LP tokens from the Brains LP Pairing marketplace. Without this they
+        // land in "SPL · Token-2022 Tokens" as an unnamed mint, because an LP
+        // mint has no metadata to resolve. Farm entries win — they carry a price.
+        fetchPairingLpMints().then(pairs => {
+          if (!alive) return;
+          let added = false;
+          for (const p of pairs) {
+            if (lpMap.has(p.lpMint)) continue;
+            lpMap.set(p.lpMint, { pair: '', reward: '', lpPriceUsd: 0, mintA: p.tokenA, mintB: p.tokenB });
+            added = true;
+          }
+          if (added) repaint();
         }).catch(() => {});
 
         const owner = activeKey.toBase58();
@@ -1017,8 +1048,12 @@ export default function V2Portfolio() {
     return arc;
   });
 
+  // "Holdings by USD" is a ranked SUMMARY — the complete list is the holdings
+  // table below it, so this one hard-caps rather than offering an expander.
+  const RANK_LIMIT = 10;
   const rankRows = [...allRows].sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0));
-  const rankMax = rankRows[0]?.usd || 1;
+  const rankMax  = rankRows[0]?.usd || 1;
+  const rankTop  = rankRows.slice(0, RANK_LIMIT);
   const catColor = (c: Category) => c === 'lp' ? C_SILVER : c === 'nft' ? C_PURPLE : c === 'other' ? C_GRAY : C_ORANGE;
 
   const hasData = !!activeKey && !loading && !err && allRows.length > 0 && netWorth > 0;
@@ -1281,9 +1316,9 @@ export default function V2Portfolio() {
             </div>
 
             <div className="pfx-panel">
-              <div className="pfx-phead"><h3><span className="tk" />Holdings by USD</h3><span className="pfx-sub num">ranked</span></div>
+              <div className="pfx-phead"><h3><span className="tk" />Holdings by USD</h3><span className="pfx-sub num">{allRows.length > RANK_LIMIT ? `top ${RANK_LIMIT} of ${allRows.length}` : 'ranked'}</span></div>
               <div className="pfx-rank">
-                {rankRows.map((h, i) => {
+                {rankTop.map((h, i) => {
                   const w = h.usd && h.usd > 0 ? Math.max((h.usd / rankMax) * 100, 0.5) : 0;
                   return (
                     <div className="rk-row" key={h.mint + i}>

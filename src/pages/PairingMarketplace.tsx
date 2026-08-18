@@ -352,7 +352,12 @@ async function fetchXdexPrice(mint: string): Promise<TokenPrice | null> {
 // Layer 2: Metaplex metadata program
 // Layer 3: XDEX API (fallback)
 
-interface TokenMeta { symbol: string; name: string; logo?: string; decimals: number; source: 'token2022ext' | 'metaplex' | 'xdex' | 'fallback' }
+interface TokenMeta { symbol: string; name: string; logo?: string; decimals: number; source: 'token2022ext' | 'metaplex' | 'xdex' | 'fallback';
+  /** The token declares a metadata URI but we could not read it this time
+   *  (slow gateway, transient network). The symbol is real, the MISSING LOGO
+   *  IS NOT — so such an entry must never be persisted or treated as final,
+   *  or one slow fetch hides the logo for the whole 7-day cache window. */
+  logoPending?: boolean }
 
 // ─── Resilient RPC helper with retry on 429/5xx ─────────────────────────────
 // X1 public RPC throttles aggressively. This helper retries up to 3 times
@@ -383,12 +388,16 @@ async function rpcCall(method: string, params: any[], maxRetries = 3): Promise<a
 // 3-layer 30+-call fetch from scratch.
 const _metaCache = new Map<string, TokenMeta>();
 const _metaInflight = new Map<string, Promise<TokenMeta>>();
-const META_CACHE_KEY = 'x1brains:tokenMeta:v2';
+// v3: v2 entries were written before `logoPending` existed, so a logo that
+// merely failed to fetch is indistinguishable from a token that has none.
+// Bumping the key drops those poisoned rows instead of honouring them for 7 days.
+const META_CACHE_KEY = 'x1brains:tokenMeta:v3';
 const META_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 
 // Hydrate cache from localStorage on module load
 (() => {
   try {
+    localStorage.removeItem('x1brains:tokenMeta:v2');
     const raw = localStorage.getItem(META_CACHE_KEY);
     if (!raw) return;
     const cached = JSON.parse(raw) as { ts: number; metas: Record<string, TokenMeta> };
@@ -471,7 +480,7 @@ async function fetchToken2022Meta(mint: string): Promise<TokenMeta | null> {
       const j = await fetchMetaJson(uri);
       logo = j?.image || j?.logo || j?.icon;
     }
-    return { symbol: symbol || mint.slice(0,6), name: name || mint.slice(0,6), logo, decimals, source: 'token2022ext' };
+    return { symbol: symbol || mint.slice(0,6), name: name || mint.slice(0,6), logo, decimals, source: 'token2022ext', logoPending: !!uri && !logo };
   } catch { return null; }
 }
 
@@ -517,7 +526,7 @@ async function fetchMetaplexMeta(mint: string): Promise<TokenMeta | null> {
         if (mintData.length > 44) decimals = mintData[44];
       }
     } catch {}
-    return { symbol: symbol || mint.slice(0,6), name: name || mint.slice(0,6), logo, decimals, source: 'metaplex' };
+    return { symbol: symbol || mint.slice(0,6), name: name || mint.slice(0,6), logo, decimals, source: 'metaplex', logoPending: !!uri && !logo };
   } catch { return null; }
 }
 
@@ -610,17 +619,19 @@ export async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
   const cached = _metaCache.get(mint);
   if (cached?.logo) return cached;
   // Cache hit with real symbol but no logo — return cached, logo can backfill later
+  // A symbol-only entry is only final when the token has no logo to find. If the
+  // logo fetch merely FAILED (logoPending), fall through and try again.
   const cachedIsRealSymbol = cached && cached.symbol && cached.symbol !== mint.slice(0, 4).toUpperCase();
-  if (cachedIsRealSymbol && cached) return cached;
+  if (cachedIsRealSymbol && cached && !cached.logoPending) return cached;
 
   // Deduplicate in-flight
   if (_metaInflight.has(mint)) return _metaInflight.get(mint)!;
 
   const promise = (async (): Promise<TokenMeta> => {
     const t22 = await fetchToken2022Meta(mint);
-    if (t22) { _metaCache.set(mint, t22); schedulePersist(); return t22; }
+    if (t22) { _metaCache.set(mint, t22); if (!t22.logoPending) schedulePersist(); return t22; }
     const mpx = await fetchMetaplexMeta(mint);
-    if (mpx) { _metaCache.set(mint, mpx); schedulePersist(); return mpx; }
+    if (mpx) { _metaCache.set(mint, mpx); if (!mpx.logoPending) schedulePersist(); return mpx; }
     const xdex = await fetchXdexMeta(mint);
     if (xdex) { _metaCache.set(mint, xdex); schedulePersist(); return xdex; }
     // Use hardcoded symbol/decimals if available, just no logo
@@ -775,6 +786,38 @@ export interface PairingPool {
   tokenB:      string;
   usdVal:      number;   // USD value of one matched side
   createdAt:   number;   // unix seconds
+}
+
+/**
+ * Every pairing-marketplace pool's LP mint plus its two underlying mints.
+ *
+ * Deliberately NOT `fetchPairingPools` — that one skips admin-seeded pools
+ * (`d[274] === 1`) because the marketplace UI only lists user-created pairs.
+ * For labelling a wallet's holdings that filter is wrong: an LP token in your
+ * wallet deserves a name no matter who opened the pool. 6 of the 10 live pools
+ * are seeded, so reusing the filtered call would leave most LP holders staring
+ * at an unnamed mint.
+ */
+export async function fetchPairingLpMints(): Promise<Array<{ lpMint: string; tokenA: string; tokenB: string }>> {
+  try {
+    const conn = new Connection(RPC, 'confirmed');
+    const records = await conn.getProgramAccounts(new PublicKey(PROGRAM_ID), { filters: [{ dataSize: 282 }] });
+    const out: Array<{ lpMint: string; tokenA: string; tokenB: string }> = [];
+    for (const { account } of records) {
+      const d = account.data;
+      try {
+        out.push({
+          lpMint: new PublicKey(d.subarray(40, 72)).toBase58(),
+          tokenA: new PublicKey(d.subarray(72, 104)).toBase58(),
+          tokenB: new PublicKey(d.subarray(104, 136)).toBase58(),
+        });
+      } catch { /* skip malformed */ }
+    }
+    return out;
+  } catch (e) {
+    console.error('fetchPairingLpMints error:', e);
+    return [];
+  }
 }
 
 export async function fetchPairingPools(): Promise<PairingPool[]> {
