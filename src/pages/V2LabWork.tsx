@@ -15,6 +15,7 @@ import {
 } from '../components/LBComponents';
 import V2NFTDetailModal from '../components/V2NFTDetailModal';
 import V2NFTImage from '../components/V2NFTImage';
+import { imageCandidates } from '../utils/ipfsGateways';
 import V2MarketModal, { type MarketTarget } from '../components/V2MarketModal';
 import V2BoostModal, { type BoostTarget } from '../components/V2BoostModal';
 import { fetchMarketStats, getCachedMarketStats } from '../lib/marketStats';
@@ -268,6 +269,23 @@ type Filter = 'verified' | 'all' | 'listed' | 'uncategorized';
 //   activity   · Recent trades pulled from labwork_trades supabase table
 type MarketTab = 'browse' | 'mylistings' | 'sell' | 'activity';
 type SortMode = 'newest' | 'priceAsc' | 'priceDesc' | 'name';
+
+/**
+ * Collection portrait for the browse rail.
+ *
+ * A bare <img> was not enough: X1 Cats' portrait is an SVG, and every path
+ * gateway redirects SVG to a `<cid>.ipfs.dweb.link` subdomain whose CORP header
+ * makes Chrome refuse it (ERR_BLOCKED_BY_RESPONSE.NotSameOrigin) — the tile sat
+ * empty while `curl` reported a healthy 200. Walk the candidates instead, and
+ * fall back to the initials only once every one has actually failed.
+ */
+function CollectionPortrait({ src, initials }: { src: string; initials: string }) {
+  const chain = useMemo(() => imageCandidates(src), [src]);
+  const [idx, setIdx] = useState(0);
+  useEffect(() => { setIdx(0); }, [src]);
+  if (idx >= chain.length) return <>{initials}</>;
+  return <img src={chain[idx]} alt="" onError={() => setIdx(n => n + 1)} />;
+}
 
 export default function V2LabWork() {
   const { connection } = useConnection();
@@ -1209,7 +1227,13 @@ export default function V2LabWork() {
 
   // Other collections (excluding Brains Elites — it's the banner subject) shown
   // as compact story-circles in the banner's top-right corner. Cap at 3.
-  const otherCollections = collectionStats.filter(c => c.key !== 'brains_elites').slice(0, 3);
+  // FEDS is pinned first by request, then the rest in their existing order.
+  // Four tiles, not three.
+  const otherCollections = (() => {
+    const rest   = collectionStats.filter(c => c.key !== 'brains_elites');
+    const isFeds = (c: { name: string }) => c.name.trim().toLowerCase() === 'feds';
+    return [...rest.filter(isFeds), ...rest.filter(c => !isFeds(c))].slice(0, 4);
+  })();
   // Unique seller wallets across active listings — a real "holders in market"
   // count (the marketplace program has no holder index, so this is what's true).
   const uniqueSellers = useMemo(
@@ -1310,8 +1334,8 @@ export default function V2LabWork() {
                           }}
                         >
                           <div className="lw-bc-ring">
-                            <div className="lw-bc-circle" style={c.image ? undefined : { background: bcGrad(c.key, idx + 1) }}>
-                              {c.image ? <img src={c.image} alt="" /> : initials}
+                            <div className="lw-bc-circle" style={{ background: bcGrad(c.key, idx + 1) }}>
+                              {c.image ? <CollectionPortrait src={c.image} initials={initials} /> : initials}
                               {c.verified && <div className="lw-bc-vbadge">✓</div>}
                             </div>
                           </div>

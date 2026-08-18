@@ -26,6 +26,8 @@ function persist() {
   }, 800);
 }
 
+import { imageCandidates } from '../utils/ipfsGateways';
+
 function resolveGateway(u: string): string {
   return u
     .replace('ipfs://', 'https://nftstorage.link/ipfs/')
@@ -48,7 +50,11 @@ async function fetchJsonMulti(url: string): Promise<any | null> {
     url, // direct (in case host serves CORS)
   ];
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 4000);
+  // 12s, not 4s. gateway.pinata.cloud — which hosts a lot of this metadata —
+  // measured 3-9s. A 4s abort turned that into a coin flip: the same wallet
+  // showed some cats/pups and not others, differently on each reload, because
+  // whichever fetch lost the race fell through to a guessed URL below.
+  const timer = setTimeout(() => ctrl.abort(), 12000);
 
   const tries = candidates.map(async (candidate) => {
     const r = await fetch(candidate, { signal: ctrl.signal });
@@ -124,6 +130,9 @@ function viaImageCDN(url: string, width: number): string {
 }
 
 export default function V2NFTImage({ src, name, priority = false, width = 600, fit = 'cover' }: Props) {
+  /** Extension/path guesses for metadata that would not resolve. Tried in the
+   *  <img> error chain; never cached, because a guess is not an answer. */
+  const [guessed, setGuesses] = useState<string[]>([]);
   const [imgUrl, setImgUrl] = useState<string | null | undefined>(() => {
     if (!src) return null;
     if (cache.has(src)) return cache.get(src) ?? null;
@@ -131,6 +140,7 @@ export default function V2NFTImage({ src, name, priority = false, width = 600, f
   });
 
   useEffect(() => {
+    setGuesses([]);
     if (!src) { setImgUrl(null); return; }
     if (cache.has(src)) { setImgUrl(cache.get(src) ?? null); return; }
 
@@ -176,12 +186,12 @@ export default function V2NFTImage({ src, name, priority = false, width = 600, f
         }
       }
       if (guesses.length > 0) {
-        // Probe by trying to load the first guess as an image; if it works,
-        // great. If not, browser will show the broken-image placeholder and
-        // we'll have at least tried.
-        cache.set(src, guesses[0]);
-        persist();
-        if (!cancelled) setImgUrl(guesses[0]);
+        // A GUESS, not a resolution — deliberately NOT written to the cache.
+        // Persisting it meant one slow metadata fetch could pin a wrong URL in
+        // localStorage forever, so the NFT stayed broken on every later visit
+        // even once its host recovered. Held in state instead, and every guess
+        // is offered to the <img> error chain rather than only the first.
+        if (!cancelled) { setGuesses(guesses); setImgUrl(guesses[0]); }
         return;
       }
 
@@ -227,10 +237,15 @@ export default function V2NFTImage({ src, name, priority = false, width = 600, f
     );
   }
 
+  // Try in order: CDN-proxied → the raw URL → the same content on every other
+  // IPFS gateway → any collection-specific rescue host. Two gateways failing is
+  // routine (see utils/ipfsGateways), so giving up after one was why listings
+  // sat on the broken-image placeholder.
   const proxied = viaImageCDN(imgUrl, width);
+  const chain = [...new Set([proxied, ...imageCandidates(imgUrl), ...guessed.flatMap(g => imageCandidates(g))])];
   return (
     <img
-      src={proxied}
+      src={chain[0]}
       alt={name || 'NFT'}
       loading={priority ? 'eager' : 'lazy'}
       // @ts-expect-error — fetchpriority not yet in React's IntrinsicElements types
@@ -238,13 +253,13 @@ export default function V2NFTImage({ src, name, priority = false, width = 600, f
       decoding="async"
       onError={(e) => {
         const el = e.currentTarget as HTMLImageElement;
-        // Fall back from the CDN-proxied URL to the raw URL once.
-        if (proxied !== imgUrl && el.dataset.fallback !== '1') {
-          el.dataset.fallback = '1';
-          el.src = imgUrl;
+        const next = Number(el.dataset.try ?? '0') + 1;
+        if (next < chain.length) {
+          el.dataset.try = String(next);
+          el.src = chain[next];
           return;
         }
-        // Both failed — mark and show placeholder.
+        // Every candidate failed — mark and show the placeholder.
         cache.set(src!, null);
         persist();
         el.style.display = 'none';
