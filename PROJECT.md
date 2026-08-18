@@ -2,6 +2,17 @@
 
 Living doc. Anything load-bearing about the project belongs here so it isn't lost between sessions and so the same bugs don't get reintroduced.
 
+> **Read the newest session logs first — they supersede §0/§12/§13 statuses, which were
+> written pre-launch and are stale.**
+>
+> - **[§16 — 2026-08-18](#16-session-log--2026-08-18--portfolio-depth-watch-mode-logo-resolution-copy)**
+>   portfolio depth + watch mode + logo resolution + copy buttons. Start at **§16.12** if you
+>   are about to trust a typecheck, **§16.1** if something works on `localhost` but not over
+>   the LAN, and **§16.8** before touching anything that loads an IPFS image.
+> - **[§15 — 2026-08-17](#15-session-log--2026-08-17--swap-execution-pricing-charts-logos)**
+>   the swap/pricing chapter — read before touching the swap, `/charts`, or anything that
+>   prices a pool. §15.1's curve is now confirmed against a real executed swap (§16.6).
+
 ---
 
 ## 0. Outstanding work · do this in order
@@ -937,3 +948,298 @@ decode prints confident wrong prices, which is worse than "—".
 - `tsc -p tsconfig.app.json` is **not clean at baseline** (76 errors in
   `PairingMarketplace.tsx` alone: missing `@types/node` Buffer, unused vars). Compare
   counts against `git stash`, don't chase absolutes.
+
+---
+
+## 16. Session log — 2026-08-18 · portfolio depth, watch mode, logo resolution, copy
+
+Fourteen commits, `9b63334`…`db89360`. Read §15 first — this session builds directly on it.
+Everything here was measured in headless Chromium against live X1 mainnet data or verified
+on-chain; where something was **not** verified it says so.
+
+### 16.1 ⛔⛔⛔ Secure-context APIs die silently on `http://<LAN-IP>`
+
+Reported as "I can't add liquidity" — the modal showed
+`Cannot read properties of undefined (reading 'digest')`. Not a liquidity bug at all:
+
+    http://localhost:5173        isSecureContext: true    crypto.subtle: object
+    http://172.26.150.107:5173   isSecureContext: false   crypto.subtle: undefined
+
+`window.crypto.subtle` exists **only in a secure context** — https, or `localhost` /
+`127.0.0.1`. Over a LAN IP it is `undefined`, so `PoolsTab.tsx`'s `disc()` throws before a
+transaction is ever built. Production (https) is unaffected; this is a dev/LAN-testing trap.
+
+**Eight** call sites share the fault, so the same error masquerades as eight different bugs:
+`PoolsTab` (deposit / withdraw / swap_base_input), `PairingMarketplace` ×4 (create_listing,
+edit_listing, delist, the generic `disc`), `LpFarms` (stake / unstake / claim / fund_farm),
+`LBComponents`, `lib/supabase`.
+
+**`navigator.clipboard` has the identical rule** — every copy button in the app did nothing
+at all over the LAN, with no error. `components/CopyButton` now falls back to a hidden
+`<textarea>` + `execCommand`.
+
+> **Rule:** when something works on `localhost` and not over the LAN IP, suspect
+> `isSecureContext` before suspecting your code. Anchor discriminators are deterministic
+> constants — computing them with an async, secure-context-only API buys nothing. Hardening
+> the remaining seven sites is **still open** (see §16.12).
+
+### 16.2 Portfolio — watch any wallet (ported from v1)
+
+`/portfolio` was hard-bound to `useWallet()` and showed an empty panel to visitors. The v1
+implementation still lives in `src/pages/Portfolio.tsx`; v2 now has the same feature.
+
+Every **read** goes through `activeKey` (watched address, else connected wallet). Every
+**write** is disabled while watching:
+
+- SEND buttons hidden (`!isReadOnly && wallet && …`)
+- SNAPSHOT button hidden
+- the snapshot autosave effect returns early — merely *viewing* a wallet must never write a
+  Supabase row for an address a visitor typed in
+- the signing `wallet` object and the saved-address book stay bound to the **connected**
+  wallet, not the watched one
+
+`.pfx` is a CSS grid and stretched the panel to 590px around ~270px of content —
+`align-self: start` on `.pfx-watch`.
+
+### 16.3 Portfolio — row caps
+
+Long wallets ran forever, worst on mobile.
+
+- Holdings groups show their **top 20**, rest behind a per-group toggle (`GROUP_PREVIEW`).
+  Expansion state is per group, not global.
+- **Groups were not sorted** before (only "Ecosystem · Core" was). A "top 20" off an
+  unsorted list is meaningless — tokens now sort by USD, NFTs by listed price then name
+  (NFTs mostly have no USD price, so value alone left them arbitrary).
+- "Holdings by USD" hard-caps at **10** (`RANK_LIMIT`) — it is a ranked *summary*, the full
+  list is the table directly below. Subtitle reads `top 10 of N` when rows are dropped; a
+  truncated list still labelled "ranked" is a lie.
+
+### 16.4 ⭐⭐⭐ Metadata lookups were capped at 30 items per wallet
+
+The biggest bug of the session. `needMeta` did `.slice(0, 30)`. A wallet holding
+6 core + 18 tokens + 7 LP + **102 NFTs = 133 positions** got metadata for 30 of them;
+the other 103 rendered as `2axE…vsax` with no name and no art.
+
+Two ordering faults rode along:
+
+- **price lookups did not exclude NFTs.** An NFT has no price-feed entry, so 102 of them
+  consumed the entire 12-slot budget before one real token was priced.
+- **metadata was fetched in raw RPC order**, so a large NFT collection pushed every fungible
+  token past the cap.
+
+Now `PRICE_LOOKUP_CAP = 40`, `META_LOOKUP_CAP = 250`, **fungibles first in both passes**.
+Results persist 7 days in localStorage, so only the first visit to a wallet pays, and
+`runThrottled` still bounds concurrency.
+
+Measured on a real 133-position wallet in watch mode:
+
+| group | before | after |
+|---|---|---|
+| Ecosystem · Core | — | **6/6 named** |
+| SPL · Token-2022 | — | **17/18 named** |
+| LP Tokens | — | **7/7 named** |
+| NFTs | — | **102/102 named** |
+
+NFT **art**, after scrolling every row into view (they are `loading="lazy"`, so an
+un-scrolled probe under-reports): 102/102 have a resolved image source, **0 placeholders**,
+39 decoded, 5 dead, 58 still in flight — IPFS being slow under 102 concurrent loads, not
+missing art.
+
+### 16.5 LP tokens — naming and pricing
+
+A pairing-marketplace LP token showed as an unnamed mint under "SPL · Token-2022 Tokens".
+LP mints carry **no metadata at all** (verified: `metaplex meta: NONE`) — so there is nothing
+to fetch. The bug was *classification*, not resolution.
+
+`lpMap` now also loads from the `brains_pairing` pool records via a new
+**`fetchPairingLpMints()`** — deliberately NOT `fetchPairingPools()`, which skips
+admin-seeded pools (`d[274] === 1`) for the marketplace listing. **6 of the 10 live pools
+are seeded**, so reusing the filtered call would leave most LP holders unnamed. The label is
+built from the two underlying mints at *render* time so it fills in as their metadata lands.
+
+**Pricing.** An LP token has no market price; its worth is its claim on the pool:
+
+    unit = (netReserveA × priceA + netReserveB × priceB) / lpSupply
+
+**NET reserves, not raw vaults** — `protocol_fees + fund_fees` sit inside the vault but are
+owed to the protocol, so an LP holder cannot withdraw against them. On the live AGI/BRAINS
+pool those fees are **5.7% of vault0 and 1.1% of vault1**; ignoring them overstates the
+position by **3.5%**. `XdexPoolMeta` gained `fees0`/`fees1` for this.
+
+Reserves are stored on the `LpEntry` and the price recomputed on every repaint — the
+underlying token prices arrive asynchronously, so computing once freezes it at zero.
+The pairing record's `tokenA`/`tokenB` order is **not** guaranteed to match the pool's
+`token0`/`token1`; sides are matched **by mint**, never by position.
+
+Verified live: 394,738 AGI + 6,446 BRAINS net of fees over 46,487 LP supply →
+$0.001078/LP, $1.24 for a 1,152.41 balance (independent on-chain calc: $0.00108376 / $1.2489,
+prices drifted between runs).
+
+### 16.6 ⭐⭐⭐ AmmConfig fee split (verified offsets)
+
+Read from `2eFPWosizV6nSAGeSvi5tRgXLoqhjnSesra23ALA248c`, 236 bytes:
+
+| field | offset | value |
+|---|---|---|
+| `trade_fee_rate` | **12** | 2800 → **0.28%** (confirms §15.1) |
+| `protocol_fee_rate` | **20** | 250000 → **25% of the trade fee** |
+| `fund_fee_rate` | **28** | 50000 → **5% of the trade fee** |
+
+So **70% of every fee stays with LPs**, 30% is skimmed into the fee accumulators.
+
+**§15.1's curve is now validated against a REAL executed swap, not simulation.** Tx
+`3KLnvYpN…` (45 XNT → NECK, 2026-08-18): predicted output
+`9,395,698,663,830,289` = actual, **exact to the raw unit (1e-9)**. The pre-fix code would
+have quoted `9,398,807,781,455,530` — 0.033% high, enough to trip `6005 ExceededSlippage`.
+(Smaller than the ~5% error on AGI/BRAINS because this pool's accrued fees are a much smaller
+share of its vaults — the magnitude is per-pool, the bug is the same.)
+
+⚠️ The explorer's `TransferChecked` display and its balance-change rows **disagreed by 1 raw
+unit**. Resolve such ambiguity by solving for the self-consistent value, not by picking one.
+
+### 16.7 ⛔⛔ Metadata cache poisoning — a slow fetch hid a logo for 7 days
+
+X1X showed its symbol but never its logo. `fetchMetaplexMeta` reads the on-chain symbol, then
+fetches the JSON at the metadata URI. X1X's JSON is on `gateway.pinata.cloud`, which measures
+a consistent **6–7s**. When that fetch lost, the function still returned a *valid* `TokenMeta`
+— symbol present, `logo: undefined` — `fetchTokenMeta` **persisted it**, and the symbol-only
+short-circuit then served that entry for the full 7-day TTL without ever retrying.
+
+`TokenMeta` gained **`logoPending`** (set when a URI exists but did not resolve). Pending
+entries are cached in memory but **never persisted**, and never satisfy the short-circuit.
+Cache key bumped `v2` → **`v3`** because v2 rows cannot be told apart from genuinely
+logo-less tokens; the old key is removed on load.
+
+`V2NFTImage` had the same disease in a different form: a **4s** abort on the metadata fetch
+while Pinata takes 3–9s, making it a coin flip — the same wallet showed some NFTs and not
+others, differently each reload. The loser fell through to a **guessed** URL
+(`base + ".png"`) which was then **persisted**. Now 12s, and guesses are held in state,
+never cached, with every guess offered to the `<img>` error chain.
+
+> **Rule:** never persist a "we could not resolve it this time" result as if it were
+> "there is nothing to resolve". One slow moment must not become a week-long outage.
+
+### 16.8 ⛔⛔⛔ IPFS in a browser — `curl` lies to you
+
+The X1 Cats collection portrait (a 7 KB **SVG**) rendered as a broken tile while `curl`
+reported a clean `200 image/svg+xml` with `ACAO: *` from every gateway.
+
+    ipfs.io / dweb.link / nftstorage.link  ->  ERR_BLOCKED_BY_RESPONSE.NotSameOrigin
+    fetch() from the page                 ->  TypeError: Failed to fetch
+
+It fails identically on `about:blank` and `example.com`, so it is **Chrome + Cloudflare, not
+this app**, and **no choice of public gateway fixes it**.
+
+**The rescue is our own proxy.** `/api/nft-meta/<host>/<path>` (a Vercel rewrite in prod, a
+vite middleware in dev) makes the request **same-origin**, which sidesteps CORS, ORB, CORP and
+the browser-origin refusal in one move. That portrait loads in **~470ms** through it.
+
+`src/utils/ipfsGateways.ts` builds an ordered candidate list per image — original → each
+public gateway → collection rescue host → the same URLs proxied (last, because a direct hit
+is faster and a direct miss fails in 100–300ms). `V2NFTImage` and the browse-rail tile walk
+it on error instead of giving up after one fallback.
+
+Also measured, all of it counter-intuitive:
+
+- **weserv blocks the entire `.xyz` TLD** ("Domain or TLD blocked by policy") — the
+  `CDN_BLOCKED` list in `lib/tokenLogos` was an enumeration of two `.xyz` hosts when the rule
+  is TLD-wide.
+- **`corsproxy.io` now answers 403** and **`api.allorigins.win` hangs ~19s** — both are dead
+  weight in every fallback chain that still lists them.
+- Two X1 Pups CIDs are unpinned everywhere; the collection serves the same art at
+  `x1pups.vercel.app/thumbs/pup_<4-digit>.jpg` (verified 0001/0039/0775), added as a
+  collection rescue.
+
+Result: X1 Cats tile broken → **500px**; X1 Pups listings **3 broken → 1**.
+
+### 16.9 Logo resolution had drifted into two implementations
+
+NECK and DRC rendered as letter tiles in the create-listing picker while AGI and X1X were
+fine. The difference was not the tokens — it was **which component drew them**.
+
+`TokenLogo` (rounded square, used by all five listing modals) read **only its `logo` prop**:
+no shared-cache lookup, no `fetchTokenLogo` backfill. An empty prop went straight to the
+gradient letter tile even when the cache held the art. `TokenLogoImg` (round, swap surfaces)
+has resolved correctly since `8c8cd31`.
+
+Resolution is now a shared **`useResolvedTokenLogo`** hook; presentation stays split.
+Two more bugs removed from `TokenLogo`:
+
+- **`crossOrigin="anonymous"`** forced a CORS preflight on an `<img>` that needs no canvas
+  access, so any host without an `ACAO` header failed outright when a plain `<img>` would
+  have painted it.
+- the **corsproxy.io retry** only ever turned one failure into two (see §16.8).
+
+Neither component cleared `resolved` on a `mint` change with no cached art, so a reused row
+could keep painting the **previous** token's logo.
+
+`TokenLogo` is used by five modals with no `connection` prop; threading one through nine call
+sites purely to fetch an image is not worth it, so the hook falls back to a lazily-created
+module-level `Connection` on the same RPC.
+
+### 16.10 Marketplace collection rail + copy buttons
+
+- Rail widened 3 → **4 tiles**, **FEDS pinned first**. The tile keeps its gradient background
+  so an exhausted candidate chain falls back to legible initials, not an empty circle.
+- **`components/CopyButton`** — one implementation, wired into the portfolio holdings table
+  (token mint), the swap side panel (token mint), the incinerator leaderboard and
+  transactions (wallet). `PairingMarketplace`'s own `CopyButton` is now a thin `text`-prop
+  wrapper over it, so its three call sites are unchanged but inherit the `execCommand`
+  fallback (§16.1) and `stopPropagation` (copying inside a clickable row must not also
+  select a token).
+
+### 16.11 The swap side panel knew three tokens by name
+
+`components/Portfolio.tsx` (the `PORTFOLIO` card on `/swap`) hardcoded XNT/BRAINS/LB and
+fetched **logos** for every other mint but never **names** — so tokens rendered with correct
+artwork beside a truncated mint. It now resolves symbols through the shared 7-day metadata
+cache, fungibles first, rejecting the mint-prefix placeholders the metadata layer emits.
+
+### 16.12 ⛔⛔⛔ The typecheck gate does not check anything
+
+`tsconfig.json` is a **solution file** (`"files": []` + project references), so
+`tsc --noEmit -p tsconfig.json` typechecks **zero files** and always prints 0 errors.
+`npm run build` is bare `vite build`, which does not typecheck either.
+
+    tsc --noEmit -p tsconfig.json      ->   0 errors   (vacuous)
+    tsc --noEmit -p tsconfig.app.json  -> 386 errors   (the real number)
+
+> **Rule:** use `tsconfig.app.json`. Compare **counts and messages** against a baseline
+> worktree (`git worktree add /tmp/base <sha>` + symlink `node_modules`), never absolutes —
+> and beware `cd x && cmd1; cmd2`, where cwd persists and both commands run in the worktree.
+
+This session's diff, measured properly: **386 → 386**, no per-file count changed, and a
+message-level diff over the seven edited files shows **93 → 93 with zero introduced and zero
+fixed**. `CopyButton.tsx` and `ipfsGateways.ts` have none.
+
+### 16.13 Known gaps — NOT fixed
+
+- **Secure-context hardening** (§16.1): seven `crypto.subtle` sites still break over a LAN
+  IP. `@noble/hashes@1.8.0` is already resolved under both `@coral-xyz/anchor` and
+  `@solana/web3.js` and a sync SHA-256 already ships in the bundle, so this costs ~0 bytes.
+- **Logo thumbnailing** in three places: the **header ticker** renders a
+  **2.47 MB 3000×3000 PNG into a 13px slot** on every route (`Header.tsx:133`), and the
+  portfolio renders logos at full source size (LB 3000px, AGI 1206px) into ~30px slots.
+  Neither goes through `logoThumb`. Both pre-date this session and are live.
+- **One X1 Pups listing** ("Genesis Stone #1001") fails at the **metadata** step; its image
+  CID loads through the proxy in 524ms. Suspected dev-only — the vite proxy is
+  single-threaded behind 14 concurrent requests where prod's rewrite is edge-level.
+- **1 of 18 tokens** still truncated on the big wallet; not identified.
+- **degen.fyi pre-graduation pricing** (§15.7) — still not decoded, deliberately not guessed.
+- `SESSION_2026-08-01.md` and `SUPABASE_ANALYTICS_HARDENING.sql` remain untracked.
+
+### 16.14 Verification notes
+
+- `CreateListingModal` is **prop-driven** (`publicKey` / `connection` / `signTransaction`),
+  like `SwapTab` — mount it standalone in `probe.html` + `src/_probe.tsx` with a real
+  `PublicKey` and `Connection`, no wallet adapter, no signing. This is how the NECK/DRC logo
+  fix was proven. Delete both files afterwards.
+- **Components that call `useWallet()` internally cannot be probed** — `components/Portfolio`
+  (swap side panel) renders "Connect a wallet" in the harness. Two changes shipped there
+  unverified (§16.10, §16.11); they need a click-through with a wallet connected.
+- **Rate limits mimic bugs, again.** `gateway.pinata.cloud` 429s after repeated probing and
+  its error page carries `Cross-Origin-Resource-Policy: same-origin`, so a rescued image
+  starts "failing" in 141ms and looks like a code bug. Re-measure with spacing before
+  concluding. Same trap as §15.8's RPC 429s.
+- **Lazy images under-report.** `V2NFTImage` is `loading="lazy"`; a probe that does not
+  scroll sees ~⅓ of the images and reads as breakage.
