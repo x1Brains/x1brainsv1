@@ -8,6 +8,7 @@ import { fmtUSD, fmtNum, shortAddr } from '../utils/v2format';
 import { fetchAllPrices, fetchPrice, getCachedPrice } from '../lib/prices';
 import { getCachedTokenLogo, setCachedTokenLogo, primeFromIndexer } from '../lib/tokenLogos';
 import { fetchTokenMeta, fetchPairingLpMints } from './PairingMarketplace';
+import { fetchXdexPoolState } from '../lib/xdexPoolChart';
 import { fetchFarms } from './LpFarms';
 import { fetchAllListings } from '../components/LBComponents';
 import V2NFTImage from '../components/V2NFTImage';
@@ -39,7 +40,14 @@ type TokenKind = 'ecosystem' | 'x1native' | 'other';
 /** An LP mint the portfolio can name. Farm pools supply `pair` + a USD price;
  *  pairing-marketplace pools supply the two underlying mints instead, and the
  *  label is derived from them once their metadata resolves. */
-interface LpEntry { pair: string; reward: string; lpPriceUsd: number; mintA?: string; mintB?: string }
+interface LpEntry {
+  pair: string; reward: string; lpPriceUsd: number;
+  mintA?: string; mintB?: string;
+  /** Pool reserves NET of protocol/fund fees, in UI units, plus LP supply.
+   *  Held as reserves rather than a precomputed price because the underlying
+   *  token prices arrive asynchronously — the price is recomputed each repaint. */
+  resA?: number; resB?: number; lpSupplyUi?: number;
+}
 
 const KNOWN: Record<string, { symbol: string; logo?: string; iconClass: string; color: string; kind: TokenKind }> = {
   [BRAINS_MINT]: { symbol: 'BRAINS', logo: BRAINS_LOGO, iconClass: 'brains', color: C_ORANGE, kind: 'ecosystem' },
@@ -173,6 +181,9 @@ type Holding = {
   kind?: TokenKind;
   lpInfo?: { pairSymbol: string; rewardSymbol: string };
   listedPrice?: number;
+  /** Unit price computed by us rather than read from the price feed — LP tokens
+   *  have no market price, their value is derived from the pool they represent. */
+  unitUsd?: number;
 };
 
 type RawEntry = { mint: string; balance: number; program: Program; decimals: number };
@@ -757,9 +768,16 @@ export default function V2Portfolio() {
         // build the label from the two underlying mints at RENDER time — meta
         // for those arrives asynchronously and each repaint re-resolves it.
         const label = lp.pair || (lp.mintA && lp.mintB ? `${symbolOf(lp.mintA)}/${symbolOf(lp.mintB)}` : 'LP');
+        // An LP token has no market price. Its worth is its share of the pool:
+        // (netReserveA x priceA + netReserveB x priceB) / lpSupply.
+        const derived =
+          lp.resA != null && lp.resB != null && lp.lpSupplyUi
+            ? (lp.resA * (priceMap[lp.mintA!] || 0) + lp.resB * (priceMap[lp.mintB!] || 0)) / lp.lpSupplyUi
+            : 0;
+        const unit = derived > 0 ? derived : lp.lpPriceUsd;
         return {
           symbol: label, mint: r.mint, balance: r.balance,
-          usd: r.balance * lp.lpPriceUsd,
+          usd: r.balance * unit, unitUsd: unit > 0 ? unit : undefined,
           iconClass: lp.reward === 'BRAINS' ? 'brains' : 'lb',
           color: C_SILVER,
           program: r.program, category: 'lp', decimals: r.decimals,
@@ -832,7 +850,7 @@ export default function V2Portfolio() {
         // LP tokens from the Brains LP Pairing marketplace. Without this they
         // land in "SPL · Token-2022 Tokens" as an unnamed mint, because an LP
         // mint has no metadata to resolve. Farm entries win — they carry a price.
-        fetchPairingLpMints().then(pairs => {
+        fetchPairingLpMints().then(async pairs => {
           if (!alive) return;
           let added = false;
           for (const p of pairs) {
@@ -841,6 +859,30 @@ export default function V2Portfolio() {
             added = true;
           }
           if (added) repaint();
+
+          // Value only the pools this wallet actually holds LP for — there are
+          // 10 pools and reading every one's vaults would be wasted RPC.
+          const held = new Set(raw.map(x => x.mint));
+          for (const p of pairs.filter(x => held.has(x.lpMint))) {
+            const meta = await fetchXdexPoolState(connection, p.poolAddress).catch(() => null);
+            if (!alive || !meta) continue;
+            const e = lpMap.get(p.lpMint);
+            const supply = Number(meta.lpSupply) / 10 ** meta.lpDecimals;
+            if (!e || supply <= 0) continue;
+            const sub = (v: bigint, f: bigint) => (v > f ? v - f : 0n);
+            const net0 = Number(sub(meta.vault0, meta.fees0)) / 10 ** meta.dec0;
+            const net1 = Number(sub(meta.vault1, meta.fees1)) / 10 ** meta.dec1;
+            // The pairing record's A/B order is not guaranteed to match the
+            // pool's token0/token1 order — match by mint, never by position.
+            const aIsToken0 = meta.token0Mint === e.mintA;
+            lpMap.set(p.lpMint, {
+              ...e,
+              resA: aIsToken0 ? net0 : net1,
+              resB: aIsToken0 ? net1 : net0,
+              lpSupplyUi: supply,
+            });
+            repaint();
+          }
         }).catch(() => {});
 
         const owner = activeKey.toBase58();
@@ -1348,7 +1390,7 @@ export default function V2Portfolio() {
                 </div>
 
                 {(expandedGroups[g.key] ? g.rows : g.rows.slice(0, GROUP_PREVIEW)).map(h => {
-                  const price = prices[h.mint] || 0;
+                  const price = h.unitUsd ?? prices[h.mint] ?? 0;
                   const series = mintSeries.get(h.mint);
                   const spark = sparkPts(series);
                   const sparkUp = series && series.length >= 2 ? series[series.length - 1] >= series[0] : true;

@@ -798,18 +798,19 @@ export interface PairingPool {
  * are seeded, so reusing the filtered call would leave most LP holders staring
  * at an unnamed mint.
  */
-export async function fetchPairingLpMints(): Promise<Array<{ lpMint: string; tokenA: string; tokenB: string }>> {
+export async function fetchPairingLpMints(): Promise<Array<{ lpMint: string; tokenA: string; tokenB: string; poolAddress: string }>> {
   try {
     const conn = new Connection(RPC, 'confirmed');
     const records = await conn.getProgramAccounts(new PublicKey(PROGRAM_ID), { filters: [{ dataSize: 282 }] });
-    const out: Array<{ lpMint: string; tokenA: string; tokenB: string }> = [];
+    const out: Array<{ lpMint: string; tokenA: string; tokenB: string; poolAddress: string }> = [];
     for (const { account } of records) {
       const d = account.data;
       try {
         out.push({
-          lpMint: new PublicKey(d.subarray(40, 72)).toBase58(),
-          tokenA: new PublicKey(d.subarray(72, 104)).toBase58(),
-          tokenB: new PublicKey(d.subarray(104, 136)).toBase58(),
+          poolAddress: new PublicKey(d.subarray(8, 40)).toBase58(),
+          lpMint:      new PublicKey(d.subarray(40, 72)).toBase58(),
+          tokenA:      new PublicKey(d.subarray(72, 104)).toBase58(),
+          tokenB:      new PublicKey(d.subarray(104, 136)).toBase58(),
         });
       } catch { /* skip malformed */ }
     }

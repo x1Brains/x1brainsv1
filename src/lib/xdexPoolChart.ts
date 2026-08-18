@@ -37,6 +37,12 @@ export interface XdexPoolMeta {
   vault0:      bigint;
   /** Live vault1 balance (raw u64). 0 if not loaded. */
   vault1:      bigint;
+  /** protocol_fees + fund_fees for each side (raw u64). These sit INSIDE the
+   *  vault but are owed to the protocol, not to LPs — subtract them before
+   *  valuing an LP position. On the live AGI/BRAINS pool they are 5.7% of
+   *  vault0, so ignoring them overstates LP value by ~3.5%. */
+  fees0:       bigint;
+  fees1:       bigint;
 }
 
 type PoolMeta = XdexPoolMeta;
@@ -71,6 +77,8 @@ function parsePoolMeta(data: Uint8Array | null): PoolMeta | null {
       dec0:        data[D + 323],
       dec1:        data[D + 324],
       lpSupply:    readU64(data, D + 325),
+      fees0:       readU64(data, D + 333) + readU64(data, D + 349),
+      fees1:       readU64(data, D + 341) + readU64(data, D + 357),
       vault0:      0n,
       vault1:      0n,
     };
