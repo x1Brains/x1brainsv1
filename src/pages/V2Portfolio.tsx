@@ -945,12 +945,13 @@ export default function V2Portfolio() {
   const [revealing, setRevealing] = useState<string | null>(null);
   /** What the wallet is asking for right now, so a bare signature prompt is not a mystery. */
   const [keyNote, setKeyNote] = useState<{ mint: string; text: string } | null>(null);
-  const keyStepNote = (mint: string) => (step: 'standard' | 'legacy') => setKeyNote({
-    mint,
-    text: step === 'standard'
-      ? 'Sign the two key messages — this derives your private key in the browser. It is not a transaction and moves nothing.'
-      : 'This account was enabled before we adopted the spl-token standard, so it needs one extra signature with the older message. Only this account, only once.',
-  });
+  const KEY_STEP_TEXT: Record<string, string> = {
+    hkdf:   'Sign once to derive your private key in the browser. Not a transaction — it moves nothing.',
+    sha3:   'This account uses the spl-token CLI\u2019s older scheme, which signs two messages. Once per session, for every token you hold.',
+    legacy: 'This account predates the standard, so it needs its own older message. One signature, and we remember it for next time.',
+  };
+  const keyStepNote = (mint: string) => (step: string) =>
+    setKeyNote({ mint, text: KEY_STEP_TEXT[step] ?? 'Sign to derive your private key\u2026' });
   const [revealErr, setRevealErr] = useState<Record<string, string>>({});
 
   /**

@@ -22,6 +22,7 @@ import { Buffer } from 'buffer';   // web3.js types TransactionInstruction.data 
 import { ed25519, RistrettoPoint } from '@noble/curves/ed25519';
 import { sha512, sha256 } from '@noble/hashes/sha2';
 import { sha3_512 } from '@noble/hashes/sha3';
+import { hkdf } from '@noble/hashes/hkdf';
 
 export const ZK_ELGAMAL_PROOF_PROGRAM = new PublicKey('ZkE1Gama1Proof11111111111111111111111111111');
 
@@ -167,7 +168,42 @@ function keysFrom(zk: any, elgamalSig: Uint8Array, aeSig: Uint8Array, legacy: bo
 }
 
 /**
- * Derive this wallet's confidential keys the standard way.
+ * solana-conf-bal/v1 — the current standard, and ONE signature for both keys.
+ *
+ * zk-sdk 7 replaced the two-message SHA3 scheme with a single HKDF-SHA512
+ * chain, explicitly so that a wallet-adapter flow signs once:
+ *
+ *   prk        = HKDF-Extract(salt = "solana-conf-bal/v1", ikm = signature)
+ *   ae_key     = HKDF-Expand(prk, "ae",      16)
+ *   elgamal_sk = wide_reduce(HKDF-Expand(prk, "elgamal", 64))
+ *
+ * The signed message is the salt followed by the public seed, and the seed is
+ * empty here for the same reason as the older scheme: one key per wallet
+ * rather than one per token account.
+ *
+ * Used for every account this app configures from now on. The spl-token CLI we
+ * run locally is 5.5 and predates it, so it cannot read these — the older
+ * scheme stays supported for reading, which is what the treasury needs.
+ */
+const HKDF_SALT = new TextEncoder().encode('solana-conf-bal/v1');
+const HKDF_INFO_AE = new TextEncoder().encode('ae');
+const HKDF_INFO_ELGAMAL = new TextEncoder().encode('elgamal');
+
+export async function deriveKeysHkdf(signMessage: SignMessage): Promise<ConfidentialKeys> {
+  const zk = await loadZk();
+  const sig = await signMessage(HKDF_SALT);          // salt || empty public seed
+  const elgamal = zk.ElGamalKeypair.fromSecretKey(zk.ElGamalSecretKey.fromBytes(
+    scalarFromWide(hkdf(sha512, sig, HKDF_SALT, HKDF_INFO_ELGAMAL, 64)),
+  ));
+  const ae = zk.AeKey.fromBytes(hkdf(sha512, sig, HKDF_SALT, HKDF_INFO_AE, 16));
+  return {
+    elgamal, ae,
+    elgamalPubkeyB64: btoa(String.fromCharCode(...elgamal.pubkey().toBytes())),
+  };
+}
+
+/**
+ * Derive this wallet's confidential keys the older standard way.
  *
  * Two signatures because the scheme signs a different message per key. They are
  * per wallet, so this happens once no matter how many private tokens are held.
@@ -277,7 +313,10 @@ export async function buildConfigureAccountTx(
   connection: Connection, mint: PublicKey, tokenAccount: PublicKey,
   authority: PublicKey, signMessage: SignMessage,
 ): Promise<Transaction> {
-  const keys = await deriveKeys(signMessage);
+  // hkdf, not the two-message scheme: this account is being created right now,
+  // so nothing constrains which standard it adopts, and the current one costs
+  // the user a single signature.
+  const keys = await deriveKeysHkdf(signMessage);
   const tx = new Transaction().add(...await buildConfigureAccountIxs(mint, tokenAccount, authority, keys));
   tx.feePayer = authority;
   tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
@@ -301,53 +340,89 @@ export async function isConfigured(connection: Connection, tokenAccount: PublicK
  */
 const _keyCache = new Map<string, ConfidentialKeys>();
 
+export type Scheme = 'hkdf' | 'sha3' | 'legacy';
+
+/**
+ * Which scheme last opened a given account.
+ *
+ * Only the NAME is stored, never key material — knowing an account uses
+ * "sha3" tells an attacker nothing they could not read off the chain. That is
+ * what makes it safe to persist, and persisting it is the whole point: without
+ * it every session re-discovers the scheme by deriving the wrong one first,
+ * and each wrong guess costs the user a signature prompt for nothing.
+ */
+const schemeHintKey = (wallet: PublicKey, account: PublicKey) =>
+  `x1b.cfd.scheme.${wallet.toBase58()}.${account.toBase58()}`;
+
+const readHint = (wallet: PublicKey, account: PublicKey): Scheme | null => {
+  try {
+    const v = localStorage.getItem(schemeHintKey(wallet, account));
+    return v === 'hkdf' || v === 'sha3' || v === 'legacy' ? v : null;
+  } catch { return null; }
+};
+const writeHint = (wallet: PublicKey, account: PublicKey, scheme: Scheme) => {
+  try { localStorage.setItem(schemeHintKey(wallet, account), scheme); } catch { /* private mode */ }
+};
+
 /**
  * The keys that actually open this account, cached for the session.
  *
- * Tries the standard derivation first and checks the result against the
- * account's published `elgamalPubkey` BEFORE trusting it — a wrong key is not
- * an error, it is a valid key for a different account, so it would otherwise
- * decrypt to nonsense or fail deep inside a proof. Only if that misses does it
- * ask for the legacy signature, which is why accounts configured by this app
- * before the schemes were unified still cost two extra signatures and nothing
- * else does.
+ * Every candidate is checked against the account's published `elgamalPubkey`
+ * BEFORE being trusted. A wrong key is not an error — it is a valid key for a
+ * different account — so without that check it would decrypt to nonsense or
+ * fail deep inside a proof.
  *
- * Returns null when neither fits: the account belongs to some third
+ * Order matters because each miss costs a wallet prompt. A remembered scheme is
+ * tried first, so a returning user pays exactly what their account needs: one
+ * signature for hkdf or legacy, two for sha3 (that scheme signs twice by
+ * design). Only a first encounter can cost a wasted prompt.
+ *
+ * Returns null when nothing fits: the account belongs to a third
  * implementation and cannot be opened from here.
  */
 export async function getSessionKeys(
   connection: Connection, tokenAccount: PublicKey, wallet: PublicKey, signMessage: SignMessage,
   /** Fires before each signature so the UI can say what is being asked for. */
-  onStep?: (step: 'standard' | 'legacy') => void,
+  onStep?: (step: Scheme) => void,
 ): Promise<ConfidentialKeys | null> {
-  const onChain = await (async () => {
-    const ai = await connection.getParsedAccountInfo(tokenAccount);
-    return ((ai.value as any)?.data?.parsed?.info?.extensions ?? [])
-      .find((e: any) => e.extension === 'confidentialTransferAccount')?.state?.elgamalPubkey as string | undefined;
-  })();
+  const ai = await connection.getParsedAccountInfo(tokenAccount);
+  const onChain: string | undefined = ((ai.value as any)?.data?.parsed?.info?.extensions ?? [])
+    .find((e: any) => e.extension === 'confidentialTransferAccount')?.state?.elgamalPubkey;
 
-  // Standard keys are per WALLET, so one derivation serves every token it holds.
-  const walletKey = `std:${wallet.toBase58()}`;
-  let std = _keyCache.get(walletKey);
-  if (!std) {
-    onStep?.('standard');
-    std = await deriveKeys(signMessage);
-    _keyCache.set(walletKey, std);
-  }
-  // No extension yet (a fresh ENABLE) — the standard keys are the right ones.
-  if (!onChain || std.elgamalPubkeyB64 === onChain) return std;
+  // hkdf and sha3 are per WALLET, so one derivation serves every token it holds;
+  // legacy predates that and is per account.
+  const cacheKey = (sch: Scheme) => sch === 'legacy'
+    ? `legacy:${wallet.toBase58()}:${tokenAccount.toBase58()}`
+    : `${sch}:${wallet.toBase58()}`;
 
-  // The WALLET belongs in this key, not just the account. Without it a second
-  // wallet looking at the same account picks up the first one's cached key and
-  // the pubkey check passes on a key it never derived.
-  const legacyKey = `legacy:${wallet.toBase58()}:${tokenAccount.toBase58()}`;
-  let legacy = _keyCache.get(legacyKey);
-  if (!legacy) {
-    onStep?.('legacy');
-    legacy = await deriveLegacyKeys(tokenAccount, signMessage);
-    _keyCache.set(legacyKey, legacy);
+  const derive = async (sch: Scheme): Promise<ConfidentialKeys> => {
+    const hit = _keyCache.get(cacheKey(sch));
+    if (hit) return hit;
+    onStep?.(sch);
+    const keys = sch === 'hkdf' ? await deriveKeysHkdf(signMessage)
+               : sch === 'sha3' ? await deriveKeys(signMessage)
+               : await deriveLegacyKeys(tokenAccount, signMessage);
+    _keyCache.set(cacheKey(sch), keys);
+    return keys;
+  };
+
+  // A fresh account has no extension to match against, so it is whatever we are
+  // configuring it as — which is the current standard.
+  if (!onChain) return derive('hkdf');
+
+  const hint = readHint(wallet, tokenAccount);
+  const order: Scheme[] = hint
+    ? [hint, ...(['hkdf', 'sha3', 'legacy'] as Scheme[]).filter(x => x !== hint)]
+    : ['hkdf', 'sha3', 'legacy'];
+
+  for (const sch of order) {
+    const keys = await derive(sch);
+    if (keys.elgamalPubkeyB64 === onChain) {
+      writeHint(wallet, tokenAccount, sch);
+      return keys;
+    }
   }
-  return legacy.elgamalPubkeyB64 === onChain ? legacy : null;
+  return null;
 }
 
 /** Drop every cached key — call on wallet disconnect. */

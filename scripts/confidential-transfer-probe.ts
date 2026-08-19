@@ -27,12 +27,20 @@ import {
 } from '@solana/spl-token';
 import nacl from 'tweetnacl';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
+
+/** The scheme hint lives in localStorage; node has none, so stand one up. */
+const _ls = new Map<string, string>();
+(globalThis as any).localStorage = {
+  getItem: (k: string) => _ls.get(k) ?? null,
+  setItem: (k: string, v: string) => { _ls.set(k, v); },
+  removeItem: (k: string) => { _ls.delete(k); },
+};
 import { homedir } from 'os';
 import * as zkNode from '@solana/zk-sdk/node';
 import {
   provideZk, deriveKeys, buildConfigureAccountIxs, buildDepositIx,
   buildApplyPendingBalanceTx, readConfidentialBalances, planConfidentialTransfer, ataFor,
-  isConfigured, getSessionKeys,
+  isConfigured, getSessionKeys, clearSessionKeys, buildConfigureAccountIxs as _cfg,
 } from '../src/lib/confidential';
 
 const RPC = 'https://rpc.mainnet.x1.xyz';
@@ -174,6 +182,77 @@ async function main() {
     : fail('a stranger derived a key for someone else\u2019s account');
 }
 
+async function signatureCost() {
+  const c = new Connection(RPC, 'confirmed');
+  head('how many signature prompts does opening an account actually cost?');
+
+  /** Wraps a signer so every prompt is counted. */
+  const counting = (kp: Keypair) => {
+    const seen: string[] = [];
+    const fn = async (m: Uint8Array) => {
+      const t = new TextDecoder().decode(m);
+      seen.push(t.startsWith('x1brains') ? 'legacy' : t);
+      return nacl.sign.detached(m, kp.secretKey);
+    };
+    return { fn, seen };
+  };
+
+  // A legacy account, first ever encounter: nothing remembered, so the two
+  // standard schemes are tried and missed before the right one.
+  const S = load(`${process.env.PROBE_DIR ?? '/tmp'}/x1-probe-sender.json`);
+  const srcAta = ataFor(X1B, S.publicKey);
+  _ls.clear(); clearSessionKeys();
+  const cold = counting(S);
+  const k1 = await getSessionKeys(c, srcAta, S.publicKey, cold.fn);
+  k1 ? ok(`cold : ${cold.seen.length} prompts  [${cold.seen.join(', ')}]`)
+     : fail('cold open failed');
+
+  // Same account, new session: the hint survives, so it goes straight there.
+  clearSessionKeys();
+  const warm = counting(S);
+  const k2 = await getSessionKeys(c, srcAta, S.publicKey, warm.fn);
+  if (!k2) return fail('warm open failed');
+  k2.elgamalPubkeyB64 === k1!.elgamalPubkeyB64
+    ? ok(`warm : ${warm.seen.length} prompt${warm.seen.length === 1 ? '' : 's'}   [${warm.seen.join(', ')}]  same key`)
+    : fail('warm open produced a DIFFERENT key');
+  warm.seen.length === 1 ? ok('hint cut it to a single signature')
+                         : fail(`expected 1 prompt with a hint, got ${warm.seen.length}`);
+
+  // Second token, same wallet, same session: per-wallet keys mean no prompt.
+  const quiet = counting(S);
+  await getSessionKeys(c, srcAta, S.publicKey, quiet.fn);
+  quiet.seen.length === 0 ? ok('cached : 0 prompts for further tokens this session')
+                          : fail(`expected 0 prompts, got ${quiet.seen.length}`);
+}
+
+async function hkdfRoundTrip() {
+  const c = new Connection(RPC, 'confirmed');
+  head('a NEW account: one signature, and it reads back');
+  const funder = load(`${homedir()}/.x1-token-keys/x1b-mint.json`);
+  const W = Keypair.generate();
+  await sendAndConfirmTransaction(c, new Transaction().add(
+    SystemProgram.transfer({ fromPubkey: funder.publicKey, toPubkey: W.publicKey, lamports: 25_000_000 }),
+  ), [funder], { commitment: 'confirmed' });
+
+  const ata = ataFor(X1B, W.publicKey);
+  const seen: string[] = [];
+  const sign = async (m: Uint8Array) => { seen.push(new TextDecoder().decode(m)); return nacl.sign.detached(m, W.secretKey); };
+
+  const keys = (await getSessionKeys(c, ata, W.publicKey, sign))!;
+  await sendAndConfirmTransaction(c, new Transaction().add(
+    ...await _cfg(X1B, ata, W.publicKey, keys)), [W], { commitment: 'confirmed' });
+  seen.length === 1 ? ok(`configured after ${seen.length} signature  ["${seen[0]}"]`)
+                    : fail(`expected 1 signature, got ${seen.length}: ${seen.join(', ')}`);
+
+  clearSessionKeys();
+  const seen2: string[] = [];
+  const reopened = await getSessionKeys(c, ata, W.publicKey,
+    async (m: Uint8Array) => { seen2.push('sig'); return nacl.sign.detached(m, W.secretKey); });
+  reopened && (await readConfidentialBalances(c, ata, reopened))
+    ? ok(`reopened with ${seen2.length} signature and decrypts`)
+    : fail('could not reopen the account it just configured');
+}
+
 async function crossCheck() {
   const c = new Connection(RPC, 'confirmed');
   head('read accounts the spl-token CLI configured, through the shipped code');
@@ -193,4 +272,4 @@ async function crossCheck() {
   }
 }
 
-main().then(crossCheck).catch(e => { console.error('\n\x1b[31m' + (e?.stack ?? e) + '\x1b[0m'); process.exit(1); });
+main().then(crossCheck).then(signatureCost).then(hkdfRoundTrip).catch(e => { console.error('\n\x1b[31m' + (e?.stack ?? e) + '\x1b[0m'); process.exit(1); });
