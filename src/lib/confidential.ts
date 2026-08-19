@@ -15,6 +15,7 @@ import {
 } from '@solana/web3.js';
 import {
   TOKEN_2022_PROGRAM_ID, ExtensionType, createReallocateInstruction,
+  createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
 import { Buffer } from 'buffer';   // web3.js types TransactionInstruction.data as Buffer
 import { ed25519 } from '@noble/curves/ed25519';
@@ -158,6 +159,14 @@ export async function buildConfigureAccountIxs(
   dv.setInt8(46, 1);                                                   // proof is the NEXT instruction
 
   return [
+    // Idempotent on purpose: a holder may not have an account for this mint at
+    // all. Creating it here means ENABLE is one click from a standing start
+    // instead of failing on an account that was never opened — and if the
+    // account already exists this is a no-op rather than an error. A fresh ATA
+    // is still only 170 bytes, so the reallocate below is needed either way.
+    createAssociatedTokenAccountIdempotentInstruction(
+      authority, tokenAccount, authority, mint, TOKEN_2022_PROGRAM_ID,
+    ),
     createReallocateInstruction(
       tokenAccount, authority, [ExtensionType.ConfidentialTransferAccount], authority,
       [], TOKEN_2022_PROGRAM_ID,
@@ -186,7 +195,14 @@ export async function buildConfigureAccountIxs(
   ];
 }
 
-/** Ready-to-sign transaction that opts `tokenAccount` into confidential transfers. */
+/** The associated token account this wallet uses for a Token-2022 mint. */
+export const ataFor = (mint: PublicKey, owner: PublicKey) =>
+  getAssociatedTokenAddressSync(mint, owner, false, TOKEN_2022_PROGRAM_ID);
+
+/**
+ * Ready-to-sign transaction that opts a wallet into confidential transfers for
+ * one mint — creating the token account first if it does not exist yet.
+ */
 export async function buildConfigureAccountTx(
   connection: Connection, mint: PublicKey, tokenAccount: PublicKey,
   authority: PublicKey, signMessage: SignMessage,

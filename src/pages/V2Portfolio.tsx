@@ -283,7 +283,12 @@ async function fetchTokenBalances(
     if (!info?.mint) return;
     const ext = readExt(info);
     const bal = info?.tokenAmount?.uiAmount ?? 0;
-    if (bal <= 0 && !ext.confidential) return;
+    // Keep zero-balance Token-2022 accounts for now. A confidential-capable
+    // token you cannot hold yet reads as balance 0, and dropping it created a
+    // deadlock: no row -> no ENABLE button -> never configured -> can never
+    // receive it -> balance stays 0. Non-confidential zero rows are filtered
+    // out below, once the mint check has told us which is which.
+    if (bal <= 0 && !ext.confidential && program !== 't22') return;
     raw.push({
       mint: info.mint, balance: bal, program,
       decimals: info.tokenAmount?.decimals ?? 0,
@@ -313,6 +318,13 @@ async function fetchTokenBalances(
       for (const r of raw) {
         if (supports.has(r.mint)) r.mintConfidential = true;
         if (fully.has(r.mint))    r.mintFullyPrivate = true;
+      }
+      // Now drop the empty rows we kept provisionally: an empty account for an
+      // ordinary token is just dust, but an empty account for a CONFIDENTIAL
+      // mint is the one you need to see in order to enable it.
+      for (let i = raw.length - 1; i >= 0; i--) {
+        const r = raw[i];
+        if (r.balance <= 0 && !r.confidential && !r.mintConfidential) raw.splice(i, 1);
       }
     } catch { /* capability badge is cosmetic — never fail the portfolio for it */ }
   }
