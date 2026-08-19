@@ -445,6 +445,9 @@ function injectPortfolioStyles() {
   .pfx-send{font-family:'Sora';font-weight:600;font-size:11.5px;border:1px solid var(--line);background:transparent;color:var(--muted);padding:7px 0;width:100%;border-radius:8px;cursor:pointer;transition:.13s}
   .pfx-send:hover{border-color:var(--o);color:var(--o);background:rgba(242,144,48,.06)}
 
+  .pfx-bal-inline{display:none;font-size:11.5px;color:var(--txt);margin-top:3px;letter-spacing:.2px}
+  .pfx-bal-inline .u{color:var(--muted);font-size:10.5px}
+
   .pfx-place{padding:40px 16px;text-align:center}
   .pfx-place .glyph{font-size:30px;color:var(--o);margin-bottom:10px}
   .pfx-place .sub{color:var(--muted);font-size:13px}
@@ -590,6 +593,7 @@ function injectPortfolioStyles() {
     .pfx-grid,.pfx-grid2{grid-template-columns:1fr}
     .pfx-row{grid-template-columns:36px 1fr auto}
     .pfx-cell-spark,.pfx-cell-price,.pfx-cell-bal{display:none}
+    .pfx-bal-inline{display:block}
   }
   `;
   document.head.appendChild(s);
@@ -1462,6 +1466,12 @@ export default function V2Portfolio() {
                             <span className="prog">{h.program === 't22' ? 'TOKEN-2022' : 'SPL'}</span>·
                             <span className="mint" title={h.mint}>{shortAddr(h.mint, 4, 4)}</span>
                             <CopyButton value={h.mint} title={`Copy ${h.symbol} address`} />
+                          </div>
+                          {/* Below 1000px the BALANCE column is hidden to fit the row, which
+                              left "how many do I hold?" answerable only by opening SEND.
+                              Same number, surfaced inline instead of as a column. */}
+                          <div className="pfx-bal-inline num">
+                            {fmtNum(h.balance, h.balance < 1 ? 4 : 2)} <span className="u">{h.symbol}</span>
                           </div>
                         </div>
                         <div className="pfx-cell-spark">

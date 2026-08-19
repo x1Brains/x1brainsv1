@@ -1014,6 +1014,14 @@ Long wallets ran forever, worst on mobile.
   list is the table directly below. Subtitle reads `top 10 of N` when rows are dropped; a
   truncated list still labelled "ranked" is a lie.
 
+**⛔ The BALANCE column was hidden below 1000px.** `@media(max-width:1000px)` set
+`.pfx-cell-spark,.pfx-cell-price,.pfx-cell-bal{display:none}` to fit the row, which left
+"how many of this token do I hold?" answerable **only by opening the SEND panel** — on a
+phone *and* on a merely narrow desktop window, since 1000px is not a mobile-only breakpoint.
+The amount is now also rendered inline under the mint (`.pfx-bal-inline`), hidden by default
+and shown exactly where the column is not, so full width never shows it twice. Verified at
+1400 / 900 / 390px: column-only, inline-only, inline-only, no horizontal overflow.
+
 ### 16.4 ⭐⭐⭐ Metadata lookups were capped at 30 items per wallet
 
 The biggest bug of the session. `needMeta` did `.slice(0, 30)`. A wallet holding
