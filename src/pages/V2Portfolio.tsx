@@ -547,6 +547,12 @@ function injectPortfolioStyles() {
   .pfx-send{font-family:'Sora';font-weight:600;font-size:11.5px;border:1px solid var(--line);background:transparent;color:var(--muted);padding:7px 0;width:100%;border-radius:8px;cursor:pointer;transition:.13s}
   .pfx-send:hover{border-color:var(--o);color:var(--o);background:rgba(242,144,48,.06)}
 
+  .pfx-send.enable-private{border-color:rgba(0,201,141,.32);color:var(--g)}
+  .pfx-send.enable-private:hover{border-color:var(--g);background:rgba(0,201,141,.08)}
+  .pfx-send.enable-private:disabled{opacity:.5;cursor:default}
+  .pfx-enable-msg{font-size:11px;color:var(--g);padding:6px 18px 10px;margin-top:-4px}
+  .pfx-enable-msg.bad{color:#ff4466}
+
   .pfx-bal-inline{display:none;font-size:11.5px;color:var(--txt);margin-top:3px;letter-spacing:.2px}
   .pfx-bal-inline .u{color:var(--muted);font-size:10.5px}
 
@@ -740,7 +746,7 @@ export default function V2Portfolio() {
   useEffect(() => { injectPortfolioStyles(); primeFromIndexer(); }, []);
 
   const { connection } = useConnection();
-  const { publicKey, connected, signTransaction, signAllTransactions } = useWallet();
+  const { publicKey, connected, signTransaction, signAllTransactions, signMessage } = useWallet();
   // Memoized so the per-second clock re-render doesn't hand SendPanel a new
   // wallet object every tick (which would re-run its effects mid-send).
   const wallet = useMemo(
@@ -763,6 +769,57 @@ export default function V2Portfolio() {
   const [savedAddresses,  setSavedAddresses]  = useState<SavedAddress[]>([]);
   const [snapStatus,      setSnapStatus]      = useState<'' | 'saving' | 'saved' | 'error'>('');
   const [shareOpen,       setShareOpen]       = useState(false);
+  /** mint currently being opted into confidential transfers, and its status line. */
+  const [enabling,  setEnabling]  = useState<string | null>(null);
+  const [enableMsg, setEnableMsg] = useState<{ mint: string; text: string; bad?: boolean } | null>(null);
+
+  /**
+   * Opt this wallet's token account into Token-2022 confidential transfers.
+   *
+   * Only ever for the CONNECTED wallet: ConfigureAccount must be signed by the
+   * account owner, so there is deliberately no path to do this on someone
+   * else's behalf — which is also why the button is hidden in watch mode.
+   *
+   * The ~2.6 MB proof WASM is imported inside the handler, so it is fetched on
+   * the first click and never for anyone who does not use this.
+   */
+  const handleEnablePrivate = async (mint: string) => {
+    if (!publicKey || !signMessage || !signTransaction) {
+      setEnableMsg({ mint, text: 'Wallet cannot sign messages — try Backpack or Phantom.', bad: true });
+      return;
+    }
+    setEnabling(mint);
+    try {
+      const [{ buildConfigureAccountTx }, { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID }] =
+        await Promise.all([import('../lib/confidential'), import('@solana/spl-token')]);
+      const mintPk = new PublicKey(mint);
+      const ata = getAssociatedTokenAddressSync(mintPk, publicKey, false, TOKEN_2022_PROGRAM_ID);
+
+      setEnableMsg({ mint, text: 'Sign to derive your private key…' });
+      const tx = await buildConfigureAccountTx(connection, mintPk, ata, publicKey, signMessage);
+
+      setEnableMsg({ mint, text: 'Approve the transaction…' });
+      const signed = await signTransaction(tx);
+      const sig = await connection.sendRawTransaction(signed.serialize(),
+        { skipPreflight: false, preflightCommitment: 'confirmed' });
+
+      setEnableMsg({ mint, text: 'Confirming…' });
+      for (let i = 0; i < 30; i++) {
+        const st = (await connection.getSignatureStatuses([sig]))?.value?.[0];
+        if (st?.err) throw new Error('Transaction failed on chain');
+        if (st?.confirmationStatus === 'confirmed' || st?.confirmationStatus === 'finalized') break;
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      setEnableMsg({ mint, text: 'Private balance enabled ✓' });
+      setReloadNonce(n => n + 1);
+    } catch (e: any) {
+      const m = String(e?.message ?? e);
+      setEnableMsg({ mint, bad: true,
+        text: /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 120) });
+    } finally {
+      setEnabling(null);
+    }
+  };
 
   // ── WATCH MODE — view any wallet without connecting ──────────────────────────
   // Ported from the v1 Portfolio (src/pages/Portfolio.tsx). While `isWatching`
@@ -1630,10 +1687,24 @@ export default function V2Portfolio() {
                           <div className="c-lab">Value</div>
                           <div className={`num pfx-usd ${h.usd && h.usd > 0 ? '' : 'zero'}`}>{h.usd && h.usd > 0 ? fmtUSD(h.usd) : '—'}</div>
                         </div>
-                        {!isReadOnly && wallet && h.balance > 0
+                        {/* Enabling is only possible for the CONNECTED wallet —
+                            ConfigureAccount must be signed by the account owner,
+                            so this is deliberately absent in watch mode. */}
+                        {!isReadOnly && wallet && (h.mintConfidential || h.mintFullyPrivate) && !h.confidential
+                          ? <button
+                              type="button"
+                              className="pfx-send enable-private"
+                              disabled={enabling === h.mint}
+                              title="Register an encryption key on this account so it can hold a private balance. One signature, one transaction."
+                              onClick={() => handleEnablePrivate(h.mint)}
+                            >{enabling === h.mint ? '· · ·' : '🔓 ENABLE'}</button>
+                          : !isReadOnly && wallet && h.balance > 0
                           ? <button type="button" className="pfx-send" onClick={() => setActiveSendMint(m => m === h.mint ? null : h.mint)}>{isActive ? '✕ CLOSE' : 'SEND'}</button>
                           : <span />}
                       </div>
+                      {enableMsg?.mint === h.mint && (
+                        <div className={`pfx-enable-msg${enableMsg.bad ? ' bad' : ''}`}>{enableMsg.text}</div>
+                      )}
                       {isActive && !isReadOnly && wallet && (
                         <div style={{ marginBottom: 8 }}>
                           <SendPanel
