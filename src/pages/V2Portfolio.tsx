@@ -757,6 +757,13 @@ function injectPortfolioStyles() {
     background:#070b11;border:1px solid var(--line2)}
   .pfx-find-logo.ph{display:flex;align-items:center;justify-content:center;
     font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;color:var(--muted)}
+  .pfx-find-note{flex:1 0 100%;margin-top:2px;padding:8px 11px;border-radius:8px;
+    font-size:11px;line-height:1.5;color:var(--muted);
+    background:#070b11;border:1px solid var(--line)}
+  .pfx-find-note b{color:var(--muted);font-weight:700}
+  .pfx-find-note.required{color:#e0c9a0;background:rgba(242,144,48,.07);
+    border-color:rgba(242,144,48,.28)}
+  .pfx-find-note.required b{color:var(--o)}
   .pfx-find-id .sym{display:flex;align-items:center;gap:8px;font-family:'Orbitron',sans-serif;
     font-weight:700;font-size:13px;letter-spacing:.6px}
   .pfx-find-id .sub{font-size:11px;color:var(--muted);margin-top:4px}
@@ -2106,6 +2113,20 @@ export default function V2Portfolio() {
                     onClick={() => handleEnablePrivate(found.mint)}
                   >{enabling === found.mint ? '· · ·'
                     : found.hasAccount ? '🔓 ENABLE' : '🔓 CREATE + ENABLE'}</button>
+                )}
+                {/* The stakes differ completely by type, and nothing else on
+                    screen says so. On a CT token this is a convenience. On a
+                    CMB token it is the only way tokens can ever reach you —
+                    there is no public side, so nobody can send you any until
+                    your key is on chain, and they cannot do it on your behalf. */}
+                {!found.configured && (
+                  <div className={`pfx-find-note${found.fully ? ' required' : ''}`}>
+                    {found.fully
+                      ? <><b>Required.</b> Nobody can send you {found.symbol} until this is open —
+                          it has no public side, so there is nowhere else for it to land.</>
+                      : <><b>Optional.</b> You can already receive {found.symbol} publicly.
+                          Open a private balance to receive it privately instead.</>}
+                  </div>
                 )}
               </div>
             )}
