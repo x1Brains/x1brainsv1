@@ -50,6 +50,15 @@ interface LpEntry {
   resA?: number; resB?: number; lpSupplyUi?: number;
 }
 
+/** Shortcuts for the confidential tokens live on X1 today. Deliberately just
+ *  shortcuts — the paste field is the real entry point, because a hardcoded
+ *  list goes stale the moment anyone launches a token we have not heard of. */
+const KNOWN_CONFIDENTIAL = [
+  { label: 'X1B',   mint: '3nkouZp3DvRsD3w8cPVWwGH1CMD9PUyc9CfjonYerBn8' },
+  { label: 'BM',    mint: 'AVEXYesqK3k4JyWaHhjCqaqZvkuMfmYi2JkPT6aCow9e' },
+  { label: 'cUSDC', mint: '9E4UKVfn9HvqnGKsazKc7TQqfYYe5dusPc4Q3u3MMMph' },
+];
+
 const KNOWN: Record<string, { symbol: string; logo?: string; iconClass: string; color: string; kind: TokenKind }> = {
   [BRAINS_MINT]: { symbol: 'BRAINS', logo: BRAINS_LOGO, iconClass: 'brains', color: C_ORANGE, kind: 'ecosystem' },
   [LB_MINT]:     { symbol: 'LB',     logo: LB_LOGO,     iconClass: 'lb',     color: C_PURPLE, kind: 'ecosystem' },
@@ -559,6 +568,37 @@ function injectPortfolioStyles() {
   .pfx-send{font-family:'Sora';font-weight:600;font-size:11.5px;border:1px solid var(--line);background:transparent;color:var(--muted);padding:7px 0;width:100%;border-radius:8px;cursor:pointer;transition:.13s}
   .pfx-send:hover{border-color:var(--o);color:var(--o);background:rgba(242,144,48,.06)}
 
+  .pfx-find{margin-top:14px;align-self:start}
+  .pfx-find-body{padding:0 18px 18px}
+  .pfx-find-form{display:flex;gap:9px}
+  .pfx-find-form input{flex:1;min-width:0;padding:11px 13px;border-radius:10px;box-sizing:border-box;
+    background:#070b11;border:1px solid var(--line);color:var(--txt);
+    font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;outline:none;transition:.15s}
+  .pfx-find-form input:focus{border-color:var(--g);box-shadow:0 0 0 3px rgba(0,201,141,.1)}
+  .pfx-find-form input::placeholder{color:var(--dim)}
+  .pfx-find-form .pfx-btn{white-space:nowrap}
+  .pfx-find-known{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+  .pfx-chip{font-family:'Sora';font-size:10.5px;font-weight:600;letter-spacing:.6px;
+    padding:5px 11px;border-radius:20px;cursor:pointer;transition:.15s;
+    background:#0a0f16;border:1px solid var(--line2);color:var(--muted)}
+  .pfx-chip:hover{border-color:var(--g);color:var(--g)}
+  .pfx-find-err{margin-top:12px;padding:9px 12px;border-radius:8px;font-size:11.5px;
+    color:#ff4466;background:rgba(255,68,102,.07);border:1px solid rgba(255,68,102,.2)}
+  .pfx-find-card{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    margin-top:12px;padding:12px 14px;border-radius:11px;background:#0a0f16;border:1px solid var(--line2)}
+  .pfx-find-card .pfx-find-id{flex:1;min-width:0}
+  .pfx-find-logo{width:34px;height:34px;border-radius:50%;flex:none;object-fit:cover;
+    background:#070b11;border:1px solid var(--line2)}
+  .pfx-find-logo.ph{display:flex;align-items:center;justify-content:center;
+    font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;color:var(--muted)}
+  .pfx-find-id .sym{display:flex;align-items:center;gap:8px;font-family:'Orbitron',sans-serif;
+    font-weight:700;font-size:13px;letter-spacing:.6px}
+  .pfx-find-id .sub{font-size:11px;color:var(--muted);margin-top:4px}
+  @media(max-width:640px){
+    .pfx-find-form{flex-direction:column}
+    .pfx-find-form .pfx-btn{justify-content:center}
+  }
+
   .pfx-send.enable-private{border-color:rgba(0,201,141,.32);color:var(--g)}
   .pfx-send.enable-private:hover{border-color:var(--g);background:rgba(0,201,141,.08)}
   .pfx-send.enable-private:disabled{opacity:.5;cursor:default}
@@ -781,7 +821,16 @@ export default function V2Portfolio() {
   const [savedAddresses,  setSavedAddresses]  = useState<SavedAddress[]>([]);
   const [snapStatus,      setSnapStatus]      = useState<'' | 'saving' | 'saved' | 'error'>('');
   const [shareOpen,       setShareOpen]       = useState(false);
-  /** mint currently being opted into confidential transfers, and its status line. */
+  /** "add a private token" panel: paste a mint, confirm it, enable it. */
+  const [findInput, setFindInput] = useState('');
+  const [finding,   setFinding]   = useState(false);
+  const [found, setFound] = useState<
+    | null
+    | { mint: string; symbol: string; name: string; logo?: string; fully: boolean;
+        hasAccount: boolean; configured: boolean }
+    | { error: string }
+  >(null);
+
   const [enabling,  setEnabling]  = useState<string | null>(null);
   const [enableMsg, setEnableMsg] = useState<{ mint: string; text: string; bad?: boolean } | null>(null);
 
@@ -824,12 +873,81 @@ export default function V2Portfolio() {
       }
       setEnableMsg({ mint, text: 'Private balance enabled ✓' });
       setReloadNonce(n => n + 1);
+      // `found` is its own snapshot taken at CHECK time — the table reload does
+      // not touch it, so flip it by hand or the card keeps offering ENABLE.
+      setFound(f => (f && !('error' in f) && f.mint === mint)
+        ? { ...f, hasAccount: true, configured: true } : f);
     } catch (e: any) {
       const m = String(e?.message ?? e);
       setEnableMsg({ mint, bad: true,
         text: /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 120) });
     } finally {
       setEnabling(null);
+    }
+  };
+
+  /**
+   * Look up a mint by address and report whether it can hold a private balance.
+   *
+   * This exists because the holdings table can only enumerate token accounts
+   * that ALREADY EXIST. A wallet that has never been sent a given token has no
+   * account for it, so it has no row, so there is nothing to click — and for a
+   * ConfidentialMintBurn token nobody can send you one to break the tie,
+   * because the transfer needs a key you have not registered yet. Pasting the
+   * mint is the only way in from a cold start.
+   */
+  const handleFindToken = async (raw: string) => {
+    const addr = raw.trim();
+    if (!addr) return;
+    setFinding(true);
+    setFound(null);
+    try {
+      let mintPk: PublicKey;
+      try { mintPk = new PublicKey(addr); }
+      catch { setFound({ error: 'That is not a valid address.' }); return; }
+
+      const ai = await connection.getParsedAccountInfo(mintPk);
+      const owner = ai.value?.owner?.toBase58();
+      if (!ai.value) { setFound({ error: 'No such account on X1.' }); return; }
+      if (owner !== TOKEN_2022_PROGRAM_ID.toBase58()) {
+        setFound({ error: 'Not a Token-2022 mint — only Token-2022 supports confidential transfers.' });
+        return;
+      }
+      const info: any = (ai.value.data as any)?.parsed?.info;
+      const exts: any[] = info?.extensions ?? [];
+      if (!exts.some(e => e.extension === 'confidentialTransferMint')) {
+        setFound({ error: 'This token does not support confidential transfers.' });
+        return;
+      }
+      const meta = exts.find(e => e.extension === 'tokenMetadata')?.state;
+
+      let hasAccount = false, configured = false;
+      if (publicKey) {
+        const { ataFor } = await import('../lib/confidential');
+        const acc = await connection.getParsedAccountInfo(ataFor(mintPk, publicKey));
+        hasAccount = !!acc.value;
+        configured = (((acc.value as any)?.data?.parsed?.info?.extensions) ?? [])
+          .some((e: any) => e.extension === 'confidentialTransferAccount');
+      }
+      const m58 = mintPk.toBase58();
+      setFound({
+        mint: m58,
+        symbol: meta?.symbol || shortAddr(m58, 4, 4),
+        name: meta?.name || '',
+        logo: getCachedTokenLogo(m58) ?? undefined,
+        fully: exts.some(e => e.extension === 'confidentialMintBurn'),
+        hasAccount, configured,
+      });
+      // The logo lives in the metadata URI's JSON, not on the mint — fetch it
+      // after showing the card so a slow gateway never delays the answer.
+      fetchTokenMeta(m58).then(tm => {
+        if (!tm?.logo) return;
+        setFound(f => (f && !('error' in f) && f.mint === m58) ? { ...f, logo: tm.logo } : f);
+      }).catch(() => {});
+    } catch (e: any) {
+      setFound({ error: String(e?.message ?? e).slice(0, 120) });
+    } finally {
+      setFinding(false);
     }
   };
 
@@ -1435,6 +1553,81 @@ export default function V2Portfolio() {
         </div></div>
       )}
 
+      {/* ── ADD A PRIVATE TOKEN ──────────────────────────────────────────
+          The holdings table can only list accounts that exist. A wallet
+          that has never received a given token has no row for it, and for a
+          ConfidentialMintBurn token nobody can send you one to create that
+          row, because the transfer needs a key you have not registered yet.
+          Pasting the mint is the only way in from a cold start. */}
+      {!isReadOnly && wallet && !loading && (
+        <div className="pfx-panel pfx-find">
+          <div className="pfx-phead" style={{ padding: '14px 18px 10px' }}>
+            <h3><span className="tk" />Add a private token</h3>
+            <span className="pfx-sub">hold a token privately, even one you've never received</span>
+          </div>
+          <div className="pfx-find-body">
+            <div className="pfx-find-form">
+              <input
+                type="text" value={findInput} spellCheck={false} autoComplete="off"
+                placeholder="Paste a token mint address…"
+                onChange={e => { setFindInput(e.target.value); setFound(null); }}
+                onKeyDown={e => { if (e.key === 'Enter') handleFindToken(findInput); }}
+              />
+              <button type="button" className="pfx-btn primary"
+                disabled={!findInput.trim() || finding}
+                onClick={() => handleFindToken(findInput)}
+              >{finding ? '· · ·' : 'CHECK'}</button>
+            </div>
+
+            <div className="pfx-find-known">
+              {KNOWN_CONFIDENTIAL.map(k => (
+                <button key={k.mint} type="button" className="pfx-chip"
+                  onClick={() => { setFindInput(k.mint); handleFindToken(k.mint); }}
+                >{k.label}</button>
+              ))}
+            </div>
+
+            {found && 'error' in found && <div className="pfx-find-err">{found.error}</div>}
+
+            {found && !('error' in found) && (
+              <div className="pfx-find-card">
+                {found.logo
+                  ? <img className="pfx-find-logo" src={found.logo} alt=""
+                      onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+                  : <div className="pfx-find-logo ph">{found.symbol.slice(0, 2).toUpperCase()}</div>}
+                <div className="pfx-find-id">
+                  <div className="sym">
+                    {found.symbol}
+                    <span className={`pfx-badge ${found.fully ? 'b-p' : 'b-n'}`}>
+                      {found.fully ? '◉◉ FULLY PRIVATE' : '◉ PRIVATE'}
+                    </span>
+                  </div>
+                  <div className="sub num">
+                    {found.name && found.name !== found.symbol ? `${found.name} · ` : ''}
+                    {shortAddr(found.mint, 6, 6)}
+                  </div>
+                </div>
+                {found.configured ? (
+                  <span className="pfx-badge b-g">ALREADY ENABLED</span>
+                ) : (
+                  <button type="button" className="pfx-btn primary"
+                    disabled={enabling === found.mint}
+                    onClick={() => handleEnablePrivate(found.mint)}
+                  >{enabling === found.mint ? '· · ·'
+                    : found.hasAccount ? '🔓 ENABLE' : '🔓 CREATE + ENABLE'}</button>
+                )}
+              </div>
+            )}
+
+            {found && !('error' in found) && enableMsg?.mint === found.mint && (
+              <div className={`pfx-enable-msg${enableMsg.bad ? ' bad' : ''}`} style={{ padding: '8px 0 0' }}>
+                {enableMsg.text}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {hasData && (
         <>
           {/* ── ROW 1: net worth + chart | KPIs ── */}
@@ -1755,6 +1948,7 @@ export default function V2Portfolio() {
               </div>
             ))}
           </div>
+
         </>
       )}
     </div>
