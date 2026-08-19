@@ -635,6 +635,8 @@ function injectPortfolioStyles() {
     padding:5px 11px;border-radius:20px;cursor:pointer;transition:.15s;
     background:#0a0f16;border:1px solid var(--line2);color:var(--muted)}
   .pfx-chip:hover{border-color:var(--g);color:var(--g)}
+  .pfx-chip.on{background:rgba(0,201,141,.15);border-color:var(--g);color:var(--g)}
+  .pfx-priv-modes{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}
   .pfx-find-err{margin-top:12px;padding:9px 12px;border-radius:8px;font-size:11.5px;
     color:#ff4466;background:rgba(255,68,102,.07);border:1px solid rgba(255,68,102,.2)}
   .pfx-find-card{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
@@ -995,6 +997,8 @@ export default function V2Portfolio() {
   const [privTo,   setPrivTo]   = useState('');
   const [privAmt,  setPrivAmt]  = useState('');
   const [privBusy, setPrivBusy] = useState(false);
+  /** Withdraw reuses the amount field but needs no recipient. */
+  const [privMode, setPrivMode] = useState<'send' | 'withdraw'>('send');
   const [privMsg,  setPrivMsg]  = useState<{ text: string; bad?: boolean } | null>(null);
 
   /**
@@ -1006,7 +1010,7 @@ export default function V2Portfolio() {
    * point at it. `signAllTransactions` keeps that to a single approval, and the
    * last transaction closes all three context accounts to refund their rent.
    */
-  const handlePrivateSend = async (mint: string, decimals: number) => {
+  const handlePrivateMove = async (mint: string, decimals: number) => {
     if (!publicKey || !signMessage || !signAllTransactions) {
       setPrivMsg({ text: 'This wallet cannot sign a batch — try Backpack.', bad: true });
       return;
@@ -1014,12 +1018,15 @@ export default function V2Portfolio() {
     setPrivBusy(true);
     setPrivMsg(null);
     try {
-      const { getSessionKeys, planConfidentialTransfer, ataFor } = await import('../lib/confidential');
+      const { getSessionKeys, planConfidentialTransfer, planConfidentialWithdraw, ataFor } =
+        await import('../lib/confidential');
       const mintPk = new PublicKey(mint);
 
-      let toPk: PublicKey;
-      try { toPk = new PublicKey(privTo.trim()); }
-      catch { throw new Error('That recipient address is not valid.'); }
+      let toPk: PublicKey | null = null;
+      if (privMode === 'send') {
+        try { toPk = new PublicKey(privTo.trim()); }
+        catch { throw new Error('That recipient address is not valid.'); }
+      }
 
       const amount = (() => {
         const n = privAmt.trim();
@@ -1037,10 +1044,14 @@ export default function V2Portfolio() {
       if (!keys) throw new Error('Could not derive a key that opens this account.');
 
       setPrivMsg({ text: 'Building proofs…' });
-      const plan = await planConfidentialTransfer(connection, {
-        mint: mintPk, sourceAccount: source, destAccount: ataFor(mintPk, toPk),
-        amount, keys, authority: publicKey,
-      });
+      const plan = privMode === 'withdraw'
+        ? await planConfidentialWithdraw(connection, {
+            mint: mintPk, tokenAccount: source, amount, decimals, keys, authority: publicKey,
+          })
+        : await planConfidentialTransfer(connection, {
+            mint: mintPk, sourceAccount: source, destAccount: ataFor(mintPk, toPk!),
+            amount, keys, authority: publicKey,
+          });
 
       setPrivMsg({ text: `Approve ${plan.transactions.length} transactions…` });
       const signed = await signAllTransactions(plan.transactions);
@@ -1053,7 +1064,7 @@ export default function V2Portfolio() {
         if (res.value.err) throw new Error(`Step ${i + 1} failed on chain.`);
       }
 
-      setPrivMsg({ text: 'Sent privately ✓' });
+      setPrivMsg({ text: privMode === 'withdraw' ? 'Withdrawn to your public balance ✓' : 'Sent privately ✓' });
       setPrivAmt(''); setPrivTo('');
       // The row's revealed figure is now stale — replace it rather than leave a
       // number on screen that no longer matches the chain.
@@ -2208,14 +2219,32 @@ export default function V2Portfolio() {
                       {privSendMint === h.mint && !isReadOnly && wallet && (
                         <div className="pfx-priv-send">
                           <div className="pfx-priv-head">
-                            ◈ PRIVATE SEND
-                            <span>amount encrypted · recipient must have enabled {h.symbol}</span>
+                            {privMode === 'withdraw' ? '↑ WITHDRAW TO PUBLIC' : '◈ PRIVATE SEND'}
+                            <span>
+                              {privMode === 'withdraw'
+                                ? `the amount becomes visible again as an ordinary ${h.symbol} balance`
+                                : `amount encrypted · recipient must have enabled ${h.symbol}`}
+                            </span>
                           </div>
-                          <input
-                            type="text" spellCheck={false} autoComplete="off"
-                            placeholder="Recipient wallet address…"
-                            value={privTo} onChange={e => { setPrivTo(e.target.value); setPrivMsg(null); }}
-                          />
+                          {/* A ConfidentialMintBurn mint has no public side to
+                              withdraw to, so the choice only exists without it. */}
+                          {!h.mintFullyPrivate && (
+                            <div className="pfx-priv-modes">
+                              {(['send', 'withdraw'] as const).map(m => (
+                                <button key={m} type="button"
+                                  className={`pfx-chip${privMode === m ? ' on' : ''}`}
+                                  onClick={() => { setPrivMode(m); setPrivMsg(null); }}
+                                >{m === 'send' ? 'SEND PRIVATELY' : 'WITHDRAW TO PUBLIC'}</button>
+                              ))}
+                            </div>
+                          )}
+                          {privMode === 'send' && (
+                            <input
+                              type="text" spellCheck={false} autoComplete="off"
+                              placeholder="Recipient wallet address…"
+                              value={privTo} onChange={e => { setPrivTo(e.target.value); setPrivMsg(null); }}
+                            />
+                          )}
                           <div className="pfx-priv-row">
                             <input
                               type="text" inputMode="decimal" spellCheck={false}
@@ -2228,13 +2257,13 @@ export default function V2Portfolio() {
                                   .replace(/\.?0+$/, ''))}
                             >MAX</button>
                             <button type="button" className="pfx-btn primary"
-                              disabled={privBusy || !privTo.trim() || !privAmt.trim()}
-                              onClick={() => handlePrivateSend(h.mint, h.decimals)}
-                            >{privBusy ? '· · ·' : 'SEND'}</button>
+                              disabled={privBusy || !privAmt.trim() || (privMode === 'send' && !privTo.trim())}
+                              onClick={() => handlePrivateMove(h.mint, h.decimals)}
+                            >{privBusy ? '· · ·' : privMode === 'withdraw' ? 'WITHDRAW' : 'SEND'}</button>
                           </div>
                           <div className="pfx-priv-foot">
                             Spendable: {fmtNum(Number(revealed[h.mint].available) / 10 ** h.decimals, h.decimals)} {h.symbol}
-                            {' · '}four transactions, one approval — the proofs are too large for one
+                            {' · '}{privMode === 'withdraw' ? 'three' : 'four'} transactions, one approval — the proofs are too large for one
                           </div>
                           {privMsg && (
                             <div className={`pfx-enable-msg${privMsg.bad ? ' bad' : ''}`}>{privMsg.text}</div>

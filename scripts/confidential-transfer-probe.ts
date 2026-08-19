@@ -41,6 +41,7 @@ import {
   provideZk, deriveKeys, buildConfigureAccountIxs, buildDepositIx,
   buildApplyPendingBalanceTx, readConfidentialBalances, planConfidentialTransfer, ataFor,
   isConfigured, getSessionKeys, clearSessionKeys, buildConfigureAccountTx,
+  planConfidentialWithdraw,
 } from '../src/lib/confidential';
 
 const RPC = 'https://rpc.mainnet.x1.xyz';
@@ -254,6 +255,39 @@ async function hkdfRoundTrip() {
     : fail('could not reopen the account it just configured');
 }
 
+async function withdrawRoundTrip() {
+  const c = new Connection(RPC, 'confirmed');
+  head('WITHDRAW: private balance back out to the public one');
+  const S = load(`${process.env.PROBE_DIR ?? '/tmp'}/x1-probe-sender.json`);
+  const ata = ataFor(X1B, S.publicKey);
+  const keys = (await getSessionKeys(c, ata, S.publicKey, signerFor(S)))!;
+  if (!keys) return fail('no key opens the probe sender');
+
+  const before = (await readConfidentialBalances(c, ata, keys))!.available;
+  const pubBefore = BigInt((await c.getTokenAccountBalance(ata)).value.amount);
+  const amount = 7n * UNIT;
+
+  const plan = await planConfidentialWithdraw(c, {
+    mint: X1B, tokenAccount: ata, amount, decimals: DECIMALS,
+    keys, authority: S.publicKey,
+  });
+  console.log(`  ${plan.transactions.length} transactions, sizes: ${plan.transactions
+    .map(t => { t.partialSign(S); return t.serialize().length; }).join(', ')} bytes`);
+  for (let i = 0; i < plan.transactions.length; i++) {
+    const sig = await c.sendRawTransaction(plan.transactions[i].serialize(), { skipPreflight: false });
+    const bh = await c.getLatestBlockhash();
+    const r = await c.confirmTransaction({ signature: sig, ...bh }, 'confirmed');
+    if (r.value.err) return fail(`withdraw tx ${i + 1}: ${JSON.stringify(r.value.err)}`);
+    ok(`tx ${i + 1}/${plan.transactions.length} ${sig}`);
+  }
+  const after = (await readConfidentialBalances(c, ata, keys))!.available;
+  const pubAfter = BigInt((await c.getTokenAccountBalance(ata)).value.amount);
+  after === before - amount ? ok(`private ${before} -> ${after}`)
+                            : fail(`private ${after}, expected ${before - amount}`);
+  pubAfter === pubBefore + amount ? ok(`public  ${pubBefore} -> ${pubAfter}  ✓ round trip`)
+                                  : fail(`public ${pubAfter}, expected ${pubBefore + amount}`);
+}
+
 async function crossCheck() {
   const c = new Connection(RPC, 'confirmed');
   head('read accounts the spl-token CLI configured, through the shipped code');
@@ -273,4 +307,4 @@ async function crossCheck() {
   }
 }
 
-main().then(crossCheck).then(signatureCost).then(hkdfRoundTrip).catch(e => { console.error('\n\x1b[31m' + (e?.stack ?? e) + '\x1b[0m'); process.exit(1); });
+main().then(withdrawRoundTrip).then(crossCheck).then(signatureCost).then(hkdfRoundTrip).catch(e => { console.error('\n\x1b[31m' + (e?.stack ?? e) + '\x1b[0m'); process.exit(1); });

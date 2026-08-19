@@ -30,6 +30,7 @@ export const ZK_ELGAMAL_PROOF_PROGRAM = new PublicKey('ZkE1Gama1Proof11111111111
 const EXT_CONFIDENTIAL_TRANSFER = 27;
 const IX_CONFIGURE_ACCOUNT      = 2;
 const IX_DEPOSIT                = 5;
+const IX_WITHDRAW               = 6;
 const IX_TRANSFER               = 7;
 const IX_APPLY_PENDING_BALANCE  = 8;
 
@@ -45,6 +46,7 @@ const IX_APPLY_PENDING_BALANCE  = 8;
 const PROOF_CLOSE_CONTEXT_STATE      = 0;
 const PROOF_VERIFY_EQUALITY          = 3;
 const PROOF_VERIFY_PUBKEY_VALIDITY   = 4;
+const PROOF_VERIFY_RANGE_U64         = 6;
 const PROOF_VERIFY_RANGE_U128        = 7;
 const PROOF_VERIFY_VALIDITY_3HANDLES = 12;
 
@@ -52,6 +54,7 @@ const PROOF_VERIFY_VALIDITY_3HANDLES = 12;
 const CTX_LEN_EQUALITY = 161;
 const CTX_LEN_VALIDITY = 385;
 const CTX_LEN_RANGE    = 297;
+const CTX_LEN_RANGE_U64 = 297;
 
 /** The program splits a transfer amount at 16 bits; the high half carries 32. */
 const XFER_LO_BITS = 16n;
@@ -815,4 +818,144 @@ export function buildDepositIx(
     ],
     data: Buffer.from(data),
   });
+}
+
+/**
+ * The Pedersen value base point, recovered from the commitment scheme itself.
+ *
+ * Withdraw has to subtract a PUBLIC amount from an encrypted balance, which
+ * means building the ciphertext `(amount * G, identity)` — an encryption with a
+ * zero opening. 0.3.1 exposes no zero opening and no base point, but a
+ * commitment is `v*G + r*H`, so reusing ONE opening across two values cancels
+ * `r*H` and leaves `G` exactly:  from(1, o) - from(0, o) == G.
+ */
+let _G: any = null;
+function valueBasepoint(zk: any) {
+  if (_G) return _G;
+  const o = new zk.PedersenOpening();
+  _G = RistrettoPoint.fromBytes(zk.PedersenCommitment.from(1n, o).toBytes())
+    .subtract(RistrettoPoint.fromBytes(zk.PedersenCommitment.from(0n, o).toBytes()));
+  return _G;
+}
+
+/**
+ * Move a private balance back out to the public one.
+ *
+ * The mirror of DEPOSIT, and the reason it needs proofs where deposit does not:
+ * going in, the program can see the amount leave a public balance it controls;
+ * coming out it has to be convinced that the encrypted balance really covered
+ * the amount and that what remains has not gone negative. Hence an equality
+ * proof over the new balance ciphertext and a 64-bit range proof over the
+ * remainder.
+ *
+ * Meaningless on a ConfidentialMintBurn mint — there is no public balance to
+ * withdraw to, and the program rejects it.
+ *
+ * Three transactions: the proofs are 320 + 936 bytes and the pair does not fit
+ * beside the instruction, so they are verified into context accounts first and
+ * closed at the end to refund their rent.
+ */
+export async function planConfidentialWithdraw(
+  connection: Connection,
+  opts: {
+    mint: PublicKey; tokenAccount: PublicKey; amount: bigint; decimals: number;
+    keys: ConfidentialKeys; authority: PublicKey;
+  },
+): Promise<TransferPlan> {
+  const zk = await loadZk();
+  const { mint, tokenAccount, amount, decimals, keys, authority } = opts;
+  if (amount <= 0n) throw new Error('Amount must be greater than zero.');
+
+  const ai = await connection.getParsedAccountInfo(tokenAccount);
+  const st = ((ai.value as any)?.data?.parsed?.info?.extensions ?? [])
+    .find((e: any) => e.extension === 'confidentialTransferAccount')?.state;
+  if (!st) throw new Error('This account is not enabled for confidential transfers.');
+
+  const available: bigint = keys.ae.decrypt(
+    zk.AeCiphertext.fromBytes(b64(st.decryptableAvailableBalance)));
+  if (amount > available) {
+    throw new Error(`Not enough private balance — you have ${available} in base units.`);
+  }
+  const remaining = available - amount;
+
+  // available - (amount * G, identity): the handle is untouched because a
+  // plaintext amount carries no randomness for the key to absorb.
+  const G = valueBasepoint(zk);
+  const availBytes = b64(st.availableBalance);
+  const newCt = zk.ElGamalCiphertext.fromBytes(ctBytes(
+    pt(availBytes.slice(0, 32)).subtract(G.multiply(amount)),
+    pt(availBytes.slice(32, 64)),
+  ));
+
+  const openNew = new zk.PedersenOpening();
+  const commitNew = zk.PedersenCommitment.from(remaining, openNew);
+  const equalityProof = new zk.CiphertextCommitmentEqualityProofData(
+    keys.elgamal, newCt, commitNew, openNew, remaining);
+  equalityProof.verify();
+
+  const rangeProof = new zk.BatchedRangeProofU64Data(
+    [commitNew], new BigUint64Array([remaining]), new Uint8Array([64]), [openNew]);
+  rangeProof.verify();
+
+  const eqKp = Keypair.generate(), rgKp = Keypair.generate();
+  const rents = await Promise.all([CTX_LEN_EQUALITY, CTX_LEN_RANGE_U64]
+    .map(n => connection.getMinimumBalanceForRentExemption(n)));
+  const alloc = (kp: Keypair, space: number, lamports: number) => SystemProgram.createAccount({
+    fromPubkey: authority, newAccountPubkey: kp.publicKey, lamports, space,
+    programId: ZK_ELGAMAL_PROOF_PROGRAM,
+  });
+  const verifyIx = (d: number, proof: any, ctx: PublicKey) => new TransactionInstruction({
+    programId: ZK_ELGAMAL_PROOF_PROGRAM,
+    keys: [{ pubkey: ctx, isSigner: false, isWritable: true },
+           { pubkey: authority, isSigner: false, isWritable: false }],
+    data: Buffer.from([d, ...proof.toBytes()]),
+  });
+  const closeIx = (ctx: PublicKey) => new TransactionInstruction({
+    programId: ZK_ELGAMAL_PROOF_PROGRAM,
+    keys: [{ pubkey: ctx, isSigner: false, isWritable: true },
+           { pubkey: authority, isSigner: false, isWritable: true },
+           { pubkey: authority, isSigner: true, isWritable: false }],
+    data: Buffer.from([PROOF_CLOSE_CONTEXT_STATE]),
+  });
+
+  // [27][6][u64 amount][u8 decimals][newDecryptable:36][i8 eq][i8 range]
+  const data = new Uint8Array(49);
+  const dv = new DataView(data.buffer);
+  data[0] = EXT_CONFIDENTIAL_TRANSFER;
+  data[1] = IX_WITHDRAW;
+  dv.setBigUint64(2, amount, true);
+  data[10] = decimals;
+  const newDecryptable: Uint8Array = keys.ae.encrypt(remaining).toBytes();
+  if (newDecryptable.length !== 36) throw new Error(`AE ciphertext ${newDecryptable.length}B, expected 36`);
+  data.set(newDecryptable, 11);
+  // offsets at 47,48 stay 0 — both proofs live in context accounts
+
+  const withdrawIx = new TransactionInstruction({
+    programId: TOKEN_2022_PROGRAM_ID,
+    keys: [
+      { pubkey: tokenAccount,   isSigner: false, isWritable: true  },
+      { pubkey: mint,           isSigner: false, isWritable: false },
+      { pubkey: eqKp.publicKey, isSigner: false, isWritable: false },
+      { pubkey: rgKp.publicKey, isSigner: false, isWritable: false },
+      { pubkey: authority,      isSigner: true,  isWritable: false },
+    ],
+    data: Buffer.from(data),
+  });
+
+  const { blockhash } = await connection.getLatestBlockhash();
+  const mk = (ixs: TransactionInstruction[], signers: Keypair[] = []) => {
+    const tx = new Transaction().add(...ixs);
+    tx.feePayer = authority; tx.recentBlockhash = blockhash;
+    if (signers.length) tx.partialSign(...signers);
+    return tx;
+  };
+  return {
+    newSourceBalance: remaining,
+    transactions: [
+      mk([alloc(eqKp, CTX_LEN_EQUALITY, rents[0]), alloc(rgKp, CTX_LEN_RANGE_U64, rents[1]),
+          verifyIx(PROOF_VERIFY_EQUALITY, equalityProof, eqKp.publicKey)], [eqKp, rgKp]),
+      mk([verifyIx(PROOF_VERIFY_RANGE_U64, rangeProof, rgKp.publicKey)]),
+      mk([withdrawIx, closeIx(eqKp.publicKey), closeIx(rgKp.publicKey)]),
+    ],
+  };
 }
