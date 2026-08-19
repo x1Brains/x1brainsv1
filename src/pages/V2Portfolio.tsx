@@ -53,6 +53,22 @@ interface LpEntry {
 /** Shortcuts for the confidential tokens live on X1 today. Deliberately just
  *  shortcuts — the paste field is the real entry point, because a hardcoded
  *  list goes stale the moment anyone launches a token we have not heard of. */
+/**
+ * Base units -> a full, exact, grouped figure.
+ *
+ * Deliberately not fmtNum: that abbreviates to "25.00K", which is fine for a
+ * portfolio total and wrong for a balance you are about to spend. Trailing
+ * zeros are trimmed but nothing is rounded away.
+ */
+function fmtUnits(raw: bigint, decimals: number): string {
+  const neg = raw < 0n;
+  const v = neg ? -raw : raw;
+  const base = 10n ** BigInt(decimals);
+  const whole = (v / base).toLocaleString('en-US');
+  const frac = decimals ? (v % base).toString().padStart(decimals, '0').replace(/0+$/, '') : '';
+  return `${neg ? '-' : ''}${whole}${frac ? '.' + frac : ''}`;
+}
+
 const KNOWN_CONFIDENTIAL = [
   { label: 'X1B',   mint: '3nkouZp3DvRsD3w8cPVWwGH1CMD9PUyc9CfjonYerBn8' },
   { label: 'BM',    mint: 'AVEXYesqK3k4JyWaHhjCqaqZvkuMfmYi2JkPT6aCow9e' },
@@ -587,8 +603,23 @@ function injectPortfolioStyles() {
   .pfx-reveal{cursor:pointer;font-family:inherit;transition:.15s}
   .pfx-reveal:hover:not(:disabled){background:rgba(0,201,141,.2);border-color:var(--g)}
   .pfx-reveal:disabled{opacity:.6;cursor:default}
-  .pfx-revealed{font-family:'JetBrains Mono',ui-monospace,monospace}
-  .pfx-revealed em{font-style:normal;opacity:.7}
+  .pfx-bal-strip{margin:7px 0 10px;padding:11px 14px;border-radius:10px;
+    background:linear-gradient(180deg,rgba(0,201,141,.09),rgba(0,201,141,.04));
+    border:1px solid rgba(0,201,141,.3)}
+  .pfx-bal-main{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .pfx-bal-main .lab{font-family:'Orbitron',sans-serif;font-size:9px;font-weight:700;
+    letter-spacing:1.1px;color:var(--g);opacity:.85;flex:none}
+  .pfx-bal-main .amt{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:19px;
+    font-weight:600;color:var(--txt);line-height:1.2;word-break:break-all}
+  .pfx-bal-main .amt em{font-style:normal;font-size:12px;color:var(--muted);margin-left:7px}
+  .pfx-bal-pending{display:flex;align-items:center;justify-content:space-between;gap:11px;
+    flex-wrap:wrap;margin-top:9px;padding-top:9px;border-top:1px solid rgba(0,201,141,.18);
+    font-size:11.5px;color:var(--muted)}
+  .pfx-btn.sm{padding:5px 13px;font-size:10px;flex:none}
+  @media(max-width:640px){
+    .pfx-bal-main .amt{font-size:16px}
+    .pfx-bal-pending{font-size:10.5px}
+  }
 
   .pfx-find{margin-top:14px;align-self:start}
   .pfx-find-body{padding:0 18px 18px}
@@ -2036,19 +2067,11 @@ export default function V2Portfolio() {
                                 ◉ PRIVATE
                               </span>
                             ) : null}
-                            {h.hasHiddenBalance && revealed[h.mint] ? (
-                              <span className="pfx-badge b-g pfx-revealed"
-                                title="Decrypted locally from your own key. Nobody else can compute this.">
-                                ◈ {fmtNum(Number(revealed[h.mint].available) / 10 ** h.decimals, 4)} {h.symbol}
-                                {revealed[h.mint].pendingCredits > 0 && (
-                                  <em>
-                                    {revealed[h.mint].pendingKnown
-                                      ? ` +${fmtNum(Number(revealed[h.mint].pending) / 10 ** h.decimals, 4)} pending`
-                                      : ` +${revealed[h.mint].pendingCredits} pending`}
-                                  </em>
-                                )}
-                              </span>
-                            ) : h.hasHiddenBalance ? (
+                            {/* Once revealed the figure moves to its own strip
+                                below the row — a balance does not belong in an
+                                8.5px uppercase badge. */}
+                            {h.hasHiddenBalance && revealed[h.mint] ? null
+                             : h.hasHiddenBalance ? (
                               !isReadOnly && wallet ? (
                                 <button type="button" className="pfx-badge b-g pfx-reveal"
                                   disabled={revealing === h.mint}
@@ -2117,15 +2140,6 @@ export default function V2Portfolio() {
                                   onClick={() => handleEnablePrivate(h.mint)}
                                 >{enabling === h.mint ? '· · ·' : '🔓 ENABLE'}</button>
                               )}
-                              {revealed[h.mint] && revealed[h.mint].pendingCredits > 0 && (
-                                <button
-                                  type="button"
-                                  className="pfx-send enable-private"
-                                  disabled={applying === h.mint}
-                                  title="Received tokens sit in a pending compartment until you apply them. Applying makes them spendable."
-                                  onClick={() => handleApplyPending(h.mint)}
-                                >{applying === h.mint ? '· · ·' : '↓ APPLY'}</button>
-                              )}
                               {revealed[h.mint] && revealed[h.mint].available > 0n && (
                                 <button
                                   type="button"
@@ -2150,6 +2164,31 @@ export default function V2Portfolio() {
                       )}
                       {revealErr[h.mint] && (
                         <div className="pfx-enable-msg bad">{revealErr[h.mint]}</div>
+                      )}
+                      {revealed[h.mint] && (
+                        <div className="pfx-bal-strip">
+                          <div className="pfx-bal-main">
+                            <span className="lab">◈ PRIVATE BALANCE</span>
+                            <span className="amt">
+                              {fmtUnits(revealed[h.mint].available, h.decimals)}
+                              <em>{h.symbol}</em>
+                            </span>
+                          </div>
+                          {revealed[h.mint].pendingCredits > 0 && (
+                            <div className="pfx-bal-pending">
+                              <span>
+                                ↓ {revealed[h.mint].pendingKnown
+                                     ? `${fmtUnits(revealed[h.mint].pending, h.decimals)} ${h.symbol}`
+                                     : `${revealed[h.mint].pendingCredits} transfer${revealed[h.mint].pendingCredits > 1 ? 's' : ''}`}
+                                {' '}received — not spendable until applied
+                              </span>
+                              <button type="button" className="pfx-btn primary sm"
+                                disabled={applying === h.mint}
+                                onClick={() => handleApplyPending(h.mint)}
+                              >{applying === h.mint ? '· · ·' : 'APPLY'}</button>
+                            </div>
+                          )}
+                        </div>
                       )}
                       {privSendMint === h.mint && !isReadOnly && wallet && (
                         <div className="pfx-priv-send">
