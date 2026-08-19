@@ -588,11 +588,11 @@ export async function planConfidentialTransfer(
     ((i.value as any)?.data?.parsed?.info?.extensions ?? []).find((e: any) => e.extension === name)?.state;
 
   const src = extOf(srcInfo, 'confidentialTransferAccount');
-  if (!src) throw new Error('Your account is not enabled for confidential transfers.');
+  if (!src) throw new Error('Enable this token first \u2014 your account has no private balance yet.');
   const dst = extOf(dstInfo, 'confidentialTransferAccount');
-  if (!dst) throw new Error('The recipient has not enabled this token for private transfers yet.');
+  if (!dst) throw new Error('This wallet can\u2019t receive it yet \u2014 they need to enable this token on their own portfolio first.');
   if (dst.allowConfidentialCredits === false) {
-    throw new Error('The recipient has turned off incoming private transfers.');
+    throw new Error('This wallet has switched off incoming private transfers.');
   }
 
   // ── what the sender actually holds ────────────────────────────────────────

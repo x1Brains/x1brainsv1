@@ -472,11 +472,74 @@ function stddev(a: number[]): number {
   return Math.sqrt(v);
 }
 
+interface Receipt {
+  title: string;
+  steps: { label: string; sig: string }[];
+  status?: string;
+  error?: string;
+}
+
+/**
+ * The outcome of a confidential operation.
+ *
+ * Two shapes on purpose. A failure with nothing on chain is not a receipt —
+ * there is nothing to link to — so it renders as a one-line notice. Once a
+ * transaction exists it becomes a list of hashes, because at that point the
+ * user's question is "where did it go", not "did it work".
+ */
+function TxReceipt({ rec, subtitle, onDismiss }: {
+  rec: Receipt; subtitle?: string; onDismiss: () => void;
+}) {
+  const failedEarly = rec.error && rec.steps.length === 0;
+
+  if (failedEarly) {
+    return (
+      <div className="pfx-alert">
+        <span className="ico">!</span>
+        <span className="msg">{rec.error}</span>
+        <button type="button" onClick={onDismiss} aria-label="Dismiss">✕</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`pfx-receipt${rec.error ? ' bad' : ''}`}>
+      <div className="pfx-receipt-head">
+        <span className="t">
+          {rec.error ? '✕' : rec.status ? '✓' : '·'} {rec.title}
+          {subtitle && <em>{subtitle}</em>}
+        </span>
+        <button type="button" onClick={onDismiss} aria-label="Dismiss">✕</button>
+      </div>
+      {rec.steps.map((st, i) => (
+        <a key={st.sig} className="pfx-receipt-tx"
+          href={`https://explorer.mainnet.x1.xyz/tx/${st.sig}`}
+          target="_blank" rel="noopener noreferrer"
+        >
+          <span className="n">{i + 1}</span>
+          <span className="lab">{st.label}</span>
+          <span className="sig num">{st.sig.slice(0, 6)}…{st.sig.slice(-6)}</span>
+          <span className="go">↗</span>
+        </a>
+      ))}
+      {rec.steps.length === 0 && !rec.error && (
+        <div className="pfx-receipt-wait">waiting for the first signature…</div>
+      )}
+      {(rec.status || rec.error) && (
+        <div className={`pfx-receipt-foot${rec.error ? ' bad' : ''}`}>{rec.error || rec.status}</div>
+      )}
+    </div>
+  );
+}
+
 function injectPortfolioStyles() {
   if (typeof document === 'undefined') return;
-  if (document.getElementById('v2pf-x13')) return;
-  const s = document.createElement('style');
-  s.id = 'v2pf-x13';
+  // Reuse the tag rather than bail out of it. Bailing meant that on any hot
+  // reload the ORIGINAL stylesheet stayed and every rule added since was
+  // dropped — silently, so new markup rendered completely unstyled and looked
+  // like a broken component rather than a stale stylesheet.
+  const s = document.getElementById('v2pf-x13') as HTMLStyleElement
+    ?? Object.assign(document.createElement('style'), { id: 'v2pf-x13' });
   s.textContent = `
   .pfx{--o:#f29030;--g:#00c98d;--pp:#bf5af2;--gy:#8a9ab8;--cyan:#00d4ff;
     --panel:#0c1118;--panel2:#0f1620;--line:#1a2433;--line2:#141d29;
@@ -603,34 +666,52 @@ function injectPortfolioStyles() {
   .pfx-reveal{cursor:pointer;font-family:inherit;transition:.15s}
   .pfx-reveal:hover:not(:disabled){background:rgba(0,201,141,.2);border-color:var(--g)}
   .pfx-reveal:disabled{opacity:.6;cursor:default}
-  .pfx-receipt{margin:7px 0 10px;padding:11px 13px;border-radius:10px;
-    background:#0a0f16;border:1px solid rgba(0,201,141,.28)}
-  .pfx-receipt.bad{border-color:rgba(255,68,102,.3)}
-  .pfx-receipt.standalone{margin:14px 0 0}
-  .pfx-receipt-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
-    font-family:'Orbitron',sans-serif;font-size:9.5px;font-weight:700;letter-spacing:1px;
-    color:var(--g);text-transform:uppercase}
-  .pfx-receipt.bad .pfx-receipt-head{color:#ff4466}
-  .pfx-receipt-head button{background:none;border:none;color:var(--muted);cursor:pointer;
-    font-size:13px;line-height:1;padding:0 2px;transition:.15s}
+  /* ── one-line failure notice: nothing happened on chain, nothing to link ── */
+  .pfx-alert{display:flex;align-items:center;gap:10px;margin:7px 0 10px;padding:9px 12px;
+    border-radius:9px;background:rgba(255,68,102,.07);border:1px solid rgba(255,68,102,.25)}
+  .pfx-alert .ico{flex:none;width:17px;height:17px;border-radius:50%;display:flex;
+    align-items:center;justify-content:center;font-size:11px;font-weight:700;
+    background:rgba(255,68,102,.18);color:#ff6b85}
+  .pfx-alert .msg{flex:1;min-width:0;font-size:11.5px;line-height:1.45;color:#ffb3c0}
+  .pfx-alert button{flex:none;background:none;border:none;color:rgba(255,179,192,.5);
+    cursor:pointer;font-size:12px;line-height:1;padding:2px;transition:.15s}
+  .pfx-alert button:hover{color:#ffb3c0}
+
+  /* ── receipt: at least one transaction exists, so link every one ── */
+  .pfx-receipt{margin:7px 0 10px;padding:10px 12px 11px;border-radius:10px;
+    background:#0a0f16;border:1px solid rgba(0,201,141,.25)}
+  .pfx-receipt.bad{border-color:rgba(255,68,102,.28)}
+  .pfx-receipt-standalone{margin-top:14px}
+  .pfx-receipt-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .pfx-receipt-head .t{display:flex;align-items:baseline;gap:8px;min-width:0;
+    font-family:'Orbitron',sans-serif;font-size:9.5px;font-weight:700;letter-spacing:1.1px;
+    text-transform:uppercase;color:var(--g);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pfx-receipt.bad .pfx-receipt-head .t{color:#ff6b85}
+  .pfx-receipt-head .t em{font-family:'JetBrains Mono',ui-monospace,monospace;font-style:normal;
+    font-size:9.5px;font-weight:400;letter-spacing:0;color:var(--dim)}
+  .pfx-receipt-head button{flex:none;background:none;border:none;color:var(--dim);cursor:pointer;
+    font-size:12px;line-height:1;padding:2px;transition:.15s}
   .pfx-receipt-head button:hover{color:var(--txt)}
-  .pfx-receipt-tx{display:flex;align-items:center;gap:9px;margin-top:7px;padding:6px 9px;
+  .pfx-receipt-tx{display:flex;align-items:center;gap:9px;margin-top:6px;padding:6px 9px;
     border-radius:7px;background:#070b11;border:1px solid var(--line);
     text-decoration:none;transition:.15s}
   .pfx-receipt-tx:hover{border-color:var(--g);background:rgba(0,201,141,.06)}
-  .pfx-receipt-tx .lab{flex:1;min-width:0;font-size:10.5px;color:var(--muted);
+  .pfx-receipt-tx .n{flex:none;width:15px;height:15px;border-radius:4px;display:flex;
+    align-items:center;justify-content:center;font-size:9px;font-weight:700;
+    background:var(--line);color:var(--muted)}
+  .pfx-receipt-tx:hover .n{background:rgba(0,201,141,.2);color:var(--g)}
+  .pfx-receipt-tx .lab{flex:1;min-width:0;font-size:11px;color:var(--muted);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .pfx-receipt-tx .sig{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;
-    color:var(--g);flex:none}
-  .pfx-receipt-tx .go{color:var(--dim);font-size:10px;flex:none}
+  .pfx-receipt-tx .sig{flex:none;font-size:10.5px;color:var(--g);text-decoration:none}
+  .pfx-receipt-tx .go{flex:none;color:var(--dim);font-size:10px}
   .pfx-receipt-tx:hover .go{color:var(--g)}
-  .pfx-receipt-wait{margin-top:7px;font-size:10.5px;color:var(--dim)}
+  .pfx-receipt-wait{margin-top:7px;font-size:11px;color:var(--dim)}
   .pfx-receipt-foot{margin-top:9px;padding-top:8px;border-top:1px solid var(--line);
-    font-size:11px;color:var(--g)}
-  .pfx-receipt-foot.bad{color:#ff4466}
+    font-size:11px;line-height:1.45;color:var(--g)}
+  .pfx-receipt-foot.bad{color:#ff6b85}
   @media(max-width:640px){
-    .pfx-receipt-tx{flex-wrap:wrap;gap:4px 9px}
-    .pfx-receipt-tx .lab{flex:1 0 100%}
+    .pfx-receipt-tx{flex-wrap:wrap;gap:5px 9px}
+    .pfx-receipt-tx .lab{flex:1 0 calc(100% - 24px)}
   }
 
   .pfx-bal-strip{margin:7px 0 10px;padding:11px 14px;border-radius:10px;
@@ -1035,12 +1116,7 @@ export default function V2Portfolio() {
    * and stays put until dismissed or the page reloads, because a hash you
    * cannot get back to is not a receipt.
    */
-  const [receipt, setReceipt] = useState<Record<string, {
-    title: string;
-    steps: { label: string; sig: string }[];
-    status?: string;
-    error?: string;
-  }>>({});
+  const [receipt, setReceipt] = useState<Record<string, Receipt>>({});
 
   const receiptStart = (mint: string, title: string) =>
     setReceipt(r => ({ ...r, [mint]: { title, steps: [] } }));
@@ -1108,14 +1184,14 @@ export default function V2Portfolio() {
       let toPk: PublicKey | null = null;
       if (privMode === 'send') {
         try { toPk = new PublicKey(privTo.trim()); }
-        catch { throw new Error('That recipient address is not valid.'); }
+        catch { throw new Error('That doesn\u2019t look like a wallet address.'); }
       }
 
       const amount = (() => {
         const n = privAmt.trim();
-        if (!/^\d*\.?\d*$/.test(n) || !n || n === '.') throw new Error('Enter an amount.');
+        if (!/^\d*\.?\d*$/.test(n) || !n || n === '.') throw new Error('Enter an amount to continue.');
         const [whole, frac = ''] = n.split('.');
-        if (frac.length > decimals) throw new Error(`This token has ${decimals} decimals.`);
+        if (frac.length > decimals) throw new Error(`Too many decimal places \u2014 this token allows ${decimals}.`);
         return BigInt(whole || '0') * 10n ** BigInt(decimals)
              + BigInt((frac + '0'.repeat(decimals)).slice(0, decimals) || '0');
       })();
@@ -1959,29 +2035,12 @@ export default function V2Portfolio() {
       {Object.entries(receipt)
         .filter(([mint]) => !allRows.some(r => r.mint === mint))
         .map(([mint, rec]) => (
-          <div key={mint} className={`pfx-receipt standalone${rec.error ? ' bad' : ''}`}>
-            <div className="pfx-receipt-head">
-              <span>{rec.title} · {shortAddr(mint, 4, 4)}</span>
-              <button type="button" title="Dismiss"
-                onClick={() => setReceipt(r => { const { [mint]: _drop, ...rest } = r; return rest; })}
-              >✕</button>
-            </div>
-            {rec.steps.map(st => (
-              <a key={st.sig} className="pfx-receipt-tx"
-                href={`https://explorer.mainnet.x1.xyz/tx/${st.sig}`}
-                target="_blank" rel="noopener noreferrer"
-              >
-                <span className="lab">{st.label}</span>
-                <span className="sig">{st.sig.slice(0, 8)}…{st.sig.slice(-8)}</span>
-                <span className="go">↗</span>
-              </a>
-            ))}
-            {rec.steps.length === 0 && !rec.error && (
-              <div className="pfx-receipt-wait">waiting for the first signature…</div>
-            )}
-            {(rec.status || rec.error) && (
-              <div className={`pfx-receipt-foot${rec.error ? ' bad' : ''}`}>{rec.error || rec.status}</div>
-            )}
+          <div key={mint} className="pfx-receipt-standalone">
+            <TxReceipt
+              rec={rec}
+              subtitle={shortAddr(mint, 4, 4)}
+              onDismiss={() => setReceipt(r => { const { [mint]: _d, ...rest } = r; return rest; })}
+            />
           </div>
         ))}
 
@@ -2390,32 +2449,10 @@ export default function V2Portfolio() {
                         <div className="pfx-enable-msg">{keyNote.text}</div>
                       )}
                       {receipt[h.mint] && (
-                        <div className={`pfx-receipt${receipt[h.mint].error ? ' bad' : ''}`}>
-                          <div className="pfx-receipt-head">
-                            <span>{receipt[h.mint].title}</span>
-                            <button type="button" title="Dismiss"
-                              onClick={() => setReceipt(r => { const { [h.mint]: _drop, ...rest } = r; return rest; })}
-                            >✕</button>
-                          </div>
-                          {receipt[h.mint].steps.map(st => (
-                            <a key={st.sig} className="pfx-receipt-tx"
-                              href={`https://explorer.mainnet.x1.xyz/tx/${st.sig}`}
-                              target="_blank" rel="noopener noreferrer"
-                            >
-                              <span className="lab">{st.label}</span>
-                              <span className="sig">{st.sig.slice(0, 8)}…{st.sig.slice(-8)}</span>
-                              <span className="go">↗</span>
-                            </a>
-                          ))}
-                          {receipt[h.mint].steps.length === 0 && !receipt[h.mint].error && (
-                            <div className="pfx-receipt-wait">waiting for the first signature…</div>
-                          )}
-                          {(receipt[h.mint].status || receipt[h.mint].error) && (
-                            <div className={`pfx-receipt-foot${receipt[h.mint].error ? ' bad' : ''}`}>
-                              {receipt[h.mint].error || receipt[h.mint].status}
-                            </div>
-                          )}
-                        </div>
+                        <TxReceipt
+                          rec={receipt[h.mint]}
+                          onDismiss={() => setReceipt(r => { const { [h.mint]: _d, ...rest } = r; return rest; })}
+                        />
                       )}
                       {revealErr[h.mint] && (
                         <div className="pfx-enable-msg bad">{revealErr[h.mint]}</div>
