@@ -24,6 +24,7 @@ import {
 import {
   TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync,
   createAssociatedTokenAccountIdempotentInstruction, createTransferCheckedInstruction,
+  createCloseAccountInstruction,
 } from '@solana/spl-token';
 import nacl from 'tweetnacl';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
@@ -41,7 +42,9 @@ import {
   provideZk, deriveKeys, buildConfigureAccountIxs, buildDepositIx,
   buildApplyPendingBalanceTx, readConfidentialBalances, planConfidentialTransfer, ataFor,
   isConfigured, getSessionKeys, clearSessionKeys, buildConfigureAccountTx,
-  planConfidentialWithdraw,
+  planConfidentialWithdraw, buildEmptyAccountTx, planConfidentialBurn, planConfidentialMint,
+  deriveSupplyKeys, buildUpdateDecryptableSupplyTx, buildApplyPendingBurnTx,
+  reclaimProofContexts,
 } from '../src/lib/confidential';
 
 const RPC = 'https://rpc.mainnet.x1.xyz';
@@ -66,7 +69,7 @@ async function main() {
   const send = (tx: Transaction, signers: Keypair[]) =>
     sendAndConfirmTransaction(c, tx, signers, { commitment: 'confirmed' });
 
-  const funder = load(`${homedir()}/.x1-token-keys/x1b-mint.json`);       // pays XNT
+  const funder = load(`${homedir()}/.x1-token-keys/bm-mint.json`);        // pays XNT
   const tokens = load(`${homedir()}/.x1-token-keys/x1b-recipient.json`);  // holds X1B
 
   // Fresh wallets: every existing account was configured by the spl-token CLI,
@@ -85,9 +88,9 @@ async function main() {
 
   head('fund both wallets with XNT');
   const topUp = [];
-  for (const [kp, want] of [[S, 60_000_000], [R, 30_000_000]] as const) {
+  for (const [kp, want] of [[S, 60_000_000], [R, 30_000_000], [tokens, 20_000_000]] as const) {
     const have = await c.getBalance(kp.publicKey);
-    if (have < want / 2) topUp.push(SystemProgram.transfer(
+    if (have < want) topUp.push(SystemProgram.transfer(
       { fromPubkey: funder.publicKey, toPubkey: kp.publicKey, lamports: want - have }));
   }
   if (topUp.length) await send(new Transaction().add(...topUp), [funder]);
@@ -229,10 +232,10 @@ async function signatureCost() {
 async function hkdfRoundTrip() {
   const c = new Connection(RPC, 'confirmed');
   head('a NEW account: one signature, and it reads back');
-  const funder = load(`${homedir()}/.x1-token-keys/x1b-mint.json`);
+  const funder = load(`${homedir()}/.x1-token-keys/bm-mint.json`);
   const W = Keypair.generate();
   await sendAndConfirmTransaction(c, new Transaction().add(
-    SystemProgram.transfer({ fromPubkey: funder.publicKey, toPubkey: W.publicKey, lamports: 25_000_000 }),
+    SystemProgram.transfer({ fromPubkey: funder.publicKey, toPubkey: W.publicKey, lamports: 20_000_000 }),
   ), [funder], { commitment: 'confirmed' });
 
   const ata = ataFor(X1B, W.publicKey);
@@ -253,6 +256,7 @@ async function hkdfRoundTrip() {
   reopened && (await readConfidentialBalances(c, ata, reopened))
     ? ok(`reopened with ${seen2.length} signature and decrypts`)
     : fail('could not reopen the account it just configured');
+  await sweepBack(c, W, funder.publicKey);
 }
 
 async function withdrawRoundTrip() {
@@ -288,6 +292,144 @@ async function withdrawRoundTrip() {
                                   : fail(`public ${pubAfter}, expected ${pubBefore + amount}`);
 }
 
+const BM = new PublicKey('AVEXYesqK3k4JyWaHhjCqaqZvkuMfmYi2JkPT6aCow9e');
+
+/** Send a multi-transaction plan and confirm each step. */
+async function runPlan(c: Connection, plan: { transactions: Transaction[] }, signer: Keypair, label: string) {
+  console.log(`  ${plan.transactions.length} transactions, sizes: ${plan.transactions
+    .map(t => { t.partialSign(signer); return t.serialize().length; }).join(', ')} bytes`);
+  for (let i = 0; i < plan.transactions.length; i++) {
+    const sig = await c.sendRawTransaction(plan.transactions[i].serialize(), { skipPreflight: false });
+    const bh = await c.getLatestBlockhash();
+    const r = await c.confirmTransaction({ signature: sig, ...bh }, 'confirmed');
+    if (r.value.err) throw new Error(`${label} tx ${i + 1}: ${JSON.stringify(r.value.err)}`);
+    ok(`${label} tx ${i + 1}/${plan.transactions.length} ${sig.slice(0, 24)}…`);
+  }
+}
+
+async function mintAndBurn() {
+  const c = new Connection(RPC, 'confirmed');
+  head('CONFIDENTIAL MINT and BURN on a ConfidentialMintBurn token');
+  const auth = load(`${homedir()}/.x1-token-keys/bm-mint.json`);
+  const ata = ataFor(BM, auth.publicKey);
+  const sign = signerFor(auth);
+
+  const supply = await deriveSupplyKeys(BM, sign);
+  const cmbOf = async () => {
+    const i: any = (await c.getParsedAccountInfo(BM)).value;
+    return i.data.parsed.info.extensions.find((e: any) => e.extension === 'confidentialMintBurn').state;
+  };
+  const readSupply = async () => {
+    const zk = zkNode as any;
+    return supply.ae.decrypt(zk.AeCiphertext.fromBytes(
+      Uint8Array.from(Buffer.from((await cmbOf()).decryptableSupply, 'base64'))));
+  };
+  const holder = (await getSessionKeys(c, ata, auth.publicKey, sign))!;
+  if (!holder) return fail('no key opens the BM treasury account');
+
+  const s0 = await readSupply();
+  const b0 = (await readConfidentialBalances(c, ata, holder))!.available;
+  ok(`before: supply ${s0}  treasury balance ${b0}`);
+
+  const ONE = 1_000_000n;   // 1 BM
+  await runPlan(c, await planConfidentialMint(c,
+    { mint: BM, destination: ata, amount: ONE, supplyKeys: supply, authority: auth.publicKey }), auth, 'mint');
+  const s1 = await readSupply();
+  s1 === s0 + ONE ? ok(`supply ${s0} -> ${s1}`) : fail(`supply ${s1}, expected ${s0 + ONE}`);
+
+  // Minted tokens land as pending, exactly like a received transfer.
+  const applyTx = await buildApplyPendingBalanceTx(c, ata, auth.publicKey, holder);
+  if (applyTx) await sendAndConfirmTransaction(c, applyTx, [auth], { commitment: 'confirmed' });
+  const b1 = (await readConfidentialBalances(c, ata, holder))!.available;
+  b1 === b0 + ONE ? ok(`treasury balance ${b0} -> ${b1}`) : fail(`balance ${b1}, expected ${b0 + ONE}`);
+
+  await runPlan(c, await planConfidentialBurn(c,
+    { mint: BM, tokenAccount: ata, amount: ONE, keys: holder, authority: auth.publicKey }), auth, 'burn');
+  const b2 = (await readConfidentialBalances(c, ata, holder))!.available;
+  b2 === b1 - ONE ? ok(`burned: balance ${b1} -> ${b2}`) : fail(`balance ${b2}, expected ${b1 - ONE}`);
+
+  // Burning does NOT reduce the supply. It parks the amount in pendingBurn, so
+  // a burn cannot invalidate a mint someone else is midway through proving.
+  const sAfterBurn = await readSupply();
+  sAfterBurn === s1 ? ok(`supply still reads ${sAfterBurn} — the burn is pending, not applied`)
+                    : fail(`supply ${sAfterBurn}, expected it unchanged at ${s1}`);
+  const pendingSet = !/^A*=*$/.test((await cmbOf()).pendingBurn);
+  pendingSet ? ok('pendingBurn is set') : fail('pendingBurn is empty after a burn');
+
+  // Applying is what moves the figure — and it is THEN that the readable copy
+  // goes stale, because the program cannot rewrite it without the supply key.
+  await sendAndConfirmTransaction(c, await buildApplyPendingBurnTx(c, BM, auth.publicKey),
+    [auth], { commitment: 'confirmed' });
+  const cleared = /^A*=*$/.test((await cmbOf()).pendingBurn);
+  cleared ? ok('applied: pendingBurn cleared') : fail('pendingBurn survived the apply');
+  const stale = await readSupply();
+  stale === s1 ? ok(`decryptableSupply now STALE at ${stale} (true supply is ${s0})`)
+               : fail(`expected a stale ${s1}, read ${stale}`);
+
+  await sendAndConfirmTransaction(c,
+    await buildUpdateDecryptableSupplyTx(c, BM, auth.publicKey, supply, s0), [auth],
+    { commitment: 'confirmed' });
+  const s2 = await readSupply();
+  s2 === s0 ? ok(`re-synced: supply reads ${s2} again`) : fail(`supply ${s2}, expected ${s0}`);
+
+  const bFinal = (await readConfidentialBalances(c, ata, holder))!.available;
+  bFinal === b0 ? ok(`BM restored: supply ${s2}, treasury ${bFinal}  ✓ round trip`)
+                : fail(`BM left at treasury ${bFinal}, expected ${b0}`);
+}
+
+async function emptyAndClose() {
+  const c = new Connection(RPC, 'confirmed');
+  head('EMPTY ACCOUNT, then close it and get the rent back');
+  const funder = load(`${homedir()}/.x1-token-keys/bm-mint.json`);
+  const W = Keypair.generate();
+  await sendAndConfirmTransaction(c, new Transaction().add(
+    SystemProgram.transfer({ fromPubkey: funder.publicKey, toPubkey: W.publicKey, lamports: 20_000_000 }),
+  ), [funder], { commitment: 'confirmed' });
+
+  const ata = ataFor(X1B, W.publicKey);
+  const keys = (await getSessionKeys(c, ata, W.publicKey, signerFor(W)))!;
+  await sendAndConfirmTransaction(c,
+    await buildConfigureAccountTx(c, X1B, ata, W.publicKey, signerFor(W)), [W], { commitment: 'confirmed' });
+  ok('configured a throwaway account');
+
+  const tx = await buildEmptyAccountTx(c, ata, W.publicKey, keys);
+  console.log(`  1 transaction, ${(() => { tx.partialSign(W); return tx.serialize().length; })()} bytes (proof rides inline)`);
+  const sig = await c.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+  const bh = await c.getLatestBlockhash();
+  const r = await c.confirmTransaction({ signature: sig, ...bh }, 'confirmed');
+  if (r.value.err) return fail(`empty failed: ${JSON.stringify(r.value.err)}`);
+  ok(`emptied ${sig.slice(0, 24)}…`);
+
+  const before = await c.getBalance(W.publicKey);
+  await sendAndConfirmTransaction(c, new Transaction().add(
+    createCloseAccountInstruction(ata, W.publicKey, W.publicKey, [], TOKEN_2022_PROGRAM_ID),
+  ), [W], { commitment: 'confirmed' });
+  const gone = (await c.getParsedAccountInfo(ata)).value === null;
+  const after = await c.getBalance(W.publicKey);
+  gone && after > before ? ok(`account closed, ${after - before} lamports of rent refunded`)
+                         : fail(`close failed (gone=${gone}, refund=${after - before})`);
+  await sweepBack(c, W, funder.publicKey);
+}
+
+async function reclaimStrays() {
+  const c = new Connection(RPC, 'confirmed');
+  head('reclaim rent from context accounts any failed run left behind');
+  const wallets: [string, Keypair][] = [
+    ['probe-sender',    load(`${process.env.PROBE_DIR ?? '/tmp'}/x1-probe-sender.json`)],
+    ['probe-recipient', load(`${process.env.PROBE_DIR ?? '/tmp'}/x1-probe-recipient.json`)],
+    ['treasury',        load(`${homedir()}/.x1-token-keys/bm-mint.json`)],
+  ];
+  let total = 0;
+  for (const [name, kp] of wallets) {
+    const r = await reclaimProofContexts(c, kp.publicKey);
+    if (!r.accounts.length) continue;
+    for (const tx of r.transactions) await sendAndConfirmTransaction(c, tx, [kp], { commitment: 'confirmed' });
+    total += r.lamports;
+    ok(`${name}: closed ${r.accounts.length}, reclaimed ${r.lamports} lamports`);
+  }
+  total === 0 ? ok('nothing stranded') : ok(`reclaimed ${total} lamports in total`);
+}
+
 async function crossCheck() {
   const c = new Connection(RPC, 'confirmed');
   head('read accounts the spl-token CLI configured, through the shipped code');
@@ -307,4 +449,4 @@ async function crossCheck() {
   }
 }
 
-main().then(withdrawRoundTrip).then(crossCheck).then(signatureCost).then(hkdfRoundTrip).catch(e => { console.error('\n\x1b[31m' + (e?.stack ?? e) + '\x1b[0m'); process.exit(1); });
+main().then(withdrawRoundTrip).then(emptyAndClose).then(mintAndBurn).then(reclaimStrays).then(crossCheck).then(signatureCost).then(hkdfRoundTrip).catch(e => { console.error('\n\x1b[31m' + (e?.stack ?? e) + '\x1b[0m'); process.exit(1); });

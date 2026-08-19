@@ -33,6 +33,13 @@ const IX_DEPOSIT                = 5;
 const IX_WITHDRAW               = 6;
 const IX_TRANSFER               = 7;
 const IX_APPLY_PENDING_BALANCE  = 8;
+const IX_EMPTY_ACCOUNT          = 4;
+/** ConfidentialMintBurn is its OWN extension, so a different outer byte. */
+const EXT_CONFIDENTIAL_MINT_BURN = 42;
+const IX_CMB_UPDATE_SUPPLY      = 2;
+const IX_CMB_MINT               = 3;
+const IX_CMB_BURN               = 4;
+const IX_CMB_APPLY_PENDING_BURN = 5;
 
 /**
  * ZkElGamalProof instruction discriminators.
@@ -44,6 +51,7 @@ const IX_APPLY_PENDING_BALANCE  = 8;
  * rather than reasoned about.
  */
 const PROOF_CLOSE_CONTEXT_STATE      = 0;
+const PROOF_VERIFY_ZERO_CIPHERTEXT   = 1;
 const PROOF_VERIFY_EQUALITY          = 3;
 const PROOF_VERIFY_PUBKEY_VALIDITY   = 4;
 const PROOF_VERIFY_RANGE_U64         = 6;
@@ -958,4 +966,440 @@ export async function planConfidentialWithdraw(
       mk([withdrawIx, closeIx(eqKp.publicKey), closeIx(rgKp.publicKey)]),
     ],
   };
+}
+
+/**
+ * The mint's supply keys, for a ConfidentialMintBurn token.
+ *
+ * A separate key from any holder's: it is what the encrypted TOTAL SUPPLY is
+ * encrypted to. Seeded with the mint address rather than the empty seed the
+ * account keys use, because the supply belongs to the mint and not to a wallet
+ * — confirmed against BM on chain, where this reproduces both the published
+ * supplyElgamalPubkey and an AES key that decrypts decryptableSupply.
+ *
+ * Only the mint authority can produce it, since only their signature seeds it.
+ */
+export async function deriveSupplyKeys(
+  mint: PublicKey, signMessage: SignMessage,
+): Promise<ConfidentialKeys> {
+  const zk = await loadZk();
+  const seed = new Uint8Array([...HKDF_SALT, ...mint.toBytes()]);
+  const sig = await signMessage(seed);
+  const elgamal = zk.ElGamalKeypair.fromSecretKey(zk.ElGamalSecretKey.fromBytes(
+    scalarFromWide(hkdf(sha512, sig, HKDF_SALT, HKDF_INFO_ELGAMAL, 64))));
+  const ae = zk.AeKey.fromBytes(hkdf(sha512, sig, HKDF_SALT, HKDF_INFO_AE, 16));
+  return { elgamal, ae, elgamalPubkeyB64: btoa(String.fromCharCode(...elgamal.pubkey().toBytes())) };
+}
+
+/**
+ * Release a token account from confidential transfers so it can be closed.
+ *
+ * The program will not let go until it is satisfied the encrypted balance is
+ * actually empty — otherwise closing the account would burn tokens nobody can
+ * see. That is a zero-ciphertext proof, and at 192 bytes it is small enough to
+ * ride inline the way ENABLE's does, so this is one transaction with no context
+ * accounts to allocate or reclaim.
+ *
+ * Apply any pending balance first: pending is part of the balance and the
+ * program checks it too.
+ */
+export async function buildEmptyAccountTx(
+  connection: Connection, tokenAccount: PublicKey, authority: PublicKey, keys: ConfidentialKeys,
+): Promise<Transaction> {
+  const zk = await loadZk();
+  const ai = await connection.getParsedAccountInfo(tokenAccount);
+  const st = ((ai.value as any)?.data?.parsed?.info?.extensions ?? [])
+    .find((e: any) => e.extension === 'confidentialTransferAccount')?.state;
+  if (!st) throw new Error('This account is not enabled for confidential transfers.');
+  if (Number(st.pendingBalanceCreditCounter ?? 0) > 0) {
+    throw new Error('Apply your pending balance first — the program counts it as part of the balance.');
+  }
+
+  const proof = new zk.ZeroCiphertextProofData(
+    keys.elgamal, zk.ElGamalCiphertext.fromBytes(b64(st.availableBalance)));
+  proof.verify();
+
+  const tx = new Transaction().add(
+    new TransactionInstruction({
+      programId: TOKEN_2022_PROGRAM_ID,
+      keys: [
+        { pubkey: tokenAccount,               isSigner: false, isWritable: true  },
+        { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
+        { pubkey: authority,                  isSigner: true,  isWritable: false },
+      ],
+      data: Buffer.from([EXT_CONFIDENTIAL_TRANSFER, IX_EMPTY_ACCOUNT, 1]),   // proof is next
+    }),
+    new TransactionInstruction({
+      programId: ZK_ELGAMAL_PROOF_PROGRAM,
+      keys: [],
+      data: Buffer.from([PROOF_VERIFY_ZERO_CIPHERTEXT, ...proof.toBytes()]),
+    }),
+  );
+  tx.feePayer = authority;
+  tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+  return tx;
+}
+
+/**
+ * The proof triple shared by transfer, mint and burn.
+ *
+ * All three move an amount between two encrypted figures and must show the
+ * same three things: the amount is well formed for every party (validity), the
+ * figure it leaves behind really holds what we claim (equality), and nothing
+ * went negative (range). Only which keys play which role differs.
+ */
+async function buildAmountProofs(zk: any, opts: {
+  /** Whose balance the equality proof is about. */
+  ownerKeys: ConfidentialKeys;
+  first: any; second: any; auditor: any;    // the three pubkeys, in instruction order
+  amount: bigint;
+  /** The ciphertext being reduced or increased, 64 bytes. */
+  baseCiphertext: Uint8Array;
+  /** The value that ciphertext will hold afterwards. */
+  resultValue: bigint;
+  /** Add instead of subtract — minting grows the supply. */
+  add?: boolean;
+}) {
+  const { ownerKeys, first, second, auditor, amount, baseCiphertext, resultValue, add } = opts;
+  const lo = amount & XFER_LO_MASK;
+  const hi = amount >> XFER_LO_BITS;
+  const openLo = new zk.PedersenOpening(), openHi = new zk.PedersenOpening();
+  const groupedLo = zk.GroupedElGamalCiphertext3Handles.encryptWith(first, second, auditor, lo, openLo);
+  const groupedHi = zk.GroupedElGamalCiphertext3Handles.encryptWith(first, second, auditor, hi, openHi);
+  const validityProof = new zk.BatchedGroupedCiphertext3HandlesValidityProofData(
+    first, second, auditor, groupedLo, groupedHi, lo, hi, openLo, openHi);
+  validityProof.verify();
+
+  const gLo = groupedParts(groupedLo.toBytes()), gHi = groupedParts(groupedHi.toBytes());
+  // Which handle to fold in is the one belonging to whoever owns `baseCiphertext`:
+  // the first party for a transfer or burn source, the second for a mint's supply.
+  const handleLo = opts.add ? gLo.dest : gLo.source;
+  const handleHi = opts.add ? gHi.dest : gHi.source;
+  const deltaC = pt(gLo.commitment).add(pt(gHi.commitment).multiply(XFER_HI_SCALE));
+  const deltaH = pt(handleLo).add(pt(handleHi).multiply(XFER_HI_SCALE));
+  const baseC = pt(baseCiphertext.slice(0, 32)), baseH = pt(baseCiphertext.slice(32, 64));
+  const resultCt = zk.ElGamalCiphertext.fromBytes(ctBytes(
+    add ? baseC.add(deltaC) : baseC.subtract(deltaC),
+    add ? baseH.add(deltaH) : baseH.subtract(deltaH),
+  ));
+
+  const openNew = new zk.PedersenOpening();
+  const commitNew = zk.PedersenCommitment.from(resultValue, openNew);
+  const equalityProof = new zk.CiphertextCommitmentEqualityProofData(
+    ownerKeys.elgamal, resultCt, commitNew, openNew, resultValue);
+  equalityProof.verify();
+
+  const openPad = new zk.PedersenOpening();
+  const rangeProof = new zk.BatchedRangeProofU128Data(
+    [commitNew, zk.PedersenCommitment.fromBytes(gLo.commitment),
+     zk.PedersenCommitment.fromBytes(gHi.commitment), zk.PedersenCommitment.from(0n, openPad)],
+    new BigUint64Array([resultValue, lo, hi, 0n]),
+    new Uint8Array([64, 16, 32, 16]),
+    [openNew, openLo, openHi, openPad]);
+  rangeProof.verify();
+
+  return { equalityProof, validityProof, rangeProof, gLo, gHi };
+}
+
+/** Allocate three context accounts, verify into them, act, then close them. */
+function threeProofPlan(opts: {
+  authority: PublicKey; rents: number[];
+  equalityProof: any; validityProof: any; rangeProof: any;
+  /** Built with the three context pubkeys, in equality/validity/range order. */
+  action: (eq: PublicKey, va: PublicKey, rg: PublicKey) => TransactionInstruction;
+  blockhash: string;
+}): Transaction[] {
+  const { authority, rents, equalityProof, validityProof, rangeProof, action, blockhash } = opts;
+  const eqKp = Keypair.generate(), vaKp = Keypair.generate(), rgKp = Keypair.generate();
+  const alloc = (kp: Keypair, space: number, lamports: number) => SystemProgram.createAccount({
+    fromPubkey: authority, newAccountPubkey: kp.publicKey, lamports, space,
+    programId: ZK_ELGAMAL_PROOF_PROGRAM,
+  });
+  const verifyIx = (d: number, proof: any, ctx: PublicKey) => new TransactionInstruction({
+    programId: ZK_ELGAMAL_PROOF_PROGRAM,
+    keys: [{ pubkey: ctx, isSigner: false, isWritable: true },
+           { pubkey: authority, isSigner: false, isWritable: false }],
+    data: Buffer.from([d, ...proof.toBytes()]),
+  });
+  const closeIx = (ctx: PublicKey) => new TransactionInstruction({
+    programId: ZK_ELGAMAL_PROOF_PROGRAM,
+    keys: [{ pubkey: ctx, isSigner: false, isWritable: true },
+           { pubkey: authority, isSigner: false, isWritable: true },
+           { pubkey: authority, isSigner: true, isWritable: false }],
+    data: Buffer.from([PROOF_CLOSE_CONTEXT_STATE]),
+  });
+  const mk = (ixs: TransactionInstruction[], signers: Keypair[] = []) => {
+    const tx = new Transaction().add(...ixs);
+    tx.feePayer = authority; tx.recentBlockhash = blockhash;
+    if (signers.length) tx.partialSign(...signers);
+    return tx;
+  };
+  return [
+    mk([alloc(eqKp, CTX_LEN_EQUALITY, rents[0]), alloc(vaKp, CTX_LEN_VALIDITY, rents[1]),
+        alloc(rgKp, CTX_LEN_RANGE, rents[2])], [eqKp, vaKp, rgKp]),
+    mk([verifyIx(PROOF_VERIFY_EQUALITY, equalityProof, eqKp.publicKey),
+        verifyIx(PROOF_VERIFY_VALIDITY_3HANDLES, validityProof, vaKp.publicKey)]),
+    mk([verifyIx(PROOF_VERIFY_RANGE_U128, rangeProof, rgKp.publicKey)]),
+    mk([action(eqKp.publicKey, vaKp.publicKey, rgKp.publicKey),
+        closeIx(eqKp.publicKey), closeIx(vaKp.publicKey), closeIx(rgKp.publicKey)]),
+  ];
+}
+
+/** [outer][sub][36-byte decryptable][auditor lo][auditor hi][3 zero offsets] */
+function amountIxData(outer: number, sub: number, decryptable: Uint8Array, gLo: any, gHi: any) {
+  if (decryptable.length !== 36) throw new Error(`AE ciphertext ${decryptable.length}B, expected 36`);
+  const data = new Uint8Array(169);
+  data[0] = outer; data[1] = sub;
+  data.set(decryptable, 2);
+  data.set(ctBytes(pt(gLo.commitment), pt(gLo.auditor)), 38);
+  data.set(ctBytes(pt(gHi.commitment), pt(gHi.auditor)), 102);
+  return data;
+}
+
+/**
+ * Destroy tokens from your own private balance.
+ *
+ * The amount is encrypted to you, to the supply key and to any auditor, so the
+ * program can shrink the encrypted total supply homomorphically without ever
+ * learning the figure. Only meaningful on a ConfidentialMintBurn mint.
+ */
+export async function planConfidentialBurn(
+  connection: Connection,
+  opts: { mint: PublicKey; tokenAccount: PublicKey; amount: bigint;
+          keys: ConfidentialKeys; authority: PublicKey },
+): Promise<TransferPlan> {
+  const zk = await loadZk();
+  const { mint, tokenAccount, amount, keys, authority } = opts;
+  if (amount <= 0n) throw new Error('Amount must be greater than zero.');
+
+  const [accInfo, mintInfo] = await Promise.all(
+    [tokenAccount, mint].map(k => connection.getParsedAccountInfo(k)));
+  const extOf = (i: any, n: string) => ((i.value as any)?.data?.parsed?.info?.extensions ?? [])
+    .find((e: any) => e.extension === n)?.state;
+  const st = extOf(accInfo, 'confidentialTransferAccount');
+  if (!st) throw new Error('This account is not enabled for confidential transfers.');
+  const cmb = extOf(mintInfo, 'confidentialMintBurn');
+  if (!cmb) throw new Error('This token does not support confidential burn.');
+
+  const available: bigint = keys.ae.decrypt(
+    zk.AeCiphertext.fromBytes(b64(st.decryptableAvailableBalance)));
+  if (amount > available) throw new Error(`Not enough private balance — you have ${available} in base units.`);
+  const remaining = available - amount;
+
+  const mintCt = extOf(mintInfo, 'confidentialTransferMint');
+  const proofs = await buildAmountProofs(zk, {
+    ownerKeys: keys,
+    first: keys.elgamal.pubkey(),
+    second: zk.ElGamalPubkey.fromBytes(b64(cmb.supplyElgamalPubkey)),
+    auditor: mintCt?.auditorElgamalPubkey
+      ? zk.ElGamalPubkey.fromBytes(b64(mintCt.auditorElgamalPubkey))
+      : zk.ElGamalPubkey.fromBytes(new Uint8Array(32)),
+    amount, baseCiphertext: b64(st.availableBalance), resultValue: remaining,
+  });
+
+  const rents = await Promise.all([CTX_LEN_EQUALITY, CTX_LEN_VALIDITY, CTX_LEN_RANGE]
+    .map(n => connection.getMinimumBalanceForRentExemption(n)));
+  const { blockhash } = await connection.getLatestBlockhash();
+  return {
+    newSourceBalance: remaining,
+    transactions: threeProofPlan({
+      authority, rents, blockhash, ...proofs,
+      action: (eq, va, rg) => new TransactionInstruction({
+        programId: TOKEN_2022_PROGRAM_ID,
+        keys: [
+          { pubkey: tokenAccount, isSigner: false, isWritable: true  },
+          { pubkey: mint,         isSigner: false, isWritable: true  },
+          { pubkey: eq,           isSigner: false, isWritable: false },
+          { pubkey: va,           isSigner: false, isWritable: false },
+          { pubkey: rg,           isSigner: false, isWritable: false },
+          { pubkey: authority,    isSigner: true,  isWritable: false },
+        ],
+        data: Buffer.from(amountIxData(EXT_CONFIDENTIAL_MINT_BURN, IX_CMB_BURN,
+          keys.ae.encrypt(remaining).toBytes(), proofs.gLo, proofs.gHi)),
+      }),
+    }),
+  };
+}
+
+/**
+ * Create new tokens straight into a private balance.
+ *
+ * Mint authority only, and it needs the SUPPLY keys as well as the recipient's
+ * pubkey: the equality proof is about the new encrypted supply, and the
+ * instruction carries a fresh AES copy of it that only the authority can
+ * compute. Account layout confirmed against the original 1,000,000 BM mint on
+ * chain rather than inferred.
+ */
+export async function planConfidentialMint(
+  connection: Connection,
+  opts: { mint: PublicKey; destination: PublicKey; amount: bigint;
+          supplyKeys: ConfidentialKeys; authority: PublicKey },
+): Promise<TransferPlan> {
+  const zk = await loadZk();
+  const { mint, destination, amount, supplyKeys, authority } = opts;
+  if (amount <= 0n) throw new Error('Amount must be greater than zero.');
+
+  const [dstInfo, mintInfo] = await Promise.all(
+    [destination, mint].map(k => connection.getParsedAccountInfo(k)));
+  const extOf = (i: any, n: string) => ((i.value as any)?.data?.parsed?.info?.extensions ?? [])
+    .find((e: any) => e.extension === n)?.state;
+  const dst = extOf(dstInfo, 'confidentialTransferAccount');
+  if (!dst) throw new Error('The recipient has not enabled this token for private balances.');
+  const cmb = extOf(mintInfo, 'confidentialMintBurn');
+  if (!cmb) throw new Error('This token is not a ConfidentialMintBurn mint.');
+  if (supplyKeys.elgamalPubkeyB64 !== cmb.supplyElgamalPubkey) {
+    throw new Error('These are not this mint\u2019s supply keys — only the mint authority can mint.');
+  }
+
+  const supply: bigint = supplyKeys.ae.decrypt(
+    zk.AeCiphertext.fromBytes(b64(cmb.decryptableSupply)));
+  const newSupply = supply + amount;
+
+  const mintCt = extOf(mintInfo, 'confidentialTransferMint');
+  const proofs = await buildAmountProofs(zk, {
+    ownerKeys: supplyKeys,                              // the equality proof is about the SUPPLY
+    first: zk.ElGamalPubkey.fromBytes(b64(dst.elgamalPubkey)),
+    second: supplyKeys.elgamal.pubkey(),
+    auditor: mintCt?.auditorElgamalPubkey
+      ? zk.ElGamalPubkey.fromBytes(b64(mintCt.auditorElgamalPubkey))
+      : zk.ElGamalPubkey.fromBytes(new Uint8Array(32)),
+    amount, baseCiphertext: b64(cmb.confidentialSupply), resultValue: newSupply, add: true,
+  });
+
+  const rents = await Promise.all([CTX_LEN_EQUALITY, CTX_LEN_VALIDITY, CTX_LEN_RANGE]
+    .map(n => connection.getMinimumBalanceForRentExemption(n)));
+  const { blockhash } = await connection.getLatestBlockhash();
+  return {
+    newSourceBalance: newSupply,
+    transactions: threeProofPlan({
+      authority, rents, blockhash, ...proofs,
+      action: (eq, va, rg) => new TransactionInstruction({
+        programId: TOKEN_2022_PROGRAM_ID,
+        keys: [
+          { pubkey: destination, isSigner: false, isWritable: true  },
+          { pubkey: mint,        isSigner: false, isWritable: true  },
+          { pubkey: eq,          isSigner: false, isWritable: false },
+          { pubkey: va,          isSigner: false, isWritable: false },
+          { pubkey: rg,          isSigner: false, isWritable: false },
+          { pubkey: authority,   isSigner: true,  isWritable: false },
+        ],
+        data: Buffer.from(amountIxData(EXT_CONFIDENTIAL_MINT_BURN, IX_CMB_MINT,
+          supplyKeys.ae.encrypt(newSupply).toBytes(), proofs.gLo, proofs.gHi)),
+      }),
+    }),
+  };
+}
+
+/**
+ * Re-sync the readable copy of a ConfidentialMintBurn supply.
+ *
+ * ⛔ REQUIRED AFTER APPLYING A PENDING BURN — not after the burn itself.
+ * Burning does NOT reduce the supply: it adds to `pendingBurn` and leaves both
+ * `confidentialSupply` and its AES copy alone, which is why minting keeps
+ * working in between. Applying is what moves the figure, and it cannot rewrite
+ * the AES copy because that needs the supply key. The next mint reads that copy
+ * to compute the new total, so leaving it stale makes the mint's equality proof
+ * describe a supply the chain does not have, and it is rejected as a maths
+ * error with nothing pointing at the cause.
+ *
+ * The authority has to supply the true figure. Where an auditor key exists it
+ * can read each burn; without one — BM has none — burn amounts are unknowable
+ * to anyone but the burner, so only a burner who is also the authority can
+ * keep this correct. That is a property of the extension, not of this code.
+ */
+export async function buildUpdateDecryptableSupplyTx(
+  connection: Connection, mint: PublicKey, authority: PublicKey,
+  supplyKeys: ConfidentialKeys, trueSupply: bigint,
+): Promise<Transaction> {
+  const data = new Uint8Array(38);
+  data[0] = EXT_CONFIDENTIAL_MINT_BURN;
+  data[1] = IX_CMB_UPDATE_SUPPLY;
+  const ct: Uint8Array = supplyKeys.ae.encrypt(trueSupply).toBytes();
+  if (ct.length !== 36) throw new Error(`AE ciphertext ${ct.length}B, expected 36`);
+  data.set(ct, 2);
+  const tx = new Transaction().add(new TransactionInstruction({
+    programId: TOKEN_2022_PROGRAM_ID,
+    keys: [
+      { pubkey: mint,      isSigner: false, isWritable: true  },
+      { pubkey: authority, isSigner: true,  isWritable: false },
+    ],
+    data: Buffer.from(data),
+  }));
+  tx.feePayer = authority;
+  tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+  return tx;
+}
+
+/**
+ * Fold accumulated burns into the encrypted supply.
+ *
+ * Burning parks the amount in `pendingBurn` rather than shrinking the supply
+ * on the spot, so that a burn by one holder cannot invalidate a mint another
+ * party is midway through proving. The authority applies them in a batch.
+ *
+ * Two bytes and no proof — the arithmetic is homomorphic and the program does
+ * it. Pair it with buildUpdateDecryptableSupplyTx: this moves the encrypted
+ * figure and leaves the readable copy behind.
+ */
+export async function buildApplyPendingBurnTx(
+  connection: Connection, mint: PublicKey, authority: PublicKey,
+): Promise<Transaction> {
+  const tx = new Transaction().add(new TransactionInstruction({
+    programId: TOKEN_2022_PROGRAM_ID,
+    keys: [
+      { pubkey: mint,      isSigner: false, isWritable: true  },
+      { pubkey: authority, isSigner: true,  isWritable: false },
+    ],
+    data: Buffer.from([EXT_CONFIDENTIAL_MINT_BURN, IX_CMB_APPLY_PENDING_BURN]),
+  }));
+  tx.feePayer = authority;
+  tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+  return tx;
+}
+
+/**
+ * Reclaim rent from proof context accounts a failed plan left behind.
+ *
+ * A transfer, mint or burn allocates three context accounts up front and closes
+ * them in its last transaction. If anything in between fails — a dropped
+ * blockhash, a rejected signature, a closed tab — the accounts survive with
+ * their rent locked up and nothing referencing them. That is real money: about
+ * 0.0075 XNT a time, and it accrues silently.
+ *
+ * Every context account stores its authority in the first 32 bytes, so a wallet
+ * can find its own strays and close them. Safe to run at any time: a context
+ * account is single-use, and one still in flight belongs to a transaction that
+ * has not landed, so closing it costs nothing but a retry.
+ */
+export async function reclaimProofContexts(
+  connection: Connection, authority: PublicKey,
+): Promise<{ accounts: PublicKey[]; lamports: number; transactions: Transaction[] }> {
+  const found = await connection.getProgramAccounts(ZK_ELGAMAL_PROOF_PROGRAM, {
+    filters: [{ memcmp: { offset: 0, bytes: authority.toBase58() } }],
+  });
+  const accounts = found.map(f => f.pubkey);
+  const lamports = found.reduce((n, f) => n + f.account.lamports, 0);
+  if (!accounts.length) return { accounts, lamports, transactions: [] };
+
+  const { blockhash } = await connection.getLatestBlockhash();
+  const transactions: Transaction[] = [];
+  // Four to a transaction keeps each well inside the size limit.
+  for (let i = 0; i < accounts.length; i += 4) {
+    const tx = new Transaction();
+    for (const ctx of accounts.slice(i, i + 4)) {
+      tx.add(new TransactionInstruction({
+        programId: ZK_ELGAMAL_PROOF_PROGRAM,
+        keys: [
+          { pubkey: ctx,       isSigner: false, isWritable: true  },
+          { pubkey: authority, isSigner: false, isWritable: true  },
+          { pubkey: authority, isSigner: true,  isWritable: false },
+        ],
+        data: Buffer.from([PROOF_CLOSE_CONTEXT_STATE]),
+      }));
+    }
+    tx.feePayer = authority;
+    tx.recentBlockhash = blockhash;
+    transactions.push(tx);
+  }
+  return { accounts, lamports, transactions };
 }

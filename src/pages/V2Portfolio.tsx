@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey, Transaction} from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { BRAINS_MINT, BRAINS_LOGO, XNT_LOGO, LB_LOGO } from '../constants';
 import { fmtUSD, fmtNum, shortAddr } from '../utils/v2format';
@@ -998,7 +998,10 @@ export default function V2Portfolio() {
   const [privAmt,  setPrivAmt]  = useState('');
   const [privBusy, setPrivBusy] = useState(false);
   /** Withdraw reuses the amount field but needs no recipient. */
-  const [privMode, setPrivMode] = useState<'send' | 'withdraw'>('send');
+  const [privMode, setPrivMode] = useState<'send' | 'withdraw' | 'burn' | 'mint'>('send');
+  /** Whether the connected wallet is this mint's authority — MINT is theirs alone. */
+  const [canMint, setCanMint] = useState<Record<string, boolean>>({});
+  const [closing, setClosing] = useState<string | null>(null);
   const [privMsg,  setPrivMsg]  = useState<{ text: string; bad?: boolean } | null>(null);
 
   /**
@@ -1018,7 +1021,8 @@ export default function V2Portfolio() {
     setPrivBusy(true);
     setPrivMsg(null);
     try {
-      const { getSessionKeys, planConfidentialTransfer, planConfidentialWithdraw, ataFor } =
+      const { getSessionKeys, planConfidentialTransfer, planConfidentialWithdraw,
+              planConfidentialBurn, planConfidentialMint, deriveSupplyKeys, ataFor } =
         await import('../lib/confidential');
       const mintPk = new PublicKey(mint);
 
@@ -1044,9 +1048,22 @@ export default function V2Portfolio() {
       if (!keys) throw new Error('Could not derive a key that opens this account.');
 
       setPrivMsg({ text: 'Building proofs…' });
-      const plan = privMode === 'withdraw'
+      const plan =
+          privMode === 'withdraw'
         ? await planConfidentialWithdraw(connection, {
             mint: mintPk, tokenAccount: source, amount, decimals, keys, authority: publicKey,
+          })
+        : privMode === 'burn'
+        ? await planConfidentialBurn(connection, {
+            mint: mintPk, tokenAccount: source, amount, keys, authority: publicKey,
+          })
+        : privMode === 'mint'
+        ? await planConfidentialMint(connection, {
+            mint: mintPk, destination: source, amount,
+            // A second, different key: the supply is encrypted to the MINT, not
+            // to any holder, and only the authority's signature seeds it.
+            supplyKeys: await deriveSupplyKeys(mintPk, signMessage),
+            authority: publicKey,
           })
         : await planConfidentialTransfer(connection, {
             mint: mintPk, sourceAccount: source, destAccount: ataFor(mintPk, toPk!),
@@ -1064,7 +1081,11 @@ export default function V2Portfolio() {
         if (res.value.err) throw new Error(`Step ${i + 1} failed on chain.`);
       }
 
-      setPrivMsg({ text: privMode === 'withdraw' ? 'Withdrawn to your public balance ✓' : 'Sent privately ✓' });
+      setPrivMsg({ text:
+          privMode === 'withdraw' ? 'Withdrawn to your public balance ✓'
+        : privMode === 'burn'     ? 'Burned ✓ — the supply drops once the authority applies it'
+        : privMode === 'mint'     ? 'Minted ✓ — hit APPLY to make it spendable'
+        : 'Sent privately ✓' });
       setPrivAmt(''); setPrivTo('');
       // The row's revealed figure is now stale — replace it rather than leave a
       // number on screen that no longer matches the chain.
@@ -1120,10 +1141,69 @@ export default function V2Portfolio() {
     }
   };
 
+  /**
+   * Close a confidential account and take the rent back.
+   *
+   * Two steps the program insists on in order: it will not release the
+   * extension until it is satisfied the encrypted balance is empty — otherwise
+   * closing would destroy tokens nobody can see — and only then can the token
+   * account itself go.
+   */
+  const handleCloseAccount = async (mint: string) => {
+    if (!publicKey || !signMessage || !signAllTransactions) return;
+    setClosing(mint);
+    setRevealErr(e => { const { [mint]: _drop, ...rest } = e; return rest; });
+    try {
+      const { getSessionKeys, buildEmptyAccountTx, ataFor } = await import('../lib/confidential');
+      const { createCloseAccountInstruction, TOKEN_2022_PROGRAM_ID: T22 } = await import('@solana/spl-token');
+      const ata = ataFor(new PublicKey(mint), publicKey);
+      const keys = await getSessionKeys(connection, ata, publicKey, signMessage, keyStepNote(mint));
+      setKeyNote(null);
+      if (!keys) throw new Error('Could not derive a key that opens this account.');
+
+      const empty = await buildEmptyAccountTx(connection, ata, publicKey, keys);
+      const close = new Transaction().add(
+        createCloseAccountInstruction(ata, publicKey, publicKey, [], T22));
+      close.feePayer = publicKey;
+      close.recentBlockhash = empty.recentBlockhash;
+
+      const signed = await signAllTransactions([empty, close]);
+      for (const tx of signed) {
+        const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+        const bh = await connection.getLatestBlockhash();
+        const res = await connection.confirmTransaction({ signature: sig, ...bh }, 'confirmed');
+        if (res.value.err) throw new Error('Close failed on chain.');
+      }
+      setRevealed(r => { const { [mint]: _drop, ...rest } = r; return rest; });
+      setReloadNonce(n => n + 1);
+    } catch (e: any) {
+      const m = String(e?.message ?? e);
+      setRevealErr(er => ({ ...er, [mint]:
+        /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 160) }));
+    } finally {
+      setClosing(null); setKeyNote(null);
+    }
+  };
+
+  /**
+   * MINT is offered only to the mint authority, so check before showing it —
+   * a button that always fails is worse than no button.
+   */
+  useEffect(() => {
+    if (!privSendMint || !publicKey || canMint[privSendMint] !== undefined) return;
+    let live = true;
+    connection.getParsedAccountInfo(new PublicKey(privSendMint)).then(ai => {
+      const info: any = (ai.value as any)?.data?.parsed?.info;
+      if (live) setCanMint(m => ({ ...m, [privSendMint]: info?.mintAuthority === publicKey.toBase58() }));
+    }).catch(() => { if (live) setCanMint(m => ({ ...m, [privSendMint]: false })); });
+    return () => { live = false; };
+  }, [privSendMint, publicKey, connection, canMint]);
+
   /** A decrypted balance must never outlive the wallet that unlocked it. */
   useEffect(() => {
     if (publicKey) return;
-    setRevealed({}); setRevealErr({}); setPrivSendMint(null); setPrivMsg(null); setKeyNote(null);
+    setRevealed({}); setRevealErr({}); setPrivSendMint(null); setPrivMsg(null);
+    setKeyNote(null); setCanMint({});
     import('../lib/confidential').then(m => m.clearSessionKeys()).catch(() => {});
   }, [publicKey]);
 
@@ -2163,6 +2243,16 @@ export default function V2Portfolio() {
                                   onClick={() => handleEnablePrivate(h.mint)}
                                 >{enabling === h.mint ? '· · ·' : '🔓 ENABLE'}</button>
                               )}
+                              {revealed[h.mint] && revealed[h.mint].available === 0n
+                                && revealed[h.mint].pendingCredits === 0 && h.balance === 0 && (
+                                <button
+                                  type="button"
+                                  className="pfx-send enable-private"
+                                  disabled={closing === h.mint}
+                                  title="Empty the confidential extension and close the token account, refunding its rent."
+                                  onClick={() => handleCloseAccount(h.mint)}
+                                >{closing === h.mint ? '· · ·' : '⌫ CLOSE & REFUND'}</button>
+                              )}
                               {revealed[h.mint] && revealed[h.mint].available > 0n && (
                                 <button
                                   type="button"
@@ -2219,25 +2309,37 @@ export default function V2Portfolio() {
                       {privSendMint === h.mint && !isReadOnly && wallet && (
                         <div className="pfx-priv-send">
                           <div className="pfx-priv-head">
-                            {privMode === 'withdraw' ? '↑ WITHDRAW TO PUBLIC' : '◈ PRIVATE SEND'}
+                            {privMode === 'withdraw' ? '↑ WITHDRAW TO PUBLIC'
+                             : privMode === 'burn' ? '✕ BURN'
+                             : privMode === 'mint' ? '+ MINT'
+                             : '◈ PRIVATE SEND'}
                             <span>
                               {privMode === 'withdraw'
                                 ? `the amount becomes visible again as an ordinary ${h.symbol} balance`
+                               : privMode === 'burn'
+                                ? 'destroyed permanently · the amount stays encrypted, even in the supply'
+                               : privMode === 'mint'
+                                ? 'new tokens straight into your private balance · mint authority only'
                                 : `amount encrypted · recipient must have enabled ${h.symbol}`}
                             </span>
                           </div>
                           {/* A ConfidentialMintBurn mint has no public side to
                               withdraw to, so the choice only exists without it. */}
-                          {!h.mintFullyPrivate && (
-                            <div className="pfx-priv-modes">
-                              {(['send', 'withdraw'] as const).map(m => (
-                                <button key={m} type="button"
-                                  className={`pfx-chip${privMode === m ? ' on' : ''}`}
-                                  onClick={() => { setPrivMode(m); setPrivMsg(null); }}
-                                >{m === 'send' ? 'SEND PRIVATELY' : 'WITHDRAW TO PUBLIC'}</button>
-                              ))}
-                            </div>
-                          )}
+                          <div className="pfx-priv-modes">
+                            {([
+                              ['send', 'SEND PRIVATELY', true],
+                              // No public side on a ConfidentialMintBurn mint,
+                              // so nothing to withdraw to.
+                              ['withdraw', 'WITHDRAW TO PUBLIC', !h.mintFullyPrivate],
+                              ['burn', 'BURN', !!h.mintFullyPrivate],
+                              ['mint', 'MINT', !!h.mintFullyPrivate && canMint[h.mint] === true],
+                            ] as const).filter(([, , show]) => show).map(([m, label]) => (
+                              <button key={m} type="button"
+                                className={`pfx-chip${privMode === m ? ' on' : ''}`}
+                                onClick={() => { setPrivMode(m as any); setPrivMsg(null); }}
+                              >{label}</button>
+                            ))}
+                          </div>
                           {privMode === 'send' && (
                             <input
                               type="text" spellCheck={false} autoComplete="off"
@@ -2251,19 +2353,24 @@ export default function V2Portfolio() {
                               placeholder="0.0"
                               value={privAmt} onChange={e => { setPrivAmt(e.target.value); setPrivMsg(null); }}
                             />
-                            <button type="button" className="pfx-chip"
+                            {privMode !== 'mint' && <button type="button" className="pfx-chip"
                               onClick={() => setPrivAmt(
                                 (Number(revealed[h.mint].available) / 10 ** h.decimals).toFixed(h.decimals)
                                   .replace(/\.?0+$/, ''))}
-                            >MAX</button>
+                            >MAX</button>}
                             <button type="button" className="pfx-btn primary"
                               disabled={privBusy || !privAmt.trim() || (privMode === 'send' && !privTo.trim())}
                               onClick={() => handlePrivateMove(h.mint, h.decimals)}
-                            >{privBusy ? '· · ·' : privMode === 'withdraw' ? 'WITHDRAW' : 'SEND'}</button>
+                            >{privBusy ? '· · ·'
+                              : privMode === 'withdraw' ? 'WITHDRAW'
+                              : privMode === 'burn' ? 'BURN'
+                              : privMode === 'mint' ? 'MINT'
+                              : 'SEND'}</button>
                           </div>
                           <div className="pfx-priv-foot">
                             Spendable: {fmtNum(Number(revealed[h.mint].available) / 10 ** h.decimals, h.decimals)} {h.symbol}
                             {' · '}{privMode === 'withdraw' ? 'three' : 'four'} transactions, one approval — the proofs are too large for one
+                            {privMode === 'burn' && ' · the supply only drops once the mint authority applies it'}
                           </div>
                           {privMsg && (
                             <div className={`pfx-enable-msg${privMsg.bad ? ' bad' : ''}`}>{privMsg.text}</div>
