@@ -603,6 +603,36 @@ function injectPortfolioStyles() {
   .pfx-reveal{cursor:pointer;font-family:inherit;transition:.15s}
   .pfx-reveal:hover:not(:disabled){background:rgba(0,201,141,.2);border-color:var(--g)}
   .pfx-reveal:disabled{opacity:.6;cursor:default}
+  .pfx-receipt{margin:7px 0 10px;padding:11px 13px;border-radius:10px;
+    background:#0a0f16;border:1px solid rgba(0,201,141,.28)}
+  .pfx-receipt.bad{border-color:rgba(255,68,102,.3)}
+  .pfx-receipt.standalone{margin:14px 0 0}
+  .pfx-receipt-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    font-family:'Orbitron',sans-serif;font-size:9.5px;font-weight:700;letter-spacing:1px;
+    color:var(--g);text-transform:uppercase}
+  .pfx-receipt.bad .pfx-receipt-head{color:#ff4466}
+  .pfx-receipt-head button{background:none;border:none;color:var(--muted);cursor:pointer;
+    font-size:13px;line-height:1;padding:0 2px;transition:.15s}
+  .pfx-receipt-head button:hover{color:var(--txt)}
+  .pfx-receipt-tx{display:flex;align-items:center;gap:9px;margin-top:7px;padding:6px 9px;
+    border-radius:7px;background:#070b11;border:1px solid var(--line);
+    text-decoration:none;transition:.15s}
+  .pfx-receipt-tx:hover{border-color:var(--g);background:rgba(0,201,141,.06)}
+  .pfx-receipt-tx .lab{flex:1;min-width:0;font-size:10.5px;color:var(--muted);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pfx-receipt-tx .sig{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;
+    color:var(--g);flex:none}
+  .pfx-receipt-tx .go{color:var(--dim);font-size:10px;flex:none}
+  .pfx-receipt-tx:hover .go{color:var(--g)}
+  .pfx-receipt-wait{margin-top:7px;font-size:10.5px;color:var(--dim)}
+  .pfx-receipt-foot{margin-top:9px;padding-top:8px;border-top:1px solid var(--line);
+    font-size:11px;color:var(--g)}
+  .pfx-receipt-foot.bad{color:#ff4466}
+  @media(max-width:640px){
+    .pfx-receipt-tx{flex-wrap:wrap;gap:4px 9px}
+    .pfx-receipt-tx .lab{flex:1 0 100%}
+  }
+
   .pfx-bal-strip{margin:7px 0 10px;padding:11px 14px;border-radius:10px;
     background:linear-gradient(180deg,rgba(0,201,141,.09),rgba(0,201,141,.04));
     border:1px solid rgba(0,201,141,.3)}
@@ -905,6 +935,7 @@ export default function V2Portfolio() {
       return;
     }
     setEnabling(mint);
+    receiptStart(mint, 'Enable private balance');
     try {
       const [{ buildConfigureAccountTx }, { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID }] =
         await Promise.all([import('../lib/confidential'), import('@solana/spl-token')]);
@@ -918,6 +949,7 @@ export default function V2Portfolio() {
       const signed = await signTransaction(tx);
       const sig = await connection.sendRawTransaction(signed.serialize(),
         { skipPreflight: false, preflightCommitment: 'confirmed' });
+      receiptStep(mint, 'configure account', sig);
 
       setEnableMsg({ mint, text: 'Confirming…' });
       for (let i = 0; i < 30; i++) {
@@ -926,7 +958,8 @@ export default function V2Portfolio() {
         if (st?.confirmationStatus === 'confirmed' || st?.confirmationStatus === 'finalized') break;
         await new Promise(r => setTimeout(r, 1000));
       }
-      setEnableMsg({ mint, text: 'Private balance enabled ✓' });
+      setEnableMsg(null);
+      receiptStatus(mint, 'Private balance enabled ✓');
       setReloadNonce(n => n + 1);
       // `found` is its own snapshot taken at CHECK time — the table reload does
       // not touch it, so flip it by hand or the card keeps offering ENABLE.
@@ -934,8 +967,9 @@ export default function V2Portfolio() {
         ? { ...f, hasAccount: true, configured: true } : f);
     } catch (e: any) {
       const m = String(e?.message ?? e);
-      setEnableMsg({ mint, bad: true,
-        text: /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 120) });
+      const text = /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 160);
+      setEnableMsg(null);
+      receiptStatus(mint, '', text);
     } finally {
       setEnabling(null);
     }
@@ -992,6 +1026,49 @@ export default function V2Portfolio() {
     }
   };
 
+  /**
+   * A running receipt of on-chain steps, per mint.
+   *
+   * Confidential operations are three or four transactions each, and the status
+   * line used to be overwritten by the next step — so by the time anything had
+   * landed there was nothing left to click. This accumulates every signature
+   * and stays put until dismissed or the page reloads, because a hash you
+   * cannot get back to is not a receipt.
+   */
+  const [receipt, setReceipt] = useState<Record<string, {
+    title: string;
+    steps: { label: string; sig: string }[];
+    status?: string;
+    error?: string;
+  }>>({});
+
+  const receiptStart = (mint: string, title: string) =>
+    setReceipt(r => ({ ...r, [mint]: { title, steps: [] } }));
+  const receiptStep = (mint: string, label: string, sig: string) =>
+    setReceipt(r => r[mint] ? { ...r, [mint]: { ...r[mint], steps: [...r[mint].steps, { label, sig }] } } : r);
+  const receiptStatus = (mint: string, status: string, error?: string) =>
+    setReceipt(r => ({
+      ...r,
+      [mint]: r[mint]
+        ? { ...r[mint], status, error }
+        : { title: 'Result', steps: [], status, error },
+    }));
+
+  /**
+   * Send one transaction and record its hash the moment it has a signature —
+   * before confirmation, not after. If confirmation times out or the tab is
+   * closed the transaction may still land, and the user needs the link either
+   * way to find out.
+   */
+  const sendRecorded = async (tx: Transaction, mint: string, label: string) => {
+    const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+    receiptStep(mint, label, sig);
+    const bh = await connection.getLatestBlockhash();
+    const res = await connection.confirmTransaction({ signature: sig, ...bh }, 'confirmed');
+    if (res.value.err) throw new Error(`${label} failed on chain.`);
+    return sig;
+  };
+
   /** Private-send panel: which mint is open, and its form state. */
   const [privSendMint, setPrivSendMint] = useState<string | null>(null);
   const [privTo,   setPrivTo]   = useState('');
@@ -1020,6 +1097,8 @@ export default function V2Portfolio() {
     }
     setPrivBusy(true);
     setPrivMsg(null);
+    receiptStart(mint, { send: 'Private send', withdraw: 'Withdraw to public',
+                         burn: 'Burn', mint: 'Mint' }[privMode]);
     try {
       const { getSessionKeys, planConfidentialTransfer, planConfidentialWithdraw,
               planConfidentialBurn, planConfidentialMint, deriveSupplyKeys, ataFor } =
@@ -1073,19 +1152,24 @@ export default function V2Portfolio() {
       setPrivMsg({ text: `Approve ${plan.transactions.length} transactions…` });
       const signed = await signAllTransactions(plan.transactions);
 
+      // Every step of a plan does a distinct job, so name them rather than
+      // numbering — "range proof" tells you what failed, "step 3" does not.
+      const STEP_NAMES = privMode === 'withdraw'
+        ? ['allocate contexts + equality proof', 'range proof', 'withdraw + close contexts']
+        : ['allocate proof contexts', 'equality + validity proofs', 'range proof',
+           `${privMode} + close contexts`];
+
       for (let i = 0; i < signed.length; i++) {
         setPrivMsg({ text: `Sending ${i + 1} of ${signed.length}…` });
-        const sig = await connection.sendRawTransaction(signed[i].serialize(), { skipPreflight: false });
-        const bh = await connection.getLatestBlockhash();
-        const res = await connection.confirmTransaction({ signature: sig, ...bh }, 'confirmed');
-        if (res.value.err) throw new Error(`Step ${i + 1} failed on chain.`);
+        await sendRecorded(signed[i], mint, STEP_NAMES[i] ?? `step ${i + 1}`);
       }
 
-      setPrivMsg({ text:
+      setPrivMsg(null);
+      receiptStatus(mint,
           privMode === 'withdraw' ? 'Withdrawn to your public balance ✓'
         : privMode === 'burn'     ? 'Burned ✓ — the supply drops once the authority applies it'
         : privMode === 'mint'     ? 'Minted ✓ — hit APPLY to make it spendable'
-        : 'Sent privately ✓' });
+        : 'Sent privately ✓');
       setPrivAmt(''); setPrivTo('');
       // The row's revealed figure is now stale — replace it rather than leave a
       // number on screen that no longer matches the chain.
@@ -1094,8 +1178,8 @@ export default function V2Portfolio() {
       setReloadNonce(n => n + 1);
     } catch (e: any) {
       const m = String(e?.message ?? e);
-      setPrivMsg({ bad: true,
-        text: /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 160) });
+      setPrivMsg(null);
+      receiptStatus(mint, '', /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 160));
     } finally {
       setPrivBusy(false); setKeyNote(null);
     }
@@ -1114,6 +1198,7 @@ export default function V2Portfolio() {
   const handleApplyPending = async (mint: string) => {
     if (!publicKey || !signMessage || !signTransaction) return;
     setApplying(mint);
+    receiptStart(mint, 'Apply pending balance');
     setRevealErr(e => { const { [mint]: _drop, ...rest } = e; return rest; });
     try {
       const { getSessionKeys, buildApplyPendingBalanceTx, readConfidentialBalances, ataFor } =
@@ -1125,17 +1210,14 @@ export default function V2Portfolio() {
       const tx = await buildApplyPendingBalanceTx(connection, ata, publicKey, keys);
       if (!tx) return;                                   // nothing pending after all
       const signed = await signTransaction(tx);
-      const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false });
-      const bh = await connection.getLatestBlockhash();
-      const res = await connection.confirmTransaction({ signature: sig, ...bh }, 'confirmed');
-      if (res.value.err) throw new Error('Apply failed on chain.');
+      await sendRecorded(signed, mint, 'apply pending');
+      receiptStatus(mint, 'Pending balance is now spendable ✓');
       const fresh = await readConfidentialBalances(connection, ata, keys);
       if (fresh) setRevealed(r => ({ ...r, [mint]: fresh }));
       setReloadNonce(n => n + 1);
     } catch (e: any) {
       const m = String(e?.message ?? e);
-      setRevealErr(er => ({ ...er, [mint]:
-        /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 140) }));
+      receiptStatus(mint, '', /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 160));
     } finally {
       setApplying(null); setKeyNote(null);
     }
@@ -1152,6 +1234,7 @@ export default function V2Portfolio() {
   const handleCloseAccount = async (mint: string) => {
     if (!publicKey || !signMessage || !signAllTransactions) return;
     setClosing(mint);
+    receiptStart(mint, 'Close account');
     setRevealErr(e => { const { [mint]: _drop, ...rest } = e; return rest; });
     try {
       const { getSessionKeys, buildEmptyAccountTx, ataFor } = await import('../lib/confidential');
@@ -1168,18 +1251,14 @@ export default function V2Portfolio() {
       close.recentBlockhash = empty.recentBlockhash;
 
       const signed = await signAllTransactions([empty, close]);
-      for (const tx of signed) {
-        const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-        const bh = await connection.getLatestBlockhash();
-        const res = await connection.confirmTransaction({ signature: sig, ...bh }, 'confirmed');
-        if (res.value.err) throw new Error('Close failed on chain.');
-      }
+      await sendRecorded(signed[0], mint, 'empty confidential extension');
+      await sendRecorded(signed[1], mint, 'close token account + refund rent');
+      receiptStatus(mint, 'Account closed, rent refunded ✓');
       setRevealed(r => { const { [mint]: _drop, ...rest } = r; return rest; });
       setReloadNonce(n => n + 1);
     } catch (e: any) {
       const m = String(e?.message ?? e);
-      setRevealErr(er => ({ ...er, [mint]:
-        /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 160) }));
+      receiptStatus(mint, '', /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 160));
     } finally {
       setClosing(null); setKeyNote(null);
     }
@@ -1203,7 +1282,7 @@ export default function V2Portfolio() {
   useEffect(() => {
     if (publicKey) return;
     setRevealed({}); setRevealErr({}); setPrivSendMint(null); setPrivMsg(null);
-    setKeyNote(null); setCanMint({});
+    setKeyNote(null); setCanMint({}); setReceipt({});
     import('../lib/confidential').then(m => m.clearSessionKeys()).catch(() => {});
   }, [publicKey]);
 
@@ -1874,6 +1953,38 @@ export default function V2Portfolio() {
         </div></div>
       )}
 
+      {/* A receipt must outlive the row it came from. Closing an account
+          removes its row, and enabling from the picker below happens before
+          any row exists — in both cases the hashes would vanish with it. */}
+      {Object.entries(receipt)
+        .filter(([mint]) => !allRows.some(r => r.mint === mint))
+        .map(([mint, rec]) => (
+          <div key={mint} className={`pfx-receipt standalone${rec.error ? ' bad' : ''}`}>
+            <div className="pfx-receipt-head">
+              <span>{rec.title} · {shortAddr(mint, 4, 4)}</span>
+              <button type="button" title="Dismiss"
+                onClick={() => setReceipt(r => { const { [mint]: _drop, ...rest } = r; return rest; })}
+              >✕</button>
+            </div>
+            {rec.steps.map(st => (
+              <a key={st.sig} className="pfx-receipt-tx"
+                href={`https://explorer.mainnet.x1.xyz/tx/${st.sig}`}
+                target="_blank" rel="noopener noreferrer"
+              >
+                <span className="lab">{st.label}</span>
+                <span className="sig">{st.sig.slice(0, 8)}…{st.sig.slice(-8)}</span>
+                <span className="go">↗</span>
+              </a>
+            ))}
+            {rec.steps.length === 0 && !rec.error && (
+              <div className="pfx-receipt-wait">waiting for the first signature…</div>
+            )}
+            {(rec.status || rec.error) && (
+              <div className={`pfx-receipt-foot${rec.error ? ' bad' : ''}`}>{rec.error || rec.status}</div>
+            )}
+          </div>
+        ))}
+
       {/* ── ADD A PRIVATE TOKEN ──────────────────────────────────────────
           The holdings table can only list accounts that exist. A wallet
           that has never received a given token has no row for it, and for a
@@ -2277,6 +2388,34 @@ export default function V2Portfolio() {
                       )}
                       {keyNote?.mint === h.mint && (
                         <div className="pfx-enable-msg">{keyNote.text}</div>
+                      )}
+                      {receipt[h.mint] && (
+                        <div className={`pfx-receipt${receipt[h.mint].error ? ' bad' : ''}`}>
+                          <div className="pfx-receipt-head">
+                            <span>{receipt[h.mint].title}</span>
+                            <button type="button" title="Dismiss"
+                              onClick={() => setReceipt(r => { const { [h.mint]: _drop, ...rest } = r; return rest; })}
+                            >✕</button>
+                          </div>
+                          {receipt[h.mint].steps.map(st => (
+                            <a key={st.sig} className="pfx-receipt-tx"
+                              href={`https://explorer.mainnet.x1.xyz/tx/${st.sig}`}
+                              target="_blank" rel="noopener noreferrer"
+                            >
+                              <span className="lab">{st.label}</span>
+                              <span className="sig">{st.sig.slice(0, 8)}…{st.sig.slice(-8)}</span>
+                              <span className="go">↗</span>
+                            </a>
+                          ))}
+                          {receipt[h.mint].steps.length === 0 && !receipt[h.mint].error && (
+                            <div className="pfx-receipt-wait">waiting for the first signature…</div>
+                          )}
+                          {(receipt[h.mint].status || receipt[h.mint].error) && (
+                            <div className={`pfx-receipt-foot${receipt[h.mint].error ? ' bad' : ''}`}>
+                              {receipt[h.mint].error || receipt[h.mint].status}
+                            </div>
+                          )}
+                        </div>
                       )}
                       {revealErr[h.mint] && (
                         <div className="pfx-enable-msg bad">{revealErr[h.mint]}</div>
