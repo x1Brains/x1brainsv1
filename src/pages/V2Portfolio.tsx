@@ -1284,8 +1284,8 @@ export default function V2Portfolio() {
     receiptStart(mint, 'Apply pending balance');
     setRevealErr(e => { const { [mint]: _drop, ...rest } = e; return rest; });
     try {
-      const { getSessionKeys, buildApplyPendingBalanceTx, readConfidentialBalances, ataFor } =
-        await import('../lib/confidential');
+      const { getSessionKeys, buildApplyPendingBalanceTx, readConfidentialBalances, ataFor,
+              checkApplyRace, repairDecryptableBalance } = await import('../lib/confidential');
       const ata = ataFor(new PublicKey(mint), publicKey);
       const keys = await getSessionKeys(connection, ata, publicKey, signMessage, keyStepNote(mint));
       setKeyNote(null);
@@ -1294,7 +1294,25 @@ export default function V2Portfolio() {
       if (!tx) return;                                   // nothing pending after all
       const signed = await signTransaction(tx);
       await sendRecorded(signed, mint, 'apply pending');
-      receiptStatus(mint, 'Pending balance is now spendable ✓');
+
+      // A transfer landing between the read and the execution means the chain
+      // credited more than we claimed, and the readable copy is now short. Left
+      // alone that quietly makes the surplus unspendable, so repair it here
+      // rather than let the user discover it as a failing send later.
+      const race = await checkApplyRace(connection, ata);
+      if (race.raced) {
+        receiptStatus(mint, `A transfer arrived mid-apply (${race.actual} credits, not ${race.expected}). Repairing…`);
+        const repair = await repairDecryptableBalance(connection, ata, publicKey, keys);
+        if (repair) {
+          const fixed = await signTransaction(repair.tx);
+          await sendRecorded(fixed, mint, 'repair readable balance');
+          receiptStatus(mint, 'Applied, and the balance corrected after a mid-apply transfer ✓');
+        } else {
+          receiptStatus(mint, 'Pending balance is now spendable ✓');
+        }
+      } else {
+        receiptStatus(mint, 'Pending balance is now spendable ✓');
+      }
       const fresh = await readConfidentialBalances(connection, ata, keys);
       if (fresh) setRevealed(r => ({ ...r, [mint]: fresh }));
       setReloadNonce(n => n + 1);
@@ -2568,8 +2586,10 @@ export default function V2Portfolio() {
                             />
                             {privMode !== 'mint' && <button type="button" className="pfx-chip"
                               onClick={() => setPrivAmt(
-                                (Number(revealed[h.mint].available) / 10 ** h.decimals).toFixed(h.decimals)
-                                  .replace(/\.?0+$/, ''))}
+                                // fmtUnits without the thousands separators: exact,
+                                // and never mangles a whole number the way the old
+                                // float+regex did ("1200" became "12" at 0 decimals).
+                                fmtUnits(revealed[h.mint].available, h.decimals).replace(/,/g, ''))}
                             >MAX</button>}
                             <button type="button" className="pfx-btn primary"
                               disabled={privBusy || !privAmt.trim() || (privMode === 'send' && !privTo.trim())}

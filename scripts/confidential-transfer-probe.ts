@@ -44,7 +44,7 @@ import {
   isConfigured, getSessionKeys, clearSessionKeys, buildConfigureAccountTx,
   planConfidentialWithdraw, buildEmptyAccountTx, planConfidentialBurn, planConfidentialMint,
   deriveSupplyKeys, buildUpdateDecryptableSupplyTx, buildApplyPendingBurnTx,
-  reclaimProofContexts,
+  reclaimProofContexts, checkApplyRace, repairDecryptableBalance, deriveKeysHkdf,
 } from '../src/lib/confidential';
 
 const RPC = 'https://rpc.mainnet.x1.xyz';
@@ -430,6 +430,44 @@ async function reclaimStrays() {
   total === 0 ? ok('nothing stranded') : ok(`reclaimed ${total} lamports in total`);
 }
 
+async function auditChecks() {
+  const c = new Connection(RPC, 'confirmed');
+  head('AUDIT: weak signatures must be refused, not stretched into a key');
+  for (const [label, bad] of [
+    ['all-zero (some wallets return this instead of erroring)', new Uint8Array(64)],
+    ['truncated', new Uint8Array(8)],
+  ] as const) {
+    try {
+      await deriveKeysHkdf(async () => bad);
+      fail(`${label}: ACCEPTED — a predictable key was derived`);
+    } catch (e: any) {
+      ok(`${label}: refused (${String(e.message).slice(0, 48)}…)`);
+    }
+  }
+  // and a real one still works
+  const S = load(`${process.env.PROBE_DIR ?? '/tmp'}/x1-probe-sender.json`);
+  const good = await deriveKeysHkdf(signerFor(S));
+  good?.elgamalPubkeyB64 ? ok('a genuine signature still derives normally') : fail('real signature refused');
+
+  head('AUDIT: apply-race detection and the repair primitive');
+  const ata = ataFor(X1B, S.publicKey);
+  const keys = (await getSessionKeys(c, ata, S.publicKey, signerFor(S)))!;
+  const race = await checkApplyRace(c, ata);
+  ok(`race check reads expected=${race.expected} actual=${race.actual} -> raced=${race.raced}`);
+
+  // repairDecryptableBalance must be a NO-OP on a healthy account: it returns
+  // null rather than rewriting a balance that is already correct.
+  const before = (await readConfidentialBalances(c, ata, keys))!.available;
+  let repaired;
+  try { repaired = await repairDecryptableBalance(c, ata, S.publicKey, keys); }
+  catch (e: any) { repaired = 'threw: ' + String(e.message).slice(0, 60); }
+  if (repaired === null) ok('healthy account: repair correctly declines to act');
+  else if (typeof repaired === 'string') ok(`balance beyond the u32 discrete log — ${repaired}`);
+  else fail(`repair wanted to rewrite a healthy balance to ${(repaired as any).trueBalance}`);
+  const after = (await readConfidentialBalances(c, ata, keys))!.available;
+  after === before ? ok(`balance untouched by the audit (${after})`) : fail('audit changed the balance');
+}
+
 async function crossCheck() {
   const c = new Connection(RPC, 'confirmed');
   head('read accounts the spl-token CLI configured, through the shipped code');
@@ -449,4 +487,4 @@ async function crossCheck() {
   }
 }
 
-main().then(withdrawRoundTrip).then(emptyAndClose).then(mintAndBurn).then(reclaimStrays).then(crossCheck).then(signatureCost).then(hkdfRoundTrip).catch(e => { console.error('\n\x1b[31m' + (e?.stack ?? e) + '\x1b[0m'); process.exit(1); });
+main().then(withdrawRoundTrip).then(emptyAndClose).then(mintAndBurn).then(auditChecks).then(reclaimStrays).then(crossCheck).then(signatureCost).then(hkdfRoundTrip).catch(e => { console.error('\n\x1b[31m' + (e?.stack ?? e) + '\x1b[0m'); process.exit(1); });

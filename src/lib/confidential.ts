@@ -150,6 +150,31 @@ export interface ConfidentialKeys {
   elgamalPubkeyB64: string;
 }
 
+/**
+ * Reject key material that is not a real signature.
+ *
+ * ⛔ SECURITY. The whole scheme rests on the signature being unpredictable. Some
+ * wallet implementations return the default all-zero signature instead of
+ * raising an error, and hashing that produces a perfectly valid keypair — the
+ * SAME one for every wallet that does it. Anyone could compute it and read
+ * those balances. solana-zk-sdk rejects the default signature explicitly for
+ * this reason; this is that check.
+ *
+ * The length test catches a truncated or stubbed signMessage before it can be
+ * stretched into a low-entropy key.
+ */
+function assertUsableSignature(sig: Uint8Array): Uint8Array {
+  if (!(sig instanceof Uint8Array) || sig.length !== 64) {
+    throw new Error('Your wallet returned an unexpected signature. Try Backpack or Phantom.');
+  }
+  let bits = 0;
+  for (const b of sig) bits |= b;
+  if (bits === 0) {
+    throw new Error('Your wallet returned an empty signature — it cannot be used to derive a key.');
+  }
+  return sig;
+}
+
 /** Scalar::from_bytes_mod_order_wide over a 64-byte little-endian hash. */
 function scalarFromWide(wide: Uint8Array): Uint8Array {
   let x = 0n;
@@ -162,6 +187,8 @@ function scalarFromWide(wide: Uint8Array): Uint8Array {
 
 /** Build a key pair from the two raw signatures, whichever scheme produced them. */
 function keysFrom(zk: any, elgamalSig: Uint8Array, aeSig: Uint8Array, legacy: boolean): ConfidentialKeys {
+  assertUsableSignature(elgamalSig);
+  assertUsableSignature(aeSig);
   const elgamal = zk.ElGamalKeypair.fromSecretKey(zk.ElGamalSecretKey.fromBytes(
     legacy ? scalarFromWide(sha512(elgamalSig))
            // seed_from_signature hashes the signature, then from_seed hashes
@@ -202,7 +229,7 @@ const HKDF_INFO_ELGAMAL = new TextEncoder().encode('elgamal');
 
 export async function deriveKeysHkdf(signMessage: SignMessage): Promise<ConfidentialKeys> {
   const zk = await loadZk();
-  const sig = await signMessage(HKDF_SALT);          // salt || empty public seed
+  const sig = assertUsableSignature(await signMessage(HKDF_SALT));   // salt || empty seed
   const elgamal = zk.ElGamalKeypair.fromSecretKey(zk.ElGamalSecretKey.fromBytes(
     scalarFromWide(hkdf(sha512, sig, HKDF_SALT, HKDF_INFO_ELGAMAL, 64)),
   ));
@@ -775,6 +802,79 @@ export function buildApplyPendingBalanceIx(
   });
 }
 
+/**
+ * Did the last apply race an incoming transfer?
+ *
+ * ⛔ THE FAILURE THIS CATCHES. ApplyPendingBalance folds pending into available
+ * on chain, but the readable AES copy is whatever the CLIENT supplied — the
+ * program has no key and cannot compute it. So if a transfer lands between
+ * reading the account and the transaction executing, the ciphertext grows by
+ * more than the figure we sent, and the AES copy silently under-reports.
+ *
+ * That is not cosmetic. Every later spend derives its equality proof from the
+ * AES value, so the proof describes a balance the chain does not have and is
+ * rejected — with no indication why. The account keeps working right up until
+ * it doesn't, and the surplus is unspendable.
+ *
+ * The program records `expected` (what we claimed) against `actual` (what was
+ * really there) for exactly this purpose. Comparing them is the only way to
+ * know, so it must be checked after every apply.
+ */
+export async function checkApplyRace(
+  connection: Connection, tokenAccount: PublicKey,
+): Promise<{ raced: boolean; expected: number; actual: number }> {
+  const ai = await connection.getParsedAccountInfo(tokenAccount);
+  const st = ((ai.value as any)?.data?.parsed?.info?.extensions ?? [])
+    .find((e: any) => e.extension === 'confidentialTransferAccount')?.state;
+  const expected = Number(st?.expectedPendingBalanceCreditCounter ?? 0);
+  const actual = Number(st?.actualPendingBalanceCreditCounter ?? 0);
+  return { raced: expected !== actual, expected, actual };
+}
+
+/**
+ * Repair a decryptable balance that drifted from the real one.
+ *
+ * ApplyPendingBalance is the only instruction that rewrites the AES copy, so it
+ * doubles as the repair: run it again with nothing pending and the corrected
+ * figure. The true balance comes from the ElGamal side, which needs a discrete
+ * log — bounded to u32, so this can fix an account holding up to ~4.29e9 base
+ * units and reports honestly when it cannot rather than writing another guess.
+ */
+export async function repairDecryptableBalance(
+  connection: Connection, tokenAccount: PublicKey, authority: PublicKey, keys: ConfidentialKeys,
+): Promise<{ tx: Transaction; trueBalance: bigint } | null> {
+  const zk = await loadZk();
+  const ai = await connection.getParsedAccountInfo(tokenAccount);
+  const st = ((ai.value as any)?.data?.parsed?.info?.extensions ?? [])
+    .find((e: any) => e.extension === 'confidentialTransferAccount')?.state;
+  if (!st) throw new Error('This account is not enabled for confidential transfers.');
+
+  let trueBalance: bigint;
+  try {
+    trueBalance = keys.elgamal.secret().decrypt(
+      zk.ElGamalCiphertext.fromBytes(b64(st.availableBalance)));
+  } catch {
+    throw new Error(
+      'This balance is too large to recover automatically. The encrypted balance is intact — ' +
+      'the readable copy is what drifted. Get in touch before sending anything else from it.');
+  }
+
+  const stored: bigint | null = (() => {
+    try { return keys.ae.decrypt(zk.AeCiphertext.fromBytes(b64(st.decryptableAvailableBalance))); }
+    catch { return null; }
+  })();
+  if (stored === trueBalance) return null;                       // nothing to repair
+
+  const tx = new Transaction().add(buildApplyPendingBalanceIx(
+    tokenAccount, authority,
+    BigInt(st.pendingBalanceCreditCounter ?? 0),
+    keys.ae.encrypt(trueBalance).toBytes(),
+  ));
+  tx.feePayer = authority;
+  tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+  return { tx, trueBalance };
+}
+
 /** Ready-to-sign transaction that makes a pending balance spendable. */
 export async function buildApplyPendingBalanceTx(
   connection: Connection, tokenAccount: PublicKey, authority: PublicKey, keys: ConfidentialKeys,
@@ -984,7 +1084,7 @@ export async function deriveSupplyKeys(
 ): Promise<ConfidentialKeys> {
   const zk = await loadZk();
   const seed = new Uint8Array([...HKDF_SALT, ...mint.toBytes()]);
-  const sig = await signMessage(seed);
+  const sig = assertUsableSignature(await signMessage(seed));
   const elgamal = zk.ElGamalKeypair.fromSecretKey(zk.ElGamalSecretKey.fromBytes(
     scalarFromWide(hkdf(sha512, sig, HKDF_SALT, HKDF_INFO_ELGAMAL, 64))));
   const ae = zk.AeKey.fromBytes(hkdf(sha512, sig, HKDF_SALT, HKDF_INFO_AE, 16));
