@@ -5,6 +5,10 @@ Living doc. Anything load-bearing about the project belongs here so it isn't los
 > **Read the newest session logs first — they supersede §0/§12/§13 statuses, which were
 > written pre-launch and are stale.**
 >
+> - **[§17 — 2026-08-19](#17-session-log--2026-08-19--confidential-tokens-on-x1-x1b-bm)**
+>   confidential Token-2022 on X1 (X1B, BM). **§17.1 is mandatory before writing any
+>   confidential-transfer code** — X1 only accepts `@solana/zk-sdk` ≤ 0.3.1, and newer
+>   proofs fail as *maths* errors, not parse errors.
 > - **[§16 — 2026-08-18](#16-session-log--2026-08-18--portfolio-depth-watch-mode-logo-resolution-copy)**
 >   portfolio depth + watch mode + logo resolution + copy buttons. Start at **§16.12** if you
 >   are about to trust a typecheck, **§16.1** if something works on `localhost` but not over
@@ -1256,3 +1260,164 @@ fixed**. `CopyButton.tsx` and `ipfsGateways.ts` have none.
   concluding. Same trap as §15.8's RPC 429s.
 - **Lazy images under-report.** `V2NFTImage` is `loading="lazy"`; a probe that does not
   scroll sees ~⅓ of the images and reads as breakage.
+
+---
+
+## 17. Session log — 2026-08-19 · confidential tokens on X1 (X1B, BM)
+
+Two confidential Token-2022 mints created on X1 mainnet, and the toolchain facts
+needed to work with them. Read §17.1 before writing ANY confidential-transfer
+code for X1 — it is the difference between working proofs and a day lost.
+
+### 17.1 ⛔⛔⛔ X1's ZkElGamalProof program only accepts `@solana/zk-sdk` ≤ 0.3.1
+
+Proofs generated with 0.4.x/0.5.x are **rejected on chain** even though they
+verify locally. Measured against the deployed program with the simplest possible
+proof (`PubkeyValidityProofData`, 96 bytes):
+
+    zk-sdk 0.5.1  ->  REJECTED   SigmaProof(PubkeyValidity, AlgebraicRelation)
+    zk-sdk 0.4.2  ->  REJECTED
+    zk-sdk 0.3.1  ->  ACCEPTED ✓
+    zk-sdk 0.2.0  ->  ACCEPTED ✓
+
+Something in 0.4.x changed the Fiat-Shamir transcript. The proof lengths are
+identical, so this presents as a *maths* failure, not a parse failure — which is
+why it looks like your construction is wrong when it isn't.
+
+⚠️ **Local `verify()` is authoritative for the SDK, not for the chain.** It
+correctly rejects a mismatched proof (tested), so a proof that verifies locally
+and fails on chain means a VERSION mismatch, not a construction bug.
+
+**Pin `@solana/zk-sdk@0.3.1`.** Note its entry point is `dist/node/index.cjs`
+(0.5.x uses `index.js`, and both are subpath-only exports: `/node`, `/web`,
+`/bundler` — there is no root import).
+
+### 17.2 API differences that matter between 0.3.1 and 0.5.1
+
+| | 0.3.1 (use this) | 0.5.1 |
+|---|---|---|
+| argument passing | **borrows** — openings reusable | **consumes** — reuse throws "null pointer passed to rust" |
+| `PedersenOpening.add` / `combineLoHi` | absent | present |
+| `ConfidentialKeys.fromSignature` | absent | present |
+
+Bridge the gap: derive keys with 0.5.1 (`ConfidentialKeys.fromSignature`), export
+`ElGamalSecretKey.toBytes()` / `AeKey.toBytes()`, re-import into 0.3.1 with
+`fromBytes`. Verified: the re-imported keypair's pubkey matches on-chain exactly.
+
+In 0.5.1, clone an opening with `o.add(PedersenOpening.zero())` — `add` borrows
+and produces an identical opening (verified: same commitment).
+
+### 17.3 ⭐⭐⭐ Building a confidential-mint proof set
+
+`ElGamalCiphertext` has **no arithmetic** in either SDK version — no add, no
+scalar multiply, and `DecryptHandle` has none either. But a ciphertext is
+`commitment(32) || handle(32)`, both Ristretto255 points, so do it yourself with
+`RistrettoPoint` from `@noble/curves/ed25519` (already in the tree):
+
+    newSupplyCt = current + ctLo + ctHi * 2^16     // per 32-byte half
+
+All-zero bytes decode to the identity element, which is what an empty supply is.
+
+**`BatchedRangeProofU128Data` requires bit lengths summing to exactly 128.**
+`[64,16,32]` = 112 fails with "illegal amount bit length". The real construction
+is `[64,16,32,16]` with a **zero padding commitment** — same as the Rust.
+
+**No `combineLoHi` needed for the equality proof.** A ciphertext-commitment
+equality proof takes an INDEPENDENT opening for the commitment — it proves the
+two encode the same value, not that they share randomness. So `oNew` can be
+freshly random, which sidesteps 0.3.1's missing `combineLoHi` entirely.
+
+Proof sizes: validity 544 B, equality 320 B, range 1000 B = **1864 B against a
+1232-byte transaction limit**, so proof **context-state accounts are mandatory**.
+Account size = context + 33 (authority 32 + proofType 1): equality 161,
+validity 385, range 297.
+
+ZkElGamalProof instruction = `[discriminator] || proofData.toBytes()`, accounts
+`[context (writable), authority (readonly)]`. Discriminators: 3 =
+VerifyCiphertextCommitmentEquality, 7 = VerifyBatchedRangeProofU128, 12 =
+VerifyBatchedGroupedCiphertext3HandlesValidity, 4 = VerifyPubkeyValidity.
+⚠️ createAccount + verify in ONE transaction is 1358 bytes for the range proof —
+**split them into two transactions.**
+
+### 17.4 ⛔⛔⛔ ConfidentialMintBurn REMOVES the public bridge
+
+Not "adds private issuance" — it deletes the public path:
+
+    Program log: "Conversions from normal to confidential token balance and
+                  vice versa are illegal if the confidential-mint-burn
+                  extension is enabled"          custom program error: 0x41
+
+`MintTo`, `deposit` and `withdraw` all fail. A CMB token can ONLY be minted
+confidentially, every holder must configure confidential transfers before they
+can receive anything, and no wallet or explorer will ever show a balance.
+The extension stores `confidentialSupply` (ElGamal) + `decryptableSupply` (AES)
++ `pendingBurn` + `supplyElgamalPubkey` = 196 B data + 4 B TLV = **200 bytes**.
+
+`spl-token` CLI 5.5.0 has **no** ConfidentialMintBurn support (no command, no
+flag) — but `@solana-program/token-2022@0.15.0` does. Mint size for
+ConfidentialTransferMint + MetadataPointer + CMB = 303 + 200 = **503 bytes**.
+
+### 17.5 The two tokens
+
+| | X1B | BM |
+|---|---|---|
+| mint | `3nkouZp3DvRsD3w8cPVWwGH1CMD9PUyc9CfjonYerBn8` | `AVEXYesqK3k4JyWaHhjCqaqZvkuMfmYi2JkPT6aCow9e` |
+| authority | `3L2abPXceWso8XnhDrXbprvMZKG9sZTYyQrm9CWVKASj` | `BFq4Vyruw6zNGRimmfkdaPpQw1s7HP6jdYB7vwrCwYgB` |
+| extensions | ConfidentialTransfer | ConfidentialTransfer + **ConfidentialMintBurn** |
+| decimals | 6 | 6 |
+| supply | 1,050,000 (public) | 1,000,000 (**encrypted**) |
+| keys | `~/.x1city-keys/x1b-mint.json` | `~/.x1city-keys/bm-mint.json` |
+
+⛔ **Losing a keyfile loses the confidential balance permanently** — ElGamal and
+AES keys derive from the signing keypair, so no admin key recovers them.
+
+The BM confidential mint: `mgfzXHUKYVuiesxp4RFEPW8capijm2KgwYjWNEq7F8RMjudRJRKU9j6tS4ENVjSWDUG2VP1QHqFpouyhJGXEBK7`.
+On chain the public `supply` field reads **0** while `decryptableSupply` decrypts
+to 1,000,000,000,000. Reproduce with `/tmp/bm/mint2.cjs` (regenerate; it creates
+fresh context accounts each run — the orphaned ones from earlier attempts still
+hold rent and can be reclaimed with CloseContextState, discriminator 0).
+
+### 17.6 Explorer + Metaplex limitations (not our bugs)
+
+**X1 Explorer mislabels any mint carrying an extension it doesn't know.** Clean
+A/B, same metadata structure, same host, 20 minutes apart:
+
+    X1B (no CMB)  ->  "Token X1B"   + logo renders
+    BM  (CMB)     ->  "Token Unknown Token", no image
+
+It walks the TLV list, hits ConfidentialMintBurn (type 42), gives up, and never
+reaches `tokenMetadata` which sits after it. Our own parser is fine — the RPC's
+`getParsedAccountInfo` decodes it correctly.
+
+**Metaplex Token Metadata on X1 rejects EVERY Token-2022 mint** —
+`CreateMetadataAccountV3` returns `0x99 "Instruction not supported for
+ProgrammableNonFungible assets"` for both X1B and BM (simulated, nothing
+written). So there is no fallback metadata path on X1: on-mint metadata is the
+only option, and BRAINS/LB/NECK having no Metaplex PDA is a constraint, not a
+choice.
+
+### 17.7 Portfolio support (shipped)
+
+`V2Portfolio` keeps accounts whose PUBLIC balance is 0 when they carry the
+`confidentialTransferAccount` extension — previously such a row VANISHED, so a
+holder of 750,000 confidential X1B saw nothing at all. Two badges, because they
+are two independent facts:
+
+- **◉ PRIVATE** (mint has confidentialTransferMint) / **◉◉ FULLY PRIVATE** (also CMB)
+- **BALANCE HIDDEN** (non-zero ciphertext) / **READY** (configured, empty)
+
+⚠️ Emptiness test: base64 of 64 zero bytes is 86 `A`s + `==`. Test each field
+SEPARATELY — concatenating two padded strings puts `==` in the middle and
+`/^A*=*$/` never matches, which badged every empty account as holding a balance.
+
+### 17.8 Still open
+
+- **Browser flow** (configure / deposit / transfer / decrypt from x1brains.io) is
+  viable — pin zk-sdk 0.3.1, ~2.6 MB WASM via the `/bundler` entry, lazy-loaded.
+  Not started.
+- **Private + public messaging** — `src/lib/x1dm.ts` exists but is UNTRACKED and
+  unreviewed (memo + tweetnacl sealed box; needs its own fixed-message key
+  derivation, NOT `getChatAuth`, which signs a timestamp and so derives a
+  different key every session).
+- BM cannot be transferred or burned yet — same proof machinery, not yet built.
+- Orphaned proof context accounts from failed attempts still hold rent.
