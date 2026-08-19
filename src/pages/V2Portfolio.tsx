@@ -226,6 +226,7 @@ type Holding = {
   confidential?: boolean;
   hasHiddenBalance?: boolean;
   mintConfidential?: boolean;
+  mintFullyPrivate?: boolean;
   listedPrice?: number;
   /** Unit price computed by us rather than read from the price feed — LP tokens
    *  have no market price, their value is derived from the pool they represent. */
@@ -239,7 +240,12 @@ type RawEntry = { mint: string; balance: number; program: Program; decimals: num
   hasHiddenBalance?: boolean;
   /** The MINT supports confidential transfers, whether or not this holder
    *  has opted in. Two different facts, two different badges. */
-  mintConfidential?: boolean };
+  mintConfidential?: boolean;
+  /** The mint ALSO has ConfidentialMintBurn: supply itself is encrypted and
+   *  the public<->confidential bridge is disabled outright (the program
+   *  rejects MintTo/deposit/withdraw with error 0x41). A stronger guarantee
+   *  than confidentialTransfer alone, and worth its own badge. */
+  mintFullyPrivate?: boolean };
 
 function isNftLike(r: RawEntry): boolean {
   return r.decimals === 0 && r.balance > 0 && r.balance < 1_000_000;
@@ -263,11 +269,13 @@ async function fetchTokenBalances(
   const readExt = (info: any) => {
     const ct = (info?.extensions ?? []).find((e: any) => e.extension === 'confidentialTransferAccount');
     if (!ct) return { confidential: false, hasHiddenBalance: false };
-    // An all-zero ciphertext is what a freshly configured account holds.
-    const cipher = String(ct.state?.availableBalance ?? '');
-    const pending = String(ct.state?.pendingBalanceLo ?? '') + String(ct.state?.pendingBalanceHi ?? '');
-    const nonZero = (b64: string) => !!b64 && !/^A*=*$/.test(b64);
-    return { confidential: true, hasHiddenBalance: nonZero(cipher) || nonZero(pending) };
+    // An all-zero ciphertext is what a freshly configured account holds, and
+    // base64 of 64 zero bytes is 86 'A's plus '=='. Each field must be tested
+    // SEPARATELY: concatenating two padded strings puts '==' in the middle, so
+    // /^A*=*$/ never matches and every empty account reads as "has a balance".
+    const isZero = (b64: unknown) => typeof b64 === 'string' && /^A*=*$/.test(b64);
+    const fields = [ct.state?.availableBalance, ct.state?.pendingBalanceLo, ct.state?.pendingBalanceHi];
+    return { confidential: true, hasHiddenBalance: fields.some(f => typeof f === 'string' && !isZero(f)) };
   };
 
   const push = (acc: any, program: Program) => {
@@ -296,11 +304,16 @@ async function fetchTokenBalances(
         t22Mints.map((m: string) => new PublicKey(m)),
       );
       const supports = new Set<string>();
+      const fully = new Set<string>();
       (infos?.value ?? []).forEach((acc: any, i: number) => {
         const exts = acc?.data?.parsed?.info?.extensions ?? [];
         if (exts.some((e: any) => e.extension === 'confidentialTransferMint')) supports.add(t22Mints[i]);
+        if (exts.some((e: any) => e.extension === 'confidentialMintBurn'))     fully.add(t22Mints[i]);
       });
-      for (const r of raw) if (supports.has(r.mint)) r.mintConfidential = true;
+      for (const r of raw) {
+        if (supports.has(r.mint)) r.mintConfidential = true;
+        if (fully.has(r.mint))    r.mintFullyPrivate = true;
+      }
     } catch { /* capability badge is cosmetic — never fail the portfolio for it */ }
   }
   return { raw };
@@ -868,7 +881,7 @@ export default function V2Portfolio() {
           color: known.color, kind: known.kind,
           program: r.program, category: 'core', decimals: r.decimals,
           confidential: r.confidential, hasHiddenBalance: r.hasHiddenBalance,
-          mintConfidential: r.mintConfidential,
+          mintConfidential: r.mintConfidential, mintFullyPrivate: r.mintFullyPrivate,
         };
       }
       if (lp) {
@@ -891,7 +904,7 @@ export default function V2Portfolio() {
           color: C_SILVER,
           program: r.program, category: 'lp', decimals: r.decimals,
           confidential: r.confidential, hasHiddenBalance: r.hasHiddenBalance,
-          mintConfidential: r.mintConfidential,
+          mintConfidential: r.mintConfidential, mintFullyPrivate: r.mintFullyPrivate,
           lpInfo: {
             pairSymbol: label, rewardSymbol: lp.reward,
             mintA: lp.mintA, mintB: lp.mintB,
@@ -916,7 +929,7 @@ export default function V2Portfolio() {
           metaUri: meta?.uri,
           program: r.program, category: 'nft', decimals: r.decimals,
           confidential: r.confidential, hasHiddenBalance: r.hasHiddenBalance,
-          mintConfidential: r.mintConfidential,
+          mintConfidential: r.mintConfidential, mintFullyPrivate: r.mintFullyPrivate,
           listedPrice,
         };
       }
@@ -929,7 +942,7 @@ export default function V2Portfolio() {
         logo: cachedLogo, iconClass: 'lb', color: C_GRAY,
         program: r.program, category: 'other', decimals: r.decimals,
           confidential: r.confidential, hasHiddenBalance: r.hasHiddenBalance,
-          mintConfidential: r.mintConfidential,
+          mintConfidential: r.mintConfidential, mintFullyPrivate: r.mintFullyPrivate,
       };
     });
 
@@ -1561,20 +1574,28 @@ export default function V2Portfolio() {
                                 ? <span className="pfx-badge b-p">LISTED · {fmtNum(h.listedPrice / 1e9, 2)} XNT</span>
                                 : <span className="pfx-badge b-n">UNLISTED</span>
                             )}
-                            {h.hasHiddenBalance ? (
-                              <span className="pfx-badge b-g"
-                                title="This account holds an encrypted balance. Only the holder can read the amount.">
-                                ◉ PRIVATE BALANCE
-                              </span>
-                            ) : h.confidential ? (
-                              <span className="pfx-badge b-g"
-                                title="Confidential transfers are configured on this account.">
-                                ◉ PRIVATE READY
+                            {/* Two facts, two badges: what the TOKEN is, then
+                                where THIS holder stands with it. */}
+                            {h.mintFullyPrivate ? (
+                              <span className="pfx-badge b-p"
+                                title="Fully private: ConfidentialTransfer + ConfidentialMintBurn. Transfer amounts, balances AND total supply are encrypted, and there is no public balance at all — the program rejects mint, deposit and withdraw to a public balance.">
+                                ◉◉ FULLY PRIVATE
                               </span>
                             ) : h.mintConfidential ? (
                               <span className="pfx-badge b-n"
-                                title="This token supports Token-2022 confidential transfers. Configure your account to hold an encrypted balance.">
-                                ◉ SUPPORTS PRIVATE
+                                title="Supports Token-2022 confidential transfers: amounts can be hidden, but supply and the public/confidential bridge stay visible.">
+                                ◉ PRIVATE
+                              </span>
+                            ) : null}
+                            {h.hasHiddenBalance ? (
+                              <span className="pfx-badge b-g"
+                                title="You hold an encrypted balance here. Only the holder can read the amount.">
+                                BALANCE HIDDEN
+                              </span>
+                            ) : h.confidential ? (
+                              <span className="pfx-badge b-g"
+                                title="Confidential transfers are configured on this account, but nothing is hidden in it yet.">
+                                READY
                               </span>
                             ) : null}
                             {h.kind === 'ecosystem' && <span className="pfx-badge b-o">ECOSYSTEM</span>}
