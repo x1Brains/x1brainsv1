@@ -568,6 +568,12 @@ function injectPortfolioStyles() {
   .pfx-send{font-family:'Sora';font-weight:600;font-size:11.5px;border:1px solid var(--line);background:transparent;color:var(--muted);padding:7px 0;width:100%;border-radius:8px;cursor:pointer;transition:.13s}
   .pfx-send:hover{border-color:var(--o);color:var(--o);background:rgba(242,144,48,.06)}
 
+  .pfx-reveal{cursor:pointer;font-family:inherit;transition:.15s}
+  .pfx-reveal:hover:not(:disabled){background:rgba(0,201,141,.2);border-color:var(--g)}
+  .pfx-reveal:disabled{opacity:.6;cursor:default}
+  .pfx-revealed{font-family:'JetBrains Mono',ui-monospace,monospace}
+  .pfx-revealed em{font-style:normal;opacity:.7}
+
   .pfx-find{margin-top:14px;align-self:start}
   .pfx-find-body{padding:0 18px 18px}
   .pfx-find-form{display:flex;gap:9px}
@@ -885,6 +891,54 @@ export default function V2Portfolio() {
       setEnabling(null);
     }
   };
+
+  /** Decrypted private balances, per mint, for this page load only. */
+  const [revealed, setRevealed] = useState<Record<string,
+    { available: bigint; pending: bigint; pendingCredits: number; pendingKnown: boolean }>>({});
+  const [revealing, setRevealing] = useState<string | null>(null);
+  const [revealErr, setRevealErr] = useState<Record<string, string>>({});
+
+  /**
+   * Decrypt and show a private balance.
+   *
+   * The amount is never on chain in the clear and no wallet can render it, so
+   * this is the only way to see your own number. It costs one wallet signature
+   * per token account, cached for the page load — the keys live in memory and
+   * are never written anywhere.
+   */
+  const handleReveal = async (mint: string) => {
+    if (!publicKey || !signMessage) return;
+    setRevealing(mint);
+    setRevealErr(e => { const { [mint]: _drop, ...rest } = e; return rest; });
+    try {
+      const { getSessionKeys, readConfidentialBalances, ataFor } = await import('../lib/confidential');
+      const ata = ataFor(new PublicKey(mint), publicKey);
+      const keys = await getSessionKeys(ata, signMessage);
+      const bal = await readConfidentialBalances(connection, ata, keys);
+      if (!bal) {
+        // Not a bug and worth saying plainly: our key derivation is our own, so
+        // an account the spl-token CLI configured carries a key we cannot
+        // rebuild from a wallet signature. See lib/confidential.ts `keyMessage`.
+        setRevealErr(e => ({ ...e, [mint]:
+          'Could not decrypt — this account was configured by other software, so its key is not derivable here.' }));
+        return;
+      }
+      setRevealed(r => ({ ...r, [mint]: bal }));
+    } catch (e: any) {
+      const m = String(e?.message ?? e);
+      setRevealErr(er => ({ ...er, [mint]:
+        /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 120) }));
+    } finally {
+      setRevealing(null);
+    }
+  };
+
+  /** A decrypted balance must never outlive the wallet that unlocked it. */
+  useEffect(() => {
+    if (publicKey) return;
+    setRevealed({}); setRevealErr({});
+    import('../lib/confidential').then(m => m.clearSessionKeys()).catch(() => {});
+  }, [publicKey]);
 
   /**
    * Look up a mint by address and report whether it can hold a private balance.
@@ -1849,11 +1903,31 @@ export default function V2Portfolio() {
                                 ◉ PRIVATE
                               </span>
                             ) : null}
-                            {h.hasHiddenBalance ? (
-                              <span className="pfx-badge b-g"
-                                title="You hold an encrypted balance here. Only the holder can read the amount.">
-                                BALANCE HIDDEN
+                            {h.hasHiddenBalance && revealed[h.mint] ? (
+                              <span className="pfx-badge b-g pfx-revealed"
+                                title="Decrypted locally from your own key. Nobody else can compute this.">
+                                ◈ {fmtNum(Number(revealed[h.mint].available) / 10 ** h.decimals, 4)} {h.symbol}
+                                {revealed[h.mint].pendingCredits > 0 && (
+                                  <em>
+                                    {revealed[h.mint].pendingKnown
+                                      ? ` +${fmtNum(Number(revealed[h.mint].pending) / 10 ** h.decimals, 4)} pending`
+                                      : ` +${revealed[h.mint].pendingCredits} pending`}
+                                  </em>
+                                )}
                               </span>
+                            ) : h.hasHiddenBalance ? (
+                              !isReadOnly && wallet ? (
+                                <button type="button" className="pfx-badge b-g pfx-reveal"
+                                  disabled={revealing === h.mint}
+                                  title="Decrypt your balance in this browser. One signature; the key never leaves memory."
+                                  onClick={() => handleReveal(h.mint)}
+                                >{revealing === h.mint ? '· · · DECRYPTING' : '◉ BALANCE HIDDEN · REVEAL'}</button>
+                              ) : (
+                                <span className="pfx-badge b-g"
+                                  title="An encrypted balance is held here. Only the holder can read the amount.">
+                                  BALANCE HIDDEN
+                                </span>
+                              )
                             ) : h.confidential ? (
                               <span className="pfx-badge b-g"
                                 title="Confidential transfers are configured on this account, but nothing is hidden in it yet.">
@@ -1909,6 +1983,9 @@ export default function V2Portfolio() {
                       </div>
                       {enableMsg?.mint === h.mint && (
                         <div className={`pfx-enable-msg${enableMsg.bad ? ' bad' : ''}`}>{enableMsg.text}</div>
+                      )}
+                      {revealErr[h.mint] && (
+                        <div className="pfx-enable-msg bad">{revealErr[h.mint]}</div>
                       )}
                       {isActive && !isReadOnly && wallet && (
                         <div style={{ marginBottom: 8 }}>

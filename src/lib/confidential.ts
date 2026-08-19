@@ -222,20 +222,91 @@ export async function isConfigured(connection: Connection, tokenAccount: PublicK
 }
 
 /**
- * Decrypt this holder's own available balance — the number no wallet can show.
- * Uses the AES copy the program keeps for exactly this purpose; ElGamal
- * decryption of an arbitrary u64 is a discrete log and far too slow.
+ * Derived keys, cached for the session, keyed by token account.
+ *
+ * ⛔ IN MEMORY ONLY — never localStorage, never sessionStorage. These decrypt
+ * the balance the whole feature exists to hide; a copy on disk is a copy an
+ * XSS or a shared machine can read. The cost of losing them is one wallet
+ * signature, so there is no reason to take that risk.
  */
-export async function readConfidentialBalance(
+const _keyCache = new Map<string, ConfidentialKeys>();
+
+/** Derive once per token account per page load, then reuse. */
+export async function getSessionKeys(
+  tokenAccount: PublicKey, signMessage: SignMessage,
+): Promise<ConfidentialKeys> {
+  const k = tokenAccount.toBase58();
+  const hit = _keyCache.get(k);
+  if (hit) return hit;
+  const keys = await deriveKeys(tokenAccount, signMessage);
+  _keyCache.set(k, keys);
+  return keys;
+}
+
+/** Drop every cached key — call on wallet disconnect. */
+export const clearSessionKeys = () => _keyCache.clear();
+
+export interface ConfidentialBalances {
+  /** Spendable now. */
+  available: bigint;
+  /** Received but not yet applied — real, but not spendable until ApplyPendingBalance. */
+  pending: bigint;
+  /** How many incoming credits are sitting in `pending`. */
+  pendingCredits: number;
+  /** False when `pending` could not be decrypted; `pending` is 0 and unknown. */
+  pendingKnown: boolean;
+}
+
+/** Base64 -> bytes, without pulling Buffer into a hot path. */
+const b64 = (s: string) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+/** Low half of a pending balance is 16 bits; the high half carries the rest. */
+const PENDING_LO_BITS = 16n;
+
+/**
+ * Decrypt this holder's own confidential balance — the number no wallet shows.
+ *
+ * Two different mechanisms, because the account stores the same value twice:
+ *
+ *  - `decryptableAvailableBalance` is AES, and the program keeps it current for
+ *    exactly this purpose. Instant.
+ *  - `pendingBalanceLo/Hi` are ElGamal only, so reading them is a discrete log.
+ *    Tolerable here because the SDK uses a precomputed table and the halves are
+ *    bounded: ~166 ms each, flat, whatever the value. Anything past u32 is
+ *    beyond the table and comes back as unknown rather than wrong — apply the
+ *    pending balance and it folds into the AES side where size stops mattering.
+ *
+ * Returns null when the account is not configured, or when the keys do not fit
+ * it — which is the expected outcome for an account configured by the spl-token
+ * CLI, whose key derivation is not ours (see `keyMessage`).
+ */
+export async function readConfidentialBalances(
   connection: Connection, tokenAccount: PublicKey, keys: ConfidentialKeys,
-): Promise<bigint | null> {
+): Promise<ConfidentialBalances | null> {
   const zk = await loadZk();
   const ai = await connection.getParsedAccountInfo(tokenAccount);
   const ct = ((ai.value as any)?.data?.parsed?.info?.extensions ?? [])
     .find((e: any) => e.extension === 'confidentialTransferAccount');
   if (!ct) return null;
+
+  let available: bigint;
   try {
-    const bytes = Uint8Array.from(atob(ct.state.decryptableAvailableBalance), c => c.charCodeAt(0));
-    return keys.ae.decrypt(zk.AeCiphertext.fromBytes(bytes));
-  } catch { return null; }   // wrong key, or configured by different software
+    available = keys.ae.decrypt(zk.AeCiphertext.fromBytes(b64(ct.state.decryptableAvailableBalance)));
+  } catch {
+    return null;   // wrong key — almost always "configured by different software"
+  }
+
+  const credits = Number(ct.state.pendingBalanceCreditCounter ?? 0);
+  let pending = 0n, pendingKnown = true;
+  if (credits > 0) {
+    try {
+      const sk = keys.elgamal.secret();
+      const half = (field: string) =>
+        sk.decrypt(zk.ElGamalCiphertext.fromBytes(b64(ct.state[field])));
+      pending = half('pendingBalanceLo') + (half('pendingBalanceHi') << PENDING_LO_BITS);
+    } catch {
+      pending = 0n; pendingKnown = false;   // past the discrete-log table
+    }
+  }
+  return { available, pending, pendingCredits: credits, pendingKnown };
 }
