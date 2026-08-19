@@ -222,13 +222,24 @@ type Holding = {
   /** `mintA`/`mintB` are the pool's two underlying tokens, carried so the row can
    *  draw a PAIR icon — a single initial ('A' for AGI/BRAINS) said nothing. */
   lpInfo?: { pairSymbol: string; rewardSymbol: string; mintA?: string; mintB?: string; symA?: string; symB?: string };
+  /** Token-2022 confidential transfers are configured on this account. */
+  confidential?: boolean;
+  hasHiddenBalance?: boolean;
+  mintConfidential?: boolean;
   listedPrice?: number;
   /** Unit price computed by us rather than read from the price feed — LP tokens
    *  have no market price, their value is derived from the pool they represent. */
   unitUsd?: number;
 };
 
-type RawEntry = { mint: string; balance: number; program: Program; decimals: number };
+type RawEntry = { mint: string; balance: number; program: Program; decimals: number;
+  /** The account has a Token-2022 confidentialTransferAccount extension. */
+  confidential?: boolean;
+  /** That extension holds a non-zero ciphertext — there IS a hidden balance. */
+  hasHiddenBalance?: boolean;
+  /** The MINT supports confidential transfers, whether or not this holder
+   *  has opted in. Two different facts, two different badges. */
+  mintConfidential?: boolean };
 
 function isNftLike(r: RawEntry): boolean {
   return r.decimals === 0 && r.balance > 0 && r.balance < 1_000_000;
@@ -243,17 +254,54 @@ async function fetchTokenBalances(
     connection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_2022_PROGRAM_ID }),
   ]);
   const raw: RawEntry[] = [];
-  for (const acc of spl.value ?? []) {
+
+  // A confidential holder's PUBLIC balance is legitimately 0 while their real
+  // holding sits encrypted in the confidentialTransferAccount extension. The
+  // old `uiAmount > 0` test dropped those rows entirely, so the token did not
+  // render as "0" or "—" — it VANISHED, and the holder would reasonably think
+  // their tokens were gone. Keep any account that carries the extension.
+  const readExt = (info: any) => {
+    const ct = (info?.extensions ?? []).find((e: any) => e.extension === 'confidentialTransferAccount');
+    if (!ct) return { confidential: false, hasHiddenBalance: false };
+    // An all-zero ciphertext is what a freshly configured account holds.
+    const cipher = String(ct.state?.availableBalance ?? '');
+    const pending = String(ct.state?.pendingBalanceLo ?? '') + String(ct.state?.pendingBalanceHi ?? '');
+    const nonZero = (b64: string) => !!b64 && !/^A*=*$/.test(b64);
+    return { confidential: true, hasHiddenBalance: nonZero(cipher) || nonZero(pending) };
+  };
+
+  const push = (acc: any, program: Program) => {
     const info = acc.account.data.parsed?.info;
-    if (info?.mint && info?.tokenAmount?.uiAmount > 0) {
-      raw.push({ mint: info.mint, balance: info.tokenAmount.uiAmount, program: 'spl', decimals: info.tokenAmount.decimals ?? 0 });
-    }
-  }
-  for (const acc of t22.value ?? []) {
-    const info = acc.account.data.parsed?.info;
-    if (info?.mint && info?.tokenAmount?.uiAmount > 0) {
-      raw.push({ mint: info.mint, balance: info.tokenAmount.uiAmount, program: 't22', decimals: info.tokenAmount.decimals ?? 0 });
-    }
+    if (!info?.mint) return;
+    const ext = readExt(info);
+    const bal = info?.tokenAmount?.uiAmount ?? 0;
+    if (bal <= 0 && !ext.confidential) return;
+    raw.push({
+      mint: info.mint, balance: bal, program,
+      decimals: info.tokenAmount?.decimals ?? 0,
+      confidential: ext.confidential, hasHiddenBalance: ext.hasHiddenBalance,
+    });
+  };
+
+  for (const acc of spl.value ?? []) push(acc, 'spl');
+  for (const acc of t22.value ?? []) push(acc, 't22');
+
+  // Only Token-2022 mints can carry the extension, and the capability is a
+  // property of the MINT — a holder sees "this token can be private" even
+  // before they opt in. One batched call, classic SPL skipped entirely.
+  const t22Mints = [...new Set(raw.filter(r => r.program === 't22').map(r => r.mint))];
+  if (t22Mints.length) {
+    try {
+      const infos = await connection.getMultipleParsedAccounts(
+        t22Mints.map((m: string) => new PublicKey(m)),
+      );
+      const supports = new Set<string>();
+      (infos?.value ?? []).forEach((acc: any, i: number) => {
+        const exts = acc?.data?.parsed?.info?.extensions ?? [];
+        if (exts.some((e: any) => e.extension === 'confidentialTransferMint')) supports.add(t22Mints[i]);
+      });
+      for (const r of raw) if (supports.has(r.mint)) r.mintConfidential = true;
+    } catch { /* capability badge is cosmetic — never fail the portfolio for it */ }
   }
   return { raw };
 }
@@ -819,6 +867,8 @@ export default function V2Portfolio() {
           logo: resolvedLogo, iconClass: known.iconClass,
           color: known.color, kind: known.kind,
           program: r.program, category: 'core', decimals: r.decimals,
+          confidential: r.confidential, hasHiddenBalance: r.hasHiddenBalance,
+          mintConfidential: r.mintConfidential,
         };
       }
       if (lp) {
@@ -840,6 +890,8 @@ export default function V2Portfolio() {
           iconClass: lp.reward === 'BRAINS' ? 'brains' : 'lb',
           color: C_SILVER,
           program: r.program, category: 'lp', decimals: r.decimals,
+          confidential: r.confidential, hasHiddenBalance: r.hasHiddenBalance,
+          mintConfidential: r.mintConfidential,
           lpInfo: {
             pairSymbol: label, rewardSymbol: lp.reward,
             mintA: lp.mintA, mintB: lp.mintB,
@@ -863,6 +915,8 @@ export default function V2Portfolio() {
           // metadata URI itself, through gateways and the same-origin proxy.
           metaUri: meta?.uri,
           program: r.program, category: 'nft', decimals: r.decimals,
+          confidential: r.confidential, hasHiddenBalance: r.hasHiddenBalance,
+          mintConfidential: r.mintConfidential,
           listedPrice,
         };
       }
@@ -874,6 +928,8 @@ export default function V2Portfolio() {
         usd: r.balance * (priceMap[r.mint] || 0),
         logo: cachedLogo, iconClass: 'lb', color: C_GRAY,
         program: r.program, category: 'other', decimals: r.decimals,
+          confidential: r.confidential, hasHiddenBalance: r.hasHiddenBalance,
+          mintConfidential: r.mintConfidential,
       };
     });
 
@@ -1505,6 +1561,22 @@ export default function V2Portfolio() {
                                 ? <span className="pfx-badge b-p">LISTED · {fmtNum(h.listedPrice / 1e9, 2)} XNT</span>
                                 : <span className="pfx-badge b-n">UNLISTED</span>
                             )}
+                            {h.hasHiddenBalance ? (
+                              <span className="pfx-badge b-g"
+                                title="This account holds an encrypted balance. Only the holder can read the amount.">
+                                ◉ PRIVATE BALANCE
+                              </span>
+                            ) : h.confidential ? (
+                              <span className="pfx-badge b-g"
+                                title="Confidential transfers are configured on this account.">
+                                ◉ PRIVATE READY
+                              </span>
+                            ) : h.mintConfidential ? (
+                              <span className="pfx-badge b-n"
+                                title="This token supports Token-2022 confidential transfers. Configure your account to hold an encrypted balance.">
+                                ◉ SUPPORTS PRIVATE
+                              </span>
+                            ) : null}
                             {h.kind === 'ecosystem' && <span className="pfx-badge b-o">ECOSYSTEM</span>}
                             {h.kind === 'x1native' && <span className="pfx-badge b-o">X1 NATIVE</span>}
                           </div>
