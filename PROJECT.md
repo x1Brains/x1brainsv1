@@ -821,6 +821,82 @@ That chunk has no env vars, so identical source → identical hash → proof the
 
 ---
 
+## 14.5 Session log — 2026-08-01/02 · collection verification, CSP, tracking
+
+Shipped as `1d217be` + `0001e39`, both live. Folded in from a loose
+`SESSION_2026-08-01.md` that was never committed, leaving a two-month hole here.
+
+**New collections were invisible (the FEDS bug).** `verifiedCollections.ts` was a
+hand-written snapshot of Solaris, and `identifyCollection()` returned null for
+anything newer — while the browse tab defaults to the VERIFIED filter. **6 of 123
+live listings were hidden.** The registry now syncs the Solaris allowlist at runtime
+and **UNIONs** it with the hardcoded list. Union, not replacement, on purpose:
+Solaris marks X1 Punks `badge_verified: 0`, so gating on its badge would have
+*removed* a collection that works. Solaris also publishes **duplicate rows per
+collection** (FEDS 3 keys, Brains Elites 4, most `allowed:false`) — they collapse
+into one bucket, hardcoded entries still win so ids the UI keys off stay stable.
+Result: 0 of 123 hidden.
+
+**Collection icons.** X1 Cats returned a bare `ipfs://Qm…`, which a plain `<img>`
+cannot load — resolved to an HTTP gateway at the registry boundary. X1 Punks was
+looked up by *name* ("X1 Punks" vs Solaris's "X1 Punk") and never matched — now
+keyed by id. The rail's ≥3-listing floor silently hid small collections (FEDS had 2)
+and was removed.
+
+**CSP + CDN.** `connect-src` was missing four hosts, killing every image fallback:
+`gateway.irys.xyz`, `*.datasprite-cdn.com` (irys's 302 target), `permagate.io`, and
+`*.dweb.link` — ⚠️ **a CSP host wildcard is required to match subdomains**; only the
+apex was listed while nftstorage.link 302s to `<cid>.ipfs.dweb.link`. Separately,
+**weserv cannot serve irys URLs** (extensionless object ids that redirect to a
+per-object subdomain), so those are served raw.
+
+⚠️ Flagged here as unfixed: `corsproxy.io` 403s and `api.allorigins.win` sends no
+CORS header, leaving two of four metadata fallbacks dead. **Resolved 2026-08-18** —
+see §16.8, the same-origin `/api/nft-meta` chain, which is exactly the fix this
+session proposed.
+
+**Featured banner.** A refresh flashed blank → "X1" → portrait → listing, because
+the collection portrait was used as a *loading* state rather than a last resort.
+⛔ **`onError` set `style.display='none'` — React reuses an `<img>` across `src`
+changes and never clears an inline style it didn't set, so one 404 hid the banner
+permanently.** Failures go to state now. Same trap, same fix, later reused in
+§16.9's logo work.
+
+**Wallet-connect tracking had zero call sites.** `trackWalletConnect` and friends
+shipped long ago and were never called; `site_events` held only seed rows and the
+admin panel's "1 wallet connect" was fake. Now fired from `useWalletTracking()` on
+the rising edge of `connected`. ⛔ **`insertSiteEvent` swallowed everything because
+supabase-js RESOLVES with `{ error }` rather than throwing** — `try{}catch{}` hid
+every rejection. 27 junk rows deleted, 30 → 8, all real.
+
+**UI.** `.content-wide` capped the *scroll container* at 1100px, parking the
+scrollbar 301px from the edge at 1920px — now gutter padding. Menu went text-only:
+⛔ **U+FE0E does not force monochrome on iOS/Android** for `☄ ⬢ ↗ ⚙`, so they
+rendered as colour emoji on phones. Don't reintroduce glyphs expecting FE0E to hold.
+
+**⛔ `vite.config.ts`: `server.proxy`'s `router` callback is an
+http-proxy-middleware option that Vite IGNORES.** Every metadata fetch hit the
+hardcoded `target` and got that site's SPA index.html with a **200**, so
+`fetchNFTMeta` died on `res.json()` — which is why NFT images looked broken on
+localhost while production was fine. Replaced with a per-request middleware.
+
+**Still open from that session:**
+- **x1city.io stopped writing analytics 2026-06-19** and has never written a single
+  `site_events` row. The break is in the `x1city-react` deployment, a separate repo.
+- **`SUPABASE_ANALYTICS_HARDENING.sql` — the two truncation triggers have NEVER been
+  run** (`trg_clamp_page_view`, `trg_clamp_site_event`). The junk-row DELETE was.
+  Both analytics tables accept unauthenticated inserts with no validation, and the
+  file records real probes: a SQL-injection attempt (harmless, PostgREST
+  parameterises) and a **10 KB payload that WAS stored**. On a free tier past its
+  grace period that is a direct route to exhausting quota and taking the site down.
+  It uses BEFORE INSERT triggers that TRUNCATE rather than CHECK constraints that
+  reject, because both clients swallow insert errors and a rejected row would vanish
+  silently. ⚠️ Paste each `create or replace function … $$ … $$;` block
+  **separately** — a single 40-line paste got truncated in the Supabase editor.
+  The file stays OUT of the public repo by design: it documents the attacks.
+
+---
+
 ## 15. Session log — 2026-08-17 · swap execution, pricing, charts, logos
 
 Commits `9b63334`, `a3e0ed7`, `4a67410`, `8c8cd31`, `f868940`. Trigger: AGI/BRAINS
@@ -1243,7 +1319,9 @@ fixed**. `CopyButton.tsx` and `ipfsGateways.ts` have none.
   single-threaded behind 14 concurrent requests where prod's rewrite is edge-level.
 - **1 of 18 tokens** still truncated on the big wallet; not identified.
 - **degen.fyi pre-graduation pricing** (§15.7) — still not decoded, deliberately not guessed.
-- `SESSION_2026-08-01.md` and `SUPABASE_ANALYTICS_HARDENING.sql` remain untracked.
+- `SUPABASE_ANALYTICS_HARDENING.sql` stays untracked **by design** (it documents real
+  attack payloads), and its **two truncation triggers have still never been run** —
+  see §14.5. `SESSION_2026-08-01.md` was folded into §14.5 and the loose file removed.
 
 ### 16.14 Verification notes
 
