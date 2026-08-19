@@ -1366,7 +1366,7 @@ ConfidentialTransferMint + MetadataPointer + CMB = 303 + 200 = **503 bytes**.
 | extensions | ConfidentialTransfer | ConfidentialTransfer + **ConfidentialMintBurn** |
 | decimals | 6 | 6 |
 | supply | 1,050,000 (public) | 1,000,000 (**encrypted**) |
-| keys | `~/.x1city-keys/x1b-mint.json` | `~/.x1city-keys/bm-mint.json` |
+| keys | `~/.x1-token-keys/x1b-mint.json` | `~/.x1-token-keys/bm-mint.json` |
 
 **Demo wallet — watch `BFq4Vyruw6zNGRimmfkdaPpQw1s7HP6jdYB7vwrCwYgB` in the v2
 portfolio.** It holds both tokens side by side, which is the clearest illustration of
@@ -1376,6 +1376,14 @@ wallet `CnyGhzMu…QAuG` holds 50,000 X1B and CANNOT hold BM — its token accou
 configured for confidential transfers, and only the owner can sign `ConfigureAccount`.
 That is the CMB onboarding wall in practice, and the reason the browser configure flow
 (§17.8) is the next piece of work.
+
+**Key location:** `~/.x1-token-keys/` (mode 700, files 600). These were briefly in
+`~/.x1city-keys/` — wrong home, that directory is for the X1City PROGRAM deploy keys
+(`path-b/`) and the two have nothing to do with each other. Moved 2026-08-19 after
+verifying the copies derive identical pubkeys.
+
+Backup: `tar -cz -C ~ .x1-token-keys | gpg -c --cipher-algo AES256 -o <dest>.tar.gz.gpg`
+— round-trip verified, produces ~678 bytes.
 
 ⛔ **Losing a keyfile loses the confidential balance permanently** — ElGamal and
 AES keys derive from the signing keypair, so no admin key recovers them.
