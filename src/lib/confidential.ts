@@ -21,6 +21,7 @@ import {
 import { Buffer } from 'buffer';   // web3.js types TransactionInstruction.data as Buffer
 import { ed25519, RistrettoPoint } from '@noble/curves/ed25519';
 import { sha512, sha256 } from '@noble/hashes/sha2';
+import { sha3_512 } from '@noble/hashes/sha3';
 
 export const ZK_ELGAMAL_PROOF_PROGRAM = new PublicKey('ZkE1Gama1Proof11111111111111111111111111111');
 
@@ -105,18 +106,30 @@ export async function loadZk(): Promise<any> {
 }
 
 /**
- * The message a wallet signs to derive its confidential keys for ONE token
- * account. Fixed prefix + the account address, so the same wallet gets a stable
- * key per account and a different one per account.
+ * The two messages a wallet signs to derive its confidential keys.
  *
- * ⚠️ This derivation is OURS, and deliberately so. The spl-token CLI uses a
- * different (older, undocumented) scheme — four reconstruction attempts failed
- * to reproduce its keys. An account configured HERE is readable here; one
- * configured by the CLI is not, and vice versa. Since no wallet on X1 can do
- * either, owning the whole lifecycle is the right trade — but it does mean the
- * CLI is not a fallback for an account this app configured.
+ * This is the spl-token CLI's scheme, reproduced byte for byte, so that an
+ * account configured here is readable by the CLI and an account configured by
+ * the CLI is readable here. Reconstructing it took reading the Rust: the
+ * signature is hashed TWICE with SHA3-512 — once by `seed_from_signature` and
+ * again by `from_seed` — which is the step every earlier attempt missed, and
+ * which fails silently by producing a perfectly valid key for the wrong account.
+ *
+ * The public seed is EMPTY, exactly as the CLI passes it, so the key is per
+ * WALLET rather than per token account: two signatures unlock every
+ * confidential token the wallet holds, not two per token.
  */
-export const keyMessage = (tokenAccount: PublicKey) =>
+export const ELGAMAL_MESSAGE = new TextEncoder().encode('ElGamalSecretKey');
+export const AE_MESSAGE      = new TextEncoder().encode('AeKey');
+
+/**
+ * ⚠️ LEGACY — the derivation this app used before the CLI's was reproduced.
+ *
+ * Accounts configured with it are stuck with it: ConfigureAccount is not
+ * idempotent, so a key cannot be rotated in place. Kept as a read fallback and
+ * never used for new accounts.
+ */
+export const legacyKeyMessage = (tokenAccount: PublicKey) =>
   new TextEncoder().encode(`x1brains.confidential.v1:${tokenAccount.toBase58()}`);
 
 export interface ConfidentialKeys {
@@ -125,34 +138,53 @@ export interface ConfidentialKeys {
   elgamalPubkeyB64: string;
 }
 
-/**
- * Derive both keys from one wallet signature.
- *
- * ElGamal secret must be a canonical Ristretto scalar, so the hash is reduced
- * mod L; AeKey wants exactly 16 bytes. 0.3.1's runtime exposes only
- * `fromBytes` on both types — no `fromSeed`, whatever the .d.ts claims.
- */
-export async function deriveKeys(
-  tokenAccount: PublicKey, signMessage: SignMessage,
-): Promise<ConfidentialKeys> {
-  const zk = await loadZk();
-  const sig = await signMessage(keyMessage(tokenAccount));
-
-  const wide = sha512(sig);
+/** Scalar::from_bytes_mod_order_wide over a 64-byte little-endian hash. */
+function scalarFromWide(wide: Uint8Array): Uint8Array {
   let x = 0n;
-  for (let i = 63; i >= 0; i--) x = (x << 8n) | BigInt(wide[i]);   // little-endian
+  for (let i = 63; i >= 0; i--) x = (x << 8n) | BigInt(wide[i]);
   let s = x % ed25519.CURVE.n;
   const le = new Uint8Array(32);
   for (let i = 0; i < 32; i++) { le[i] = Number(s & 0xffn); s >>= 8n; }
+  return le;
+}
 
-  const elgamal = zk.ElGamalKeypair.fromSecretKey(zk.ElGamalSecretKey.fromBytes(le));
+/** Build a key pair from the two raw signatures, whichever scheme produced them. */
+function keysFrom(zk: any, elgamalSig: Uint8Array, aeSig: Uint8Array, legacy: boolean): ConfidentialKeys {
+  const elgamal = zk.ElGamalKeypair.fromSecretKey(zk.ElGamalSecretKey.fromBytes(
+    legacy ? scalarFromWide(sha512(elgamalSig))
+           // seed_from_signature hashes the signature, then from_seed hashes
+           // the seed. Two rounds, not one.
+           : scalarFromWide(sha3_512(sha3_512(elgamalSig))),
+  ));
   const ae = zk.AeKey.fromBytes(
-    sha256(new Uint8Array([...new TextEncoder().encode('ae:'), ...sig])).slice(0, 16),
+    legacy ? sha256(new Uint8Array([...new TextEncoder().encode('ae:'), ...aeSig])).slice(0, 16)
+           : sha3_512(sha3_512(aeSig)).slice(0, 16),
   );
   return {
     elgamal, ae,
     elgamalPubkeyB64: btoa(String.fromCharCode(...elgamal.pubkey().toBytes())),
   };
+}
+
+/**
+ * Derive this wallet's confidential keys the standard way.
+ *
+ * Two signatures because the scheme signs a different message per key. They are
+ * per wallet, so this happens once no matter how many private tokens are held.
+ */
+export async function deriveKeys(signMessage: SignMessage): Promise<ConfidentialKeys> {
+  const zk = await loadZk();
+  const [eg, ae] = [await signMessage(ELGAMAL_MESSAGE), await signMessage(AE_MESSAGE)];
+  return keysFrom(zk, eg, ae, false);
+}
+
+/** Derive the pre-interop keys for an account this app configured. */
+export async function deriveLegacyKeys(
+  tokenAccount: PublicKey, signMessage: SignMessage,
+): Promise<ConfidentialKeys> {
+  const zk = await loadZk();
+  const sig = await signMessage(legacyKeyMessage(tokenAccount));
+  return keysFrom(zk, sig, sig, true);
 }
 
 /**
@@ -245,7 +277,7 @@ export async function buildConfigureAccountTx(
   connection: Connection, mint: PublicKey, tokenAccount: PublicKey,
   authority: PublicKey, signMessage: SignMessage,
 ): Promise<Transaction> {
-  const keys = await deriveKeys(tokenAccount, signMessage);
+  const keys = await deriveKeys(signMessage);
   const tx = new Transaction().add(...await buildConfigureAccountIxs(mint, tokenAccount, authority, keys));
   tx.feePayer = authority;
   tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
@@ -269,16 +301,49 @@ export async function isConfigured(connection: Connection, tokenAccount: PublicK
  */
 const _keyCache = new Map<string, ConfidentialKeys>();
 
-/** Derive once per token account per page load, then reuse. */
+/**
+ * The keys that actually open this account, cached for the session.
+ *
+ * Tries the standard derivation first and checks the result against the
+ * account's published `elgamalPubkey` BEFORE trusting it — a wrong key is not
+ * an error, it is a valid key for a different account, so it would otherwise
+ * decrypt to nonsense or fail deep inside a proof. Only if that misses does it
+ * ask for the legacy signature, which is why accounts configured by this app
+ * before the schemes were unified still cost two extra signatures and nothing
+ * else does.
+ *
+ * Returns null when neither fits: the account belongs to some third
+ * implementation and cannot be opened from here.
+ */
 export async function getSessionKeys(
-  tokenAccount: PublicKey, signMessage: SignMessage,
-): Promise<ConfidentialKeys> {
-  const k = tokenAccount.toBase58();
-  const hit = _keyCache.get(k);
-  if (hit) return hit;
-  const keys = await deriveKeys(tokenAccount, signMessage);
-  _keyCache.set(k, keys);
-  return keys;
+  connection: Connection, tokenAccount: PublicKey, wallet: PublicKey, signMessage: SignMessage,
+): Promise<ConfidentialKeys | null> {
+  const onChain = await (async () => {
+    const ai = await connection.getParsedAccountInfo(tokenAccount);
+    return ((ai.value as any)?.data?.parsed?.info?.extensions ?? [])
+      .find((e: any) => e.extension === 'confidentialTransferAccount')?.state?.elgamalPubkey as string | undefined;
+  })();
+
+  // Standard keys are per WALLET, so one derivation serves every token it holds.
+  const walletKey = `std:${wallet.toBase58()}`;
+  let std = _keyCache.get(walletKey);
+  if (!std) {
+    std = await deriveKeys(signMessage);
+    _keyCache.set(walletKey, std);
+  }
+  // No extension yet (a fresh ENABLE) — the standard keys are the right ones.
+  if (!onChain || std.elgamalPubkeyB64 === onChain) return std;
+
+  // The WALLET belongs in this key, not just the account. Without it a second
+  // wallet looking at the same account picks up the first one's cached key and
+  // the pubkey check passes on a key it never derived.
+  const legacyKey = `legacy:${wallet.toBase58()}:${tokenAccount.toBase58()}`;
+  let legacy = _keyCache.get(legacyKey);
+  if (!legacy) {
+    legacy = await deriveLegacyKeys(tokenAccount, signMessage);
+    _keyCache.set(legacyKey, legacy);
+  }
+  return legacy.elgamalPubkeyB64 === onChain ? legacy : null;
 }
 
 /** Drop every cached key — call on wallet disconnect. */

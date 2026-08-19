@@ -929,14 +929,14 @@ export default function V2Portfolio() {
     try {
       const { getSessionKeys, readConfidentialBalances, ataFor } = await import('../lib/confidential');
       const ata = ataFor(new PublicKey(mint), publicKey);
-      const keys = await getSessionKeys(ata, signMessage);
-      const bal = await readConfidentialBalances(connection, ata, keys);
+      const keys = await getSessionKeys(connection, ata, publicKey, signMessage);
+      const bal = keys && await readConfidentialBalances(connection, ata, keys);
       if (!bal) {
         // Not a bug and worth saying plainly: our key derivation is our own, so
         // an account the spl-token CLI configured carries a key we cannot
         // rebuild from a wallet signature. See lib/confidential.ts `keyMessage`.
         setRevealErr(e => ({ ...e, [mint]:
-          'Could not decrypt — this account was configured by other software, so its key is not derivable here.' }));
+          'Could not decrypt — this account was configured by software whose key derivation is neither ours nor the spl-token CLI\u2019s.' }));
         return;
       }
       setRevealed(r => ({ ...r, [mint]: bal }));
@@ -991,7 +991,8 @@ export default function V2Portfolio() {
 
       setPrivMsg({ text: 'Sign to unlock your balance…' });
       const source = ataFor(mintPk, publicKey);
-      const keys = await getSessionKeys(source, signMessage);
+      const keys = await getSessionKeys(connection, source, publicKey, signMessage);
+      if (!keys) throw new Error('Could not derive a key that opens this account.');
 
       setPrivMsg({ text: 'Building proofs…' });
       const plan = await planConfidentialTransfer(connection, {
@@ -1044,7 +1045,8 @@ export default function V2Portfolio() {
       const { getSessionKeys, buildApplyPendingBalanceTx, readConfidentialBalances, ataFor } =
         await import('../lib/confidential');
       const ata = ataFor(new PublicKey(mint), publicKey);
-      const keys = await getSessionKeys(ata, signMessage);
+      const keys = await getSessionKeys(connection, ata, publicKey, signMessage);
+      if (!keys) throw new Error('Could not derive a key that opens this account.');
       const tx = await buildApplyPendingBalanceTx(connection, ata, publicKey, keys);
       if (!tx) return;                                   // nothing pending after all
       const signed = await signTransaction(tx);

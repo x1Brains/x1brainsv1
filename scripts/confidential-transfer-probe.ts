@@ -32,7 +32,7 @@ import * as zkNode from '@solana/zk-sdk/node';
 import {
   provideZk, deriveKeys, buildConfigureAccountIxs, buildDepositIx,
   buildApplyPendingBalanceTx, readConfidentialBalances, planConfidentialTransfer, ataFor,
-  isConfigured,
+  isConfigured, getSessionKeys,
 } from '../src/lib/confidential';
 
 const RPC = 'https://rpc.mainnet.x1.xyz';
@@ -97,8 +97,12 @@ async function main() {
 
   head('ENABLE both accounts (this is the shipped ConfigureAccount path)');
   const dstAta = ataFor(X1B, R.publicKey);
-  const sKeys = await deriveKeys(srcAta, signerFor(S));
-  const rKeys = await deriveKeys(dstAta, signerFor(R));
+  // getSessionKeys, not deriveKeys: it checks the derived key against the
+  // account's published pubkey and falls back to the legacy scheme. On a rerun
+  // these wallets are legacy-configured, so this exercises that path too.
+  const sKeys = (await getSessionKeys(c, srcAta, S.publicKey, signerFor(S)))!;
+  const rKeys = (await getSessionKeys(c, dstAta, R.publicKey, signerFor(R)))!;
+  if (!sKeys || !rKeys) return fail('no key fits the probe accounts');
   for (const [who, kp, ata, keys] of [['sender', S, srcAta, sKeys], ['recipient', R, dstAta, rKeys]] as const) {
     // ConfigureAccount is NOT idempotent — a second one fails 0x16 "Extension
     // already initialized". Reruns must skip, and so must the UI.
@@ -162,10 +166,31 @@ async function main() {
     : fail(`recipient available = ${rAfter?.available}, expected ${rWas + amount}`);
 
   head('the amount must NOT be readable by anyone else');
-  const stranger = await deriveKeys(dstAta, signerFor(Keypair.generate()));
-  (await readConfidentialBalances(c, dstAta, stranger)) === null
-    ? ok('a wrong key reads nothing')
-    : fail('a wrong key returned a balance');
+  // Neither scheme can produce this account's key from someone else's wallet,
+  // so the selection must refuse rather than hand back a plausible wrong number.
+  const nobody = Keypair.generate();
+  (await getSessionKeys(c, dstAta, nobody.publicKey, signerFor(nobody))) === null
+    ? ok('another wallet derives no key that opens this account')
+    : fail('a stranger derived a key for someone else\u2019s account');
 }
 
-main().catch(e => { console.error('\n\x1b[31m' + (e?.stack ?? e) + '\x1b[0m'); process.exit(1); });
+async function crossCheck() {
+  const c = new Connection(RPC, 'confirmed');
+  head('read accounts the spl-token CLI configured, through the shipped code');
+  const t22 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+  for (const name of ['x1b-recipient', 'x1b-mint', 'bm-mint']) {
+    const owner = load(`${homedir()}/.x1-token-keys/${name}.json`);
+    const accs = await c.getParsedTokenAccountsByOwner(owner.publicKey, { programId: t22 });
+    for (const a of accs.value) {
+      const info: any = a.account.data.parsed.info;
+      if (!(info.extensions ?? []).some((e: any) => e.extension === 'confidentialTransferAccount')) continue;
+      const keys = await getSessionKeys(c, a.pubkey, owner.publicKey, signerFor(owner));
+      if (!keys) { fail(`${name} ${info.mint.slice(0, 6)}: no key fits`); continue; }
+      const bal = await readConfidentialBalances(c, a.pubkey, keys);
+      bal ? ok(`${name.padEnd(14)} ${info.mint.slice(0, 6)}  available = ${bal.available}`)
+          : fail(`${name}: keys matched but decrypt failed`);
+    }
+  }
+}
+
+main().then(crossCheck).catch(e => { console.error('\n\x1b[31m' + (e?.stack ?? e) + '\x1b[0m'); process.exit(1); });
