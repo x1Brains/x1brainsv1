@@ -2041,6 +2041,8 @@ export default function V2Portfolio() {
           any row exists — in both cases the hashes would vanish with it. */}
       {Object.entries(receipt)
         .filter(([mint]) => !allRows.some(r => r.mint === mint))
+        // the picker renders its own, in place
+        .filter(([mint]) => !(found && !('error' in found) && found.mint === mint))
         .map(([mint, rec]) => (
           <div key={mint} className="pfx-receipt-standalone">
             <TxReceipt
@@ -2135,6 +2137,20 @@ export default function V2Portfolio() {
               <div className={`pfx-enable-msg${enableMsg.bad ? ' bad' : ''}`} style={{ padding: '8px 0 0' }}>
                 {enableMsg.text}
               </div>
+            )}
+
+            {/* Keep the receipt here, next to the button that produced it.
+                Once the token is opened it joins the holdings table, so the
+                row-level receipt would take the transaction link with it —
+                out of sight of whoever just clicked, and possibly below a
+                group cap. It stays until dismissed. */}
+            {found && !('error' in found) && receipt[found.mint] && (
+              <TxReceipt
+                rec={receipt[found.mint]}
+                onDismiss={() => setReceipt(r => {
+                  const { [found.mint]: _drop, ...rest } = r; return rest;
+                })}
+              />
             )}
           </div>
         </div>
