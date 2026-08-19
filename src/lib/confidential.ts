@@ -11,14 +11,15 @@
 // actually opt into a confidential feature.
 // ─────────────────────────────────────────────────────────────────────────────
 import {
-  Connection, PublicKey, Transaction, TransactionInstruction, SYSVAR_INSTRUCTIONS_PUBKEY,
+  Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
 } from '@solana/web3.js';
 import {
   TOKEN_2022_PROGRAM_ID, ExtensionType, createReallocateInstruction,
   createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
 import { Buffer } from 'buffer';   // web3.js types TransactionInstruction.data as Buffer
-import { ed25519 } from '@noble/curves/ed25519';
+import { ed25519, RistrettoPoint } from '@noble/curves/ed25519';
 import { sha512, sha256 } from '@noble/hashes/sha2';
 
 export const ZK_ELGAMAL_PROOF_PROGRAM = new PublicKey('ZkE1Gama1Proof11111111111111111111111111111');
@@ -26,8 +27,36 @@ export const ZK_ELGAMAL_PROOF_PROGRAM = new PublicKey('ZkE1Gama1Proof11111111111
 /** Token-2022 extension + sub-instruction discriminators, confirmed on chain. */
 const EXT_CONFIDENTIAL_TRANSFER = 27;
 const IX_CONFIGURE_ACCOUNT      = 2;
-/** ZkElGamalProof: VerifyPubkeyValidity. */
-const PROOF_VERIFY_PUBKEY_VALIDITY = 4;
+const IX_DEPOSIT                = 5;
+const IX_TRANSFER               = 7;
+const IX_APPLY_PENDING_BALANCE  = 8;
+
+/**
+ * ZkElGamalProof instruction discriminators.
+ *
+ * 4 is confirmed by a working transaction on chain (ENABLE). The rest are read
+ * off the same enum ordering, and every one of them is exercised end to end by
+ * scripts/confidential-transfer-probe.ts against X1 before shipping — a wrong
+ * value here fails as a maths error, not a parse error, so it must be tested
+ * rather than reasoned about.
+ */
+const PROOF_CLOSE_CONTEXT_STATE      = 0;
+const PROOF_VERIFY_EQUALITY          = 3;
+const PROOF_VERIFY_PUBKEY_VALIDITY   = 4;
+const PROOF_VERIFY_RANGE_U128        = 7;
+const PROOF_VERIFY_VALIDITY_3HANDLES = 12;
+
+/** Context-state account sizes: 33-byte header (authority + proof type) + context. */
+const CTX_LEN_EQUALITY = 161;
+const CTX_LEN_VALIDITY = 385;
+const CTX_LEN_RANGE    = 297;
+
+/** The program splits a transfer amount at 16 bits; the high half carries 32. */
+const XFER_LO_BITS = 16n;
+const XFER_LO_MASK = 0xffffn;
+const XFER_HI_SCALE = 1n << XFER_LO_BITS;
+/** 48 bits total, so this is the largest amount a single transfer can move. */
+export const MAX_CONFIDENTIAL_TRANSFER = (1n << 48n) - 1n;
 /** What the spl-token CLI uses; matching it keeps accounts consistent. */
 const MAX_PENDING_BALANCE_CREDIT_COUNTER = 65536n;
 
@@ -47,6 +76,15 @@ let _zkLoading: Promise<any> | null = null;
  * takes a URL, and Vite emits the .wasm as a plain asset via `?url` — no extra
  * plugins, and the ~2.6 MB payload is only fetched on first use.
  */
+/**
+ * Hand in an already-initialised module.
+ *
+ * The node probe (scripts/confidential-transfer-probe.ts) uses this to run the
+ * `/node` build through these exact functions. Testing a reimplementation would
+ * prove nothing about the code that ships.
+ */
+export function provideZk(mod: any) { _zk = mod; }
+
 export async function loadZk(): Promise<any> {
   if (_zk) return _zk;
   if (!_zkLoading) {
@@ -309,4 +347,328 @@ export async function readConfidentialBalances(
     }
   }
   return { available, pending, pendingCredits: credits, pendingKnown };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SENDING
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ElGamal ciphertext arithmetic, done here because the WASM binding does not
+ * expose any.
+ *
+ * A ciphertext is two Ristretto points laid end to end — a Pedersen commitment
+ * and a decryption handle — and the scheme is additively homomorphic, so
+ * operating on the two halves separately with plain point arithmetic is exactly
+ * the operation on the encrypted value. `@noble/curves` gives us the group.
+ */
+const pt = (b: Uint8Array) => RistrettoPoint.fromBytes(b);
+const ctBytes = (commitment: any, handle: any) => {
+  const out = new Uint8Array(64);
+  out.set(commitment.toBytes(), 0);
+  out.set(handle.toBytes(), 32);
+  return out;
+};
+
+/** A 128-byte grouped ciphertext: commitment, then one handle per recipient. */
+const groupedParts = (bytes: Uint8Array) => ({
+  commitment: bytes.slice(0, 32),
+  source:     bytes.slice(32, 64),
+  dest:       bytes.slice(64, 96),
+  auditor:    bytes.slice(96, 128),
+});
+
+export interface TransferPlan {
+  /** Sign all of these, then send them IN ORDER — each depends on the last. */
+  transactions: Transaction[];
+  /** What the sender will hold afterwards, for optimistic display. */
+  newSourceBalance: bigint;
+}
+
+/**
+ * Everything needed to move a confidential balance, as a sequence of
+ * transactions.
+ *
+ * Why it is not one transaction: the three proofs are 320 + 544 + 1000 bytes
+ * against a 1232-byte transaction limit, so they cannot ride inline the way
+ * ENABLE's 96-byte pubkey-validity proof does. Each has to be verified into a
+ * context-state account first, and the transfer then points at those accounts.
+ *
+ *   1. allocate the three context accounts
+ *   2. verify equality + ciphertext validity into two of them
+ *   3. verify the range proof into the third (it is 1000 B and travels alone)
+ *   4. transfer, then close all three to refund their rent
+ *
+ * The context accounts are ephemeral keypairs generated here and partial-signed
+ * before the wallet ever sees the batch, so the user approves once via
+ * signAllTransactions rather than four times.
+ */
+export async function planConfidentialTransfer(
+  connection: Connection,
+  opts: {
+    mint: PublicKey;
+    sourceAccount: PublicKey;
+    destAccount: PublicKey;
+    /** Base units, not display units. */
+    amount: bigint;
+    /** Sender's derived keys. */
+    keys: ConfidentialKeys;
+    /** Sender's wallet — signs the transfer and owns the context accounts. */
+    authority: PublicKey;
+  },
+): Promise<TransferPlan> {
+  const zk = await loadZk();
+  const { mint, sourceAccount, destAccount, amount, keys, authority } = opts;
+
+  if (amount <= 0n) throw new Error('Amount must be greater than zero.');
+  if (amount > MAX_CONFIDENTIAL_TRANSFER) {
+    throw new Error('Amount is above the 2^48 limit for a single confidential transfer.');
+  }
+
+  // ── read both accounts and the mint ───────────────────────────────────────
+  const [srcInfo, dstInfo, mintInfo] = await Promise.all(
+    [sourceAccount, destAccount, mint].map(k => connection.getParsedAccountInfo(k)),
+  );
+  const extOf = (i: any, name: string) =>
+    ((i.value as any)?.data?.parsed?.info?.extensions ?? []).find((e: any) => e.extension === name)?.state;
+
+  const src = extOf(srcInfo, 'confidentialTransferAccount');
+  if (!src) throw new Error('Your account is not enabled for confidential transfers.');
+  const dst = extOf(dstInfo, 'confidentialTransferAccount');
+  if (!dst) throw new Error('The recipient has not enabled this token for private transfers yet.');
+  if (dst.allowConfidentialCredits === false) {
+    throw new Error('The recipient has turned off incoming private transfers.');
+  }
+
+  // ── what the sender actually holds ────────────────────────────────────────
+  const available: bigint = keys.ae.decrypt(
+    zk.AeCiphertext.fromBytes(b64(src.decryptableAvailableBalance)),
+  );
+  if (amount > available) {
+    throw new Error(`Not enough spendable private balance — you have ${available} in base units.`);
+  }
+  const newBalance = available - amount;
+
+  // ── the three public keys the amount is encrypted to ──────────────────────
+  const srcPub = keys.elgamal.pubkey();
+  const dstPub = zk.ElGamalPubkey.fromBytes(b64(dst.elgamalPubkey));
+  // With no auditor the program substitutes the default pubkey, which is the
+  // identity point. Passing anything else makes the proof fail on chain.
+  const mintCt = extOf(mintInfo, 'confidentialTransferMint');
+  const auditorPub = mintCt?.auditorElgamalPubkey
+    ? zk.ElGamalPubkey.fromBytes(b64(mintCt.auditorElgamalPubkey))
+    : zk.ElGamalPubkey.fromBytes(new Uint8Array(32));
+
+  // ── ciphertext validity: the amount is well formed for all three parties ──
+  const lo = amount & XFER_LO_MASK;
+  const hi = amount >> XFER_LO_BITS;
+  const openLo = new zk.PedersenOpening();
+  const openHi = new zk.PedersenOpening();
+  const groupedLo = zk.GroupedElGamalCiphertext3Handles.encryptWith(srcPub, dstPub, auditorPub, lo, openLo);
+  const groupedHi = zk.GroupedElGamalCiphertext3Handles.encryptWith(srcPub, dstPub, auditorPub, hi, openHi);
+  const validityProof = new zk.BatchedGroupedCiphertext3HandlesValidityProofData(
+    srcPub, dstPub, auditorPub, groupedLo, groupedHi, lo, hi, openLo, openHi,
+  );
+  validityProof.verify();
+
+  const gLo = groupedParts(groupedLo.toBytes());
+  const gHi = groupedParts(groupedHi.toBytes());
+
+  // ── equality: the new source ciphertext really holds `newBalance` ─────────
+  // available - (lo + hi * 2^16), computed on the source's own handles.
+  const availBytes = b64(src.availableBalance);
+  const newSourceCt = zk.ElGamalCiphertext.fromBytes(ctBytes(
+    pt(availBytes.slice(0, 32)).subtract(pt(gLo.commitment).add(pt(gHi.commitment).multiply(XFER_HI_SCALE))),
+    pt(availBytes.slice(32, 64)).subtract(pt(gLo.source).add(pt(gHi.source).multiply(XFER_HI_SCALE))),
+  ));
+  const openNew = new zk.PedersenOpening();
+  const commitNew = zk.PedersenCommitment.from(newBalance, openNew);
+  const equalityProof = new zk.CiphertextCommitmentEqualityProofData(
+    keys.elgamal, newSourceCt, commitNew, openNew, newBalance,
+  );
+  equalityProof.verify();
+
+  // ── range: nothing went negative ──────────────────────────────────────────
+  // 64 + 16 + 32 = 112, but a U128 batched proof must total EXACTLY 128, so a
+  // fourth commitment to zero pads the remaining 16 bits. Without it the
+  // program rejects the proof as an illegal amount bit length.
+  const openPad = new zk.PedersenOpening();
+  const rangeProof = new zk.BatchedRangeProofU128Data(
+    [commitNew,
+     zk.PedersenCommitment.fromBytes(gLo.commitment),
+     zk.PedersenCommitment.fromBytes(gHi.commitment),
+     zk.PedersenCommitment.from(0n, openPad)],
+    new BigUint64Array([newBalance, lo, hi, 0n]),
+    new Uint8Array([64, 16, 32, 16]),
+    [openNew, openLo, openHi, openPad],
+  );
+  rangeProof.verify();
+
+  // ── context accounts ──────────────────────────────────────────────────────
+  const eqKp = Keypair.generate(), vaKp = Keypair.generate(), rgKp = Keypair.generate();
+  const rents = await Promise.all(
+    [CTX_LEN_EQUALITY, CTX_LEN_VALIDITY, CTX_LEN_RANGE]
+      .map(n => connection.getMinimumBalanceForRentExemption(n)),
+  );
+  const alloc = (kp: Keypair, space: number, lamports: number) => SystemProgram.createAccount({
+    fromPubkey: authority, newAccountPubkey: kp.publicKey, lamports, space,
+    programId: ZK_ELGAMAL_PROOF_PROGRAM,
+  });
+
+  /** A verify instruction WITH accounts writes its context; without, it only checks. */
+  const verifyIx = (discriminator: number, proof: any, ctx: PublicKey) => new TransactionInstruction({
+    programId: ZK_ELGAMAL_PROOF_PROGRAM,
+    keys: [
+      { pubkey: ctx,       isSigner: false, isWritable: true  },
+      { pubkey: authority, isSigner: false, isWritable: false },   // context authority
+    ],
+    data: Buffer.from([discriminator, ...proof.toBytes()]),
+  });
+
+  const closeIx = (ctx: PublicKey) => new TransactionInstruction({
+    programId: ZK_ELGAMAL_PROOF_PROGRAM,
+    keys: [
+      { pubkey: ctx,       isSigner: false, isWritable: true  },
+      { pubkey: authority, isSigner: false, isWritable: true  },   // rent refund
+      { pubkey: authority, isSigner: true,  isWritable: false },
+    ],
+    data: Buffer.from([PROOF_CLOSE_CONTEXT_STATE]),
+  });
+
+  // ── the transfer itself ───────────────────────────────────────────────────
+  // [27][7][newSourceDecryptable:36][auditorLo:64][auditorHi:64][3 x i8 offset]
+  // The offsets are 0 because every proof is in a context account rather than
+  // an instruction in this transaction.
+  const data = new Uint8Array(169);
+  data[0] = EXT_CONFIDENTIAL_TRANSFER;
+  data[1] = IX_TRANSFER;
+  const newDecryptable: Uint8Array = keys.ae.encrypt(newBalance).toBytes();
+  if (newDecryptable.length !== 36) throw new Error(`AE ciphertext ${newDecryptable.length}B, expected 36`);
+  data.set(newDecryptable, 2);
+  // The auditor's copies of the amount, so an auditor key can read the transfer.
+  data.set(ctBytes(pt(gLo.commitment), pt(gLo.auditor)), 38);
+  data.set(ctBytes(pt(gHi.commitment), pt(gHi.auditor)), 102);
+  // offsets at 166,167,168 stay 0
+
+  const transferIx = new TransactionInstruction({
+    programId: TOKEN_2022_PROGRAM_ID,
+    keys: [
+      { pubkey: sourceAccount,  isSigner: false, isWritable: true  },
+      { pubkey: mint,           isSigner: false, isWritable: false },
+      { pubkey: destAccount,    isSigner: false, isWritable: true  },
+      { pubkey: eqKp.publicKey, isSigner: false, isWritable: false },
+      { pubkey: vaKp.publicKey, isSigner: false, isWritable: false },
+      { pubkey: rgKp.publicKey, isSigner: false, isWritable: false },
+      { pubkey: authority,      isSigner: true,  isWritable: false },
+    ],
+    data: Buffer.from(data),
+  });
+
+  const { blockhash } = await connection.getLatestBlockhash();
+  const mk = (ixs: TransactionInstruction[], signers: Keypair[] = []) => {
+    const tx = new Transaction().add(...ixs);
+    tx.feePayer = authority;
+    tx.recentBlockhash = blockhash;
+    if (signers.length) tx.partialSign(...signers);
+    return tx;
+  };
+
+  return {
+    newSourceBalance: newBalance,
+    transactions: [
+      mk([alloc(eqKp, CTX_LEN_EQUALITY, rents[0]),
+          alloc(vaKp, CTX_LEN_VALIDITY, rents[1]),
+          alloc(rgKp, CTX_LEN_RANGE,    rents[2])], [eqKp, vaKp, rgKp]),
+      mk([verifyIx(PROOF_VERIFY_EQUALITY,          equalityProof, eqKp.publicKey),
+          verifyIx(PROOF_VERIFY_VALIDITY_3HANDLES, validityProof, vaKp.publicKey)]),
+      // 1000 B of proof travels alone — nothing else fits beside it.
+      mk([verifyIx(PROOF_VERIFY_RANGE_U128, rangeProof, rgKp.publicKey)]),
+      mk([transferIx, closeIx(eqKp.publicKey), closeIx(vaKp.publicKey), closeIx(rgKp.publicKey)]),
+    ],
+  };
+}
+
+/**
+ * Move a received balance from pending into spendable.
+ *
+ * Incoming transfers land in a pending compartment so that a sender cannot
+ * invalidate a spend the receiver is midway through building. Applying folds
+ * pending into available and rewrites the AES copy, which is why the client
+ * has to supply the new figure — the program cannot compute it, having no key.
+ *
+ * No proof, and therefore no context accounts: one small instruction.
+ */
+export function buildApplyPendingBalanceIx(
+  tokenAccount: PublicKey, authority: PublicKey,
+  expectedPendingCreditCounter: bigint, newDecryptableBalance: Uint8Array,
+): TransactionInstruction {
+  if (newDecryptableBalance.length !== 36) {
+    throw new Error(`AE ciphertext ${newDecryptableBalance.length}B, expected 36`);
+  }
+  const data = new Uint8Array(46);
+  data[0] = EXT_CONFIDENTIAL_TRANSFER;
+  data[1] = IX_APPLY_PENDING_BALANCE;
+  new DataView(data.buffer).setBigUint64(2, expectedPendingCreditCounter, true);
+  data.set(newDecryptableBalance, 10);
+  return new TransactionInstruction({
+    programId: TOKEN_2022_PROGRAM_ID,
+    keys: [
+      { pubkey: tokenAccount, isSigner: false, isWritable: true  },
+      { pubkey: authority,    isSigner: true,  isWritable: false },
+    ],
+    data: Buffer.from(data),
+  });
+}
+
+/** Ready-to-sign transaction that makes a pending balance spendable. */
+export async function buildApplyPendingBalanceTx(
+  connection: Connection, tokenAccount: PublicKey, authority: PublicKey, keys: ConfidentialKeys,
+): Promise<Transaction | null> {
+  const balances = await readConfidentialBalances(connection, tokenAccount, keys);
+  if (!balances) throw new Error('Could not read this account with your key.');
+  if (balances.pendingCredits === 0) return null;              // nothing to do
+  if (!balances.pendingKnown) throw new Error('Pending balance is too large to decrypt.');
+
+  const ai = await connection.getParsedAccountInfo(tokenAccount);
+  const st = ((ai.value as any)?.data?.parsed?.info?.extensions ?? [])
+    .find((e: any) => e.extension === 'confidentialTransferAccount')?.state;
+
+  const tx = new Transaction().add(buildApplyPendingBalanceIx(
+    tokenAccount, authority,
+    BigInt(st?.pendingBalanceCreditCounter ?? 0),
+    keys.ae.encrypt(balances.available + balances.pending).toBytes(),
+  ));
+  tx.feePayer = authority;
+  tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+  return tx;
+}
+
+/**
+ * Move a public balance into the private compartment.
+ *
+ * No proof: the amount is public on the way in, which is the whole point of the
+ * bridge — value becomes hidden from here on, but its arrival is not.
+ * Only meaningful on a plain ConfidentialTransfer mint; a ConfidentialMintBurn
+ * mint has no public side and rejects this with 0x41.
+ *
+ * Layout matches a Deposit observed on chain: 11 bytes, 3 accounts.
+ */
+export function buildDepositIx(
+  tokenAccount: PublicKey, mint: PublicKey, authority: PublicKey,
+  amount: bigint, decimals: number,
+): TransactionInstruction {
+  const data = new Uint8Array(11);
+  data[0] = EXT_CONFIDENTIAL_TRANSFER;
+  data[1] = IX_DEPOSIT;
+  new DataView(data.buffer).setBigUint64(2, amount, true);
+  data[10] = decimals;
+  return new TransactionInstruction({
+    programId: TOKEN_2022_PROGRAM_ID,
+    keys: [
+      { pubkey: tokenAccount, isSigner: false, isWritable: true  },
+      { pubkey: mint,         isSigner: false, isWritable: false },
+      { pubkey: authority,    isSigner: true,  isWritable: false },
+    ],
+    data: Buffer.from(data),
+  });
 }

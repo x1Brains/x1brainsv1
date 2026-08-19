@@ -568,6 +568,22 @@ function injectPortfolioStyles() {
   .pfx-send{font-family:'Sora';font-weight:600;font-size:11.5px;border:1px solid var(--line);background:transparent;color:var(--muted);padding:7px 0;width:100%;border-radius:8px;cursor:pointer;transition:.13s}
   .pfx-send:hover{border-color:var(--o);color:var(--o);background:rgba(242,144,48,.06)}
 
+  .pfx-acts{display:flex;gap:7px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
+  .pfx-priv-send{margin:6px 0 10px;padding:13px 14px;border-radius:11px;
+    background:#0a0f16;border:1px solid rgba(0,201,141,.28)}
+  .pfx-priv-head{font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;
+    letter-spacing:.8px;color:var(--g);display:flex;gap:9px;align-items:baseline;flex-wrap:wrap}
+  .pfx-priv-head span{font-family:'Sora',sans-serif;font-size:10.5px;font-weight:400;
+    letter-spacing:0;color:var(--muted)}
+  .pfx-priv-send input{width:100%;box-sizing:border-box;margin-top:9px;padding:10px 12px;
+    border-radius:9px;background:#070b11;border:1px solid var(--line);color:var(--txt);
+    font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;outline:none;transition:.15s}
+  .pfx-priv-send input:focus{border-color:var(--g);box-shadow:0 0 0 3px rgba(0,201,141,.1)}
+  .pfx-priv-row{display:flex;gap:8px;align-items:stretch}
+  .pfx-priv-row input{flex:1;min-width:0}
+  .pfx-priv-row .pfx-chip,.pfx-priv-row .pfx-btn{margin-top:9px;white-space:nowrap}
+  .pfx-priv-foot{margin-top:9px;font-size:10.5px;color:var(--muted);line-height:1.5}
+
   .pfx-reveal{cursor:pointer;font-family:inherit;transition:.15s}
   .pfx-reveal:hover:not(:disabled){background:rgba(0,201,141,.2);border-color:var(--g)}
   .pfx-reveal:disabled{opacity:.6;cursor:default}
@@ -933,10 +949,125 @@ export default function V2Portfolio() {
     }
   };
 
+  /** Private-send panel: which mint is open, and its form state. */
+  const [privSendMint, setPrivSendMint] = useState<string | null>(null);
+  const [privTo,   setPrivTo]   = useState('');
+  const [privAmt,  setPrivAmt]  = useState('');
+  const [privBusy, setPrivBusy] = useState(false);
+  const [privMsg,  setPrivMsg]  = useState<{ text: string; bad?: boolean } | null>(null);
+
+  /**
+   * Send a confidential balance.
+   *
+   * Four transactions, not one: the equality, ciphertext-validity and range
+   * proofs come to 1864 bytes against a 1232-byte transaction limit, so each
+   * has to be verified into a context-state account before the transfer can
+   * point at it. `signAllTransactions` keeps that to a single approval, and the
+   * last transaction closes all three context accounts to refund their rent.
+   */
+  const handlePrivateSend = async (mint: string, decimals: number) => {
+    if (!publicKey || !signMessage || !signAllTransactions) {
+      setPrivMsg({ text: 'This wallet cannot sign a batch — try Backpack.', bad: true });
+      return;
+    }
+    setPrivBusy(true);
+    setPrivMsg(null);
+    try {
+      const { getSessionKeys, planConfidentialTransfer, ataFor } = await import('../lib/confidential');
+      const mintPk = new PublicKey(mint);
+
+      let toPk: PublicKey;
+      try { toPk = new PublicKey(privTo.trim()); }
+      catch { throw new Error('That recipient address is not valid.'); }
+
+      const amount = (() => {
+        const n = privAmt.trim();
+        if (!/^\d*\.?\d*$/.test(n) || !n || n === '.') throw new Error('Enter an amount.');
+        const [whole, frac = ''] = n.split('.');
+        if (frac.length > decimals) throw new Error(`This token has ${decimals} decimals.`);
+        return BigInt(whole || '0') * 10n ** BigInt(decimals)
+             + BigInt((frac + '0'.repeat(decimals)).slice(0, decimals) || '0');
+      })();
+
+      setPrivMsg({ text: 'Sign to unlock your balance…' });
+      const source = ataFor(mintPk, publicKey);
+      const keys = await getSessionKeys(source, signMessage);
+
+      setPrivMsg({ text: 'Building proofs…' });
+      const plan = await planConfidentialTransfer(connection, {
+        mint: mintPk, sourceAccount: source, destAccount: ataFor(mintPk, toPk),
+        amount, keys, authority: publicKey,
+      });
+
+      setPrivMsg({ text: `Approve ${plan.transactions.length} transactions…` });
+      const signed = await signAllTransactions(plan.transactions);
+
+      for (let i = 0; i < signed.length; i++) {
+        setPrivMsg({ text: `Sending ${i + 1} of ${signed.length}…` });
+        const sig = await connection.sendRawTransaction(signed[i].serialize(), { skipPreflight: false });
+        const bh = await connection.getLatestBlockhash();
+        const res = await connection.confirmTransaction({ signature: sig, ...bh }, 'confirmed');
+        if (res.value.err) throw new Error(`Step ${i + 1} failed on chain.`);
+      }
+
+      setPrivMsg({ text: 'Sent privately ✓' });
+      setPrivAmt(''); setPrivTo('');
+      // The row's revealed figure is now stale — replace it rather than leave a
+      // number on screen that no longer matches the chain.
+      setRevealed(r => r[mint]
+        ? { ...r, [mint]: { ...r[mint], available: plan.newSourceBalance } } : r);
+      setReloadNonce(n => n + 1);
+    } catch (e: any) {
+      const m = String(e?.message ?? e);
+      setPrivMsg({ bad: true,
+        text: /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 160) });
+    } finally {
+      setPrivBusy(false);
+    }
+  };
+
+  const [applying, setApplying] = useState<string | null>(null);
+
+  /**
+   * Fold a received balance into the spendable one.
+   *
+   * Incoming transfers land in a pending compartment so a sender cannot
+   * invalidate a spend the receiver is halfway through building. Until this
+   * runs, the tokens are genuinely held but genuinely unspendable — so the row
+   * shows the button rather than quietly adding pending into the total.
+   */
+  const handleApplyPending = async (mint: string) => {
+    if (!publicKey || !signMessage || !signTransaction) return;
+    setApplying(mint);
+    setRevealErr(e => { const { [mint]: _drop, ...rest } = e; return rest; });
+    try {
+      const { getSessionKeys, buildApplyPendingBalanceTx, readConfidentialBalances, ataFor } =
+        await import('../lib/confidential');
+      const ata = ataFor(new PublicKey(mint), publicKey);
+      const keys = await getSessionKeys(ata, signMessage);
+      const tx = await buildApplyPendingBalanceTx(connection, ata, publicKey, keys);
+      if (!tx) return;                                   // nothing pending after all
+      const signed = await signTransaction(tx);
+      const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false });
+      const bh = await connection.getLatestBlockhash();
+      const res = await connection.confirmTransaction({ signature: sig, ...bh }, 'confirmed');
+      if (res.value.err) throw new Error('Apply failed on chain.');
+      const fresh = await readConfidentialBalances(connection, ata, keys);
+      if (fresh) setRevealed(r => ({ ...r, [mint]: fresh }));
+      setReloadNonce(n => n + 1);
+    } catch (e: any) {
+      const m = String(e?.message ?? e);
+      setRevealErr(er => ({ ...er, [mint]:
+        /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 140) }));
+    } finally {
+      setApplying(null);
+    }
+  };
+
   /** A decrypted balance must never outlive the wallet that unlocked it. */
   useEffect(() => {
     if (publicKey) return;
-    setRevealed({}); setRevealErr({});
+    setRevealed({}); setRevealErr({}); setPrivSendMint(null); setPrivMsg(null);
     import('../lib/confidential').then(m => m.clearSessionKeys()).catch(() => {});
   }, [publicKey]);
 
@@ -1969,16 +2100,47 @@ export default function V2Portfolio() {
                         {/* Enabling is only possible for the CONNECTED wallet —
                             ConfigureAccount must be signed by the account owner,
                             so this is deliberately absent in watch mode. */}
-                        {!isReadOnly && wallet && (h.mintConfidential || h.mintFullyPrivate) && !h.confidential
-                          ? <button
-                              type="button"
-                              className="pfx-send enable-private"
-                              disabled={enabling === h.mint}
-                              title="Register an encryption key on this account so it can hold a private balance. One signature, one transaction."
-                              onClick={() => handleEnablePrivate(h.mint)}
-                            >{enabling === h.mint ? '· · ·' : '🔓 ENABLE'}</button>
-                          : !isReadOnly && wallet && h.balance > 0
-                          ? <button type="button" className="pfx-send" onClick={() => setActiveSendMint(m => m === h.mint ? null : h.mint)}>{isActive ? '✕ CLOSE' : 'SEND'}</button>
+                        {/* A token can carry a public AND a private balance at
+                            the same time, so these are independent buttons
+                            rather than one slot — collapsing them would take
+                            public SEND away the moment a balance was revealed. */}
+                        {!isReadOnly && wallet
+                          ? <div className="pfx-acts">
+                              {(h.mintConfidential || h.mintFullyPrivate) && !h.confidential && (
+                                <button
+                                  type="button"
+                                  className="pfx-send enable-private"
+                                  disabled={enabling === h.mint}
+                                  title="Register an encryption key on this account so it can hold a private balance. One signature, one transaction."
+                                  onClick={() => handleEnablePrivate(h.mint)}
+                                >{enabling === h.mint ? '· · ·' : '🔓 ENABLE'}</button>
+                              )}
+                              {revealed[h.mint] && revealed[h.mint].pendingCredits > 0 && (
+                                <button
+                                  type="button"
+                                  className="pfx-send enable-private"
+                                  disabled={applying === h.mint}
+                                  title="Received tokens sit in a pending compartment until you apply them. Applying makes them spendable."
+                                  onClick={() => handleApplyPending(h.mint)}
+                                >{applying === h.mint ? '· · ·' : '↓ APPLY'}</button>
+                              )}
+                              {revealed[h.mint] && revealed[h.mint].available > 0n && (
+                                <button
+                                  type="button"
+                                  className="pfx-send enable-private"
+                                  title="Send this balance to another wallet. The amount stays encrypted on chain."
+                                  onClick={() => {
+                                    setPrivSendMint(m => m === h.mint ? null : h.mint);
+                                    setPrivMsg(null); setActiveSendMint(null);
+                                  }}
+                                >{privSendMint === h.mint ? '✕ CLOSE' : '◈ SEND PRIVATELY'}</button>
+                              )}
+                              {h.balance > 0 && (
+                                <button type="button" className="pfx-send"
+                                  onClick={() => { setActiveSendMint(m => m === h.mint ? null : h.mint); setPrivSendMint(null); }}
+                                >{isActive ? '✕ CLOSE' : 'SEND'}</button>
+                              )}
+                            </div>
                           : <span />}
                       </div>
                       {enableMsg?.mint === h.mint && (
@@ -1986,6 +2148,42 @@ export default function V2Portfolio() {
                       )}
                       {revealErr[h.mint] && (
                         <div className="pfx-enable-msg bad">{revealErr[h.mint]}</div>
+                      )}
+                      {privSendMint === h.mint && !isReadOnly && wallet && (
+                        <div className="pfx-priv-send">
+                          <div className="pfx-priv-head">
+                            ◈ PRIVATE SEND
+                            <span>amount encrypted · recipient must have enabled {h.symbol}</span>
+                          </div>
+                          <input
+                            type="text" spellCheck={false} autoComplete="off"
+                            placeholder="Recipient wallet address…"
+                            value={privTo} onChange={e => { setPrivTo(e.target.value); setPrivMsg(null); }}
+                          />
+                          <div className="pfx-priv-row">
+                            <input
+                              type="text" inputMode="decimal" spellCheck={false}
+                              placeholder="0.0"
+                              value={privAmt} onChange={e => { setPrivAmt(e.target.value); setPrivMsg(null); }}
+                            />
+                            <button type="button" className="pfx-chip"
+                              onClick={() => setPrivAmt(
+                                (Number(revealed[h.mint].available) / 10 ** h.decimals).toFixed(h.decimals)
+                                  .replace(/\.?0+$/, ''))}
+                            >MAX</button>
+                            <button type="button" className="pfx-btn primary"
+                              disabled={privBusy || !privTo.trim() || !privAmt.trim()}
+                              onClick={() => handlePrivateSend(h.mint, h.decimals)}
+                            >{privBusy ? '· · ·' : 'SEND'}</button>
+                          </div>
+                          <div className="pfx-priv-foot">
+                            Spendable: {fmtNum(Number(revealed[h.mint].available) / 10 ** h.decimals, h.decimals)} {h.symbol}
+                            {' · '}four transactions, one approval — the proofs are too large for one
+                          </div>
+                          {privMsg && (
+                            <div className={`pfx-enable-msg${privMsg.bad ? ' bad' : ''}`}>{privMsg.text}</div>
+                          )}
+                        </div>
                       )}
                       {isActive && !isReadOnly && wallet && (
                         <div style={{ marginBottom: 8 }}>

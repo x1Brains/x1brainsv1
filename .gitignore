@@ -50,3 +50,4 @@ verify[0-9]*.js
 inspect_*.js
 scripts/force-mature.js
 scripts/check-force-mature-alive.js
+scripts/.probe.cjs
