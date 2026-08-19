@@ -943,6 +943,14 @@ export default function V2Portfolio() {
   const [revealed, setRevealed] = useState<Record<string,
     { available: bigint; pending: bigint; pendingCredits: number; pendingKnown: boolean }>>({});
   const [revealing, setRevealing] = useState<string | null>(null);
+  /** What the wallet is asking for right now, so a bare signature prompt is not a mystery. */
+  const [keyNote, setKeyNote] = useState<{ mint: string; text: string } | null>(null);
+  const keyStepNote = (mint: string) => (step: 'standard' | 'legacy') => setKeyNote({
+    mint,
+    text: step === 'standard'
+      ? 'Sign the two key messages — this derives your private key in the browser. It is not a transaction and moves nothing.'
+      : 'This account was enabled before we adopted the spl-token standard, so it needs one extra signature with the older message. Only this account, only once.',
+  });
   const [revealErr, setRevealErr] = useState<Record<string, string>>({});
 
   /**
@@ -960,7 +968,8 @@ export default function V2Portfolio() {
     try {
       const { getSessionKeys, readConfidentialBalances, ataFor } = await import('../lib/confidential');
       const ata = ataFor(new PublicKey(mint), publicKey);
-      const keys = await getSessionKeys(connection, ata, publicKey, signMessage);
+      const keys = await getSessionKeys(connection, ata, publicKey, signMessage, keyStepNote(mint));
+      setKeyNote(null);
       const bal = keys && await readConfidentialBalances(connection, ata, keys);
       if (!bal) {
         // Not a bug and worth saying plainly: our key derivation is our own, so
@@ -976,7 +985,7 @@ export default function V2Portfolio() {
       setRevealErr(er => ({ ...er, [mint]:
         /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 120) }));
     } finally {
-      setRevealing(null);
+      setRevealing(null); setKeyNote(null);
     }
   };
 
@@ -1022,7 +1031,8 @@ export default function V2Portfolio() {
 
       setPrivMsg({ text: 'Sign to unlock your balance…' });
       const source = ataFor(mintPk, publicKey);
-      const keys = await getSessionKeys(connection, source, publicKey, signMessage);
+      const keys = await getSessionKeys(connection, source, publicKey, signMessage, keyStepNote(mint));
+      setKeyNote(null);
       if (!keys) throw new Error('Could not derive a key that opens this account.');
 
       setPrivMsg({ text: 'Building proofs…' });
@@ -1054,7 +1064,7 @@ export default function V2Portfolio() {
       setPrivMsg({ bad: true,
         text: /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 160) });
     } finally {
-      setPrivBusy(false);
+      setPrivBusy(false); setKeyNote(null);
     }
   };
 
@@ -1076,7 +1086,8 @@ export default function V2Portfolio() {
       const { getSessionKeys, buildApplyPendingBalanceTx, readConfidentialBalances, ataFor } =
         await import('../lib/confidential');
       const ata = ataFor(new PublicKey(mint), publicKey);
-      const keys = await getSessionKeys(connection, ata, publicKey, signMessage);
+      const keys = await getSessionKeys(connection, ata, publicKey, signMessage, keyStepNote(mint));
+      setKeyNote(null);
       if (!keys) throw new Error('Could not derive a key that opens this account.');
       const tx = await buildApplyPendingBalanceTx(connection, ata, publicKey, keys);
       if (!tx) return;                                   // nothing pending after all
@@ -1093,14 +1104,14 @@ export default function V2Portfolio() {
       setRevealErr(er => ({ ...er, [mint]:
         /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 140) }));
     } finally {
-      setApplying(null);
+      setApplying(null); setKeyNote(null);
     }
   };
 
   /** A decrypted balance must never outlive the wallet that unlocked it. */
   useEffect(() => {
     if (publicKey) return;
-    setRevealed({}); setRevealErr({}); setPrivSendMint(null); setPrivMsg(null);
+    setRevealed({}); setRevealErr({}); setPrivSendMint(null); setPrivMsg(null); setKeyNote(null);
     import('../lib/confidential').then(m => m.clearSessionKeys()).catch(() => {});
   }, [publicKey]);
 
@@ -2161,6 +2172,9 @@ export default function V2Portfolio() {
                       </div>
                       {enableMsg?.mint === h.mint && (
                         <div className={`pfx-enable-msg${enableMsg.bad ? ' bad' : ''}`}>{enableMsg.text}</div>
+                      )}
+                      {keyNote?.mint === h.mint && (
+                        <div className="pfx-enable-msg">{keyNote.text}</div>
                       )}
                       {revealErr[h.mint] && (
                         <div className="pfx-enable-msg bad">{revealErr[h.mint]}</div>

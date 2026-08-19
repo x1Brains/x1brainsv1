@@ -317,6 +317,8 @@ const _keyCache = new Map<string, ConfidentialKeys>();
  */
 export async function getSessionKeys(
   connection: Connection, tokenAccount: PublicKey, wallet: PublicKey, signMessage: SignMessage,
+  /** Fires before each signature so the UI can say what is being asked for. */
+  onStep?: (step: 'standard' | 'legacy') => void,
 ): Promise<ConfidentialKeys | null> {
   const onChain = await (async () => {
     const ai = await connection.getParsedAccountInfo(tokenAccount);
@@ -328,6 +330,7 @@ export async function getSessionKeys(
   const walletKey = `std:${wallet.toBase58()}`;
   let std = _keyCache.get(walletKey);
   if (!std) {
+    onStep?.('standard');
     std = await deriveKeys(signMessage);
     _keyCache.set(walletKey, std);
   }
@@ -340,6 +343,7 @@ export async function getSessionKeys(
   const legacyKey = `legacy:${wallet.toBase58()}:${tokenAccount.toBase58()}`;
   let legacy = _keyCache.get(legacyKey);
   if (!legacy) {
+    onStep?.('legacy');
     legacy = await deriveLegacyKeys(tokenAccount, signMessage);
     _keyCache.set(legacyKey, legacy);
   }
