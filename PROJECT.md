@@ -1368,6 +1368,15 @@ ConfidentialTransferMint + MetadataPointer + CMB = 303 + 200 = **503 bytes**.
 | supply | 1,050,000 (public) | 1,000,000 (**encrypted**) |
 | keys | `~/.x1city-keys/x1b-mint.json` | `~/.x1city-keys/bm-mint.json` |
 
+**Demo wallet — watch `BFq4Vyruw6zNGRimmfkdaPpQw1s7HP6jdYB7vwrCwYgB` in the v2
+portfolio.** It holds both tokens side by side, which is the clearest illustration of
+the difference: BM shows public 0 + an encrypted balance (`◉◉ FULLY PRIVATE ·
+BALANCE HIDDEN`), X1B shows a plain public 100,000 (`◉ PRIVATE`). The operator's own
+wallet `CnyGhzMu…QAuG` holds 50,000 X1B and CANNOT hold BM — its token account is not
+configured for confidential transfers, and only the owner can sign `ConfigureAccount`.
+That is the CMB onboarding wall in practice, and the reason the browser configure flow
+(§17.8) is the next piece of work.
+
 ⛔ **Losing a keyfile loses the confidential balance permanently** — ElGamal and
 AES keys derive from the signing keypair, so no admin key recovers them.
 
