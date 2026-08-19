@@ -1516,3 +1516,126 @@ SEPARATELY — concatenating two padded strings puts `==` in the middle and
   different key every session).
 - BM cannot be transferred or burned yet — same proof machinery, not yet built.
 - Orphaned proof context accounts from failed attempts still hold rent.
+
+---
+
+## 18. Session log — 2026-08-19 PM · the confidential lifecycle in the browser
+
+§17 got the tokens on chain. This section is the client: **the whole lifecycle now runs
+from the v2 portfolio**, with the wallet doing nothing but signing. 24 commits, local.
+
+### 18.1 What ships
+
+`src/lib/confidential.ts` (~1,500 lines) + `src/pages/V2Portfolio.tsx`. Every operation
+verified against X1 **mainnet** through the shipped library — `scripts/confidential-
+transfer-probe.ts` imports it directly, because testing a reimplementation proves nothing
+about what ships.
+
+| action | transactions | proofs |
+|---|---|---|
+| open a private balance (`ConfigureAccount`) | 1 | pubkey validity, 96 B, inline |
+| deposit — public → private | 1 | none |
+| apply pending | 1 | none |
+| **private transfer** | **4** | equality 320 B + validity 544 B + range 1000 B |
+| withdraw — private → public | 3 | equality + range-u64 936 B |
+| burn / mint (CMB only) | 4 each | as transfer |
+| empty + close, refund rent | 1 | zero-ciphertext, 192 B, inline |
+
+Four transactions and not one because 1,864 B of proofs will not fit a 1,232 B
+transaction. Each proof is verified into a **context state account** (161/385/297 B,
+measured) and the last transaction closes them to refund rent. The context keypairs are
+generated and partial-signed before the wallet sees the batch, so `signAllTransactions`
+keeps it to **one approval**.
+
+### 18.2 Key derivation — three schemes, and the trap
+
+⛔ **The spl-token CLI hashes the signature TWICE with SHA3-512** — `seed_from_signature`
+then `from_seed`. One round yields a perfectly valid keypair for nobody's account, so the
+error is invisible. 7,680 brute-forced combinations found nothing; reading
+`solana-zk-sdk`'s `elgamal.rs` found it at once. **Read the Rust before brute-forcing.**
+
+| scheme | signed message | stretch | sigs |
+|---|---|---|---|
+| `hkdf` (current, used for all new accounts) | `solana-conf-bal/v1` | HKDF-SHA512 | 1 |
+| `sha3` (spl-token CLI ≤ 5.5) | `ElGamalSecretKey` / `AeKey` | SHA3-512 twice | 2 |
+| `legacy` (ours, pre-interop) | `x1brains.confidential.v1:<ata>` | SHA-512 / SHA-256 | 1 |
+
+- `public_seed` is EMPTY → keys are **per wallet**, not per token account.
+- A CMB mint's **supply key** uses seed = the mint address, hkdf. Authority only.
+- `getSessionKeys` checks a derived key against the account's published `elgamalPubkey`
+  **before trusting it** — a wrong key is not an error, it is a valid key for a different
+  account. It persists only the scheme NAME (localStorage), never key material, so a
+  returning user pays one prompt instead of rediscovering the scheme.
+- `ConfigureAccount` is **not idempotent** (`0x16`), so keys cannot be rotated. An account
+  is stuck with whatever opened it.
+
+### 18.3 The cold-start problem, and "Add a private token"
+
+A CMB token has no public side. Nobody can send you any until your key is on chain, and
+nobody can do it for you — so a token you have never received cannot appear in a portfolio
+that lists what you hold. The one action that fixes it was unreachable from the one screen
+that would show it.
+
+Fix: stop indexing by holdings, index by **mint address**. Paste it, `CHECK` reads the
+chain (real account → Token-2022 → `confidentialTransferMint` → `confidentialMintBurn`),
+then one signature opens the balance from a standing start.
+
+Deliberately paste-first, not a curated list — a whitelist is stale the moment someone
+launches a token we have not heard of. The chips are shortcuts, not a gate. And it renders
+**outside** the `hasData` gate: it first sat inside, which would have hidden it from
+exactly the empty wallets it exists for.
+
+### 18.4 Two protocol behaviours that bite
+
+**Apply-pending is a client-supplied figure.** The program has no key, so it stores
+whatever AES balance you hand it. A transfer landing between the read and the execution
+means the ciphertext grew by more than you claimed and the readable copy under-reports —
+silently. It fails **later**, when every spend's equality proof describes a balance the
+chain does not have. The account publishes `expected` vs `actual` credit counters for
+exactly this; `checkApplyRace()` compares them after every apply and
+`repairDecryptableBalance()` recovers the figure from the ElGamal side (bounded to u32 by
+the discrete log — past that it refuses rather than writing a second guess).
+
+**Burning does not reduce supply.** It fills `pendingBurn`, so a burn cannot invalidate a
+mint someone else is midway through proving. The authority applies it later, and only THEN
+does `decryptableSupply` go stale and need `UpdateDecryptableSupply`.
+
+### 18.5 Security audit before push — 3 defects, all fixed
+
+1. **Default signatures were stretched into keys (HIGH).** Some wallets return the all-zero
+   signature instead of erroring; hashing it gives the same publicly-computable keypair for
+   everyone. `solana-zk-sdk` rejects it explicitly and we did not. Now every path asserts
+   64 bytes and non-zero.
+2. **Apply-race could strand funds permanently (HIGH)** — §18.4.
+3. **MAX button corrupted whole numbers (LOW).** Float-formatted then regex-trimmed, so
+   `1200` became `12` on a 0-decimal token, and precision was lost above 2^53. Now exact
+   from the bigint.
+
+None could lose funds to an attacker: **spending always requires the wallet's signature on
+a transaction**, so a leaked confidential key reads balances and nothing more. The real
+exposure is phishing — the derivation message is fixed and domain-independent (that is
+what makes CLI interop work), so any site that gets a user to sign it derives their keys
+for every token, permanently and unrotatably. Defence is a canonical domain, not hosting.
+
+**Also found:** proof context accounts strand ~0.0075 XNT each when a middle transaction
+fails; `reclaimProofContexts()` finds a wallet's strays via `memcmp` on the authority at
+offset 0. Ten were recovered (0.0248 XNT).
+
+### 18.6 Gotcha worth remembering beyond this feature
+
+`injectPortfolioStyles()` bailed if its `<style>` tag already existed, so on any hot reload
+the ORIGINAL stylesheet stayed and every rule added since was silently dropped. New markup
+rendered completely unstyled and read as a broken component. Any "install once" guard keyed
+on a fixed id is a trap under HMR.
+
+### 18.7 State
+
+- **24 commits, not pushed.** `git push origin main` is the operator's.
+- Typecheck 386 (unchanged baseline), build clean, WASM lazy (0 refs in `index.html`).
+- `@solana/zk-sdk` pinned to **exactly** `0.3.1` — `^0.3.1` still floated across 0.3.x, and
+  the failure mode is a maths error that reads like broken construction.
+- BM: supply 1,000,000 — 975,000 treasury, 25,000 `CnyGhz…QAuG`. The first BM transfer ever
+  made was this session; it was genuinely unsendable before.
+- **Unverified:** every path was driven by a keypair signer in node. The wallet-adapter
+  seam has only the operator's click-testing behind it. Dependency tree unaudited, single
+  author, no external review.
