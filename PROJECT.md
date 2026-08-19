@@ -1079,6 +1079,11 @@ underlying token prices arrive asynchronously, so computing once freezes it at z
 The pairing record's `tokenA`/`tokenB` order is **not** guaranteed to match the pool's
 `token0`/`token1`; sides are matched **by mint**, never by position.
 
+**Pair icon.** An LP row rendered `h.symbol[0]` — a single "A" for AGI/BRAINS, identifying
+neither side. `lpInfo` now carries `mintA`/`mintB` (+ their symbols) and `LpPairIcon` draws
+both underlying tokens overlapping, each falling back to its own initial when no logo is
+cached. AGI/BRAINS renders the real catbox + brains-logo art.
+
 Verified live: 394,738 AGI + 6,446 BRAINS net of fees over 46,487 LP supply →
 $0.001078/LP, $1.24 for a 1,152.41 balance (independent on-chain calc: $0.00108376 / $1.2489,
 prices drifted between runs).

@@ -60,8 +60,47 @@ const KNOWN: Record<string, { symbol: string; logo?: string; iconClass: string; 
 };
 
 // Token icon that fills the 34×34 cell. Real logo first; letter fallback.
+/** One half of an LP pair icon: the token's cached logo, else its initial. */
+function PairHalf({ mint, sym, d, color }: { mint?: string; sym?: string; d: number; color: string }) {
+  const logo = mint ? getCachedTokenLogo(mint) : null;
+  return (
+    <div style={{
+      width: d, height: d, borderRadius: '50%', flexShrink: 0,
+      border: '1.5px solid #06090d', boxSizing: 'border-box',
+      background: logo
+        ? `#06090d url(${logo}) center/cover no-repeat`
+        : `linear-gradient(135deg, ${color}, ${color}99)`,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      color: '#0a0e14', fontFamily: "'JetBrains Mono',monospace",
+      fontSize: Math.round(d * 0.5), fontWeight: 800, lineHeight: 1,
+    }}>{logo ? '' : (sym?.[0] ?? '?').toUpperCase()}</div>
+  );
+}
+
+/**
+ * LP rows showed a single initial — "A" for AGI/BRAINS — which identified
+ * neither side of the pair. Draw both underlying tokens instead, overlapping,
+ * each falling back to its own initial when no logo is cached.
+ */
+function LpPairIcon({ h, size = 30 }: { h: Holding; size?: number }) {
+  const d = Math.round(size * 0.68);
+  return (
+    <div style={{ width: size, height: size, flexShrink: 0, display: 'flex',
+      alignItems: 'center', justifyContent: 'center' }}
+      title={h.lpInfo?.pairSymbol}>
+      <PairHalf mint={h.lpInfo?.mintA} sym={h.lpInfo?.symA} d={d} color={C_ORANGE} />
+      <div style={{ marginLeft: -Math.round(d * 0.34) }}>
+        <PairHalf mint={h.lpInfo?.mintB} sym={h.lpInfo?.symB} d={d} color={C_SILVER} />
+      </div>
+    </div>
+  );
+}
+
 function TokenIcon({ h, size = 30 }: { h: Holding; size?: number }) {
   const [failed, setFailed] = useState(false);
+  if (h.category === 'lp' && (h.lpInfo?.mintA || h.lpInfo?.mintB)) {
+    return <LpPairIcon h={h} size={size} />;
+  }
   const radius = Math.max(5, Math.round(size * 0.27));
   if (h.logo && !failed) {
     return (
@@ -180,7 +219,9 @@ type Holding = {
   category: Category;
   decimals: number;
   kind?: TokenKind;
-  lpInfo?: { pairSymbol: string; rewardSymbol: string };
+  /** `mintA`/`mintB` are the pool's two underlying tokens, carried so the row can
+   *  draw a PAIR icon — a single initial ('A' for AGI/BRAINS) said nothing. */
+  lpInfo?: { pairSymbol: string; rewardSymbol: string; mintA?: string; mintB?: string; symA?: string; symB?: string };
   listedPrice?: number;
   /** Unit price computed by us rather than read from the price feed — LP tokens
    *  have no market price, their value is derived from the pool they represent. */
@@ -799,7 +840,12 @@ export default function V2Portfolio() {
           iconClass: lp.reward === 'BRAINS' ? 'brains' : 'lb',
           color: C_SILVER,
           program: r.program, category: 'lp', decimals: r.decimals,
-          lpInfo: { pairSymbol: label, rewardSymbol: lp.reward },
+          lpInfo: {
+            pairSymbol: label, rewardSymbol: lp.reward,
+            mintA: lp.mintA, mintB: lp.mintB,
+            symA: lp.mintA ? symbolOf(lp.mintA) : undefined,
+            symB: lp.mintB ? symbolOf(lp.mintB) : undefined,
+          },
         };
       }
       if (isNftLike(r)) {
