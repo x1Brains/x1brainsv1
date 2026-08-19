@@ -40,7 +40,7 @@ import * as zkNode from '@solana/zk-sdk/node';
 import {
   provideZk, deriveKeys, buildConfigureAccountIxs, buildDepositIx,
   buildApplyPendingBalanceTx, readConfidentialBalances, planConfidentialTransfer, ataFor,
-  isConfigured, getSessionKeys, clearSessionKeys, buildConfigureAccountIxs as _cfg,
+  isConfigured, getSessionKeys, clearSessionKeys, buildConfigureAccountTx,
 } from '../src/lib/confidential';
 
 const RPC = 'https://rpc.mainnet.x1.xyz';
@@ -238,10 +238,11 @@ async function hkdfRoundTrip() {
   const seen: string[] = [];
   const sign = async (m: Uint8Array) => { seen.push(new TextDecoder().decode(m)); return nacl.sign.detached(m, W.secretKey); };
 
-  const keys = (await getSessionKeys(c, ata, W.publicKey, sign))!;
-  await sendAndConfirmTransaction(c, new Transaction().add(
-    ...await _cfg(X1B, ata, W.publicKey, keys)), [W], { commitment: 'confirmed' });
-  seen.length === 1 ? ok(`configured after ${seen.length} signature  ["${seen[0]}"]`)
+  // buildConfigureAccountTx is what the ENABLE button calls — test that, not a
+  // neighbour of it.
+  const tx = await buildConfigureAccountTx(c, X1B, ata, W.publicKey, sign);
+  await sendAndConfirmTransaction(c, tx, [W], { commitment: 'confirmed' });
+  seen.length === 1 ? ok(`ENABLE cost ${seen.length} signature  ["${seen[0]}"]`)
                     : fail(`expected 1 signature, got ${seen.length}: ${seen.join(', ')}`);
 
   clearSessionKeys();
