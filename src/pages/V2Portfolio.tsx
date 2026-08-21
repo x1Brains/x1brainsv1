@@ -1157,8 +1157,8 @@ export default function V2Portfolio() {
   const [privTo,   setPrivTo]   = useState('');
   const [privAmt,  setPrivAmt]  = useState('');
   const [privBusy, setPrivBusy] = useState(false);
-  /** Withdraw reuses the amount field but needs no recipient. */
-  const [privMode, setPrivMode] = useState<'send' | 'withdraw' | 'burn' | 'mint'>('send');
+  /** Withdraw and deposit reuse the amount field but need no recipient. */
+  const [privMode, setPrivMode] = useState<'send' | 'deposit' | 'withdraw' | 'burn' | 'mint'>('send');
   /** Whether the connected wallet is this mint's authority — MINT is theirs alone. */
   const [canMint, setCanMint] = useState<Record<string, boolean>>({});
   const [closing, setClosing] = useState<string | null>(null);
@@ -1180,7 +1180,8 @@ export default function V2Portfolio() {
     }
     setPrivBusy(true);
     setPrivMsg(null);
-    receiptStart(mint, { send: 'Private send', withdraw: 'Withdraw to public',
+    receiptStart(mint, { send: 'Private send', deposit: 'Deposit to private',
+                         withdraw: 'Withdraw to public',
                          burn: 'Burn', mint: 'Mint' }[privMode]);
     try {
       const { getSessionKeys, planConfidentialTransfer, planConfidentialWithdraw,
@@ -1265,6 +1266,81 @@ export default function V2Portfolio() {
       receiptStatus(mint, '', /User rejected|rejected the request/i.test(m) ? 'Cancelled.' : m.slice(0, 160));
     } finally {
       setPrivBusy(false); setKeyNote(null);
+    }
+  };
+
+  /**
+   * Move a public balance into this same account's private compartment.
+   *
+   * The only confidential operation that needs no proof: the amount is public
+   * on the way IN, so it is one instruction in one transaction. There is no
+   * recipient and no second address to send to — deposit acts on the token
+   * account you already have, moving its public balance into its own pending
+   * confidential balance. APPLY then makes that spendable.
+   *
+   * A ConfidentialMintBurn mint rejects this with 0x41 because it has no public
+   * side at all, so the button is never offered for one.
+   */
+  const handleDeposit = async (mint: string, decimals: number) => {
+    if (!publicKey || !signTransaction) return;
+    setPrivBusy(true);
+    setPrivMsg(null);
+    receiptStart(mint, 'Deposit to private');
+    try {
+      const { buildDepositIx, ataFor } = await import('../lib/confidential');
+
+      const amount = (() => {
+        const n = privAmt.trim();
+        if (!/^\d*\.?\d*$/.test(n) || !n || n === '.') throw new Error('Enter an amount to continue.');
+        const [whole, frac = ''] = n.split('.');
+        if (frac.length > decimals) throw new Error(`Too many decimal places \u2014 this token allows ${decimals}.`);
+        return BigInt(whole || '0') * 10n ** BigInt(decimals)
+             + BigInt((frac + '0'.repeat(decimals)).slice(0, decimals) || '0');
+      })();
+      if (amount <= 0n) throw new Error('Enter an amount to continue.');
+
+      const mintPk = new PublicKey(mint);
+      const ata = ataFor(mintPk, publicKey);
+      const tx = new Transaction().add(buildDepositIx(ata, mintPk, publicKey, amount, decimals));
+      tx.feePayer = publicKey;
+      tx.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash;
+
+      setPrivMsg({ text: 'Sign to deposit\u2026' });
+      const signed = await signTransaction(tx);
+      await sendRecorded(signed, mint, 'deposit to private balance');
+
+      setPrivMsg(null);
+      receiptStatus(mint,
+        'Deposited \u2713 \u2014 it is private now. One more tap (APPLY) before you can spend it.');
+      setPrivAmt('');
+
+      // A deposit lands in the PENDING compartment, and the APPLY button only
+      // renders when `revealed.pendingCredits > 0`. `revealed` is the decrypted
+      // snapshot, which only refreshes on a signed REVEAL — so without patching
+      // it here the deposit succeeds on chain and the button to finish the job
+      // never appears. Bumping reloadNonce alone does not do it: that reloads
+      // the token list, not the decrypted balances.
+      setRevealed(r => r[mint]
+        ? { ...r, [mint]: {
+              ...r[mint],
+              pending: r[mint].pendingKnown ? r[mint].pending + amount : r[mint].pending,
+              pendingCredits: r[mint].pendingCredits + 1,
+            } }
+        : r);
+      setReloadNonce(n => n + 1);
+    } catch (e: any) {
+      const m = String(e?.message ?? e);
+      setPrivMsg(null);
+      receiptStatus(mint, '',
+          /User rejected|rejected the request/i.test(m) ? 'Cancelled.'
+        // The chain reports this as {"Custom":65} in the error object and as
+        // "custom program error: 0x41" in the logs — same code, two spellings,
+        // and which one reaches here depends on the wallet. Match both.
+        : /0x41|Custom"?\s*:\s*65\b/.test(m)
+            ? 'This token has no public side, so there is nothing to deposit from.'
+        : m.slice(0, 160));
+    } finally {
+      setPrivBusy(false);
     }
   };
 
@@ -2527,7 +2603,7 @@ export default function V2Portfolio() {
                                 ↓ {revealed[h.mint].pendingKnown
                                      ? `${fmtUnits(revealed[h.mint].pending, h.decimals)} ${h.symbol}`
                                      : `${revealed[h.mint].pendingCredits} transfer${revealed[h.mint].pendingCredits > 1 ? 's' : ''}`}
-                                {' '}received — not spendable until applied
+                                {' '}received and already private — one tap to make it spendable
                               </span>
                               <button type="button" className="pfx-btn primary sm"
                                 disabled={applying === h.mint}
@@ -2540,12 +2616,15 @@ export default function V2Portfolio() {
                       {privSendMint === h.mint && !isReadOnly && wallet && (
                         <div className="pfx-priv-send">
                           <div className="pfx-priv-head">
-                            {privMode === 'withdraw' ? '↑ WITHDRAW TO PUBLIC'
+                            {privMode === 'deposit' ? '↓ DEPOSIT TO PRIVATE'
+                             : privMode === 'withdraw' ? '↑ WITHDRAW TO PUBLIC'
                              : privMode === 'burn' ? '✕ BURN'
                              : privMode === 'mint' ? '+ MINT'
                              : '◈ PRIVATE SEND'}
                             <span>
-                              {privMode === 'withdraw'
+                              {privMode === 'deposit'
+                                ? `moves your public ${h.symbol} into this same account's private balance — hidden immediately, then APPLY to spend it`
+                               : privMode === 'withdraw'
                                 ? `the amount becomes visible again as an ordinary ${h.symbol} balance`
                                : privMode === 'burn'
                                 ? 'destroyed permanently · the amount stays encrypted, even in the supply'
@@ -2559,6 +2638,10 @@ export default function V2Portfolio() {
                           <div className="pfx-priv-modes">
                             {([
                               ['send', 'SEND PRIVATELY', true],
+                              // Deposit is the way IN. Same account, no recipient —
+                              // and impossible on a ConfidentialMintBurn mint,
+                              // which has no public balance to move from.
+                              ['deposit', 'DEPOSIT TO PRIVATE', !h.mintFullyPrivate],
                               // No public side on a ConfidentialMintBurn mint,
                               // so nothing to withdraw to.
                               ['withdraw', 'WITHDRAW TO PUBLIC', !h.mintFullyPrivate],
@@ -2586,23 +2669,35 @@ export default function V2Portfolio() {
                             />
                             {privMode !== 'mint' && <button type="button" className="pfx-chip"
                               onClick={() => setPrivAmt(
-                                // fmtUnits without the thousands separators: exact,
-                                // and never mangles a whole number the way the old
-                                // float+regex did ("1200" became "12" at 0 decimals).
-                                fmtUnits(revealed[h.mint].available, h.decimals).replace(/,/g, ''))}
+                                // Deposit spends the PUBLIC side; everything else
+                                // spends the private one. Maxing the wrong balance
+                                // just guarantees a failed transaction.
+                                privMode === 'deposit'
+                                  ? fmtUnits(BigInt(Math.round(h.balance * 10 ** h.decimals)), h.decimals).replace(/,/g, '')
+                                  // fmtUnits without the thousands separators: exact,
+                                  // and never mangles a whole number the way the old
+                                  // float+regex did ("1200" became "12" at 0 decimals).
+                                  : fmtUnits(revealed[h.mint].available, h.decimals).replace(/,/g, ''))}
                             >MAX</button>}
                             <button type="button" className="pfx-btn primary"
                               disabled={privBusy || !privAmt.trim() || (privMode === 'send' && !privTo.trim())}
-                              onClick={() => handlePrivateMove(h.mint, h.decimals)}
+                              onClick={() => privMode === 'deposit'
+                                ? handleDeposit(h.mint, h.decimals)
+                                : handlePrivateMove(h.mint, h.decimals)}
                             >{privBusy ? '· · ·'
+                              : privMode === 'deposit' ? 'DEPOSIT'
                               : privMode === 'withdraw' ? 'WITHDRAW'
                               : privMode === 'burn' ? 'BURN'
                               : privMode === 'mint' ? 'MINT'
                               : 'SEND'}</button>
                           </div>
                           <div className="pfx-priv-foot">
-                            Spendable: {fmtNum(Number(revealed[h.mint].available) / 10 ** h.decimals, h.decimals)} {h.symbol}
-                            {' · '}{privMode === 'withdraw' ? 'three' : 'four'} transactions, one approval — the proofs are too large for one
+                            {privMode === 'deposit'
+                              ? <>Public balance: {fmtNum(h.balance, h.decimals)} {h.symbol}</>
+                              : <>Spendable: {fmtNum(Number(revealed[h.mint].available) / 10 ** h.decimals, h.decimals)} {h.symbol}</>}
+                            {' · '}{privMode === 'deposit'
+                              ? 'one transaction — deposit needs no proof, the amount is public on the way in'
+                              : `${privMode === 'withdraw' ? 'three' : 'four'} transactions, one approval — the proofs are too large for one`}
                             {privMode === 'burn' && ' · the supply only drops once the mint authority applies it'}
                           </div>
                           {privMsg && (
