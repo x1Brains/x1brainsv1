@@ -280,6 +280,21 @@ export const SendPanel: FC<SendPanelProps> = ({
 }) => {
   // A 1/1 NFT (decimals 0, balance 1) — send the whole thing, no amount entry.
   const isNft = token.decimals === 0 && token.balance > 0 && token.balance <= 1;
+
+  /**
+   * MAX must leave gas behind when the asset IS the gas.
+   *
+   * An SPL send pays its fee from the separate native balance, so the whole token balance
+   * is sendable. A NATIVE send does not: setting the full balance leaves nothing to pay
+   * the fee with and the transfer fails outright. X1's base fee is dynamic (it scales with
+   * global CU congestion rather than Solana's flat 5,000 lamports), so the reserve is set
+   * well above the ~0.0012 XNT typically observed rather than tuned to the minimum.
+   */
+  const NATIVE_FEE_RESERVE = 0.01;
+  const sendIsNative = token.mint === 'native-xnt';
+  const maxSendable = sendIsNative
+    ? Math.max(0, token.balance - NATIVE_FEE_RESERVE)
+    : token.balance;
   const [mode,       setMode]       = useState<'single'|'batch'>('single');
   // Single send
   const [toAddr,     setToAddr]     = useState('');
@@ -480,7 +495,7 @@ export const SendPanel: FC<SendPanelProps> = ({
                 onChange={e => setAmount(e.target.value)}
                 style={{ flex:1 }}
               />
-              <button type="button" onClick={() => setAmount(String(token.balance))} className="sp-btn"
+              <button type="button" onClick={() => setAmount(String(maxSendable))} className="sp-btn"
                 style={{ background:'rgba(242,144,48,.08)', border:'1px solid rgba(242,144,48,.2)', color:'#f29030', padding:'0 14px', flexShrink:0 }}>
                 MAX
               </button>

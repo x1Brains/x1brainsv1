@@ -234,6 +234,15 @@ type Category = 'core' | 'lp' | 'nft' | 'other';
 type Holding = {
   symbol: string;
   mint: string;
+  /**
+   * True only for the wallet's NATIVE XNT balance.
+   *
+   * Native XNT is displayed under the wrapped mint (So111…112) because that is the key
+   * every price feed uses — but it is NOT an SPL token and cannot be moved with
+   * TransferChecked. A real wrapped-wSOL token account carries the SAME mint and must
+   * still send as SPL, so the two cannot be told apart by mint alone.
+   */
+  isNative?: boolean;
   balance: number;
   usd?: number;
   logo?: string;
@@ -991,6 +1000,14 @@ export default function V2Portfolio() {
   const [snapshots, setSnapshots] = useState<PortfolioSnapshot[]>([]);
 
   const [activeSendMint,  setActiveSendMint]  = useState<string | null>(null);
+  /**
+   * Receipts for the last send, held HERE rather than inside SendPanel.
+   *
+   * They must outlive the panel: the panel closes, re-renders and unmounts for all sorts
+   * of reasons, and a transaction link the user has not read yet must not go with it.
+   * Cleared only by the explicit dismiss button.
+   */
+  const [sendReceipts, setSendReceipts] = useState<SendHistoryRow[]>([]);
   const [savedAddresses,  setSavedAddresses]  = useState<SavedAddress[]>([]);
   const [snapStatus,      setSnapStatus]      = useState<'' | 'saving' | 'saved' | 'error'>('');
   const [shareOpen,       setShareOpen]       = useState(false);
@@ -1596,6 +1613,7 @@ export default function V2Portfolio() {
     setSavedAddresses(prev => prev.filter(a => a.id !== id));
   };
   const handleSendComplete = async (records: SendHistoryRow[]) => {
+    setSendReceipts(records);
     for (const r of records) {
       await insertSendRecord({
         from_wallet: r.from_wallet, to_wallet: r.to_wallet,
@@ -1856,7 +1874,7 @@ export default function V2Portfolio() {
 
   const xntHolding: Holding | null = activeKey
     ? {
-        symbol: 'XNT', mint: XNT_MINT, balance: xntBalance,
+        symbol: 'XNT', mint: XNT_MINT, isNative: true, balance: xntBalance,
         usd: xntBalance * (prices[XNT_MINT] || 0),
         logo: XNT_LOGO, iconClass: 'xnt', color: C_ORANGE,
         program: 'spl', category: 'core', decimals: 9,
@@ -2020,7 +2038,16 @@ export default function V2Portfolio() {
   const rankTop  = rankRows.slice(0, RANK_LIMIT);
   const catColor = (c: Category) => c === 'lp' ? C_SILVER : c === 'nft' ? C_PURPLE : c === 'other' ? C_GRAY : C_ORANGE;
 
-  const hasData = !!activeKey && !loading && !err && allRows.length > 0 && netWorth > 0;
+  /**
+   * NOT gated on `loading`.
+   *
+   * This section holds the open SendPanel. Blanking it during a background refresh
+   * unmounted the panel mid-flow and destroyed its state — which is how a successful
+   * send's transaction link vanished a second after appearing. The first-load spinner
+   * below is gated on `allRows.length === 0`, so keeping rows up while refreshing shows
+   * stale numbers for a moment rather than an empty page.
+   */
+  const hasData = !!activeKey && !err && allRows.length > 0 && netWorth > 0;
 
   return (
     <div className="content content-wide pfx">
@@ -2103,6 +2130,59 @@ export default function V2Portfolio() {
           </div>
           {watchInputError && <div className="pfx-watch-err">{watchInputError}</div>}
           <div className="pfx-watch-foot">…or connect your own wallet to see your holdings and send tokens.</div>
+        </div>
+      )}
+
+      {/* ── SEND RECEIPTS ────────────────────────────────────────────────────
+           Rendered OUTSIDE every `loading` / `hasData` gate and pinned to the
+           viewport, so a balance refresh, a re-sort or a closed SendPanel cannot
+           take an unread transaction link away. Dismissed only by the X. */}
+      {sendReceipts.length > 0 && (
+        <div style={{
+          position: 'fixed', right: isMobile ? 8 : 20, bottom: isMobile ? 8 : 20,
+          left: isMobile ? 8 : 'auto', zIndex: 9000, maxWidth: isMobile ? 'none' : 460,
+          background: '#0d1620', border: `1px solid ${C_ORANGE}55`, borderRadius: 10,
+          boxShadow: '0 8px 32px rgba(0,0,0,.6)', overflow: 'hidden',
+        }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '9px 12px', borderBottom: '1px solid rgba(255,255,255,.06)',
+            background: 'rgba(242,144,48,.07)',
+          }}>
+            <span style={{ color: C_ORANGE, fontSize: 11, letterSpacing: '.09em', fontWeight: 700 }}>
+              ✓ SENT — {sendReceipts.length} TRANSACTION{sendReceipts.length > 1 ? 'S' : ''}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSendReceipts([])}
+              aria-label="Dismiss send receipts"
+              style={{ background: 'none', border: 'none', color: '#5a7a90', fontSize: 18,
+                cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}
+            >×</button>
+          </div>
+          <div style={{ maxHeight: 210, overflowY: 'auto' }}>
+            {sendReceipts.map(r => (
+              <div key={r.tx_sig} style={{ padding: '9px 12px', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+                <div style={{ color: '#cfe3f2', fontSize: 12, marginBottom: 4 }}>
+                  {r.amount} {r.symbol} → <span style={{ color: '#8fb2c9' }}>{`${r.to_wallet.slice(0, 4)}…${r.to_wallet.slice(-4)}`}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <a
+                    href={`https://explorer.mainnet.x1.xyz/tx/${r.tx_sig}`}
+                    target="_blank" rel="noopener noreferrer"
+                    style={{ color: C_ORANGE, fontSize: 11, textDecoration: 'none',
+                      fontFamily: 'ui-monospace, monospace', wordBreak: 'break-all' }}
+                  >{r.tx_sig.slice(0, 22)}… ↗</a>
+                  <button
+                    type="button"
+                    onClick={() => { navigator.clipboard?.writeText(r.tx_sig).catch(() => {}); }}
+                    style={{ background: 'none', border: '1px solid rgba(255,255,255,.12)',
+                      color: '#5a7a90', fontSize: 10, borderRadius: 4, padding: '2px 6px', cursor: 'pointer' }}
+                  >COPY</button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -2709,7 +2789,12 @@ export default function V2Portfolio() {
                         <div style={{ marginBottom: 8 }}>
                           <SendPanel
                             token={{
-                              mint: h.mint, name: h.symbol, symbol: h.symbol,
+                              // SendPanel switches to a SystemProgram transfer on this
+                              // exact sentinel. Passing the wrapped mint here sent native
+                              // XNT down the SPL path, where TransferChecked failed with
+                              // InvalidAccountData because no wSOL token account exists.
+                              mint: h.isNative ? 'native-xnt' : h.mint,
+                              name: h.symbol, symbol: h.symbol,
                               balance: h.balance, decimals: h.decimals,
                               logoUri: h.logo, isToken2022: h.program === 't22',
                             }}
