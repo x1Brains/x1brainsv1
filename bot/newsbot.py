@@ -351,8 +351,20 @@ async def run() -> None:
     while True:
         try:
             conn = newsstore.load_connection()
-            if not conn["telegram_token"] or not conn["enabled"]:
-                log.info("⏸  news notifier idle — add a token and enable it at /x9b7r41ns/bot")
+            #  ⛔⛔ ONLY THE TOKEN GATES THE WHOLE LOOP. `enabled` used to gate it
+            #  too, which made the admin panel's own caption a lie — it says
+            #  "paused: nothing goes out, subscriptions still work", and with the
+            #  loop skipped there was no `getUpdates` at all, so a /start while
+            #  paused was never even RECEIVED. Telegram holds it for 24h and
+            #  replays it later, so the reader gets silence and assumes the bot
+            #  is dead.
+            #
+            #  ⭐ Paused now means what the word means: still listening, still
+            #  taking subscriptions and topic changes, just not announcing. The
+            #  `enabled` check moved down to the desk poll, which is the only
+            #  thing that should stop.
+            if not conn["telegram_token"]:
+                log.info("⏸  news notifier idle — no token yet; add one at /x9b7r41ns/bot")
                 await asyncio.sleep(30)
                 continue
 
@@ -378,7 +390,16 @@ async def run() -> None:
             now = time.monotonic()
             if now - last_poll >= float(cfg.get("poll_seconds", 90)):
                 last_poll = now
-                await poll_desk(bot, cfg)
+                #  ⛔ THE PAUSE LIVES HERE, and it deliberately skips the poll
+                #  ENTIRELY rather than polling and dropping the result. Marking
+                #  rows seen while paused would mean everything published during
+                #  the pause is silently swallowed the moment it is switched back
+                #  on — the desk would think it had announced a week of stories
+                #  that nobody ever received.
+                if conn["enabled"]:
+                    await poll_desk(bot, cfg)
+                else:
+                    log.info("⏸  paused — listening for commands, not announcing")
 
         except Exception as e:
             log.error(f"news loop error: {e}", exc_info=True)
