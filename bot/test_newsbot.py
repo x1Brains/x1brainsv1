@@ -51,27 +51,41 @@ for name in ("subscribe","get_sub","set_active","set_topics","active_subs",
 newsstore.DEFAULT_TOPICS = store.DEFAULT_TOPICS
 
 import newsbot
-from telegram.error import Forbidden
+from telegram.error import Forbidden, TelegramError
 
 # ── a fake Telegram ────────────────────────────────────────────────────────
 class FakeBot:
-    def __init__(self): self.sent = []; self.block = set()
+    def __init__(self):
+        self.sent = []; self.block = set()
+        # user_id -> telegram member status. Anyone absent is a plain member.
+        self.roles = {}
+        self.member_lookups = 0
+        self.lookup_raises = False
     async def send_message(self, chat_id, text, **kw):
         if str(chat_id) in self.block: raise Forbidden("blocked")
         self.sent.append((str(chat_id), text, kw)); store.mark_calls.append(("send", str(chat_id)))
         return types.SimpleNamespace(message_id=len(self.sent))
+    async def get_chat_member(self, chat_id, user_id):
+        self.member_lookups += 1
+        if self.lookup_raises: raise TelegramError("chat not found")
+        return types.SimpleNamespace(status=self.roles.get(user_id, "member"))
 
 def chat(cid, ctype="private", title="Reader"):
+    cid = int(cid) if str(cid).lstrip("-").isdigit() else cid
     return types.SimpleNamespace(id=cid, type=ctype, title=title if ctype!="private" else None,
                                  first_name="Reader" if ctype=="private" else None, last_name=None)
-def msg_update(cid, text, ctype="private", uid=1):
+def msg_update(cid, text, ctype="private", uid=1, sender=7, sender_chat=None):
     return types.SimpleNamespace(update_id=uid, callback_query=None, channel_post=None,
-                                 message=types.SimpleNamespace(text=text, chat=chat(cid, ctype)))
+                                 message=types.SimpleNamespace(
+                                     text=text, chat=chat(cid, ctype),
+                                     from_user=types.SimpleNamespace(id=sender) if sender else None,
+                                     sender_chat=sender_chat))
 
 class FakeCB:
-    def __init__(self, cid, data, uid=1):
+    def __init__(self, cid, data, uid=1, ctype="private", sender=7):
         self.update_id = uid; self.data = data; self.answered = []; self.edited = []
-        self.message = types.SimpleNamespace(chat=chat(cid))
+        self.message = types.SimpleNamespace(chat=chat(cid, ctype), sender_chat=None)
+        self.from_user = types.SimpleNamespace(id=sender)
         self.order = []
     async def answer(self, text=None, show_alert=False): self.answered.append(text); self.order.append("answer")
     async def edit_message_reply_markup(self, reply_markup=None): self.edited.append(reply_markup); self.order.append("edit")
@@ -103,7 +117,8 @@ async def main():
           and store.subs["100"]["active"], store.subs["100"])
 
     # ⛔ in a group the command arrives with the bot's @mention glued on
-    await newsbot.handle_update(bot, msg_update("-500", "/start@TheEmojiNewsBot", "supergroup"))
+    bot.roles = {42: "administrator"}
+    await newsbot.handle_update(bot, msg_update("-500", "/start@TheEmojiNewsBot", "supergroup", sender=42))
     check("/start@BotName in a group is recognised", "-500" in store.subs, list(store.subs))
 
     # ── 2. the toggle buttons ─────────────────────────────────────────────
@@ -164,6 +179,57 @@ async def main():
     # ── 8. /stop ──────────────────────────────────────────────────────────
     await newsbot.handle_update(bot, msg_update("4", "/stop"))
     check("/stop deactivates", store.subs["4"]["active"] is False)
+
+    # ── 8b. ⛔ IN A GROUP, ONLY ADMINS MAY CHANGE ANYTHING ────────────────
+    store.subs.clear(); bot.sent.clear(); bot.roles = {}
+    G = "-1001234"
+    # a plain member cannot subscribe the whole group
+    await newsbot.handle_update(bot, msg_update(G, "/start", "supergroup", sender=99))
+    check("a plain member CANNOT /start a group", G not in store.subs, store.subs)
+    check("…and is told why", any("admins" in t.lower() for _, t, _ in bot.sent), bot.sent)
+
+    # an admin can
+    bot.sent.clear(); bot.roles = {42: "administrator"}
+    await newsbot.handle_update(bot, msg_update(G, "/start", "supergroup", sender=42))
+    check("an ADMIN can /start a group", G in store.subs, store.subs)
+
+    # a plain member cannot stop it
+    bot.sent.clear()
+    await newsbot.handle_update(bot, msg_update(G, "/stop", "supergroup", sender=99))
+    check("a plain member CANNOT /stop a group", store.subs[G]["active"] is True, store.subs[G])
+
+    # ⛔ the BUTTONS need the same gate — they sit in the group where anyone taps
+    cb = FakeCB(G, "t:news", ctype="supergroup", sender=99)
+    before = dict(store.subs[G]["topics"])
+    await newsbot.handle_update(bot, cb_update(cb))
+    check("a plain member CANNOT tap the toggles", store.subs[G]["topics"] == before, store.subs[G]["topics"])
+    check("…and gets an alert, not silence", any(a and "admins" in a.lower() for a in cb.answered), cb.answered)
+    cb2 = FakeCB(G, "t:news", ctype="supergroup", sender=42)
+    await newsbot.handle_update(bot, cb_update(cb2))
+    check("an ADMIN can tap the toggles", store.subs[G]["topics"] != before, store.subs[G]["topics"])
+
+    # ⛔ an anonymous admin posts AS THE GROUP — from_user is a bot, sender_chat is the group
+    bot.sent.clear(); store.subs.pop(G, None)
+    anon = types.SimpleNamespace(id=int(G))
+    await newsbot.handle_update(bot, msg_update(G, "/start", "supergroup", sender=1087968824, sender_chat=anon))
+    check("an ANONYMOUS admin is allowed", G in store.subs, store.subs)
+
+    # ⛔ if the lookup fails we must FAIL CLOSED
+    bot.sent.clear(); store.subs.pop(G, None); bot.lookup_raises = True
+    await newsbot.handle_update(bot, msg_update(G, "/start", "supergroup", sender=99))
+    check("a failed admin lookup DENIES rather than allows", G not in store.subs, store.subs)
+    bot.lookup_raises = False
+
+    # ⛔ a private chat must not pay for a member lookup on every command
+    bot.member_lookups = 0
+    await newsbot.handle_update(bot, msg_update("777", "/start"))
+    check("a private chat is not gated (and costs no lookup)",
+          "777" in store.subs and bot.member_lookups == 0, bot.member_lookups)
+
+    # /help stays open to everyone
+    bot.sent.clear()
+    await newsbot.handle_update(bot, msg_update(G, "/help", "supergroup", sender=99))
+    check("/help works for any member", any("news bot" in t.lower() for _, t, _ in bot.sent), bot.sent)
 
     # ── 9. ⭐ THE CONTROL. Every check above asserts something was suppressed.
     #        This proves the harness can still see a message get through — without

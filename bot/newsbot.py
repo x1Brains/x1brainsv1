@@ -135,6 +135,55 @@ HELP = (
 
 
 # ═══════════════════════════════════════════════════════════════
+# WHO IS ALLOWED TO CHANGE THINGS
+# ═══════════════════════════════════════════════════════════════
+GROUP_TYPES = ("group", "supergroup", "channel")
+
+
+async def may_control(bot: Bot, chat: Any, user_id: Optional[int], sender_chat: Any) -> bool:
+    """Can this sender change THIS chat's subscription?
+
+    ⛔⛔ IN A GROUP, EVERY COMMAND WAS OPEN TO EVERY MEMBER. Any one of a few
+    hundred people could send /stop and unsubscribe the whole group, or open
+    /settings and switch the desk's sections off — and nobody would find out,
+    because the symptom is silence. A bot that stops posting looks broken, not
+    sabotaged, so the first thing anyone would do is blame the bot.
+
+    ⭐ In a group, only administrators and the owner may change anything.
+
+    ⛔ A PRIVATE CHAT IS NOT GATED. `get_chat_member` on a one-to-one chat is a
+    pointless round trip to ask whether somebody is allowed to manage their own
+    subscription, and it costs a Telegram call on every command.
+    """
+    if chat.type not in GROUP_TYPES:
+        return True
+
+    # ⛔ AN ANONYMOUS ADMIN POSTS AS THE GROUP ITSELF. `from_user` is then
+    #    Telegram's GroupAnonymousBot, and get_chat_member on it returns nothing
+    #    useful — so an admin who has anonymous mode on would be refused by
+    #    their own bot. `sender_chat` matching the chat IS the proof of admin.
+    if sender_chat is not None and getattr(sender_chat, "id", None) == chat.id:
+        return True
+
+    # A channel post has no sender at all, and only admins can post in a channel.
+    if user_id is None:
+        return True
+
+    try:
+        m = await bot.get_chat_member(chat.id, user_id)
+        return m.status in ("administrator", "creator")
+    except TelegramError as e:
+        # ⛔ FAIL CLOSED. If we cannot establish that somebody is an admin, they
+        #    are not one — the alternative is that a lookup failure silently
+        #    hands control of the group to anyone who typed the command.
+        log.warning(f"admin check failed for {user_id} in {chat.id}: {e}")
+        return False
+
+
+DENIED = "Only the group's admins can change this. /help works for everyone."
+
+
+# ═══════════════════════════════════════════════════════════════
 # INCOMING — commands and toggle taps
 # ═══════════════════════════════════════════════════════════════
 async def handle_update(bot: Bot, upd: Any) -> None:
@@ -153,6 +202,19 @@ async def handle_update(bot: Bot, upd: Any) -> None:
     #    being dead in exactly the place it is most visible.
     cmd = (msg.text or "").strip().split()[0].split("@")[0].lower()
     title = chat.title or " ".join(filter(None, [chat.first_name, chat.last_name])) or chat_id
+
+    #  ⛔ /help IS THE ONLY ONE ANYONE MAY RUN. It changes nothing, and a member
+    #  who cannot work out what the bot is for is exactly who needs it. Every
+    #  other command alters what the whole group receives — including /start,
+    #  because subscribing a group signs up everybody in it.
+    if cmd != "/help":
+        who = getattr(msg, "from_user", None)
+        allowed = await may_control(bot, chat, getattr(who, "id", None),
+                                    getattr(msg, "sender_chat", None))
+        if not allowed:
+            log.info(f"   refused {cmd} from {getattr(who, 'id', '?')} in {chat_id}")
+            await bot.send_message(chat_id, DENIED)
+            return
 
     if cmd in ("/start", "/subscribe"):
         sub = newsstore.subscribe(chat_id, chat.type, title)
@@ -179,8 +241,19 @@ async def handle_update(bot: Bot, upd: Any) -> None:
 
 
 async def handle_callback(bot: Bot, cb: Any) -> None:
-    chat_id = str(cb.message.chat.id)
+    chat = cb.message.chat
+    chat_id = str(chat.id)
     data = cb.data or ""
+
+    #  ⛔⛔ THE BUTTONS NEED THE SAME GATE AS THE COMMANDS, and this is the half
+    #  that is easy to miss. The keyboard is posted into the group where
+    #  EVERYONE can see it and EVERYONE can tap it — gating /settings while
+    #  leaving its buttons open would be a lock on the door of an open room.
+    if not await may_control(bot, chat, getattr(cb.from_user, "id", None),
+                             getattr(cb.message, "sender_chat", None)):
+        await cb.answer(DENIED, show_alert=True)
+        return
+
     sub = newsstore.get_sub(chat_id)
     if not sub:
         await cb.answer("Send /start first.", show_alert=True)

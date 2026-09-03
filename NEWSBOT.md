@@ -11,6 +11,8 @@ A second Telegram bot, in the **same Fly machine** and the **same Supabase proje
 
 Anyone can add it. Each subscriber picks which sections they want.
 
+**In a group, only administrators can change anything.** `/start`, `/stop`, `/settings` and the toggle buttons are all admin-only there, because each of them changes what everybody in the group receives — and the symptom of a member switching it off is silence, which reads as the bot being broken rather than as somebody having turned it off. `/help` stays open to everyone. A private chat is not gated: the only person who can change your subscription is you.
+
 ---
 
 ## Why it is one machine and two handles
