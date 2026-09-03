@@ -802,3 +802,69 @@ export async function botGetBannerUrl(token: 'BRAINS' | 'LB'): Promise<string | 
   const r = await adminFetch('bot_get_banner_url', { token });
   return r.success ? (r.data?.url ?? null) : null;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  THE EMOJI NEWS NOTIFIER
+// ═══════════════════════════════════════════════════════════════════════════
+// The second bot in the same Fly machine and the same database — see the header
+// in bot/newsbot.py. Opposite shape to the buy bot: that one broadcasts chain
+// events to ONE configured group, this one fans desk posts out to MANY chats
+// that subscribed themselves.
+//
+// ⛔ Same rule as above: the Telegram token goes UP but never comes back down.
+// `NewsConnection` carries a masked preview and a boolean, never the token.
+
+export interface NewsConnection {
+  has_token: boolean;
+  token_masked: string;
+  bot_username: string;
+  enabled: boolean;
+  updated_at: string | null;
+}
+
+export interface NewsSettings {
+  announce_articles: boolean;
+  announce_projects: boolean;
+  announce_builders: boolean;
+  site_url: string;
+  poll_seconds: number;
+}
+
+/** Counts only. ⛔ The subscriber ROWS are the chat ids of everyone reading the
+ *  paper; the admin panel is given the shape of the list, never the list. */
+export interface NewsStats {
+  active: number; total: number; groups: number;
+  news: number; projects: number; builders: number;
+  announced: number;
+}
+
+export async function newsGetConnection(): Promise<NewsConnection | null> {
+  const r = await adminFetch('news_get_connection');
+  return r.success ? (r.data as NewsConnection) : null;
+}
+
+export async function newsSaveToken(token: string) {
+  return adminFetch('news_save_token', { token });
+}
+
+export async function newsSetEnabled(enabled: boolean) {
+  return adminFetch('news_set_enabled', { enabled });
+}
+
+export async function newsGetSettings(): Promise<NewsSettings | null> {
+  const r = await adminFetch('news_get_settings');
+  return r.success ? (r.data as NewsSettings) : null;
+}
+
+export async function newsSaveSettings(updates: Partial<NewsSettings>) {
+  return adminFetch('news_save_settings', { config: updates });
+}
+
+export async function newsStats(): Promise<NewsStats | null> {
+  const r = await adminFetch('news_stats');
+  return r.success ? (r.data as NewsStats) : null;
+}
+
+export async function newsBroadcastTest(chat_id: string) {
+  return adminFetch('news_broadcast_test', { chat_id });
+}

@@ -7,7 +7,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source
-COPY config.py x1_rpc.py prices.py events.py messages.py storage.py bot.py ./
+COPY config.py x1_rpc.py prices.py events.py messages.py storage.py \
+     newsstore.py newsbot.py bot.py ./
 
 # Bot has no inbound HTTP — pure poller
 CMD ["python", "bot.py"]

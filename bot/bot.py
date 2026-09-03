@@ -22,6 +22,7 @@ from telegram.constants import ParseMode
 import config
 import events as event_mod
 import messages
+import newsbot
 import prices
 import storage
 from x1_rpc import RPC
@@ -294,5 +295,42 @@ async def main_loop():
         await asyncio.sleep(config.POLL_INTERVAL)
 
 
+async def supervised(name: str, coro_fn):
+    """Restart a loop that dies instead of losing it silently.
+
+    ⛔⛔ `asyncio.gather` PROPAGATES THE FIRST EXCEPTION AND LEAVES THE OTHER
+    TASK RUNNING UNSUPERVISED. Without this wrapper, an unhandled error in the
+    news notifier would take down `asyncio.run` while the chain poller kept
+    going in a half-dead process — Fly would see a live machine, `flyctl status`
+    would say running, and the only symptom would be that one of the two bots
+    had quietly stopped. Both loops already catch inside themselves; this is the
+    layer for what they cannot catch.
+    """
+    while True:
+        try:
+            await coro_fn()
+            log.error(f"{name} returned unexpectedly — restarting in 15s")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.error(f"{name} crashed: {e} — restarting in 15s", exc_info=True)
+        await asyncio.sleep(15)
+
+
+async def run_all():
+    """Two bots, one machine.
+
+    ⭐ Both are pure pollers with no inbound HTTP, so they share an event loop
+    happily: the chain poller spends its time in RPC calls and the news bot
+    spends its in a held `getUpdates` connection. Neither blocks the other, and
+    the alternative — a second Fly app — is a second deploy, a second log stream
+    and a second thing to notice has died.
+    """
+    await asyncio.gather(
+        supervised("chain bot", main_loop),
+        supervised("news notifier", newsbot.run),
+    )
+
+
 if __name__ == "__main__":
-    asyncio.run(main_loop())
+    asyncio.run(run_all())

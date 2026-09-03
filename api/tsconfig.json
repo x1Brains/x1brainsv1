@@ -1,0 +1,30 @@
+{
+  /*  ⛔⛔ NOTHING WAS TYPECHECKING api/ AT ALL. The root config is a project
+   *  reference pair — `tsconfig.app.json` includes only `src`, `tsconfig.node
+   *  .json` only `vite.config.ts` — and `npm run build` is a bare `vite build`,
+   *  which never runs tsc. So `tsc --noEmit` printed nothing while the
+   *  serverless functions, including the service-key admin bridge, were checked
+   *  by nobody. The identical hole in the lol repo was hiding seven real errors
+   *  on every deploy.
+   *
+   *  ⛔ THE FUNCTIONS RUN ON NODE, THE PAGE RUNS IN A BROWSER. That is why this
+   *  is a separate config rather than widening the app's include: `process` and
+   *  `Buffer` are real here and must stay unavailable in src/, where they would
+   *  be a runtime crash rather than a type error.
+   *
+   *  Run: npx tsc -p api --noEmit
+   */
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "noEmit": true
+  },
+  "include": ["."]
+}

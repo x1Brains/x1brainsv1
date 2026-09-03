@@ -41,6 +41,19 @@ const BOT_ACTIONS = new Set([
   'bot_upload_banner',
   'bot_get_banner_url',
   'bot_health',
+  // ── THE EMOJI news notifier ──────────────────────────────────────────────
+  // A second bot in the same Fly machine and the same database, but the
+  // opposite shape: the buy bot broadcasts chain events to ONE configured
+  // group; this one fans desk posts out to MANY chats that subscribed
+  // themselves. Its tables are the `news_*` set (SUPABASE_NEWSBOT.sql) and it
+  // has its own Telegram identity — see the note in bot/newsbot.py.
+  'news_get_connection',
+  'news_save_token',
+  'news_set_enabled',
+  'news_get_settings',
+  'news_save_settings',
+  'news_stats',
+  'news_broadcast_test',
 ]);
 
 // Defense-in-depth: re-verify the signing wallet inside bot-actions, even
@@ -83,6 +96,13 @@ export async function handleBotAction(
       case 'bot_upload_banner':      return await uploadBanner(payload?.token, payload?.dataUrl, payload?.filename);
       case 'bot_get_banner_url':     return await getBannerUrl(payload?.token);
       case 'bot_health':             return { success: true, data: { ok: true } };
+      case 'news_get_connection':    return await newsGetConnection();
+      case 'news_save_token':        return await newsSaveToken(payload?.token);
+      case 'news_set_enabled':       return await newsSetEnabled(payload?.enabled);
+      case 'news_get_settings':      return await newsGetSettings();
+      case 'news_save_settings':     return await newsSaveSettings(payload);
+      case 'news_stats':             return await newsStats();
+      case 'news_broadcast_test':    return await newsBroadcastTest(payload?.chat_id);
       default:                       return { success: false, error: `unknown bot action: ${action}` };
     }
   } catch (e: any) {
@@ -381,4 +401,166 @@ function b58encode(bytes: Uint8Array): string {
     out = B58_ALPHABET[rem] + out;
   }
   return '1'.repeat(zeros) + out;
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+//  THE EMOJI NEWS NOTIFIER
+// ══════════════════════════════════════════════════════════════════════════
+
+/** ⛔ THE TOKEN IS MASKED ON THE WAY OUT, exactly as the buy bot's is. Once it
+ *  has been saved there is no reason any browser ever sees it again — an admin
+ *  needs to know a token is set and which bot it belongs to, not what it is.
+ *  Same reason the buy bot returns `8295xx…kAL4`. */
+async function newsGetConnection(): Promise<ActionResult> {
+  const { data, error } = await sb.from('news_bot_connection').select('*').eq('id', 'main').single();
+  if (error) return { success: false, error: error.message };
+  const t = data?.telegram_token || '';
+  return {
+    success: true,
+    data: {
+      has_token: !!t,
+      token_masked: t ? (t.length > 14 ? `${t.slice(0, 6)}…${t.slice(-4)}` : '••••••••') : '',
+      bot_username: data?.bot_username || '',
+      enabled: !!data?.enabled,
+      updated_at: data?.updated_at || null,
+    },
+  };
+}
+
+/*  ⛔⛔ VERIFIED WITH getMe BEFORE IT IS STORED, and the username is captured in
+ *  the same call. A token that Telegram rejects must never reach the database:
+ *  the Fly worker reads this row, builds a Bot with whatever is in it, and a
+ *  bad token there makes the loop throw once every cycle forever with nothing
+ *  in the admin UI to suggest why. Fail here, where somebody is looking. */
+async function newsSaveToken(token?: string): Promise<ActionResult> {
+  const t = (token || '').trim();
+  if (!t || !t.includes(':')) return { success: false, error: 'invalid token format' };
+
+  const verify = await tgCall(t, 'getMe');
+  if (!verify.ok) return { success: false, error: verify.error || 'Telegram rejected token' };
+
+  /* ⛔ AND IT MUST NOT BE THE BUY BOT'S TOKEN. Telegram hands each update to
+     whoever calls getUpdates first, so two processes long-polling one token
+     would steal each other's commands at random — subscribers would see /start
+     work about half the time. Cheap to check, impossible to diagnose later. */
+  const { data: buybot } = await sb.from('bot_connection').select('telegram_token').eq('id', 'main').single();
+  if (buybot?.telegram_token && buybot.telegram_token === t) {
+    return { success: false, error: 'that is the buy bot\'s token — the news bot needs its own @handle from BotFather' };
+  }
+
+  const username = verify.result?.username || '';
+  const { error } = await sb.from('news_bot_connection')
+    .update({ telegram_token: t, bot_username: username, updated_at: new Date().toISOString() })
+    .eq('id', 'main');
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: { bot: verify.result } };
+}
+
+async function newsSetEnabled(enabled?: boolean): Promise<ActionResult> {
+  const { data: row } = await sb.from('news_bot_connection').select('telegram_token').eq('id', 'main').single();
+  if (enabled && !row?.telegram_token) {
+    return { success: false, error: 'save a Telegram token first' };
+  }
+  const { error } = await sb.from('news_bot_connection')
+    .update({ enabled: !!enabled, updated_at: new Date().toISOString() })
+    .eq('id', 'main');
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: { enabled: !!enabled } };
+}
+
+async function newsGetSettings(): Promise<ActionResult> {
+  const { data, error } = await sb.from('news_state').select('config').eq('id', 'main').single();
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: data?.config ?? {} };
+}
+
+/** ⛔ AN ALLOW-LIST, NOT A MERGE OF WHATEVER ARRIVED. `config` is a jsonb blob,
+ *  so an unfiltered spread lets a typo'd key accumulate silently and a hostile
+ *  one write anything at all into the row the Fly worker trusts. Same rule the
+ *  buy bot's saveSettings follows. */
+const NEWS_KEYS = new Set([
+  'announce_articles', 'announce_projects', 'announce_builders',
+  'site_url', 'poll_seconds',
+]);
+
+async function newsSaveSettings(payload: any): Promise<ActionResult> {
+  const incoming = payload?.config ?? payload ?? {};
+  const { data: cur, error: readErr } = await sb.from('news_state').select('config').eq('id', 'main').single();
+  if (readErr) return { success: false, error: readErr.message };
+
+  const next: Record<string, any> = { ...(cur?.config ?? {}) };
+  for (const [k, v] of Object.entries(incoming)) {
+    if (!NEWS_KEYS.has(k)) continue;
+    if (k === 'site_url') {
+      const u = String(v || '').trim().replace(/\/+$/, '');
+      /* ⛔ The links in every announcement are built from this. A value that is
+         not an https origin would send every subscriber a dead link, and the
+         first anyone would know is a reader saying the bot is broken. */
+      if (!/^https:\/\/[a-z0-9.-]+$/i.test(u)) return { success: false, error: 'site_url must be an https origin' };
+      next[k] = u;
+    } else if (k === 'poll_seconds') {
+      /* ⛔ Floored at 30s. This project has already had its Supabase egress
+         quota burned once by a loop that re-read config every 5 seconds; the
+         desk publishes a few times a day and nothing here needs to be fast. */
+      const n = Math.max(30, Math.min(3600, Number(v) || 90));
+      next[k] = n;
+    } else {
+      next[k] = !!v;
+    }
+  }
+
+  const { error } = await sb.from('news_state')
+    .update({ config: next, updated_at: new Date().toISOString() })
+    .eq('id', 'main');
+  if (error) return { success: false, error: error.message };
+  return { success: true, data: next };
+}
+
+/** Subscriber counts and the topic split — the only view an admin gets of the
+ *  list. ⛔ Counts, never rows: a subscriber list is the chat ids of everyone
+ *  reading the paper, and the admin panel has no reason to hold them. */
+async function newsStats(): Promise<ActionResult> {
+  const { data, error } = await sb.from('news_subs').select('active, topics, chat_type');
+  if (error) return { success: false, error: error.message };
+  const rows = data ?? [];
+  const active = rows.filter(r => r.active);
+  const topic = (k: string) => active.filter(r => (r.topics ?? {})[k] !== false).length;
+  const { count: seen } = await sb.from('news_seen').select('*', { count: 'exact', head: true });
+  return {
+    success: true,
+    data: {
+      active: active.length,
+      total: rows.length,
+      groups: active.filter(r => r.chat_type && r.chat_type !== 'private').length,
+      news: topic('news'),
+      projects: topic('projects'),
+      builders: topic('builders'),
+      announced: seen ?? 0,
+    },
+  };
+}
+
+/** Sends one message to a single chat, to prove the wiring end to end.
+ *  ⛔ Takes an explicit chat_id and does NOT touch the subscriber list — an
+ *  admin testing the bot must not be able to spray a test message at everyone
+ *  who signed up. */
+async function newsBroadcastTest(chatId?: string): Promise<ActionResult> {
+  const cid = String(chatId || '').trim();
+  if (!cid) return { success: false, error: 'chat_id required — message the bot, then paste your chat id' };
+
+  const { data, error } = await sb.from('news_bot_connection').select('telegram_token').eq('id', 'main').single();
+  if (error) return { success: false, error: error.message };
+  if (!data?.telegram_token) return { success: false, error: 'no token saved' };
+
+  const { data: st } = await sb.from('news_state').select('config').eq('id', 'main').single();
+  const site = (st?.config?.site_url || 'https://www.theemoji.lol').replace(/\/+$/, '');
+
+  const send = await tgCall(data.telegram_token, 'sendMessage', {
+    chat_id: cid,
+    text: `📰 <b>THE EMOJI</b> · TEST\n\n<b>Wiring verified from the admin panel.</b>\nThis is what a story looks like when the desk files one.\n\n${site}`,
+    parse_mode: 'HTML',
+  });
+  if (!send.ok) return { success: false, error: send.error || 'send failed' };
+  return { success: true, data: { sent: true } };
 }

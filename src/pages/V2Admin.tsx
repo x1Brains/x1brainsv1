@@ -11,6 +11,7 @@ import {
 import { shortAddr } from '../utils/v2format';
 import V2AnalyticsPanel from '../components/V2AnalyticsPanel';
 import V2BotPanel from '../components/V2BotPanel';
+import V2NewsBotPanel from '../components/V2NewsBotPanel';
 
 const ACCENT = '#f29030';
 const MUTED  = '#5c7a90';
@@ -387,6 +388,10 @@ export default function V2Admin() {
 
         {/* Buy bot */}
         <V2BotPanel />
+
+        {/* THE EMOJI news notifier — same machine, different shape: many
+            subscribers rather than one broadcast group. */}
+        <V2NewsBotPanel />
 
         {/* Spotlight carousel images */}
         <SpotlightPanel />
