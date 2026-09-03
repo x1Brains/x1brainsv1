@@ -43,6 +43,7 @@ export default function V2NewsBotPanel() {
   const [status,   setStatus]   = useState<Status>(null);
   const [tokenInput, setTokenInput] = useState('');
   const [testChat,   setTestChat]   = useState('');
+  const [siteInput,  setSiteInput]  = useState('');
 
   const flash = useCallback((type: 'ok' | 'err' | 'info', text: string) => {
     setStatus({ type, text });
@@ -88,6 +89,22 @@ export default function V2NewsBotPanel() {
     const r = await newsSaveSettings({ [key]: v } as Partial<NewsSettings>);
     if (!r.success) flash('err', r.error ?? 'save failed');
     else { setSettings(s => (s ? { ...s, [key]: v } : s)); flash('ok', 'Saved'); }
+    setBusy(false);
+  };
+
+  /*  ⛔ THE DOMAIN IS EDITABLE HERE BECAUSE IT IS AN EDITORIAL DECISION, not a
+   *  constant. The site answers on x1emoji.com and theemoji.lol; owner
+   *  2026-09-03: *"theemoji.lol is just for backup or memeable posts — for the
+   *  bot use x1emoji.com."* Every announcement's link is built from this value,
+   *  so it had to be reachable without a SQL editor. The API validates it is an
+   *  https origin: a bad value here sends every subscriber a dead link. */
+  const saveSite = async () => {
+    const v = siteInput.trim();
+    if (!v) return;
+    setBusy(true);
+    const r = await newsSaveSettings({ site_url: v });
+    if (!r.success) flash('err', r.error ?? 'save failed');
+    else { flash('ok', 'Links now point at ' + v); setSiteInput(''); await loadAll(); }
     setBusy(false);
   };
 
@@ -217,6 +234,22 @@ export default function V2NewsBotPanel() {
             LINKS POINT AT {settings.site_url} · POLLS EVERY {settings.poll_seconds ?? 90}s
           </div>
         )}
+      </Section>
+
+      <Section title="LINK DOMAIN">
+        <div style={{ ...mono, fontSize: 7, color: DIM, letterSpacing: 1, marginBottom: 8 }}>
+          Every announcement's link is built from this. Must be an https origin, no
+          trailing path. Both domains serve the same site and the same preview cards.
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <input
+            value={siteInput}
+            onChange={e => setSiteInput(e.target.value)}
+            placeholder={settings?.site_url || 'https://www.x1emoji.com'}
+            style={inputStyle}
+          />
+          <Btn onClick={saveSite} disabled={busy || !siteInput.trim()}>SAVE DOMAIN</Btn>
+        </div>
       </Section>
     </div>
   );
