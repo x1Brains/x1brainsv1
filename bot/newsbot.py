@@ -201,6 +201,24 @@ async def handle_update(bot: Bot, upd: Any) -> None:
     #    every command in a group is unrecognised, which looks like the bot
     #    being dead in exactly the place it is most visible.
     cmd = (msg.text or "").strip().split()[0].split("@")[0].lower()
+
+    #  ⛔⛔ A SENTENCE IS NOT A COMMAND. `cmd` is just the first word of whatever
+    #  was typed, so "Yooo brains" arrives here as `yooo` — which is not /help,
+    #  which meant the admin gate below fired and the bot answered "Only the
+    #  group's admins can change this" to EVERY message from every non-admin.
+    #  2026-09-03 it did that to a member roughly once a minute in a live group
+    #  while two people tried to talk over it. It read as the bot heckling
+    #  somebody, which is about the worst thing a desk's bot can do.
+    #
+    #  ⛔ AND SILENCE IS THE DEFAULT IN A GROUP. Not just non-commands: an
+    #  unknown /command belongs to some other bot in the room, and answering it
+    #  is the same failure with a slash in front. The bot speaks when spoken to
+    #  BY NAME, and otherwise says nothing.
+    KNOWN = ("/start", "/subscribe", "/settings", "/topics",
+             "/stop", "/unsubscribe", "/help")
+    if cmd not in KNOWN:
+        return
+
     title = chat.title or " ".join(filter(None, [chat.first_name, chat.last_name])) or chat_id
 
     #  ⛔ /help IS THE ONLY ONE ANYONE MAY RUN. It changes nothing, and a member
