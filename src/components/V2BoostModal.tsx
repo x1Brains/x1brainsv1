@@ -46,24 +46,52 @@ export interface BoostRecord {
   created_at?:    string;
 }
 
+// Priority of a tier, derived from BOOST_TIERS so it cannot drift from the
+// prices: the table is ordered cheapest -> dearest, so a later index outranks
+// an earlier one. incinerator 3 > godslayer 2 > spark 1.
+const TIER_RANK: Record<BoostTierId, number> =
+  Object.fromEntries(BOOST_TIERS.map((t, i) => [t.id, i + 1])) as Record<BoostTierId, number>;
+
+// How many active rows to read before ranking. Wider than BOOST_SLOTS on
+// purpose — see below; you cannot pick the top 8 by tier with a LIMIT 8 that
+// was ordered wrong. Also lets the modal's slot gate notice if more than
+// BOOST_SLOTS somehow went active (a manual SQL insert, a race).
+const BOOST_FETCH_CAP = BOOST_SLOTS * 8;
+
 export async function loadActiveBoosts(): Promise<BoostRecord[]> {
   if (!supabase) {
     console.warn('[boosts] supabase client not configured');
     return [];
   }
   try {
+    // ⛔ THIS USED TO BE `.order('tier', { ascending: false }).limit(BOOST_SLOTS)`.
+    // `tier` is a plain TEXT column (SUPABASE_SCHEMA_BOOSTS.sql), so Postgres
+    // sorted it ALPHABETICALLY: descending text is spark > incinerator >
+    // godslayer. A 200-BRAINS 24h SPARK therefore outranked an 888-BRAINS 7-day
+    // INCINERATOR in the landing carousel — the exact opposite of the order the
+    // page itself advertises — and with the slots full it was the cheap tier
+    // that survived the LIMIT. Paid placement has to resolve by what was paid.
+    //
+    // Fixed in the client rather than the query because the fix in SQL needs a
+    // numeric rank column and a migration; ranking here needs neither, and the
+    // active set is tiny (12 boosts in the table's whole history).
     const { data, error } = await supabase
       .from('labwork_boosts')
       .select('*')
       .gt('expires_at', new Date().toISOString())
-      .order('tier',       { ascending: false })
       .order('created_at', { ascending: true })
-      .limit(BOOST_SLOTS);
+      .limit(BOOST_FETCH_CAP);
     if (error) {
       console.warn('[boosts] loadActiveBoosts failed:', error.message);
       return [];
     }
-    return (data ?? []) as BoostRecord[];
+    const rows = (data ?? []) as BoostRecord[];
+    // Dearest tier first; within a tier, whoever paid first sits higher.
+    // `created_at` already ascends from the query, so the sort only has to be
+    // stable to keep that — Array.prototype.sort is stable (ES2019+).
+    return rows
+      .sort((a, b) => (TIER_RANK[b.tier] ?? 0) - (TIER_RANK[a.tier] ?? 0))
+      .slice(0, BOOST_SLOTS);
   } catch (e) {
     console.warn('[boosts] loadActiveBoosts threw:', e);
     return [];
