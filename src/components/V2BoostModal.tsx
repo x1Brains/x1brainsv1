@@ -297,14 +297,13 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
         setStatus(`⚠️ Burn confirmed, but boost record FAILED: ${boostRes.error}. ${amountLabel} were burned but the listing won't appear in the spotlight. Contact admin.`);
         return;
       }
-      if (!ptsRes.ok) {
-        // Points failure is non-fatal for the showcase — show a softer warning.
-        setStatus(`✅ Boost active · ${amountLabel} burned · ${selected.days}d featured. (Labwork points record failed: ${ptsRes.error})`);
-        setTimeout(() => { onDone(); onClose(); }, 4000);
-        return;
-      }
+      // The labwork_points row is a retired ledger — nothing reads it any more.
+      // It is still written so a retry cannot double-credit if it is ever revived
+      // (tx_sig is UNIQUE there), but a failure is not worth telling the citizen
+      // about: the boost they paid for is live either way.
+      if (!ptsRes.ok) console.warn('[boosts] labwork_points write failed:', ptsRes.error);
 
-      setStatus(`✅ Boost active · ${amountLabel} burned · +${labworkPts.toLocaleString()} labwork pts · ${selected.days}d featured`);
+      setStatus(`✅ Boost active · ${amountLabel} burned · ${selected.days}d featured`);
       setTimeout(() => { onDone(); onClose(); }, 2200);
     } catch (e: any) {
       setStatus(`❌ ${e?.message?.slice(0, 140) ?? 'Boost failed'}`);
@@ -361,7 +360,7 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
             {slotsLoading
               ? 'Checking available slots…'
               : slotsAvail
-                ? `Burn BRAINS · earn 1.888 pts/BRAINS · ${BOOST_SLOTS - slotsUsed!} slot${BOOST_SLOTS - slotsUsed! !== 1 ? 's' : ''} available`
+                ? `Burn to feature this listing · ${BOOST_SLOTS - slotsUsed!} slot${BOOST_SLOTS - slotsUsed! !== 1 ? 's' : ''} available`
                 : `⚠️ All ${BOOST_SLOTS} featured slots are full — wait for an active boost to expire`}
           </div>
         </div>
@@ -432,7 +431,6 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
           {BOOST_TIERS.map(t => {
             const active = tier === t.id;
             const afford = bal !== null && bal >= (isLb ? t.lb : t.brains);
-            const pts    = Math.round(t.brains * 1.888);
             return (
               <button
                 key={t.id} type="button"
@@ -460,9 +458,6 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
                 <div style={{ textAlign: 'right' as const, flexShrink: 0 }}>
                   <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 11, fontWeight: 700, color: ACCENT }}>
                     {isLb ? `${t.lb} LB` : `${t.brains.toLocaleString()} BRAINS`}
-                  </div>
-                  <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 8, color: DIM, letterSpacing: 1, marginTop: 1 }}>
-                    +{pts.toLocaleString()} PTS
                   </div>
                 </div>
               </button>
