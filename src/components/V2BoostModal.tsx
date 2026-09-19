@@ -28,9 +28,9 @@ export const BOOST_SLOTS = 8;
 export type BoostCurrency = 'BRAINS' | 'LB';
 
 export const BOOST_TIERS: readonly { id: BoostTierId; label: string; brains: number; lb: number; days: number; desc: string }[] = [
-  { id: 'spark',       label: '⚡ SPARK',       brains: 200, lb: 0.05, days: 1, desc: '24 hours spotlight' },
-  { id: 'godslayer',   label: '⚔️ GODSLAYER',  brains: 444, lb: 1,    days: 3, desc: '3 days of dominance' },
-  { id: 'incinerator', label: '🔥 INCINERATOR', brains: 888, lb: 1.11, days: 7, desc: '7 days, maximum burn' },
+  { id: 'spark',       label: '⚡ SPARK',       brains:  8, lb: 0.1,  days: 1, desc: '24 hours spotlight' },
+  { id: 'godslayer',   label: '⚔️ GODSLAYER',  brains: 16, lb: 0.25, days: 3, desc: '3 days of dominance' },
+  { id: 'incinerator', label: '🔥 INCINERATOR', brains: 24, lb: 0.5,  days: 7, desc: '7 days, maximum burn' },
 ] as const;
 
 export interface BoostRecord {
