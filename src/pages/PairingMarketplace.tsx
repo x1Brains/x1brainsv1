@@ -378,6 +378,49 @@ async function rpcCall(method: string, params: any[], maxRetries = 3): Promise<a
   throw lastErr ?? new Error('rpcCall failed after retries');
 }
 
+// ─── Authoritative mint decimals ────────────────────────────────────────────
+// Ground truth, read straight off the mint account. This exists SEPARATELY from
+// fetchTokenMeta because that helper falls back through xDEX and a hardcoded
+// table, both of which end in `?? 9` — a guess. A guessed decimal is worse than
+// no answer: it silently rescales every raw-amount conversion in the swap.
+//
+// ⛔ The swap had exactly that hole. Picker rows are built from xDEX `pool/list`,
+// which carries no decimals, so every one defaulted to 9; decimals were only
+// corrected for mints the wallet HOLDS (the wallet scan) or for DEEP-LINKED
+// mints. Picking a token you do not hold — which is the whole point of the
+// picker — left it at 9. Measured against the live TSLA.X/WXNT pool that
+// understated the receive amount by 10x, and in exact-out mode quoted 148 XNT
+// for a 0.01 TSLA.X buy that really costs 13. 23 of the 75 tokens in the picker
+// feed are not 9 decimals (USDC.X is 6, LB is 2).
+//
+// Returns null rather than a fallback when the read fails, so a caller can tell
+// "could not resolve" from "resolved, and it is 9".
+const _decCache = new Map<string, number>();
+const _decInflight = new Map<string, Promise<number | null>>();
+
+async function fetchMintDecimals(mint: string): Promise<number | null> {
+  const hit = _decCache.get(mint);
+  if (hit !== undefined) return hit;
+  const flight = _decInflight.get(mint);
+  if (flight) return flight;
+
+  const job = (async (): Promise<number | null> => {
+    try {
+      const res = await rpcCall('getAccountInfo', [mint, { encoding: 'jsonParsed' }]);
+      const d = (res?.value?.data as any)?.parsed?.info?.decimals;
+      if (typeof d !== 'number') return null;
+      _decCache.set(mint, d);
+      return d;
+    } catch {
+      return null;
+    } finally {
+      _decInflight.delete(mint);
+    }
+  })();
+  _decInflight.set(mint, job);
+  return job;
+}
+
 // ─── Token metadata cache: in-memory + localStorage (7-day TTL) ─────────────
 // Symbols/decimals/logos for a mint never change in practice, so caching them
 // across page loads is essential. Without this, every refresh re-runs the
@@ -3098,23 +3141,54 @@ export const SwapTab: FC<{
     }).catch(() => {});
   }, [initialFromMint, initialToMint]);
 
-  // Deep-link DECIMALS correction. makeShim guesses unknown decimals as 9, but
-  // LB is 2 and arbitrary pool tokens vary — wrong decimals corrupt amount math
-  // and quotes. Resolve authoritative decimals for any deep-linked mint via
-  // fetchTokenMeta (LB hardcoded; others read on-chain) and patch the selected
-  // side. Only fills symbol/logo when missing so we don't clobber the link's.
+  // DECIMALS correction, for whichever mints are selected RIGHT NOW.
+  //
+  // ⛔ This used to key off [initialFromMint, initialToMint] — deep links only.
+  // Three things set a side's decimals and they did not cover each other:
+  //   1. the wallet scan (`reconcile`), authoritative but ONLY for mints held
+  //   2. this effect, authoritative but ONLY for deep links
+  //   3. the picker, which builds rows from xDEX `pool/list` — no decimals in
+  //      that feed, so every row is `?? 9`, and onSelect copies HARDCODED_META's
+  //      symbol and logo but NOT its decimals
+  // The picker deliberately excludes mints you already hold, so path 3 is
+  // exactly "a token I do not own yet" — the whole reason to open the picker.
+  // Keying on the live mints closes it for the picker, deep links and the
+  // swap-sides button at once.
+  //
+  // Decimals come from `fetchMintDecimals` (the mint account) and NOT from
+  // fetchTokenMeta, whose xDEX and hardcoded layers both end in `?? 9`. A
+  // guessed 9 written over a correct 8 is the bug this effect exists to fix.
+  // A failed read leaves the current value alone rather than guessing.
   useEffect(() => {
     let alive = true;
     const fix = async (mint: string | undefined, setter: typeof setTokenIn) => {
       if (!mint) return;
+      const dec = await fetchMintDecimals(mint);
+      if (!alive || dec === null) return;
+      setter(prev => (prev.mint === mint && prev.decimals !== dec)
+        ? { ...prev, decimals: dec }
+        : prev);
+    };
+    fix(tokenIn?.mint,  setTokenIn);
+    fix(tokenOut?.mint, setTokenOut);
+    return () => { alive = false; };
+  }, [tokenIn?.mint, tokenOut?.mint]);
+
+  // Symbol/logo backfill for deep-linked mints. Kept separate from decimals on
+  // purpose: fetchTokenMeta is the right source for a label and the wrong one
+  // for arithmetic. Only fills what is missing so a link's own label wins.
+  useEffect(() => {
+    let alive = true;
+    const fill = async (mint: string | undefined, setter: typeof setTokenIn) => {
+      if (!mint) return;
       const meta = await fetchTokenMeta(mint).catch(() => null);
       if (!alive || !meta) return;
       setter(prev => prev.mint === mint
-        ? { ...prev, decimals: meta.decimals, symbol: prev.symbol || meta.symbol, logo: prev.logo || meta.logo }
+        ? { ...prev, symbol: prev.symbol || meta.symbol, logo: prev.logo || meta.logo }
         : prev);
     };
-    fix(initialFromMint, setTokenIn);
-    fix(initialToMint, setTokenOut);
+    fill(initialFromMint, setTokenIn);
+    fill(initialToMint, setTokenOut);
     return () => { alive = false; };
   }, [initialFromMint, initialToMint]);
 
