@@ -5,6 +5,10 @@ Living doc. Anything load-bearing about the project belongs here so it isn't los
 > **Read the newest session logs first — they supersede §0/§12/§13 statuses, which were
 > written pre-launch and are stale.**
 >
+> - **[§19 — 2026-09-18](#19-session-log--2026-09-18--tokenised-stocks-swap-decimals-boost-nft-art)**
+>   tokenised US stocks land on X1, and the two bugs they exposed. **§19.2 is mandatory
+>   before touching anything that converts a UI amount to raw units** — 23 of the 75
+>   tokens in the swap picker are not 9 decimals. §19.5 if an image renders sometimes.
 > - **[§17 — 2026-08-19](#17-session-log--2026-08-19--confidential-tokens-on-x1-x1b-bm)**
 >   confidential Token-2022 on X1 (X1B, BM). **§17.1 is mandatory before writing any
 >   confidential-transfer code** — X1 only accepts `@solana/zk-sdk` ≤ 0.3.1, and newer
@@ -121,13 +125,18 @@ Used by `PairingMarketplace.tsx` and `PoolsTab.tsx` to compute prices entirely o
 ### Burn → Supabase flow
 
 1. Citizen opens `V2BoostModal` from a listing they own on `/labwork`
-2. Picks tier + currency (2026-06-15): SPARK (200 BRAINS **or** 0.05 LB / 24h) · GODSLAYER (444 BRAINS **or** 1 LB / 3d) · INCINERATOR (888 BRAINS **or** 1.11 LB / 7d). See §13.5.
+2. Picks tier + currency (**repriced 2026-09-18, §19.3**): SPARK (**8** BRAINS **or** **0.1** LB / 24h) · GODSLAYER (**16** BRAINS **or** **0.25** LB / 3d) · INCINERATOR (**24** BRAINS **or** **0.5** LB / 7d). Was 200/444/888 + 0.05/1/1.11 (§13.5).
 3. Tx: `createBurnCheckedInstruction` against the chosen mint (`BRAINS_MINT` or `LB_MINT`) via Token-2022 program (both are Token-2022, NOT classic SPL)
 4. On confirm, two Supabase upserts run in parallel:
    - `labwork_boosts` row (UPSERT on `listing_pda` — one active boost per listing)
    - `labwork_points` row (UPSERT on `tx_sig` — prevents double-credit on retry)
-5. Earn rate: **1.888 labwork points per BRAINS burned** (tier-based; same points whether paid in BRAINS or LB, LB rows tagged `source:'boost-lb'`)
-6. Slot cap: **8 active boosts site-wide** (`BOOST_SLOTS`), ordered `tier DESC, created_at ASC`
+5. ⛔ **The labwork points ledger is RETIRED** (operator, 2026-09-18). Nothing reads
+   `labwork_points`, and every mention of it was removed from the modal (§19.4). The row
+   is still written only because `tx_sig` is UNIQUE there, so a retry cannot double-credit
+   if it is ever revived. Do not surface points in UI.
+6. Slot cap: **8 active boosts site-wide** (`BOOST_SLOTS`). ⛔ Ordering is done **in the
+   client** by `TIER_RANK`, NOT in the query — `tier` is a TEXT column, so `order('tier',
+   desc)` sorted it alphabetically and put SPARK above INCINERATOR. See §19.3.
 
 ### Where it surfaces
 
@@ -137,9 +146,12 @@ Used by `PairingMarketplace.tsx` and `PoolsTab.tsx` to compute prices entirely o
 ### Boost tier color/glyph mapping
 
 ```
-SPARK       — 24h  — 200 BRAINS or 0.05 LB — orange      — ⚡
-GODSLAYER   — 3d   — 444 BRAINS or 1    LB — purple      — ⚔️
-INCINERATOR — 7d   — 888 BRAINS or 1.11 LB — fire orange — 🔥
+SPARK       — 24h  —  8 BRAINS or 0.1  LB — orange      — ⚡
+GODSLAYER   — 3d   — 16 BRAINS or 0.25 LB — purple      — ⚔️
+INCINERATOR — 7d   — 24 BRAINS or 0.5  LB — fire orange — 🔥
+
+Priority: incinerator > godslayer > spark (TIER_RANK, derived from BOOST_TIERS
+by index so it cannot drift from the prices).
 ```
 
 ### Known data drift
@@ -299,6 +311,44 @@ The SwapTab logo-fetch effect was hardcoded: "fetch XNT, apply to tokenIn; fetch
 2. Program-ID map → friendly labels (Farm / Pairing / DEX / Marketplace / LB Mint / NFT)
 3. Extract Anchor ix name from `Program log: Instruction: <Name>` log lines
 4. Fallback: `Program XxXx…YyYy` (the program shortid) instead of generic "Other"
+
+### ⛔⛔⛔ A guessed decimal is worse than no decimal (2026-09-18)
+
+Three places set a swap token's decimals and none covered the others: the wallet
+scan (authoritative, but only for mints you HOLD), the deep-link correction
+(authoritative, but only for `initialFromMint`/`initialToMint`), and the picker,
+which builds rows from xDEX `pool/list` — a feed with **no decimals field** — so
+every row was `?? 9`. The picker deliberately EXCLUDES what you hold, so its rows
+are exactly the mints nothing else corrects. **23 of the 75 tokens in that feed
+are not 9 decimals** (USDC.X 6, LB 2, THEO/TRUMP 2, the nine stocks 8). Measured
+live: USDC.X quoted 0.027 for 100 XNT against a true 27.16. Fix: `fetchMintDecimals`
+reads the mint account and returns **null** on failure; the correction effect keys
+on the LIVE mints so it covers picker, deep link and the swap-sides button.
+
+⛔ Do NOT source decimals from `fetchTokenMeta` — its xDEX and hardcoded layers both
+end in `?? 9`, so it will happily write a guessed 9 over a correct 8. Full detail §19.2.
+
+### ⛔⛔ Solaris first = art that renders sometimes (2026-09-18)
+
+Same root as §14.1, a path that never got the memo. The `/labwork` SELL tab asked
+Solaris first and returned the instant it had an image — but Solaris answers a
+Brains Elite with a bare **`ipfs://<cid>`**, dead in an `<img>`, and the gateway
+chain behind it measured ipfs.io 429, dweb.link 429, nftstorage.link 429,
+gateway.pinata.cloud 200 **in 6.7s**. Painting the tile meant winning that race,
+which is why it worked on some loads and not others. The chain had a 0.5s Arweave
+URL for the same NFT, already in hand (`fetchWalletNFTs` batch-reads the Metaplex
+PDA, so `n.metaUri` costs no extra RPC). **Rule stands: chain/metaUri first,
+Solaris last, everywhere — not just the detail modal.** §19.5.
+
+### ⛔⛔ A proxy that wins the race must be the URL you keep (2026-09-18)
+
+`V2NFTImage.fetchJsonMulti` races four candidates and on an image content-type
+returned `{ image: url }` — the **unproxied original**, not the `candidate` that
+actually served the bytes. When the same-origin `/api/nft-meta/…` rescue won, the
+working URL was thrown away, the blocked one reported, and the effect then wrote
+it to localStorage. One rescued fetch became a permanently pinned dead URL. Return
+the winner. Cache key bumped `v2`→`v3` because a wrong row cannot be told from a
+right one. §19.5.
 
 ### X1 RPC 413s on 100-sig `getParsedTransactions` (silent → empty data)
 
@@ -1639,3 +1689,174 @@ on a fixed id is a trap under HMR.
 - **Unverified:** every path was driven by a keypair signer in node. The wallet-adapter
   seam has only the operator's click-testing behind it. Dependency tree unaudited, single
   author, no external review.
+
+---
+
+## 19. Session log — 2026-09-18 · tokenised stocks, swap decimals, boost, NFT art
+
+Five commits, all pushed and verified live: `782c8e5`, `26bdba5`, `b1e4235`,
+`8c7de4f`, `737cd34`. Everything below was measured against X1 mainnet and the live
+xDEX feed on the day; where something was NOT verified it says so.
+
+> ⚠️ **§18 was the last entry before this one, so 2026-09-02/03 is still an
+> undocumented gap here** — THE EMOJI news notifier (its own doc, `NEWSBOT.md`), the
+> OG/Twitter card, the native-XNT send fix and the confidential DEPOSIT path all
+> landed in that window with no session log.
+
+### 19.1 Tokenised US stocks are live on X1 — and they are tiny
+
+Nine trade on xDEX, bridged from Solana via the Warp Bridge (`app.bridge.x1.xyz`):
+TSLA.X GOOGL.X NVDA.X SPCX.X COIN.X PLTR.X AMD.X META.X SPY.X. Backed Finance
+xStocks.
+
+- ⛔ On-chain symbols are **`.X` suffixed** (`TSLA.X`), NOT the `TSLAx` the bridge
+  graphic shows. All are **Token-2022, 8 decimals**, extensions `metadataPointer` +
+  `tokenMetadata` only — no transfer fee, no transfer hook, so no accumulator drift.
+- Metadata JSON is on `raw.githubusercontent.com/x1-labs/assets/…`, already in the
+  `vercel.json` `connect-src` allowlist. Logos resolve.
+- AMZ / ETH / cbBTC / SOL appear on the bridge banner but have **no xDEX pool**, so
+  they legitimately price as "—" (same reason as the degen.fyi pre-graduation
+  tokens, §15.7).
+
+⛔⛔ **It is a launch, not a market.** The ENTIRE bridged stock supply is **$4,412**
+(2.12 TSLA shares, 4.12 GOOGL, 1.46 NVDA, a quarter of an SPY). Combined stock pool
+TVL $7,203 across 13 pools, six of the nine with zero trades in 24h. The whole xDEX
+is **$82,191 TVL on $11,788 daily volume**. Do not size anything as if X1 had an
+equities market.
+
+**Where v2 sees them, and where it deliberately does not.** `/swap` and `/portfolio`
+pick them up already (both scan by mint and price per-mint). `/charts` does not —
+and that is correct, but not for the reason its own header comment claims:
+⛔ **`V2XdexPoolsList` builds its list ONLY from `fetchPairingPools()`** (brains_pairing
+on-chain PoolRecords), not from prism, so no xDEX pool outside the pairing
+marketplace ever appears there. The landing ticker/stats/top-pools are gated to
+BRAINS/LB by `isBrainsOrLbPool` (`V2Home.tsx:861`, used at 478/1045/1055) and the
+ticker chips are a hardcoded 3-token array at `V2Home.tsx:466`. **x1brains is not a
+DEX or a screener** — x1prism is. Operator call, 2026-09-18: do not surface stock
+markets here. The only places a stock belongs are the citizen's own portfolio, and
+`brains_pairing`/`brains_farm`, which take any token and route fees to our treasury.
+
+**The authority behind them: `2sXr5THr5ZAwSfuJAc1KogPKZ2uKkhfNUAtEvNw5Q6Z7`.**
+X1 Labs' asset key, driven through a **Squads multisig** (`SQDS4ep65T…`); it is never
+the fee payer in its own transactions. Verified directly by `getProgramAccounts`
+memcmp: it is the **mint authority for XNM / XUNI / XBLK** (exactly three mints, no
+freeze authority anywhere) — which confirms §11.7's previously-inherited claim — and
+the **metadata authority for all nine stocks**. It does NOT mint the stocks; that
+authority (`55Pc4yk…zwHr`) has no account at all, i.e. a bridge program PDA. 127
+signatures since 2025-10-13, zero failures.
+⛔ Its ~$37M nominal holding is a MARK, not money: 113.5M PXNT priced off a **$633
+pool**, and 15.86M XNT against a chain with $82k total TVL — about 450x the whole
+chain's liquidity. Only its 4,368 USDC.X is meaningfully realizable.
+
+### 19.2 ⭐⭐⭐ The swap quoted the wrong size for any token you don't hold (`782c8e5`)
+
+See §5's "A guessed decimal" entry for the mechanism. Measured on the live pools,
+paying 100 XNT, before → after:
+
+| pair | before (dec 9) | after (resolved) | |
+|---|---|---|---|
+| TSLA.X / XNT | 0.00699328 | **0.06993280** | 10x low |
+| USDC.X / XNT | 0.02715659 | **27.15659200** | 1000x low |
+| BRAINS / XNT | 10657.22251875 | 10657.22251875 | **control, identical** |
+
+USDC.X validates itself: 100 XNT at $0.284753 is $28.48, and the corrected quote
+pays 27.16 after the 0.28% fee and impact.
+
+**Exact-in only understated what you receive** — you got more than the screen said,
+so it read as broken rather than dangerous. **Exact-out was the hazard**: asking for
+0.01 TSLA.X quoted 148 XNT against a true 13, and `handleSwap` executed at that
+input, buying ~10x the intended position. ⭐ Nothing ever failed on chain: `minOut`
+is derived in raw units straight off the curve in `handleSwap`, and both token
+programs come from pool state, so the transaction was always well-formed. It was
+the sizing and the displayed number that were wrong.
+
+⛔ This predates the stocks. It stayed quiet because the worst offender, LB at 2
+decimals, is held by nearly everyone who uses this app, so it arrives through the
+authoritative wallet path. **USDC.X at 1000x had been sitting there the whole time.**
+The stocks dropped nine 8-decimal tokens into the picker that nobody holds yet.
+
+**Unverified:** the browser click-through (open picker → select → read the field).
+The resolver's input and the arithmetic are proven; the React seam is not. `SwapTab`
+is prop-driven, so the `probe.html` + `_probe.tsx` harness of §16.14 can drive it.
+
+### 19.3 Boost: ranked alphabetically, then repriced (`26bdba5`, `b1e4235`)
+
+`loadActiveBoosts()` did `.order('tier', { ascending: false })` on a **TEXT** column
+(`SUPABASE_SCHEMA_BOOSTS.sql:27`), so Postgres sorted alphabetically: descending text
+is **spark > incinerator > godslayer**. A 200-BRAINS 24h SPARK outranked an
+888-BRAINS 7-day INCINERATOR — the exact opposite of what V2Home's own promo slide
+advertises — and with slots full it was the cheap tier that survived the `LIMIT 8`.
+Replayed over all 12 rows the table has ever held: old top slot `spark 1000`, two
+incinerators dropped; new top slot `incinerator`, the spark/godslayer tail dropped.
+
+Fixed in the client, not in SQL — a query-side fix needs a numeric rank column and a
+migration, and the active set is tiny. `TIER_RANK` derives from `BOOST_TIERS` by
+index so it cannot drift from the prices. Fetch cap widened to `BOOST_SLOTS * 8`,
+because you cannot pick the top 8 by tier out of a `LIMIT 8` that was ordered wrong.
+
+**Repriced** (operator): 200/444/888 → **8/16/24 BRAINS**, 0.05/1/1.11 → **0.1/0.25/0.5
+LB**. At the day's marks (BRAINS $0.00263911, LB $0.30585) a week of top-of-landing
+went $2.34 → **$0.063** in BRAINS, $0.34 → $0.153 in LB.
+⭐ **The currency skew flipped the right way.** LB used to be 74-97% cheaper than
+BRAINS for the identical tier, so the BRAINS option was decoration and nobody
+rational would burn BRAINS. Now BRAINS is 31-59% cheaper across all three and is the
+default rational choice, which is the point of a BRAINS sink.
+⚠️ All eight slots for a week now cost **$0.51 total**. If it is ever abused the
+lever is a per-wallet slot cap, not the price.
+
+**Demand context, measured:** 12 boosts in the table's whole history, 4 of 16 points
+rows paid in LB, and **zero active** when checked. Price was never the constraint —
+nothing on the site tells a seller the slot exists; the only entry point is a button
+on a row inside My Listings. There is also a junk row in `labwork_points`
+(2026-04-12, `999999` burned / `999999` points, tier `null`) still in the totals.
+
+### 19.4 Labwork points retired (`8c7de4f`)
+
+Operator: the ledger is dead. Removed all three citizen-facing mentions — the header
+"earn 1.888 pts/BRAINS", the "+N PTS" line under each tier price, and the success
+message. The reprice had made it actively misleading: at 8 BRAINS the cards read
+"+15 PTS" where they used to say "+378", so the only number left on screen made the
+boost look devalued 25x rather than 25x cheaper. The `labwork_points` write stays
+(a failed one now logs to console) purely for the `tx_sig` UNIQUE retry guard.
+
+### 19.5 Wallet NFT art was an IPFS coin flip (`737cd34`)
+
+Reported as "sometimes I can see my NFTs and sometimes I can't". The NFT is found
+and named every time — only the art drops, which is what made it look random.
+Traced on Brains Elites #378 (`9aTjGCqU…MKyLg`, classic SPL):
+
+```
+Metaplex PDA -> arweave …/378.json   200 ~0.35s, 8/8
+that json    -> arweave …/378.png    200 ~0.5s,  6/6, ACAO *
+Solaris      -> ipfs://QmZ4x9…       a bare ipfs:// URI
+```
+
+Both defects and the cache bump are written up in §5. Net: chain/metaUri first and
+Solaris last in the wallet enrichment (Solaris still supplies name/collection/
+collectionKey, so browse grouping is unchanged — only image precedence flips), plus
+`fetchJsonMulti` returning the candidate that actually served the bytes.
+
+⭐ That CID is **885,990 bytes — the same size as the Arweave PNG**, so Solaris was
+pointing at the right art all along, just served the worst possible way.
+
+**Unverified:** that the tile paints in a real browser. Every hop's data and timing
+is proven and the code path was read; the render was not observed.
+
+### 19.6 Verification notes
+
+- **Deploy proof (the §14.6 method, used and it works):** the live `index.html`
+  referenced `/assets/index-BDtAMdf_.js`, and that bundle referenced
+  `V2LabWork-BKe1N38p.js` — byte-identical to the local `dist/assets/` hash. The
+  main bundle hash always differs (Vercel bakes its own `VITE_*` in); the lazy route
+  chunk is the honest comparison. Grepping the live bundle for `v2_nft_img_cache_v3`
+  confirmed the content, not just the filename.
+- **Typecheck, every commit:** `tsc -p tsconfig.app.json` 386 → 386 with an EMPTY
+  message-level diff against a `git stash` baseline. §16.12's rule held all day.
+- ⛔ **`api.xdex.xyz/token-price` rate-limits and returns `price: 0`, not an error**,
+  after repeated probing — it silently zeroed an entire holdings valuation mid-session
+  and read exactly like the wallet being empty. Price from the cached prism snapshot
+  when doing bulk work, and re-measure with spacing. Same trap as §15.8 and §16.14.
+- ⛔ **A scripted edit that asserts on its own match text pays for itself.** One
+  `PROJECT.md`-style block replacement failed on a two-space indent difference; the
+  assertion refused before writing anything, instead of silently no-opping and
+  leaving a commit that claimed a change it had not made.
