@@ -710,6 +710,7 @@ Storage key `x1brainsv2.nfa.accepted.v2`, version `2.0`. v2-styled (orange/amber
 header, teal "◆ AUDITED" box disclosing the internal/AI audits — still NFA/no-liability).
 
 ### 13.5 Boost tiers retuned + LB payment (`components/V2BoostModal.tsx`)
+⚠️ **SUPERSEDED 2026-09-18 — see §2 / §19.3 for the live prices (8/16/24 BRAINS, 0.1/0.25/0.5 LB).**
 Tiers now **200 / 444 / 888 BRAINS** (24h/3d/7d). Added a **BRAINS | LB currency toggle** —
 LB alts **0.05 / 1 / 1.11 LB**. LB is Token-2022 (`LB_MINT` from constants), same `burnChecked`
 path. Points stay **tier-based** (`brains×1.888`) regardless of currency; LB rows tagged

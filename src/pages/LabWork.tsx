@@ -77,7 +77,16 @@ async function loadActiveBoosts(): Promise<BoostRecord[]> {
       .from('labwork_boosts')
       .select('*')
       .gt('expires_at', new Date().toISOString())
-      .order('tier', { ascending: false })   // incinerator > godslayer > spark
+      // ⛔⛔ THIS COMMENT IS A LIE AND THE CODE BELOW IS THE BUG — do not copy it.
+      // `tier` is a TEXT column, so descending sorts ALPHABETICALLY: spark >
+      // incinerator > godslayer. The cheapest tier wins the top slot and
+      // survives the LIMIT. Fixed in components/V2BoostModal.tsx (TIER_RANK,
+      // ranked in the client); see PROJECT.md §19.3.
+      // This file is UNROUTED, UNIMPORTED v1 carryover — the slot cap is also
+      // stale here (3, not BOOST_SLOTS=8). Left only so the v1 behaviour is
+      // still readable. If this page is ever revived, take V2BoostModal's
+      // implementation, not this one.
+      .order('tier', { ascending: false })
       .order('created_at', { ascending: true })
       .limit(3);
     return (data ?? []) as BoostRecord[];
