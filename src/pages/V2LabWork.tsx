@@ -542,36 +542,58 @@ export default function V2LabWork() {
           if (!alive) return;
           const slice = raw.slice(i, i + CHUNK);
           const enriched = await Promise.all(slice.map(async (n) => {
-            // Try Solaris first — pre-resolved image + name + collection.
-            const sol = await fetchSolarisNft(n.mint);
-            if (sol?.image) {
-              return {
-                ...n,
-                name:          sol.name ?? n.name,
-                image:         sol.image,
-                collection:    sol.collectionName ?? n.collection,
-                collectionKey: sol.collectionKey ?? n.collectionKey,
-              };
-            }
-            // Fallback to on-chain resolution
+            // ⛔⛔ CHAIN FIRST, SOLARIS LAST — this used to be the other way round
+            // and it is the reason wallet NFTs rendered as black tiles at random.
+            //
+            // Solaris does not hold per-edition art for every collection. For a
+            // Brains Elite it answers with a BARE `ipfs://<cid>` URI, which is
+            // dead in an <img> and, once it wins, is the ONLY thing downstream
+            // ever sees — the old `if (sol?.image) return` short-circuited before
+            // the chain was ever consulted. That CID is servable, but measured
+            // 2026-09-18: ipfs.io 429, dweb.link 429, nftstorage.link 429, and
+            // gateway.pinata.cloud 200 in 6.7s. Whether the tile painted came
+            // down to winning that race, which is exactly the "sometimes yes,
+            // sometimes no" the operator reported.
+            //
+            // Meanwhile the chain holds a fast, reliable answer for the same
+            // NFT: the Metaplex PDA (already batch-read by fetchWalletNFTs, so
+            // `n.metaUri` is in hand at no extra RPC) points at Arweave, which
+            // measured 6/6 at ~0.5s with `access-control-allow-origin: *`.
+            //
+            // Same rule PROJECT.md §14.1 set and §14.3 applied to the detail
+            // modal; this path was simply never brought in line with it.
+            //
+            // Solaris is still fetched — it is cached and deduped, so it is
+            // nearly free — and still supplies name, collection and
+            // collectionKey exactly as before. Only the IMAGE precedence flips,
+            // so the browse-tab grouping this feeds is untouched.
             const candidates: string[] = [];
             if (n.metaUri) candidates.push(n.metaUri);
             const t22 = await fetchToken2022MetaUris(connection, n.mint);
             for (const u of t22) if (!candidates.includes(u)) candidates.push(u);
-            if (candidates.length === 0) return n;
 
-            const { image, meta } = await resolveImage(candidates);
-            const nameFromMeta = typeof meta?.name === 'string' ? meta.name : n.name;
+            const [chain, sol] = await Promise.all([
+              candidates.length > 0
+                ? resolveImage(candidates)
+                : Promise.resolve({ image: null as string | null, meta: null as any }),
+              fetchSolarisNft(n.mint),
+            ]);
+            const { image, meta } = chain;
+
+            const nameFromMeta = typeof meta?.name === 'string' ? meta.name
+                               : (sol?.name ?? n.name);
             const coll = pickCollection(meta, nameFromMeta, n.collection);
             return {
               ...n,
-              metaUri: candidates[0],
+              metaUri: candidates[0] ?? n.metaUri,
               isToken2022: n.isToken2022 || t22.length > 0,
               name: nameFromMeta || n.name,
-              image: image ?? n.image,
+              // Chain wins; Solaris is the last resort, not the first answer.
+              image: image ?? sol?.image ?? n.image,
               description: meta?.description ?? n.description,
               attributes: Array.isArray(meta?.attributes) && meta.attributes.length ? meta.attributes : n.attributes,
-              collection: coll ?? n.collection,
+              collection: coll ?? sol?.collectionName ?? n.collection,
+              collectionKey: sol?.collectionKey ?? n.collectionKey,
             };
           }));
           if (!alive) return;

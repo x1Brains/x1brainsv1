@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'react';
 
 // Persistent localStorage cache for resolved image URLs.
-const CACHE_KEY = 'v2_nft_img_cache_v2';
+// v2 -> v3: v2 rows were written by a fetchJsonMulti that reported the
+// UNPROXIED url whenever a proxy won the race, so an unknown number of them
+// pin a gateway URL this browser cannot load (nftstorage.link and friends
+// currently answer 429). A v2 row that is wrong is indistinguishable from one
+// that is right, so the key is bumped rather than audited, and v2 is dropped.
+const CACHE_KEY = 'v2_nft_img_cache_v3';
+const OLD_CACHE_KEYS = ['v2_nft_img_cache_v2'];
 const cache: Map<string, string | null> = (() => {
   const m = new Map<string, string | null>();
+  for (const k of OLD_CACHE_KEYS) { try { localStorage.removeItem(k); } catch {} }
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     if (raw) {
@@ -60,7 +67,14 @@ async function fetchJsonMulti(url: string): Promise<any | null> {
     const r = await fetch(candidate, { signal: ctrl.signal });
     if (!r.ok) throw new Error('not ok');
     const ct = r.headers.get('content-type') ?? '';
-    if (ct.startsWith('image/')) return { image: url };
+    // ⛔ THIS RETURNED `url`, THE UNPROXIED ORIGINAL, NOT THE CANDIDATE THAT
+    // ACTUALLY SERVED THE BYTES. When the winner was `/api/nft-meta/...` — the
+    // same-origin proxy that exists precisely because the direct URL is blocked
+    // or rate-limited — we threw the working URL away, reported the broken one,
+    // and then CACHED it (step 2 of the effect writes this straight into
+    // localStorage). One rescued fetch became a permanently pinned dead URL.
+    // Whichever candidate won is by definition one this browser can load.
+    if (ct.startsWith('image/')) return { image: candidate };
     const text = await r.text();
     return JSON.parse(text); // throws if not JSON, which propagates as a rejection
   });
