@@ -442,6 +442,9 @@ const META_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
     const cached = JSON.parse(raw) as { ts: number; metas: Record<string, TokenMeta> };
     if (Date.now() - cached.ts < META_CACHE_TTL && cached.metas) {
       for (const [mint, meta] of Object.entries(cached.metas)) {
+        // drop entries whose "symbol" is just the start of the address (saved before 10-02) so they are looked up again
+        const sym = meta?.symbol || '';
+        if (sym.length >= 4 && mint.toLowerCase().startsWith(sym.toLowerCase())) continue;
         _metaCache.set(mint, meta);
       }
     }
@@ -462,6 +465,10 @@ function schedulePersist() {
 }
 
 // Symbol/decimals only — NO logo here so fetchTokenMeta still runs the full fetch
+// A ticker that is just the start of the mint address is a placeholder, not a name (10-02: LB showed as "Dj7AY5" on
+// LP Pairing — an xDEX answer with no symbol fell back to mint.slice(0,6), was saved to localStorage for 7 days, and the
+// "is it real?" check only knew the 4-character placeholder, so it was never looked up again).
+const isAddrSymbol = (mint: string, sym?: string): boolean => !sym || (sym.length >= 4 && mint.toLowerCase().startsWith(sym.toLowerCase()));
 const HARDCODED_META: Record<string, { symbol: string; name: string; decimals: number }> = {
   'So11111111111111111111111111111111111111112': { symbol: 'XNT',    name: 'X1 Native Token', decimals: 9  },
   'EpKRiKwbCKZDZE9pgH48HcXqQkBunXUK5axC1EHUBtPN': { symbol: 'BRAINS', name: 'X1 Brains',       decimals: 9  },
@@ -690,18 +697,24 @@ export async function fetchTokenMeta(mint: string): Promise<TokenMeta> {
   // Cache hit with real symbol but no logo — return cached, logo can backfill later
   // A symbol-only entry is only final when the token has no logo to find. If the
   // logo fetch merely FAILED (logoPending), fall through and try again.
-  const cachedIsRealSymbol = cached && cached.symbol && cached.symbol !== mint.slice(0, 4).toUpperCase();
+  const cachedIsRealSymbol = cached && cached.symbol && !isAddrSymbol(mint, cached.symbol);
   if (cachedIsRealSymbol && cached && !cached.logoPending) return cached;
 
   // Deduplicate in-flight
   if (_metaInflight.has(mint)) return _metaInflight.get(mint)!;
 
   const promise = (async (): Promise<TokenMeta> => {
-    const t22 = await fetchToken2022Meta(mint);
+    const hcKnown = HARDCODED_META[mint];
+    const label = (m: TokenMeta): TokenMeta => (hcKnown ? { ...m, symbol: hcKnown.symbol, name: hcKnown.name, decimals: hcKnown.decimals }
+      : isAddrSymbol(mint, m.symbol) ? { ...m, symbol: mint.slice(0, 4).toUpperCase() } : m); // placeholder stays recognisable (re-resolved next time)
+    const t22raw = await fetchToken2022Meta(mint);
+    const t22 = t22raw && label(t22raw);
     if (t22) { _metaCache.set(mint, t22); if (!t22.logoPending) schedulePersist(); return t22; }
-    const mpx = await fetchMetaplexMeta(mint);
+    const mpxRaw = await fetchMetaplexMeta(mint);
+    const mpx = mpxRaw && label(mpxRaw);
     if (mpx) { _metaCache.set(mint, mpx); if (!mpx.logoPending) schedulePersist(); return mpx; }
-    const xdex = await fetchXdexMeta(mint);
+    const xdexRaw = await fetchXdexMeta(mint);
+    const xdex = xdexRaw && label(xdexRaw);
     if (xdex) { _metaCache.set(mint, xdex); schedulePersist(); return xdex; }
     // Use hardcoded symbol/decimals if available, just no logo
     const hc = HARDCODED_META[mint];
@@ -932,7 +945,7 @@ export async function fetchOnChainListings(): Promise<ListingOnChain[]> {
     const parsed: Array<{
       pubkey: string; mintStr: string; creator: string;
       tokenAAmount: bigint; tokenAUsdVal: bigint; tokenAXntVal: bigint;
-      burnBps: number; isEcosystem: boolean;
+      burnBps: number; isEcosystem: boolean; createdAt: number;
     }> = [];
 
     for (const { pubkey, account } of accounts) {
@@ -949,9 +962,12 @@ export async function fetchOnChainListings(): Promise<ListingOnChain[]> {
         const isEcosystem = data[offset] === 1; offset += 1;
         const statusByte  = data[offset];
         if (statusByte !== 0) continue; // only open listings
+        // created_at i64 after status(1) + escrow_bump(1) + escrow_auth_bump(1) = byte 110 (ListingState in
+        // programs/brains_pairing/src/state.rs; checked on the 2 open listings 10-02: Apr 11 / Apr 12 2026).
+        const createdSec = Number(data.readBigInt64LE(offset + 3));
         parsed.push({ pubkey: pubkey.toBase58(), mintStr: tokenAMint.toBase58(),
           creator: creator.toBase58(), tokenAAmount, tokenAUsdVal, tokenAXntVal,
-          burnBps, isEcosystem });
+          burnBps, isEcosystem, createdAt: createdSec > 1e9 && createdSec < 4e9 ? createdSec * 1000 : 0 });
       } catch { continue; }
     }
 
@@ -1000,7 +1016,8 @@ export async function fetchOnChainListings(): Promise<ListingOnChain[]> {
         burnBps:      p.burnBps,
         isEcosystem:  p.isEcosystem,
         status:       'open' as const,
-        createdAt:    Date.now(),
+        // ⛔ was Date.now(): every listing read "age 0s" and the header "oldest 0s". 0 (unreadable) shows "—".
+        createdAt:    p.createdAt,
       };
     });
 

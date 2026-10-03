@@ -1001,7 +1001,7 @@ const BrainsStatsRow: FC<{
   const [lbSupply,     setLbSupply]     = useState<number | null>(null);
   const [mkt,      setMkt]      = useState(() => getCachedMarketStats());
   const [listings, setListings] = useState<number | null>(null);
-  const [farmUsd,  setFarmUsd]  = useState<{ staked: number; vaults: number } | null>(null);
+  const [farmUsd,  setFarmUsd]  = useState<{ staked: number | null; vaults: number | null } | null>(null);
   const [stakers,  setStakers]  = useState<{ uniqueStakers: number; totalPositions: number } | null>(null);
 
   useEffect(() => {
@@ -1019,8 +1019,12 @@ const BrainsStatsRow: FC<{
     fetchAllListings(connection).then(ls => { if (alive) setListings(ls.length); }).catch(() => {});
     fetchFarms(connection).then(farms => {
       if (!alive) return;
-      const staked = farms.reduce((s, f) => s + (Number(f.totalStaked)  / 10 ** f.lpDecimals)     * f.lpPriceUsd,     0);
-      const vaults = farms.reduce((s, f) => s + (Number(f.vaultBalance) / 10 ** f.rewardDecimals) * f.rewardPriceUsd, 0);
+      // ⛔ 10-02: a price that failed to load comes back as 0 (fetchPrice/fetchLpPrice), and the card then said "$0 staked"
+      // next to 14 stakers / 33 positions. A total that includes an UNKNOWN price is unknown: show "—", never a fake $0.
+      const unknownLp = farms.some((f) => Number(f.totalStaked) > 0 && !(f.lpPriceUsd > 0));
+      const unknownRw = farms.some((f) => Number(f.vaultBalance) > 0 && !(f.rewardPriceUsd > 0));
+      const staked = unknownLp ? null : farms.reduce((s, f) => s + (Number(f.totalStaked)  / 10 ** f.lpDecimals)     * f.lpPriceUsd,     0);
+      const vaults = unknownRw ? null : farms.reduce((s, f) => s + (Number(f.vaultBalance) / 10 ** f.rewardDecimals) * f.rewardPriceUsd, 0);
       setFarmUsd({ staked, vaults });
     }).catch(() => {});
     fetchTotalStakers(connection).then(r => { if (alive) setStakers(r); }).catch(() => {});

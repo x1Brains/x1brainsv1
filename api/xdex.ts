@@ -10,7 +10,10 @@ let lastGood = new Map<string, { at: number; status: number; type: string; body:
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const path = String(req.query.path || '').replace(/^\/+/, '');
-  if (!/^api\/xendex\/[a-z0-9/_-]+$/i.test(path)) return res.status(404).json({ error: 'unknown path' }); // not an open proxy
+  // the two XDEX API families the site calls (pool lists / charts / wallet tokens, and token prices) — not an open proxy
+  if (!/^api\/(xendex|token-price)\/[a-z0-9/_.-]+$/i.test(path)) return res.status(404).json({ error: 'unknown path' });
+  // a wallet's own balances must never be served from a shared or stale copy (a trade would not show)
+  const personal = /^api\/xendex\/wallet\//i.test(path);
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(req.query)) if (k !== 'path' && typeof v === 'string') qs.set(k, v);
   const url = UPSTREAM + path + (qs.toString() ? '?' + qs : '');
@@ -19,10 +22,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const body = await r.text();
     if (r.status >= 500) throw new Error('xdex ' + r.status);
     const type = r.headers.get('content-type') || 'application/json';
-    if (r.ok) { lastGood.set(url, { at: Date.now(), status: r.status, type, body }); if (lastGood.size > 200) lastGood = new Map([...lastGood].slice(-100)); }
+    if (r.ok && !personal) { lastGood.set(url, { at: Date.now(), status: r.status, type, body }); if (lastGood.size > 200) lastGood = new Map([...lastGood].slice(-100)); }
     res.setHeader('content-type', type);
     // fresh for 30 s at the edge, then served stale (instantly) for up to an hour while one request refreshes it
-    res.setHeader('cache-control', r.ok ? 'public, max-age=0, s-maxage=30, stale-while-revalidate=3600' : 'no-store');
+    res.setHeader('cache-control', r.ok && !personal ? 'public, max-age=0, s-maxage=30, stale-while-revalidate=3600' : 'no-store');
     return res.status(r.status).send(body);
   } catch (e) {
     const g = lastGood.get(url);
