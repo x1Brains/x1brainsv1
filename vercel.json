@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/xdex-price/(.*)",
-      "destination": "https://api.xdex.xyz/$1"
+      "destination": "/api/xdex?path=$1"
     },
     {
       "source": "/api/xdex-mint/(.*)",
@@ -45,5 +45,10 @@
         }
       ]
     }
-  ]
+  ],
+  "functions": {
+    "api/xdex.ts": {
+      "maxDuration": 60
+    }
+  }
 }
