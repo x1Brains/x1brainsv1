@@ -116,7 +116,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // treasury with no second transfer, so no tax is charged on the sweep itself.
     const [cfgPda] = PublicKey.findProgramAddressSync([Buffer.from('rewards_cfg')], PROGRAM_ID);
     const cfg = await readRewardsConfig(conn, cfgPda);
-    if (cfg && cfg.bps > 0) {
+    // A split can only go to a normal (on-curve) wallet; anything else falls back.
+    let splitError: string | null = null;
+    if (cfg && cfg.bps > 0 && !PublicKey.isOnCurve(cfg.wallet.toBytes())) splitError = 'rewards wallet is not a normal wallet (off-curve)';
+    if (cfg && cfg.bps > 0 && !splitError) try {
       const feeVault   = getAssociatedTokenAddressSync(LB_MINT, mintAuthPda, true, TOKEN_2022_PROGRAM_ID);
       const rewardsAta = getAssociatedTokenAddressSync(LB_MINT, cfg.wallet, false, TOKEN_2022_PROGRAM_ID);
       const txs2 = new Transaction();
@@ -142,7 +145,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         swept: true, mode: 'split', rewardsBps: cfg.bps, accounts: withFees.length, txs,
         treasury: treasuryAta.toBase58(), rewards: rewardsAta.toBase58(),
       });
+    } catch (e: any) {
+      // Never leave fees unswept because of the split: fall back to the plain sweep.
+      splitError = e?.message ?? String(e);
     }
+    if (splitError) console.error('cron-collect-lb-fees: split failed, sweeping to treasury instead:', splitError);
 
     const tx2 = new Transaction();
     tx2.add(new TransactionInstruction({
@@ -166,7 +173,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({
       swept: true,
-      mode: 'treasury',
+      mode: splitError ? 'treasury-fallback' : 'treasury',
+      ...(splitError ? { splitError } : {}),
       accounts: withFees.length,
       txs,
       treasury: treasuryAta.toBase58(),
