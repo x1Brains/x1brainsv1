@@ -98,7 +98,7 @@ async function fetchPrices(mints: string[]): Promise<Map<string, number>> {
       const url = `${XDEX_PRICE_URL}?network=${XDEX_NETWORK}&token_addresses=${chunk.join(',')}`;
       const res = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } });
       if (!res.ok) continue;
-      const data = await res.json();
+      const data = await res.json() as any;   // xDEX answers either an array or { data: [...] }
       const items: any[] = Array.isArray(data) ? data :
         Array.isArray(data?.data) ? data.data : [];
       for (const item of items) {

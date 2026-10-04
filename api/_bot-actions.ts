@@ -287,7 +287,7 @@ async function detectVaults(token?: string): Promise<ActionResult> {
       params: [pool.pool, { encoding: 'base64', commitment: 'confirmed' }],
     }),
   });
-  const j = await r.json();
+  const j = await r.json() as { error?: { message?: string }; result?: { value?: { data?: string[] } } };
   if (j.error) return { success: false, error: `RPC error: ${j.error.message}` };
   const dataB64 = j?.result?.value?.data?.[0];
   if (!dataB64) return { success: false, error: 'pool account not found on-chain' };
@@ -378,7 +378,7 @@ async function tgCall(token: string, method: string, params?: any): Promise<{ ok
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params || {}),
     });
-    const j = await r.json();
+    const j = await r.json() as { ok?: boolean; description?: string; result?: unknown };
     if (!j.ok) return { ok: false, error: j.description || `HTTP ${r.status}` };
     return { ok: true, result: j.result };
   } catch (e: any) {
