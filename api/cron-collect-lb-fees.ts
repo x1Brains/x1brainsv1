@@ -98,13 +98,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const tx2 = new Transaction();
     tx2.add(new TransactionInstruction({
       programId: PROGRAM_ID,
+      // Exactly lb_mint's `CollectFees` accounts. It is permissionless and has NO
+      // admin account: the old list put the payer first, shifting every account
+      // by one, and each run died with Anchor 3007 AccountOwnedByWrongProgram on
+      // `state` (re-proved by mainnet simulation 2026-10-04) — 40.76 LB of fees
+      // sat unswept. The payer only pays the network fee (tx.feePayer).
       keys: [
-        { pubkey: admin.publicKey, isSigner: true,  isWritable: true  }, // 0 admin
-        { pubkey: statePda,        isSigner: false, isWritable: true  }, // 1 state
-        { pubkey: LB_MINT,         isSigner: false, isWritable: true  }, // 2 lb_mint
-        { pubkey: mintAuthPda,     isSigner: false, isWritable: false }, // 3 lb_mint_authority
-        { pubkey: treasuryAta,     isSigner: false, isWritable: true  }, // 4 treasury_lb_ata
-        { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false }, // 5 token_program
+        { pubkey: statePda,        isSigner: false, isWritable: false }, // 0 state
+        { pubkey: LB_MINT,         isSigner: false, isWritable: true  }, // 1 lb_mint
+        { pubkey: mintAuthPda,     isSigner: false, isWritable: false }, // 2 lb_mint_authority
+        { pubkey: treasuryAta,     isSigner: false, isWritable: true  }, // 3 treasury_lb_ata
+        { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false }, // 4 token_2022_program
       ],
       data: DISC_COLLECT_FEES,
     }));

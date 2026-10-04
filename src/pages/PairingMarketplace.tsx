@@ -25,6 +25,7 @@ import PoolsTab from './PoolsTab';
 import {
   getCachedTokenLogo, setCachedTokenLogo, fetchTokenLogo, normalizeLogoUrl, logoThumb,
 } from '../lib/tokenLogos';
+import { getTransferFee, netOf, grossFor, feeLabel, type TransferFee } from '../lib/transferFee';
 
 // ─── Program Constants — match deployed program exactly ───────────────────────
 const PROGRAM_ID      = 'DNSefSAJ41Fm3ijmEug8tkDYJrHDwYGVtFtn8wwvbgJM';
@@ -3227,6 +3228,10 @@ export const SwapTab: FC<{
   const [vaultIn, setVaultIn]   = useState(0n);
   const [vaultOut, setVaultOut] = useState(0n);
   const [lastTxSig, setLastTxSig] = useState('');
+  // Token-2022 transfer tax on each side (null = untaxed). xDEX applies it on the
+  // way into the pool and on the way out to the wallet — see lib/transferFee.ts.
+  const [feeIn,  setFeeIn]  = useState<TransferFee | null>(null);
+  const [feeOut, setFeeOut] = useState<TransferFee | null>(null);
 
   async function rpc(method: string, params: any[]) {
     const r = await fetch(RPC, { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -3677,6 +3682,16 @@ export const SwapTab: FC<{
     })();
   }, [tokenIn?.mint, tokenOut?.mint]);
 
+  // ── Load each side's transfer tax (read live from the mint, cached 60 s) ─────────
+  useEffect(() => {
+    let alive = true;
+    setFeeIn(null); setFeeOut(null);
+    const conn = new Connection(RPC, 'confirmed');
+    if (tokenIn?.mint)  getTransferFee(conn, tokenIn.mint).then(f => { if (alive) setFeeIn(f); });
+    if (tokenOut?.mint) getTransferFee(conn, tokenOut.mint).then(f => { if (alive) setFeeOut(f); });
+    return () => { alive = false; };
+  }, [tokenIn?.mint, tokenOut?.mint]);
+
   // ── Compute quote — bidirectional (the user can drive EITHER field) ────────────
   // exactSide 'in'  → forward quote: amtIn  drives amtOut (what you'll receive).
   // exactSide 'out' → reverse quote: amtOut drives amtIn  (what you must pay).
@@ -3689,13 +3704,18 @@ export const SwapTab: FC<{
     if (exactSide === 'out') {
       const v = parseFloat(amtOut);
       if (!amtOut || isNaN(v) || v <= 0) { setAmtIn(''); setAmtOut(''); setQuoteOut(0); setExactSide('in'); setPriceImpact(0); return; }
-      const rawOut = BigInt(Math.floor(v * Math.pow(10, tokenOut.decimals)));
+      const wantNet = BigInt(Math.floor(v * Math.pow(10, tokenOut.decimals)));
+      // The pool must pay out enough that the wallet still gets `wantNet` after
+      // the output token's transfer tax.
+      const rawOut = grossFor(feeOut, wantNet);
       if (rawOut >= vaultOut) { setAmtIn(''); setAmtOut(''); setQuoteOut(0); setExactSide('in'); setPriceImpact(0); return; } // can't drain pool
       // Invert the exact-in curve: first the post-fee input the curve needs for
-      // `rawOut`, then gross it back up through the fee. Both round UP so the
-      // quoted input is never a hair short of what the program requires.
+      // `rawOut`, then gross it back up through the pool fee, then through the
+      // input token's transfer tax. All round UP so the quoted input is never a
+      // hair short of what the program requires.
       const inAfterFee = ceilDiv(rawOut * vaultIn, vaultOut - rawOut);
-      const rawIn = ceilDiv(inAfterFee * FEE_DEN, FEE_DEN - feeRate);
+      const intoPool = ceilDiv(inAfterFee * FEE_DEN, FEE_DEN - feeRate);
+      const rawIn = grossFor(feeIn, intoPool);
       const inNum = Number(rawIn) / Math.pow(10, tokenIn.decimals);
       setAmtIn(inNum > 0 ? inNum.toFixed(Math.min(tokenIn.decimals, 6)) : '');
       setQuoteOut(v);
@@ -3704,13 +3724,15 @@ export const SwapTab: FC<{
       const v = parseFloat(amtIn);
       if (!amtIn || isNaN(v) || v <= 0) { setAmtOut(''); setQuoteOut(0); setPriceImpact(0); return; }
       const rawIn  = BigInt(Math.floor(v * Math.pow(10, tokenIn.decimals)));
-      const { inAfterFee, out: rawOut } = swapOutFor(rawIn, vaultIn, vaultOut, feeRate);
+      // input tax is withheld before the pool sees it; output tax before the wallet does
+      const { inAfterFee, out: poolOut } = swapOutFor(netOf(feeIn, rawIn), vaultIn, vaultOut, feeRate);
+      const rawOut = netOf(feeOut, poolOut);
       const outNum = Number(rawOut) / Math.pow(10, tokenOut.decimals);
       setQuoteOut(outNum);
       setAmtOut(outNum > 0 ? outNum.toFixed(Math.min(tokenOut.decimals, 6)) : '');
       setPriceImpact(Number(inAfterFee * 10_000n / (vaultIn + inAfterFee)) / 100);
     }
-  }, [amtIn, amtOut, exactSide, vaultIn, vaultOut, tokenIn, tokenOut, poolState]);
+  }, [amtIn, amtOut, exactSide, vaultIn, vaultOut, tokenIn, tokenOut, poolState, feeIn, feeOut]);
 
   // ── Execute swap ──────────────────────────────────────────────────────────────
   const handleSwap = async () => {
@@ -3733,7 +3755,12 @@ export const SwapTab: FC<{
       // slippage bound. Quoting off raw vaults overstated output by up to ~5.8% and
       // the swap died on-chain with 6005 ExceededSlippage.
       const [vi, vo] = await getReserves(poolState, t0IsIn);
-      const { out: rawOut } = swapOutFor(rawIn, vi, vo, feeRateOf(poolState));
+      // Transfer taxes, re-read at send time. xDEX checks `minOut` against what the
+      // wallet RECEIVES after the output tax, and the pool only sees the input
+      // after the input tax — ignoring either fails every swap of a taxed token.
+      const [fIn, fOut] = await Promise.all([getTransferFee(conn, tokenIn.mint), getTransferFee(conn, tokenOut.mint)]);
+      const { out: poolOut } = swapOutFor(netOf(fIn, rawIn), vi, vo, feeRateOf(poolState));
+      const rawOut = netOf(fOut, poolOut);
       const minOut = rawOut * BigInt(10_000 - slipBps) / 10_000n;
       const inputMint  = new PublicKey(tokenIn.mint);
       const outputMint = new PublicKey(tokenOut.mint);
@@ -4317,6 +4344,13 @@ export const SwapTab: FC<{
                 <div style={{ fontFamily: 'Orbitron,monospace', fontSize: 10, color: '#cdd8e2' }}>{(slipBps / 100).toFixed(1)}%</div>
               </div>
             </div>
+            {/* Token transfer tax (Token-2022) — already included in the quote above */}
+            {(feeIn || feeOut) && (
+              <div style={{ marginTop: 10, fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#f29030', textAlign: 'center' }}>
+                Token tax included in this quote:{' '}
+                {[feeIn && `${tokenIn.symbol} ${feeLabel(feeIn)}`, feeOut && `${tokenOut.symbol} ${feeLabel(feeOut)}`].filter(Boolean).join(' · ')}
+              </div>
+            )}
             {/* Route */}
             <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,.04)',
               display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>

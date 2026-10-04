@@ -6,6 +6,7 @@
 
 import React, { FC, useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { getTransferFee, netOf, type TransferFee } from '../lib/transferFee';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import {
   PublicKey, Transaction, TransactionInstruction,
@@ -916,8 +917,17 @@ export const WithdrawModal: FC<{
   // Estimate tokens out
   const supply = pool.state?.lpSupply || 1n;
   const share  = supply > 0n ? lpToRemove * 10_000n / supply : 0n;
-  const est0   = pool.vault0Bal * share / 10_000n;
-  const est1   = pool.vault1Bal * share / 10_000n;
+  // Taxed (Token-2022 transfer-fee) tokens lose their tax on the way out of the vault.
+  const [wFee0, setWFee0] = useState<TransferFee | null>(null);
+  const [wFee1, setWFee1] = useState<TransferFee | null>(null);
+  useEffect(() => {
+    let alive = true;
+    if (pool.state?.token0Mint) getTransferFee(connection, pool.state.token0Mint).then(f => { if (alive) setWFee0(f); });
+    if (pool.state?.token1Mint) getTransferFee(connection, pool.state.token1Mint).then(f => { if (alive) setWFee1(f); });
+    return () => { alive = false; };
+  }, [pool.state?.token0Mint, pool.state?.token1Mint, connection]);
+  const est0   = netOf(wFee0, pool.vault0Bal * share / 10_000n);
+  const est1   = netOf(wFee1, pool.vault1Bal * share / 10_000n);
   const dec0   = pool.dec0 || 9;
   const dec1   = pool.dec1 || 9;
 
@@ -1256,10 +1266,20 @@ export const DepositModal: FC<{
       // bounds in the next 16 bytes), so they'll never be charged more than
       // they typed in.
       const supply = pool.state.lpSupply;
+      // A taxed token loses its transfer tax on the way into the vault, and xDEX
+      // charges `vault amount + tax` against the max below. Sizing the LP from the
+      // NET amount keeps the wallet's real spend at or under what was typed;
+      // sizing it from the gross amount failed every deposit above ~4% tax.
+      const [dFee0, dFee1] = await Promise.all([
+        getTransferFee(connection, pool.state.token0Mint),
+        getTransferFee(connection, pool.state.token1Mint),
+      ]);
+      const net0 = netOf(dFee0, raw0);
+      const net1 = netOf(dFee1, raw1);
       let lpAmt: bigint;
       if (supply > 0n && pool.vault0Bal > 0n && pool.vault1Bal > 0n) {
-        const lp0 = raw0 * supply / pool.vault0Bal;
-        const lp1 = raw1 * supply / pool.vault1Bal;
+        const lp0 = net0 * supply / pool.vault0Bal;
+        const lp1 = net1 * supply / pool.vault1Bal;
         const lpMin = lp0 < lp1 ? lp0 : lp1;
         // Subtract 1% as safety margin (or 1 unit, whichever is greater)
         const margin = lpMin / 100n;
@@ -1366,6 +1386,12 @@ export const DepositModal: FC<{
       }
 
       tx.add(ix);
+
+      // The pool takes slightly less than was wrapped (the LP amount is shaved 1%,
+      // and more when the other side is a taxed token), so close the wXNT account
+      // afterwards to hand the unused part back as native XNT — same as withdraw.
+      if (isMint0Native) tx.add(createCloseAccountInstruction(token0Ata, publicKey, publicKey));
+      if (isMint1Native) tx.add(createCloseAccountInstruction(token1Ata, publicKey, publicKey));
 
       setStatus('Waiting for wallet approval…');
       const signed = await signTransaction(tx);
