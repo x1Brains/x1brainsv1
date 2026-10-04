@@ -26,7 +26,9 @@ use anchor_spl::token_2022::spl_token_2022::{
 use anchor_spl::token_2022::spl_token_2022::extension::transfer_fee::instruction::{
     harvest_withheld_tokens_to_mint,
     withdraw_withheld_tokens_from_mint,
+    set_transfer_fee as set_transfer_fee_ix,
 };
+use anchor_spl::associated_token::AssociatedToken;
 
 #[cfg(not(feature = "no-entrypoint"))]
 use solana_security_txt::security_txt;
@@ -70,6 +72,13 @@ const TIERS: [(u64, u64); 4] = [
     (26, 3_330_000_000),
     (33, 4_440_000_000),
 ];
+
+// ── v1.3: adjustable transfer tax + rewards split ────────────────────────────
+// Hard ceiling on the LB transfer tax. Enforced here, so no admin key — stolen or
+// not — can ever set more than 10% (Token-2022 itself would allow up to 100%).
+pub const MAX_TRANSFER_FEE_BPS: u16 = 1_000;
+pub const BPS_DENOMINATOR:      u64 = 10_000;
+pub const REWARDS_CFG_SEED: &[u8] = b"rewards_cfg";
 
 pub const STATE_SEED:     &[u8] = b"lb_state";
 pub const MINT_AUTH_SEED: &[u8] = b"lb_mint_auth";
@@ -323,6 +332,91 @@ pub mod lb_mint {
         }
         Ok(())
     }
+
+    // ── v1.3 ─────────────────────────────────────────────────────────────────
+    // Everything below is ADDED. The instructions above (and GlobalState) are
+    // unchanged, so existing clients, the site and the fee cron keep working.
+
+    /// Admin: change the LB transfer tax, capped at MAX_TRANSFER_FEE_BPS (10%).
+    /// The mint's fee-config authority is the lb_mint_authority PDA, so only this
+    /// program can sign it. Token-2022 applies a new rate 2 epochs after it is set.
+    pub fn set_transfer_fee(ctx: Context<AdminSetFee>, transfer_fee_bps: u16) -> Result<()> {
+        require!(transfer_fee_bps <= MAX_TRANSFER_FEE_BPS, LbError::FeeTooHigh);
+        let ix = set_transfer_fee_ix(
+            &anchor_spl::token_2022::spl_token_2022::id(),
+            &ctx.accounts.lb_mint.key(),
+            &ctx.accounts.lb_mint_authority.key(),
+            &[],
+            transfer_fee_bps,
+            TRANSFER_FEE_MAX,
+        )?;
+        let bump = ctx.bumps.lb_mint_authority;
+        let seeds: &[&[u8]] = &[MINT_AUTH_SEED, &[bump]];
+        invoke_signed(&ix, &[ctx.accounts.lb_mint.to_account_info(), ctx.accounts.lb_mint_authority.to_account_info()], &[seeds])?;
+        msg!("LB transfer fee set to {} bps (applies 2 epochs from now; cap {} bps)", transfer_fee_bps, MAX_TRANSFER_FEE_BPS);
+        Ok(())
+    }
+
+    /// Admin: create or change the rewards split — `rewards_bps` of every split
+    /// sweep goes to `rewards_wallet`'s LB account, the rest to the treasury.
+    /// 0 = everything to the treasury. Also creates the program's fee vault (the
+    /// lb_mint_authority PDA's LB account) that a split sweep withdraws into.
+    pub fn set_rewards_config(ctx: Context<AdminRewardsConfig>, rewards_wallet: Pubkey, rewards_bps: u16) -> Result<()> {
+        require!(rewards_bps as u64 <= BPS_DENOMINATOR, LbError::BadSplit);
+        let cfg = &mut ctx.accounts.rewards_cfg;
+        cfg.rewards_wallet = rewards_wallet;
+        cfg.rewards_bps    = rewards_bps;
+        cfg.bump           = ctx.bumps.rewards_cfg;
+        msg!("Rewards split: {} bps → {} (rest → treasury)", rewards_bps, rewards_wallet);
+        Ok(())
+    }
+
+    /// Permissionless, like collect_fees: harvest (remaining accounts) →
+    /// withdraw ALL withheld LB into the fee vault → send `rewards_bps` to the
+    /// rewards wallet and the rest to the treasury.
+    /// The two payouts are ordinary transfers, so the LB tax applies to them too;
+    /// that tax is withheld in the recipients' accounts and comes back in the next
+    /// sweep (it recycles, nothing is lost). With rewards_bps = 0 prefer
+    /// collect_fees, which pays the treasury with no second tax.
+    pub fn collect_fees_split<'info>(ctx: Context<'_, '_, '_, 'info, CollectFeesSplit<'info>>) -> Result<()> {
+        let lb_mint_key = ctx.accounts.lb_mint.key();
+        let bump = ctx.bumps.lb_mint_authority;
+        let seeds: &[&[u8]] = &[MINT_AUTH_SEED, &[bump]];
+        let signer = &[seeds];
+
+        if !ctx.remaining_accounts.is_empty() {
+            let source_pubkeys: Vec<&Pubkey> = ctx.remaining_accounts.iter().map(|a| a.key).collect();
+            let harvest_ix = harvest_withheld_tokens_to_mint(&anchor_spl::token_2022::spl_token_2022::id(), &lb_mint_key, source_pubkeys.as_slice())?;
+            let mut infos: Vec<AccountInfo<'info>> = vec![ctx.accounts.lb_mint.to_account_info()];
+            infos.extend(ctx.remaining_accounts.iter().cloned());
+            invoke_signed(&harvest_ix, &infos, &[])?;
+        }
+
+        let withdraw_ix = withdraw_withheld_tokens_from_mint(&anchor_spl::token_2022::spl_token_2022::id(), &lb_mint_key, &ctx.accounts.fee_vault.key(), &ctx.accounts.lb_mint_authority.key(), &[])?;
+        invoke_signed(&withdraw_ix, &[ctx.accounts.lb_mint.to_account_info(), ctx.accounts.fee_vault.to_account_info(), ctx.accounts.lb_mint_authority.to_account_info()], signer)?;
+
+        ctx.accounts.fee_vault.reload()?;
+        let total = ctx.accounts.fee_vault.amount;
+        let to_rewards = (total as u128 * ctx.accounts.rewards_cfg.rewards_bps as u128 / BPS_DENOMINATOR as u128) as u64;
+        let to_treasury = total - to_rewards;
+
+        let pay = |to: AccountInfo<'info>, amount: u64| -> Result<()> {
+            if amount == 0 { return Ok(()); }
+            token_interface::transfer_checked(
+                CpiContext::new_with_signer(ctx.accounts.token_2022_program.to_account_info(), TransferChecked {
+                    from: ctx.accounts.fee_vault.to_account_info(),
+                    mint: ctx.accounts.lb_mint.to_account_info(),
+                    to,
+                    authority: ctx.accounts.lb_mint_authority.to_account_info(),
+                }, signer),
+                amount, LB_DECIMALS,
+            )
+        };
+        pay(ctx.accounts.rewards_lb_ata.to_account_info(), to_rewards)?;
+        pay(ctx.accounts.treasury_lb_ata.to_account_info(), to_treasury)?;
+        msg!("Fees split: {} raw total → {} rewards ({} bps), {} treasury", total, to_rewards, ctx.accounts.rewards_cfg.rewards_bps, to_treasury);
+        Ok(())
+    }
 }
 
 #[account]
@@ -458,6 +552,75 @@ pub struct ComboMintLb<'info> {
     pub system_program:     Program<'info, System>,
 }
 
+// ── v1.3 accounts ────────────────────────────────────────────────────────────
+#[account]
+pub struct RewardsConfig {
+    pub rewards_wallet: Pubkey,
+    pub rewards_bps:    u16,
+    pub bump:           u8,
+    pub _reserved:      [u8; 32],
+}
+impl RewardsConfig {
+    pub const LEN: usize = 8 + 32 + 2 + 1 + 32; // = 75
+}
+
+#[derive(Accounts)]
+pub struct AdminSetFee<'info> {
+    #[account(constraint = admin.key() == state.admin @ LbError::Unauthorized)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [STATE_SEED], bump = state.bump)]
+    pub state: Account<'info, GlobalState>,
+    /// CHECK: LB mint (fee config lives in it)
+    #[account(mut, seeds = [LB_MINT_SEED], bump)]
+    pub lb_mint: AccountInfo<'info>,
+    /// CHECK: PDA — the mint's transfer-fee config authority
+    #[account(seeds = [MINT_AUTH_SEED], bump)]
+    pub lb_mint_authority: AccountInfo<'info>,
+    pub token_2022_program: Program<'info, Token2022>,
+}
+
+#[derive(Accounts)]
+pub struct AdminRewardsConfig<'info> {
+    #[account(mut, constraint = admin.key() == state.admin @ LbError::Unauthorized)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [STATE_SEED], bump = state.bump)]
+    pub state: Account<'info, GlobalState>,
+    #[account(init_if_needed, payer = admin, space = RewardsConfig::LEN, seeds = [REWARDS_CFG_SEED], bump)]
+    pub rewards_cfg: Account<'info, RewardsConfig>,
+    #[account(seeds = [LB_MINT_SEED], bump)]
+    pub lb_mint: InterfaceAccount<'info, Mint>,
+    /// CHECK: PDA — owns the fee vault
+    #[account(seeds = [MINT_AUTH_SEED], bump)]
+    pub lb_mint_authority: AccountInfo<'info>,
+    /// The program's LB account that split sweeps withdraw into.
+    #[account(init_if_needed, payer = admin, associated_token::mint = lb_mint, associated_token::authority = lb_mint_authority, associated_token::token_program = token_2022_program)]
+    pub fee_vault: InterfaceAccount<'info, TokenAccount>,
+    pub token_2022_program: Program<'info, Token2022>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CollectFeesSplit<'info> {
+    #[account(seeds = [STATE_SEED], bump = state.bump)]
+    pub state: Account<'info, GlobalState>,
+    #[account(seeds = [REWARDS_CFG_SEED], bump = rewards_cfg.bump)]
+    pub rewards_cfg: Account<'info, RewardsConfig>,
+    /// CHECK: LB mint
+    #[account(mut, seeds = [LB_MINT_SEED], bump)]
+    pub lb_mint: AccountInfo<'info>,
+    /// CHECK: PDA
+    #[account(seeds = [MINT_AUTH_SEED], bump)]
+    pub lb_mint_authority: AccountInfo<'info>,
+    #[account(mut, associated_token::mint = lb_mint, associated_token::authority = lb_mint_authority, associated_token::token_program = token_2022_program)]
+    pub fee_vault: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut, constraint = treasury_lb_ata.owner == TREASURY_KEY @ LbError::InvalidTreasury, constraint = treasury_lb_ata.mint == state.lb_mint @ LbError::InvalidAta)]
+    pub treasury_lb_ata: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut, constraint = rewards_lb_ata.owner == rewards_cfg.rewards_wallet @ LbError::InvalidRewardsWallet, constraint = rewards_lb_ata.mint == state.lb_mint @ LbError::InvalidAta)]
+    pub rewards_lb_ata: InterfaceAccount<'info, TokenAccount>,
+    pub token_2022_program: Program<'info, Token2022>,
+}
+
 #[error_code]
 pub enum LbError {
     #[msg("Minting is paused")]                                    Paused,
@@ -482,4 +645,8 @@ pub enum LbError {
     #[msg("Unauthorized")]                                         Unauthorized,
     #[msg("Math overflow")]                                        Overflow,
     #[msg("URI too long (max 200 chars)")]                         UriTooLong,
+    // v1.3 — appended so every earlier error keeps its number
+    #[msg("Transfer fee above the 10% cap")]                       FeeTooHigh,
+    #[msg("Rewards split must be 0..=10000 bps")]                  BadSplit,
+    #[msg("Rewards account is not owned by the configured rewards wallet")] InvalidRewardsWallet,
 }

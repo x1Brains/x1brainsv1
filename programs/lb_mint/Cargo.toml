@@ -18,5 +18,5 @@ default = []
 
 [dependencies]
 anchor-lang         = { version = "0.32.1", features = ["init-if-needed"] }
-anchor-spl          = { version = "0.32.1", features = ["token", "token_2022", "token_2022_extensions"] }
+anchor-spl          = { version = "0.32.1", features = ["token", "token_2022", "token_2022_extensions", "associated_token"] }
 solana-security-txt = "1.1.1"
