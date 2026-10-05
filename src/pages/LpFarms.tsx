@@ -137,7 +137,14 @@ export interface FarmOnChain {
   closed:                boolean;
   // Derived
   vaultBalance:          bigint;
+  /** Reward tokens NOT yet earned by anyone (vault − owed). What the runway runs on. */
+  rewardsLeftRaw:        bigint;
+  /** Earned by stakers but not claimed yet (recorded + accrued since the last settle). */
+  owedRaw:               bigint;
+  /** Days of rewards left at the current rate, assuming someone stays staked. */
   runwayDays:            number;
+  /** Unix seconds when rewards run out at the current rate (0 if no rate). */
+  runsOutTs:             number;
   rewardPriceUsd:        number;
   lpPriceUsd:            number;
   lpDecimals:            number;       // read from lp_mint at fetch time
@@ -513,13 +520,26 @@ async function _parseFarms(
                        : rewardMint === LB_MINT     ? 'LB/XNT LP'
                        : 'LP';
 
-        // Runway: vaultBalance (raw) / (rate/ACC_PRECISION) = seconds
-        // rate is scaled, so: raw_rate_per_sec = rate / ACC_PRECISION
-        // runway_secs = vaultBalance * ACC_PRECISION / rate
-        const runwaySecs = rewardRate > 0n
-          ? Number((vaultBalance * ACC_PRECISION) / rewardRate)
-          : 0;
-        const runwayDays = Math.floor(runwaySecs / 86_400);
+        // Runway — mirrors the program's settle_farm (accumulator.rs):
+        //   owed  = total_pending_rewards (recorded) + what accrued since last_update_ts
+        //           (only while total_effective > 0, capped at the un-earmarked balance)
+        //   left  = vault − owed            ← tokens nobody has earned yet
+        //   days  = left / (rate / ACC_PRECISION) / 86 400
+        // The old figure divided the WHOLE vault by the rate, counting tokens stakers
+        // already earned, so it overstated the runway (10-05: ~249 d shown vs ~203 d real
+        // before the cut). Emissions pause while nobody is staked, so this is a floor date.
+        const nowS        = Math.floor(Date.now() / 1000);
+        // explicit BigInt(): this file has no Node Buffer types, so the reads above are loosely typed
+        const vaultB = BigInt(vaultBalance), pendB = BigInt(totalPending), effB = BigInt(totalEffect), rateB = BigInt(rewardRate);
+        const elapsed     = BigInt(Math.max(0, nowS - lastUpdateTs));
+        const unmarked: bigint = vaultB > pendB ? vaultB - pendB : 0n;
+        let   accruedNow: bigint = effB > 0n ? (elapsed * rateB) / ACC_PRECISION : 0n;
+        if (accruedNow > unmarked) accruedNow = unmarked;
+        const rewardsLeftRaw: bigint = unmarked - accruedNow;
+        const owedRaw: bigint        = vaultB - rewardsLeftRaw;
+        const runwaySecs = rateB > 0n ? Number((rewardsLeftRaw * ACC_PRECISION) / rateB) : 0;
+        const runwayDays = runwaySecs / 86_400;
+        const runsOutTs  = rateB > 0n ? nowS + runwaySecs : 0;
 
         // Prices — reward from Prism feed, LP computed from pool reserves
         const rewardPriceUsd = await fetchPrice(rewardMint);
@@ -575,7 +595,7 @@ async function _parseFarms(
           totalEmitted,
           startTs,
           paused, closed,
-          vaultBalance, runwayDays,
+          vaultBalance, rewardsLeftRaw, owedRaw, runwayDays, runsOutTs,
           rewardPriceUsd, lpPriceUsd,
           lpDecimals, rewardDecimals,
           otherTokenLogo, xntLogo, otherTokenSymbol,

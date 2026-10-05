@@ -52,6 +52,45 @@ type ModalState = {
   position?: PositionOnChain | null;
 };
 
+// Rewards runway strip under each farm row (10-05): how much is left in the reward vault
+// for stakers to still be paid, the daily rate, and when it runs out at that rate.
+// Numbers come from LpFarms.fetchFarms, which mirrors the program's settle_farm maths.
+function FarmRunway({ farm, accent }: { farm: FarmOnChain; accent: string }) {
+  const dec      = pow10(farm.rewardDecimals);
+  const left     = Number(farm.rewardsLeftRaw) / dec;
+  const owed     = Number(farm.owedRaw) / dec;
+  const perDay   = (Number(farm.rewardRatePerSec) / 1e18) * 86_400 / dec;
+  const emitted  = Number(farm.totalEmitted) / dec;
+  const pctLeft  = left + emitted > 0 ? (left / (left + emitted)) * 100 : 0;
+  const days     = farm.runwayDays;
+  const tone     = farm.closed || perDay === 0 ? '#6a8aaa' : days >= 180 ? '#00c98d' : days >= 60 ? '#ffb700' : '#ff5a5a';
+  const until    = farm.runsOutTs ? new Date(farm.runsOutTs * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+  const usd      = left * farm.rewardPriceUsd;
+  const dp       = left >= 1000 ? 0 : 2;
+  return (
+    <div className="lf9-runway">
+      <div className="lf9-runway-main">
+        <span className="lbl">Rewards runway</span>
+        {farm.closed ? <span className="days" style={{ color: tone }}>Farm closed</span>
+          : perDay === 0 ? <span className="days" style={{ color: tone }}>No emissions set</span>
+          : <>
+              <span className="days" style={{ color: tone }}>~{days >= 10 ? Math.round(days) : days.toFixed(1)} days</span>
+              <span className="until">until {until}</span>
+            </>}
+      </div>
+      <div className="lf9-runway-bar" title={`${pctLeft.toFixed(1)}% of all rewards ever funded is still left`}>
+        <div style={{ width: `${Math.min(100, Math.max(0, pctLeft))}%`, background: tone }} />
+      </div>
+      <div className="lf9-runway-facts">
+        <span><b>{fmtNum(left, dp)}</b> {farm.rewardSymbol} left{usd > 0 ? ` (≈${fmtUSD(usd)})` : ''}</span>
+        <span>pays <b style={{ color: accent }}>{fmtNum(perDay, perDay >= 100 ? 0 : 2)}</b> {farm.rewardSymbol}/day</span>
+        <span><b>{fmtNum(owed, owed >= 1000 ? 0 : 2)}</b> {farm.rewardSymbol} earned, not yet claimed</span>
+        {farm.totalEffective === 0n && !farm.closed && <span className="note">paused while nobody is staked</span>}
+      </div>
+    </div>
+  );
+}
+
 export default function V2LpPools() {
   const { connection } = useConnection();
   const { connected, publicKey } = useWallet();
@@ -256,6 +295,7 @@ export default function V2LpPools() {
                         Fund
                       </button>
                     </div>
+                    <FarmRunway farm={farm} accent={accent} />
                   </div>
                 );
               })}

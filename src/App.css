@@ -3712,6 +3712,18 @@
 .lf9-thead .right { text-align: right; }
 .lf9-row { padding: 18px 20px; background: var(--v2-glow-soft), rgba(13,21,32,.55); border: 1px solid rgba(255,255,255,.07); border-radius: 14px; transition: border-color .18s, background .18s; }
 .lf9-row:hover { border-color: rgba(242,144,48,.22); }
+/* rewards runway strip under each farm row */
+.lf9-runway { grid-column: 1 / -1; margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.06); display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; align-items: center; }
+.lf9-runway-main { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; }
+.lf9-runway-main .lbl { font-family: 'Orbitron', monospace; font-size: 8.5px; letter-spacing: 1.5px; text-transform: uppercase; color: #4a6a8a; font-weight: 700; }
+.lf9-runway-main .days { font-family: 'Orbitron', monospace; font-size: 13px; font-weight: 800; }
+.lf9-runway-main .until { font-size: 10px; color: #6a8aaa; }
+.lf9-runway-bar { height: 5px; background: rgba(138,154,184,.12); border-radius: 3px; overflow: hidden; }
+.lf9-runway-bar > div { height: 100%; border-radius: 3px; }
+.lf9-runway-facts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 10px; color: #6a8aaa; }
+.lf9-runway-facts b { color: #c8dcf0; font-weight: 700; }
+.lf9-runway-facts .note { color: #ffb700; }
+@media (max-width: 760px) { .lf9-runway { grid-template-columns: 1fr; } .lf9-runway-main { white-space: normal; flex-wrap: wrap; } }
 .lf9-pair { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .lf9-pair-txt { min-width: 0; }
 .lf9-pair-txt .name { font-family: 'Orbitron', monospace; font-size: 12px; font-weight: 700; color: #e0f0ff; letter-spacing: .4px; white-space: nowrap; display: flex; align-items: center; gap: 7px; }
