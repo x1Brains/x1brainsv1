@@ -17,10 +17,13 @@
 // the live collections, 2026-08-18.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Ordered by (speed x reliability) for browser <img> loads. */
+/** Ordered by (speed x reliability) for browser <img> loads.
+ *  10-05 re-measure: ipfs.io, dweb.link, nftstorage.link and w3s.link all answer 429
+ *  ("switching to a service worker gateway only"); Solaris serves in ~0.5 s, Pinata in 6-9 s. */
 export const IPFS_GATEWAYS = [
-  'https://ipfs.io/ipfs/',
+  'https://solarisprime.xyz/ipfs/',
   'https://gateway.pinata.cloud/ipfs/',
+  'https://ipfs.io/ipfs/',
   'https://dweb.link/ipfs/',
   'https://nftstorage.link/ipfs/',
 ] as const;

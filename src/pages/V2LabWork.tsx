@@ -25,7 +25,7 @@ import {
 } from '../lib/solarisIndexer';
 import type { SolarisCollection } from '../lib/solarisIndexer';
 import { shortAddr } from '../utils/v2format';
-import { identifyCollection, collectionImageFor, unnamedCollectionKeys, nameCollection } from '../lib/verifiedCollections';
+import { identifyCollection, collectionImageFor, incompleteCollectionKeys, completeCollection } from '../lib/verifiedCollections';
 import { METADATA_PROGRAM_ID_STRING } from '../constants';
 import { supabase, getNftMetadataBatch, upsertNftMetadata } from '../lib/supabase';
 import type { NftMetaRow } from '../lib/supabase';
@@ -64,7 +64,7 @@ async function fetchToken2022MetaUris(connection: any, mint: string): Promise<st
 // reliably; corsproxy.io handles any host so it's the failsafe.
 function resolveUri(u: string): string {
   return u
-    .replace('ipfs://', 'https://nftstorage.link/ipfs/')
+    .replace('ipfs://', 'https://solarisprime.xyz/ipfs/')
     .replace('ar://', 'https://arweave.net/');
 }
 
@@ -331,29 +331,44 @@ export default function V2LabWork() {
     return () => { alive = false; };
   }, []);
 
-  // Trusted collections Solaris lists WITHOUT a name (X1 Ninjas, 10-05) would show as
-  // nameless buckets. Read each one's name from its on-chain collection NFT, once.
+  // Trusted collections Solaris lists WITHOUT a name or portrait (X1 Ninjas has neither,
+  // 10-05) showed as a nameless bucket with an initials tile. Read both from the
+  // collection's own on-chain NFT (metadata name + uri -> JSON image), once per load.
   const [collNameTick, setCollNameTick] = useState(0);
   useEffect(() => {
-    const keys = unnamedCollectionKeys();
+    const keys = incompleteCollectionKeys().slice(0, 100);
     if (keys.length === 0) return;
     let alive = true;
     const META = new PublicKey(METADATA_PROGRAM_ID_STRING);
     const pdas = keys.map(k => PublicKey.findProgramAddressSync(
       [new TextEncoder().encode('metadata'), META.toBytes(), new PublicKey(k).toBytes()], META)[0]);
-    connection.getMultipleAccountsInfo(pdas.slice(0, 100)).then(infos => {
+    (async () => {
+      const infos = await connection.getMultipleAccountsInfo(pdas).catch(() => []);
       if (!alive) return;
-      let named = 0;
-      infos.forEach((info, i) => {
+      const str = (d: Uint8Array, o: number): [string, number] | null => {
+        if (o + 4 > d.length) return null;
+        const n = new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(o, true);
+        if (n > 2048 || o + 4 + n > d.length) return null;
+        return [new TextDecoder().decode(d.slice(o + 4, o + 4 + n)).replace(/\x00/g, '').trim(), o + 4 + n];
+      };
+      let changed = 0;
+      await Promise.all(infos.map(async (info, i) => {
         const d = info?.data;
         if (!d || d.length < 69) return;
-        const n = new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(65, true);
-        if (!n || n > 200 || 69 + n > d.length) return;
-        const name = new TextDecoder().decode(d.slice(69, 69 + n)).replace(/\x00/g, '').trim();
-        if (name) { nameCollection(keys[i], name); named++; }
-      });
-      if (named) setCollNameTick(t => t + 1);
-    }).catch(() => {});
+        const name = str(d, 65); if (!name) return;
+        const sym = str(d, name[1]); if (!sym) return;
+        const uri = str(d, sym[1]);
+        let image: string | undefined;
+        if (uri?.[0]) {
+          const meta = await fetchMetaUniversal(uri[0]).catch(() => null);
+          if (typeof meta?.image === 'string') image = meta.image;
+        }
+        if (!alive) return;
+        completeCollection(keys[i], { name: name[0], image });
+        changed++;
+      }));
+      if (alive && changed) setCollNameTick(t => t + 1);
+    })();
     return () => { alive = false; };
   }, [solarisCollections, connection]);
 
@@ -920,6 +935,7 @@ export default function V2LabWork() {
       const vc = identifyCollection({
         metaUri: l.nftData?.metaUri, name, mint: l.nftMint,
         collectionKey: l.nftData?.collectionKey,
+        creatorKey: l.nftData?.creatorKey,
         collectionName: l.nftData?.collection,
         symbol: l.nftData?.symbol,
       });
@@ -947,6 +963,7 @@ export default function V2LabWork() {
       const vc = identifyCollection({
         metaUri: n.metaUri, name, mint: n.mint,
         collectionKey: n.collectionKey,
+        creatorKey: n.creatorKey,
         collectionName: n.collection,
         symbol: n.symbol,
       });
@@ -1339,8 +1356,12 @@ export default function V2LabWork() {
   // Four tiles, not three.
   const otherCollections = (() => {
     const rest   = collectionStats.filter(c => c.key !== 'brains_elites');
-    const isFeds = (c: { name: string }) => c.name.trim().toLowerCase() === 'feds';
-    return [...rest.filter(isFeds), ...rest.filter(c => !isFeds(c))].slice(0, 4);
+    // Pinned right after Brains Elites: FEDS, then X1 Ninjas (owner, 10-05); rest by listing count.
+    const pin = (c: { name: string }) => {
+      const n = c.name.trim().toLowerCase();
+      return n === 'feds' ? 0 : n.includes('ninja') ? 1 : 2;
+    };
+    return [...rest].sort((a, b) => pin(a) - pin(b)).slice(0, 4);
   })();
   // Unique seller wallets across active listings — a real "holders in market"
   // count (the marketplace program has no holder index, so this is what's true).

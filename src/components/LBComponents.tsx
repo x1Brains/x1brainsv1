@@ -84,12 +84,12 @@ function persistLwCache() {
 const lwMetaCache = makeLRU<any>(300);
 
 // Metaplex PDA data cache — avoids re-fetching same mint across sessions
-const lwPdaCache = makeLRU<{ name: string; symbol: string; uri: string; collectionKey?: string }>(1000);
+const lwPdaCache = makeLRU<{ name: string; symbol: string; uri: string; collectionKey?: string; creatorKey?: string }>(1000);
 
 // Session cache for enriched listing metadata (name/symbol/uri) keyed by nftMint
 // Lives for the browser session only — cleared on refresh, so fresh data on each visit
-const LW_META_SESSION_KEY = 'x1b_lw_meta_v2';   // v2 = entries carry the verified on-chain collection key
-const lwSessionMetaCache = new Map<string, { name: string; symbol: string; uri: string; collectionKey?: string }>();
+const LW_META_SESSION_KEY = 'x1b_lw_meta_v3';   // v3 = entries carry the verified collection key + first verified creator
+const lwSessionMetaCache = new Map<string, { name: string; symbol: string; uri: string; collectionKey?: string; creatorKey?: string }>();
 try {
   const raw = sessionStorage.getItem(LW_META_SESSION_KEY);
   if (raw) Object.entries(JSON.parse(raw)).forEach(([k, v]) => lwSessionMetaCache.set(k, v as any));
@@ -272,6 +272,8 @@ export interface NFTData {
   collection?:  string;
   /** Solaris `collection_key` — the authoritative collection id when known. */
   collectionKey?: string;
+  /** First verified Metaplex creator — collection fallback for NFTs with no collection field (iNFT). */
+  creatorKey?: string;
   image?:       string;
 }
 export interface Listing {
@@ -689,7 +691,7 @@ async function fetchAllListings(connection: any): Promise<Listing[]> {
 // The collection field is only trusted when `verified` is set: that means the
 // collection's update authority signed, so the NFT really belongs to it. An
 // unverified collection field can be written by anyone and is ignored.
-function parseMetaplexPDA(raw: Uint8Array): { name: string; symbol: string; uri: string; collectionKey?: string } | null {
+function parseMetaplexPDA(raw: Uint8Array): { name: string; symbol: string; uri: string; collectionKey?: string; creatorKey?: string } | null {
   if (raw.length < 69) return null;
   try {
     const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
@@ -703,25 +705,33 @@ function parseMetaplexPDA(raw: Uint8Array): { name: string; symbol: string; uri:
     const uL = view.getUint32(o, true); o += 4;
     if (uL > 2048 || o + uL > raw.length) return null;
     const uri = new TextDecoder().decode(raw.slice(o, o + uL)).replace(/\x00/g, '').trim(); o += uL;
-    return { name, symbol, uri, collectionKey: readVerifiedCollection(raw, view, o) };
+    return { name, symbol, uri, ...readVerifiedRefs(raw, view, o) };
   } catch { return null; }
 }
 
 // Walk the rest of a Metaplex metadata account after `uri`:
 // seller_fee u16 · creators Option<Vec<34 B>> · primary_sale bool · is_mutable bool ·
 // edition_nonce Option<u8> · token_standard Option<u8> · collection Option<{ verified bool, key 32 B }>.
-// Returns the collection key only when verified; undefined on anything unexpected.
-function readVerifiedCollection(raw: Uint8Array, view: DataView, o: number): string | undefined {
+// Returns the collection key only when verified, plus the first VERIFIED creator
+// (creator = 32 B address + verified u8 + share u8); undefined on anything unexpected.
+function readVerifiedRefs(raw: Uint8Array, view: DataView, o: number): { collectionKey?: string; creatorKey?: string } {
+  const out: { collectionKey?: string; creatorKey?: string } = {};
   try {
     o += 2;                                                     // seller_fee_basis_points
-    if (raw[o++] === 1) { const n = view.getUint32(o, true); o += 4 + n * 34; }   // creators
+    if (raw[o++] === 1) {                                       // creators
+      const n = view.getUint32(o, true); o += 4;
+      for (let i = 0; i < n && o + 34 <= raw.length; i++, o += 34) {
+        if (!out.creatorKey && raw[o + 32] === 1) out.creatorKey = new PublicKey(raw.slice(o, o + 32)).toBase58();
+      }
+    }
     o += 2;                                                     // primary_sale_happened, is_mutable
     if (raw[o++] === 1) o += 1;                                 // edition_nonce
     if (raw[o++] === 1) o += 1;                                 // token_standard
-    if (raw[o++] !== 1 || o + 33 > raw.length) return undefined; // collection: None / truncated
-    if (raw[o] !== 1) return undefined;                         // present but NOT verified
-    return new PublicKey(raw.slice(o + 1, o + 33)).toBase58();
-  } catch { return undefined; }
+    if (raw[o++] !== 1 || o + 33 > raw.length) return out;      // collection: None / truncated
+    if (raw[o] !== 1) return out;                               // present but NOT verified
+    out.collectionKey = new PublicKey(raw.slice(o + 1, o + 33)).toBase58();
+  } catch { /* keep what we have */ }
+  return out;
 }
 
 function decodeAccountData(d: any): Uint8Array | null {
@@ -771,13 +781,15 @@ async function batchEnrichListings(connection: any, listings: Listing[]): Promis
     if (!cached) return l;
     if (l.nftData?.name) {
       // Another pass already filled the name; still attach the on-chain collection key.
-      return cached.collectionKey && !l.nftData.collectionKey
-        ? { ...l, nftData: { ...l.nftData, collectionKey: cached.collectionKey } } : l;
+      const add: Partial<NFTData> = {};
+      if (cached.collectionKey && !l.nftData.collectionKey) add.collectionKey = cached.collectionKey;
+      if (cached.creatorKey && !l.nftData.creatorKey) add.creatorKey = cached.creatorKey;
+      return Object.keys(add).length ? { ...l, nftData: { ...l.nftData, ...add } } : l;
     }
     const base: NFTData = {
       mint: l.nftMint, name: cached.name || l.nftMint.slice(0,8)+'…',
       symbol: cached.symbol, balance: 1, decimals: 0, isToken2022: false, metaUri: cached.uri,
-      collectionKey: cached.collectionKey,
+      collectionKey: cached.collectionKey, creatorKey: cached.creatorKey,
     };
     return { ...l, nftData: base };
   });

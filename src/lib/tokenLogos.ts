@@ -61,7 +61,7 @@ export function normalizeLogoUrl(u: string | null | undefined): string | null {
   const s = String(u).trim();
   if (!s) return null;
   return s
-    .replace(/^ipfs:\/\//i, 'https://nftstorage.link/ipfs/')
+    .replace(/^ipfs:\/\//i, 'https://solarisprime.xyz/ipfs/')
     .replace(/^ar:\/\//i,   'https://arweave.net/');
 }
 

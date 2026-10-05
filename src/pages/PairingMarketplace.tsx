@@ -494,7 +494,7 @@ const HARDCODED_META: Record<string, { symbol: string; name: string; decimals: n
  */
 async function fetchMetaJson(uri: string): Promise<any | null> {
   const direct = uri
-    .replace(/^ipfs:\/\//i, 'https://nftstorage.link/ipfs/')
+    .replace(/^ipfs:\/\//i, 'https://solarisprime.xyz/ipfs/')
     .replace(/^ar:\/\//i,   'https://arweave.net/');
   try {
     const r = await fetch(direct, { signal: AbortSignal.timeout(9000) });

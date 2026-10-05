@@ -267,7 +267,7 @@ const norm = (s: string | undefined) => (s ?? '').trim().toLowerCase();
 function gatewayUrl(u: string | undefined): string | undefined {
   if (!u) return undefined;
   return u
-    .replace(/^ipfs:\/\//, 'https://nftstorage.link/ipfs/')
+    .replace(/^ipfs:\/\//, 'https://solarisprime.xyz/ipfs/')
     .replace(/^ar:\/\//,   'https://arweave.net/');
 }
 
@@ -366,22 +366,36 @@ export function registerDynamicCollections(cols: DynamicCollectionInput[]): void
   }
 }
 
-/** Trusted collections Solaris lists WITHOUT a name (e.g. X1 Ninjas, 10-05) — their
- *  collection keys, so the caller can read the name from the on-chain collection NFT. */
-export function unnamedCollectionKeys(): string[] {
+/** Trusted collections Solaris lists WITHOUT a name or portrait (X1 Ninjas has neither,
+ *  10-05) — their keys, so the caller can read both from the on-chain collection NFT. */
+export function incompleteCollectionKeys(): string[] {
   const out = new Set<string>();
-  for (const [key, target] of dynamicByKey) if (!target.name) out.add(key);
+  for (const [key, target] of dynamicByKey) if (!target.name || !target.image) out.add(key);
   return [...out];
 }
 
-/** Give a name-less trusted collection its on-chain name. Only fills an EMPTY name. */
-export function nameCollection(key: string, name: string): void {
+/** True when `key` is a trusted collection key (hardcoded or Solaris allowed/verified). */
+export function isTrustedCollectionKey(key: string | undefined): boolean {
+  return !!key && dynamicByKey.has(key);
+}
+
+/** Fill a trusted collection's EMPTY name / portrait from its on-chain collection NFT.
+ *  A leading "The " is dropped ("The X1 Ninjas" -> "X1 Ninjas") so it fits the tiles. */
+export function completeCollection(key: string, info: { name?: string; image?: string }): void {
   const target = dynamicByKey.get(key);
-  const n = name.trim();
-  if (!target || target.name || !n) return;
-  target.name = n;
-  if (!dynamicByName.has(norm(n))) dynamicByName.set(norm(n), target);
-  dynamicRevision++;
+  if (!target) return;
+  const n = (info.name ?? '').trim().replace(/^the\s+/i, '');
+  if (!target.name && n) {
+    target.name = n;
+    if (!dynamicByName.has(norm(n))) dynamicByName.set(norm(n), target);
+    dynamicRevision++;
+  }
+  const img = gatewayUrl(info.image);
+  if (!target.image && img) {
+    target.image = img;
+    imageByKey.set(key, img); imageByKey.set(target.id, img);
+    dynamicRevision++;
+  }
 }
 
 /** Portrait for a bucket id or a raw Solaris collection_key. */
@@ -403,6 +417,9 @@ export function identifyCollection(opts: {
   mint?: string;
   /** Solaris `collection_key` — the strongest signal when we have it. */
   collectionKey?: string;
+  /** First VERIFIED creator. Some collections (iNFT) have no collection field and
+   *  Solaris keys them by this address instead. */
+  creatorKey?: string;
   /** Collection name reported by the indexer / metadata JSON. */
   collectionName?: string;
   symbol?: string;
@@ -424,6 +441,10 @@ export function identifyCollection(opts: {
   if (opts.collectionKey) {
     const byKey = dynamicByKey.get(opts.collectionKey);
     if (byKey) return byKey;
+  }
+  if (opts.creatorKey) {
+    const byCreator = dynamicByKey.get(opts.creatorKey);
+    if (byCreator) return byCreator;
   }
   // 3) Fall back to the collection name / symbol reported alongside the NFT.
   //    This is what rescues NFTs painted from the Supabase metadata cache,

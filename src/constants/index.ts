@@ -51,10 +51,13 @@ export const FEE_BPS   = 188;   // ~1.888% in basis points (rounded)
 export const BPS_DENOM = 10_000;
 
 // ── IPFS Gateways ────────────────────────────
+// 10-05: ipfs.io / dweb.link / nftstorage.link / w3s.link now answer 429 ("switching to a
+// service worker gateway only") and cloudflare-ipfs is gone. Solaris (~0.5 s) and Pinata
+// (6-9 s) are the ones that still serve. Old ones stay last as a long shot.
 export const IPFS_GATEWAYS = [
-  'https://ipfs.io/ipfs/',
-  'https://cloudflare-ipfs.com/ipfs/',
+  'https://solarisprime.xyz/ipfs/',
   'https://gateway.pinata.cloud/ipfs/',
+  'https://ipfs.io/ipfs/',
   'https://dweb.link/ipfs/',
 ];
 

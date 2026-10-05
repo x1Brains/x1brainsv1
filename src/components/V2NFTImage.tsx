@@ -37,7 +37,7 @@ import { imageCandidates } from '../utils/ipfsGateways';
 
 function resolveGateway(u: string): string {
   return u
-    .replace('ipfs://', 'https://nftstorage.link/ipfs/')
+    .replace('ipfs://', 'https://solarisprime.xyz/ipfs/')
     .replace('ar://',   'https://arweave.net/');
 }
 

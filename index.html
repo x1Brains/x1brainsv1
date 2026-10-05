@@ -4,6 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#080c0f" />
+    <!--  ICONS (10-05). There were none: no <link rel="icon">, and /favicon.ico fell through
+          to index.html, so tabs and Google results showed a blank globe. Google wants a
+          square icon that is a multiple of 48 px; all made from public/brains-logo.png. -->
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <!--  Tells search engines the site's name and logo. -->
+    <script type="application/ld+json">
+      {"@context":"https://schema.org","@graph":[
+        {"@type":"WebSite","name":"X1 Brains","url":"https://x1brains.io/"},
+        {"@type":"Organization","name":"X1 Brains","url":"https://x1brains.io/","logo":"https://x1brains.io/icon-192.png","sameAs":["https://x.com/X1Brains"]}
+      ]}
+    </script>
     <title>X1 BRAINS · v2</title>
 
     <!--  LINK PREVIEWS — Open Graph + Twitter Cards.
