@@ -61,11 +61,16 @@ function FarmRunway({ farm, accent }: { farm: FarmOnChain; accent: string }) {
   const owed     = Number(farm.owedRaw) / dec;
   const perDay   = (Number(farm.rewardRatePerSec) / 1e18) * 86_400 / dec;
   const emitted  = Number(farm.totalEmitted) / dec;
+  // Paid out = earned and actually CLAIMED to wallets: total_emitted − total_pending_rewards
+  // (both as of the last settle). USD values use today's price, not the price at claim time.
+  const paidOut  = Math.max(0, Number(BigInt(farm.totalEmitted) - BigInt(farm.totalPendingRewards)) / dec);
+  const px       = farm.rewardPriceUsd;
+  const usdOf    = (n: number) => (px > 0 && n > 0 ? ` (≈${fmtUSD(n * px)})` : '');
+  const since    = farm.startTs ? new Date(farm.startTs * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
   const pctLeft  = left + emitted > 0 ? (left / (left + emitted)) * 100 : 0;
   const days     = farm.runwayDays;
   const tone     = farm.closed || perDay === 0 ? '#6a8aaa' : days >= 180 ? '#00c98d' : days >= 60 ? '#ffb700' : '#ff5a5a';
   const until    = farm.runsOutTs ? new Date(farm.runsOutTs * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
-  const usd      = left * farm.rewardPriceUsd;
   const dp       = left >= 1000 ? 0 : 2;
   return (
     <div className="lf9-runway">
@@ -82,9 +87,10 @@ function FarmRunway({ farm, accent }: { farm: FarmOnChain; accent: string }) {
         <div style={{ width: `${Math.min(100, Math.max(0, pctLeft))}%`, background: tone }} />
       </div>
       <div className="lf9-runway-facts">
-        <span><b>{fmtNum(left, dp)}</b> {farm.rewardSymbol} left{usd > 0 ? ` (≈${fmtUSD(usd)})` : ''}</span>
-        <span>pays <b style={{ color: accent }}>{fmtNum(perDay, perDay >= 100 ? 0 : 2)}</b> {farm.rewardSymbol}/day</span>
-        <span><b>{fmtNum(owed, owed >= 1000 ? 0 : 2)}</b> {farm.rewardSymbol} earned, not yet claimed</span>
+        <span><b>{fmtNum(left, dp)}</b> {farm.rewardSymbol} left{usdOf(left)}</span>
+        <span>pays <b style={{ color: accent }}>{fmtNum(perDay, perDay >= 100 ? 0 : 2)}</b> {farm.rewardSymbol}/day{usdOf(perDay)}</span>
+        <span className="paid">paid out <b>{fmtNum(paidOut, paidOut >= 1000 ? 0 : 2)}</b> {farm.rewardSymbol}{usdOf(paidOut)}{since ? ` since ${since}` : ''}</span>
+        <span><b>{fmtNum(owed, owed >= 1000 ? 0 : 2)}</b> {farm.rewardSymbol} earned, not yet claimed{usdOf(owed)}</span>
         {farm.totalEffective === 0n && !farm.closed && <span className="note">paused while nobody is staked</span>}
       </div>
     </div>

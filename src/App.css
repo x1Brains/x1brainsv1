@@ -3723,6 +3723,7 @@
 .lf9-runway-facts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 10px; color: #6a8aaa; }
 .lf9-runway-facts b { color: #c8dcf0; font-weight: 700; }
 .lf9-runway-facts .note { color: #ffb700; }
+.lf9-runway-facts .paid b { color: #00c98d; }
 @media (max-width: 760px) { .lf9-runway { grid-template-columns: 1fr; } .lf9-runway-main { white-space: normal; flex-wrap: wrap; } }
 .lf9-pair { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .lf9-pair-txt { min-width: 0; }
