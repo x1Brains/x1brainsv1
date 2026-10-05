@@ -16,7 +16,7 @@ import {
 } from '../components/LBComponents';
 import V2NFTDetailModal from '../components/V2NFTDetailModal';
 import V2NFTImage from '../components/V2NFTImage';
-import { imageCandidates } from '../utils/ipfsGateways';
+import { imageCandidates, liveGatewayUrl } from '../utils/ipfsGateways';
 import V2MarketModal, { type MarketTarget } from '../components/V2MarketModal';
 import V2BoostModal, { type BoostTarget } from '../components/V2BoostModal';
 import { fetchMarketStats, getCachedMarketStats } from '../lib/marketStats';
@@ -63,9 +63,9 @@ async function fetchToken2022MetaUris(connection: any, mint: string): Promise<st
 // The vite local proxy (`/api/nft-meta/HOST/path`) only routes one host
 // reliably; corsproxy.io handles any host so it's the failsafe.
 function resolveUri(u: string): string {
-  return u
+  return liveGatewayUrl(u
     .replace('ipfs://', 'https://solarisprime.xyz/ipfs/')
-    .replace('ar://', 'https://arweave.net/');
+    .replace('ar://', 'https://arweave.net/'));
 }
 
 // Multi-strategy fetch with detailed diagnostic logging. Tries:

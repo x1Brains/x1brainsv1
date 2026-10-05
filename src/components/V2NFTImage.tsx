@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 // Persistent localStorage cache for resolved image URLs.
 // v2 -> v3: v2 rows were written by a fetchJsonMulti that reported the
@@ -33,12 +33,14 @@ function persist() {
   }, 800);
 }
 
-import { imageCandidates } from '../utils/ipfsGateways';
+import { imageCandidates, collectionRescues, liveGatewayUrl } from '../utils/ipfsGateways';
 
 function resolveGateway(u: string): string {
-  return u
+  // liveGatewayUrl also moves saved https://ipfs.io/... (dead gateway) links to a live one —
+  // on-chain metadata URIs use it too (Genesis Stone / Aurora Borealis, 10-05).
+  return liveGatewayUrl(u
     .replace('ipfs://', 'https://solarisprime.xyz/ipfs/')
-    .replace('ar://',   'https://arweave.net/');
+    .replace('ar://',   'https://arweave.net/'));
 }
 
 function isImageUrl(u: string): boolean {
@@ -147,6 +149,19 @@ export default function V2NFTImage({ src, name, priority = false, width = 600, f
   /** Extension/path guesses for metadata that would not resolve. Tried in the
    *  <img> error chain; never cached, because a guess is not an answer. */
   const [guessed, setGuesses] = useState<string[]>([]);
+  // A gateway that HANGS never fires onError, so the card stayed blank on it.
+  // A still-unloaded <img> that has been ON SCREEN for two 4 s ticks in a row moves on
+  // to the next candidate. Off-screen lazy images haven't started loading, so they are
+  // never advanced (the first version skipped them through the whole chain).
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const chainRef = useRef<string[]>([]);
+  const advance = (el: HTMLImageElement): boolean => {
+    const next = Number(el.dataset.try ?? '0') + 1;
+    if (next >= chainRef.current.length) return false;
+    el.dataset.try = String(next);
+    el.src = chainRef.current[next];
+    return true;
+  };
   const [imgUrl, setImgUrl] = useState<string | null | undefined>(() => {
     if (!src) return null;
     if (cache.has(src)) return cache.get(src) ?? null;
@@ -217,6 +232,22 @@ export default function V2NFTImage({ src, name, priority = false, width = 600, f
     return () => { cancelled = true; };
   }, [src]);
 
+  useEffect(() => {
+    if (!imgUrl) return;
+    const id = setInterval(() => {
+      const el = imgRef.current;
+      if (!el) return;
+      if (el.complete && el.naturalWidth > 0) { clearInterval(id); return; }
+      const r = el.getBoundingClientRect();
+      const onScreen = r.width > 0 && r.bottom > 0 && r.top < window.innerHeight;
+      if (!onScreen) { delete el.dataset.seen; return; }
+      if (el.dataset.seen !== el.src) { el.dataset.seen = el.src; return; }   // first visible tick for this candidate
+      if (!advance(el)) clearInterval(id);
+    }, 4000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imgUrl]);
+
   if (imgUrl === undefined) {
     return (
       <div style={{
@@ -255,10 +286,14 @@ export default function V2NFTImage({ src, name, priority = false, width = 600, f
   // IPFS gateway → any collection-specific rescue host. Two gateways failing is
   // routine (see utils/ipfsGateways), so giving up after one was why listings
   // sat on the broken-image placeholder.
-  const proxied = viaImageCDN(imgUrl, width);
-  const chain = [...new Set([proxied, ...imageCandidates(imgUrl), ...guessed.flatMap(g => imageCandidates(g))])];
+  // Dead-gateway links are moved to a live gateway before the CDN wrap; a collection's
+  // own host (X1 Pups thumbs) goes first when one is known.
+  const proxied = viaImageCDN(liveGatewayUrl(imgUrl), width);
+  const chain = [...new Set([...collectionRescues(imgUrl), proxied, ...imageCandidates(imgUrl), ...guessed.flatMap(g => imageCandidates(g))])];
+  chainRef.current = chain;
   return (
     <img
+      ref={imgRef}
       src={chain[0]}
       alt={name || 'NFT'}
       loading={priority ? 'eager' : 'lazy'}
@@ -267,12 +302,7 @@ export default function V2NFTImage({ src, name, priority = false, width = 600, f
       decoding="async"
       onError={(e) => {
         const el = e.currentTarget as HTMLImageElement;
-        const next = Number(el.dataset.try ?? '0') + 1;
-        if (next < chain.length) {
-          el.dataset.try = String(next);
-          el.src = chain[next];
-          return;
-        }
+        if (advance(el)) return;
         // Every candidate failed — mark and show the placeholder.
         cache.set(src!, null);
         persist();

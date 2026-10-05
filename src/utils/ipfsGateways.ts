@@ -46,7 +46,7 @@ export function ipfsPathOf(url: string): string | null {
  * collection's own site serves every edition at /thumbs/pup_<4-digit>.jpg,
  * verified against pup_0001 / pup_0039 / pup_0775.
  */
-function collectionRescues(url: string): string[] {
+export function collectionRescues(url: string): string[] {
   const out: string[] = [];
   const pup = /pup[_-]?(\d{1,4})\.(?:png|jpe?g|webp|gif)$/i.exec(url);
   if (pup) out.push(`https://x1pups.vercel.app/thumbs/pup_${pup[1].padStart(4, '0')}.jpg`);
@@ -77,12 +77,26 @@ function viaSameOriginProxy(url: string): string | null {
  * the same-origin proxy for each gateway as the always-works last resort.
  * Always includes the original so a non-IPFS URL still gets its turn.
  */
+/** Gateways that stopped serving (10-05: 429 "service worker gateway only" / gone).
+ *  Saved links on these hosts (the DB holds many `https://ipfs.io/ipfs/…`) are moved
+ *  to a live gateway BEFORE the first try instead of failing first. */
+const DEAD_GATEWAY_HOSTS = ['ipfs.io', 'dweb.link', 'nftstorage.link', 'w3s.link', 'cloudflare-ipfs.com'];
+export function liveGatewayUrl(url: string): string {
+  const path = ipfsPathOf(url);
+  if (!path) return url;
+  let host = '';
+  try { host = new URL(url).host.toLowerCase(); } catch { /* ipfs:// etc. */ }
+  return (!host || DEAD_GATEWAY_HOSTS.some(h => host === h || host.endsWith('.' + h)))
+    ? IPFS_GATEWAYS[0] + path : url;
+}
+
 export function imageCandidates(url: string): string[] {
   if (!url) return [];
-  const out: string[] = [url];
+  // A collection's own host first: it is the known-good copy (X1 Pups thumbs) and a
+  // hanging IPFS gateway in front of it left the card blank (Alpha Leak, 10-05).
+  const out: string[] = [...collectionRescues(url), liveGatewayUrl(url), url];
   const path = ipfsPathOf(url);
   if (path) for (const gw of IPFS_GATEWAYS) out.push(gw + path);
-  out.push(...collectionRescues(url));
   // Proxied last — an extra hop, only worth paying once the direct ones lose.
   const proxied = [url, ...(path ? IPFS_GATEWAYS.map(gw => gw + path) : [])]
     .map(viaSameOriginProxy)
