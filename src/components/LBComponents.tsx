@@ -84,12 +84,12 @@ function persistLwCache() {
 const lwMetaCache = makeLRU<any>(300);
 
 // Metaplex PDA data cache — avoids re-fetching same mint across sessions
-const lwPdaCache = makeLRU<{ name: string; symbol: string; uri: string }>(1000);
+const lwPdaCache = makeLRU<{ name: string; symbol: string; uri: string; collectionKey?: string }>(1000);
 
 // Session cache for enriched listing metadata (name/symbol/uri) keyed by nftMint
 // Lives for the browser session only — cleared on refresh, so fresh data on each visit
-const LW_META_SESSION_KEY = 'x1b_lw_meta_v1';
-const lwSessionMetaCache = new Map<string, { name: string; symbol: string; uri: string }>();
+const LW_META_SESSION_KEY = 'x1b_lw_meta_v2';   // v2 = entries carry the verified on-chain collection key
+const lwSessionMetaCache = new Map<string, { name: string; symbol: string; uri: string; collectionKey?: string }>();
 try {
   const raw = sessionStorage.getItem(LW_META_SESSION_KEY);
   if (raw) Object.entries(JSON.parse(raw)).forEach(([k, v]) => lwSessionMetaCache.set(k, v as any));
@@ -638,6 +638,20 @@ async function _fetchListingsUncached(connection: any): Promise<Listing[]> {
   return data;
 }
 
+/** Fresh chain read for callers that were just served a cached list (1-15 min old).
+ *  fetchAllListings returns that cache and refreshes in the background, but never
+ *  told anyone, so brand-new listings stayed hidden until a manual refresh (10-05).
+ *  Returns null when the cache is already fresh (< 60 s): no extra RPC, no loop. */
+export function refreshListingsIfStale(connection: any): Promise<Listing[]> | null {
+  if (_listingsCache && Date.now() - _listingsCache.ts < LISTINGS_FRESH_MS) return null;
+  if (!_listingsInflight) {
+    _listingsInflight = _fetchListingsUncached(connection)
+      .catch(() => _listingsCache?.data ?? [])
+      .finally(() => { _listingsInflight = null; });
+  }
+  return _listingsInflight;
+}
+
 async function fetchAllListings(connection: any): Promise<Listing[]> {
   // Fresh cache wins — no RPC at all
   if (_listingsCache && Date.now() - _listingsCache.ts < LISTINGS_FRESH_MS) {
@@ -671,8 +685,11 @@ async function fetchAllListings(connection: any): Promise<Listing[]> {
   return _listingsInflight;
 }
 
-// Parse raw Metaplex PDA bytes into name/symbol/uri
-function parseMetaplexPDA(raw: Uint8Array): { name: string; symbol: string; uri: string } | null {
+// Parse raw Metaplex PDA bytes into name/symbol/uri + the VERIFIED collection key.
+// The collection field is only trusted when `verified` is set: that means the
+// collection's update authority signed, so the NFT really belongs to it. An
+// unverified collection field can be written by anyone and is ignored.
+function parseMetaplexPDA(raw: Uint8Array): { name: string; symbol: string; uri: string; collectionKey?: string } | null {
   if (raw.length < 69) return null;
   try {
     const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
@@ -685,9 +702,26 @@ function parseMetaplexPDA(raw: Uint8Array): { name: string; symbol: string; uri:
     const symbol = new TextDecoder().decode(raw.slice(o, o + sL)).replace(/\x00/g, '').trim(); o += sL;
     const uL = view.getUint32(o, true); o += 4;
     if (uL > 2048 || o + uL > raw.length) return null;
-    const uri = new TextDecoder().decode(raw.slice(o, o + uL)).replace(/\x00/g, '').trim();
-    return { name, symbol, uri };
+    const uri = new TextDecoder().decode(raw.slice(o, o + uL)).replace(/\x00/g, '').trim(); o += uL;
+    return { name, symbol, uri, collectionKey: readVerifiedCollection(raw, view, o) };
   } catch { return null; }
+}
+
+// Walk the rest of a Metaplex metadata account after `uri`:
+// seller_fee u16 · creators Option<Vec<34 B>> · primary_sale bool · is_mutable bool ·
+// edition_nonce Option<u8> · token_standard Option<u8> · collection Option<{ verified bool, key 32 B }>.
+// Returns the collection key only when verified; undefined on anything unexpected.
+function readVerifiedCollection(raw: Uint8Array, view: DataView, o: number): string | undefined {
+  try {
+    o += 2;                                                     // seller_fee_basis_points
+    if (raw[o++] === 1) { const n = view.getUint32(o, true); o += 4 + n * 34; }   // creators
+    o += 2;                                                     // primary_sale_happened, is_mutable
+    if (raw[o++] === 1) o += 1;                                 // edition_nonce
+    if (raw[o++] === 1) o += 1;                                 // token_standard
+    if (raw[o++] !== 1 || o + 33 > raw.length) return undefined; // collection: None / truncated
+    if (raw[o] !== 1) return undefined;                         // present but NOT verified
+    return new PublicKey(raw.slice(o + 1, o + 33)).toBase58();
+  } catch { return undefined; }
 }
 
 function decodeAccountData(d: any): Uint8Array | null {
@@ -734,10 +768,16 @@ async function batchEnrichListings(connection: any, listings: Listing[]): Promis
   // Now enrich all listings from cache (no more RPC calls)
   return listings.map(l => {
     const cached = lwPdaCache.get(l.nftMint);
-    if (!cached || l.nftData?.name) return l;
+    if (!cached) return l;
+    if (l.nftData?.name) {
+      // Another pass already filled the name; still attach the on-chain collection key.
+      return cached.collectionKey && !l.nftData.collectionKey
+        ? { ...l, nftData: { ...l.nftData, collectionKey: cached.collectionKey } } : l;
+    }
     const base: NFTData = {
       mint: l.nftMint, name: cached.name || l.nftMint.slice(0,8)+'…',
       symbol: cached.symbol, balance: 1, decimals: 0, isToken2022: false, metaUri: cached.uri,
+      collectionKey: cached.collectionKey,
     };
     return { ...l, nftData: base };
   });

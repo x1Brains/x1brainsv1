@@ -366,6 +366,24 @@ export function registerDynamicCollections(cols: DynamicCollectionInput[]): void
   }
 }
 
+/** Trusted collections Solaris lists WITHOUT a name (e.g. X1 Ninjas, 10-05) — their
+ *  collection keys, so the caller can read the name from the on-chain collection NFT. */
+export function unnamedCollectionKeys(): string[] {
+  const out = new Set<string>();
+  for (const [key, target] of dynamicByKey) if (!target.name) out.add(key);
+  return [...out];
+}
+
+/** Give a name-less trusted collection its on-chain name. Only fills an EMPTY name. */
+export function nameCollection(key: string, name: string): void {
+  const target = dynamicByKey.get(key);
+  const n = name.trim();
+  if (!target || target.name || !n) return;
+  target.name = n;
+  if (!dynamicByName.has(norm(n))) dynamicByName.set(norm(n), target);
+  dynamicRevision++;
+}
+
 /** Portrait for a bucket id or a raw Solaris collection_key. */
 export function collectionImageFor(idOrKey: string | undefined): string | undefined {
   if (!idOrKey) return undefined;

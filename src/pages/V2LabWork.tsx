@@ -10,6 +10,7 @@ import {
   enrichNFT,
   enrichNFTFromMint,
   invalidateListingsCache,
+  refreshListingsIfStale,
   type NFTData,
   type Listing,
 } from '../components/LBComponents';
@@ -24,7 +25,8 @@ import {
 } from '../lib/solarisIndexer';
 import type { SolarisCollection } from '../lib/solarisIndexer';
 import { shortAddr } from '../utils/v2format';
-import { identifyCollection, collectionImageFor } from '../lib/verifiedCollections';
+import { identifyCollection, collectionImageFor, unnamedCollectionKeys, nameCollection } from '../lib/verifiedCollections';
+import { METADATA_PROGRAM_ID_STRING } from '../constants';
 import { supabase, getNftMetadataBatch, upsertNftMetadata } from '../lib/supabase';
 import type { NftMetaRow } from '../lib/supabase';
 import bs58 from 'bs58';
@@ -329,6 +331,32 @@ export default function V2LabWork() {
     return () => { alive = false; };
   }, []);
 
+  // Trusted collections Solaris lists WITHOUT a name (X1 Ninjas, 10-05) would show as
+  // nameless buckets. Read each one's name from its on-chain collection NFT, once.
+  const [collNameTick, setCollNameTick] = useState(0);
+  useEffect(() => {
+    const keys = unnamedCollectionKeys();
+    if (keys.length === 0) return;
+    let alive = true;
+    const META = new PublicKey(METADATA_PROGRAM_ID_STRING);
+    const pdas = keys.map(k => PublicKey.findProgramAddressSync(
+      [new TextEncoder().encode('metadata'), META.toBytes(), new PublicKey(k).toBytes()], META)[0]);
+    connection.getMultipleAccountsInfo(pdas.slice(0, 100)).then(infos => {
+      if (!alive) return;
+      let named = 0;
+      infos.forEach((info, i) => {
+        const d = info?.data;
+        if (!d || d.length < 69) return;
+        const n = new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(65, true);
+        if (!n || n > 200 || 69 + n > d.length) return;
+        const name = new TextDecoder().decode(d.slice(69, 69 + n)).replace(/\x00/g, '').trim();
+        if (name) { nameCollection(keys[i], name); named++; }
+      });
+      if (named) setCollNameTick(t => t + 1);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [solarisCollections, connection]);
+
   const [marketVolXnt, setMarketVolXnt] = useState<number>(() => getCachedMarketStats()?.volumeXnt ?? 0);
   const [marketSales, setMarketSales]   = useState<number>(() => getCachedMarketStats()?.salesCount ?? 0);
   const [biggestBuy, setBiggestBuy]     = useState(() => getCachedMarketStats()?.biggestSale ?? null);
@@ -350,6 +378,14 @@ export default function V2LabWork() {
         const raw = await fetchAllListings(connection);
         if (!alive) return;
         setListings(raw);
+        // Served a 1-15 min old cache? Wait for the fresh chain read and reload once if
+        // listings were added or removed, so new listings show without a manual refresh.
+        const fresh = refreshListingsIfStale(connection);
+        if (fresh) fresh.then(f => {
+          if (!alive) return;
+          const a = new Set(raw.map(l => l.listingPda));
+          if (f.length !== raw.length || f.some(l => !a.has(l.listingPda))) setReloadTick(t => t + 1);
+        }).catch(() => {});
 
         // ── Cache pass (our Supabase indexer) — INSTANT metadata for every NFT a
         // prior visitor already resolved. This paints images + traits immediately
@@ -932,7 +968,7 @@ export default function V2LabWork() {
     // `solarisCollections` is a dep because resolving it also populates the
     // dynamic half of the verified registry — without it, listings classified
     // before the Solaris sync landed would stay stuck as Uncategorized.
-  }, [listings, walletNfts, publicKey, solarisCollections]);
+  }, [listings, walletNfts, publicKey, solarisCollections, collNameTick]);
 
   // Newest-listing timestamp per mint — pulled from the labwork_trades feed
   // (`type === 'list'`). Most recent list-tx wins. Empty until trades load;
@@ -946,6 +982,55 @@ export default function V2LabWork() {
     }
     return m;
   }, [trades]);
+
+  // When each live listing was created, from the chain: the listing account's OLDEST
+  // signature is the list tx. NEWEST used to rely on the trade log alone, which only
+  // loads on the Activity tab, so on Browse every listing scored 0 and old ones showed
+  // first (10-05). A listing's creation time never changes, so it is looked up once and
+  // kept in localStorage per listing account.
+  const LISTED_AT_KEY = 'x1b_lw_listed_at_v1';
+  const [listedAt, setListedAt] = useState<Record<string, number>>(() => {
+    try { return JSON.parse(localStorage.getItem(LISTED_AT_KEY) || '{}'); } catch { return {}; }
+  });
+  const listingPdaKey = listings.map(l => l.listingPda).join(',');
+  useEffect(() => {
+    const missing = listings.map(l => l.listingPda).filter(p => p && !(p in listedAt));
+    if (missing.length === 0) return;
+    let alive = true;
+    (async () => {
+      const found: Record<string, number> = {};
+      for (let i = 0; i < missing.length && alive; i += 6) {
+        const slice = missing.slice(i, i + 6);
+        const times = await Promise.all(slice.map(async pda => {
+          try {
+            let before: string | undefined; let oldest = 0;
+            for (let page = 0; page < 5; page++) {          // listing accounts rarely pass 1 page
+              const sigs = await connection.getSignaturesForAddress(new PublicKey(pda), { limit: 50, before });
+              if (sigs.length === 0) break;
+              const last = sigs[sigs.length - 1];
+              if (last.blockTime) oldest = last.blockTime;
+              if (sigs.length < 50) break;
+              before = last.signature;
+            }
+            return oldest;
+          } catch { return 0; }
+        }));
+        slice.forEach((pda, k) => { if (times[k]) found[pda] = times[k]; });
+        if (i + 6 < missing.length) await new Promise(r => setTimeout(r, 150));   // go easy on the RPC
+      }
+      if (!alive || Object.keys(found).length === 0) return;
+      setListedAt(prev => {
+        // keep only live listings so the stored map can't grow forever
+        const live = new Set(listings.map(l => l.listingPda));
+        const next: Record<string, number> = {};
+        for (const [k, v] of Object.entries({ ...prev, ...found })) if (live.has(k)) next[k] = v;
+        try { localStorage.setItem(LISTED_AT_KEY, JSON.stringify(next)); } catch {}
+        return next;
+      });
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listingPdaKey, connection]);
 
   const filtered = useMemo(() => {
     const list = merged.filter(it => {
@@ -972,13 +1057,14 @@ export default function V2LabWork() {
       if (sortMode === 'name') {
         return a.name.localeCompare(b.name);
       }
-      // newest — most recent list-trade wins. Listings with no trade record
-      // (legacy / pre-trade-log) get timestamp 0 and sink under fresh ones.
-      const ta = latestListTsByMint.get(a.mint) ?? 0;
-      const tb = latestListTsByMint.get(b.mint) ?? 0;
-      return tb - ta;
+      // newest — the listing's on-chain creation time, or the most recent list-trade
+      // if that is later (a re-list). Unknown (still loading) sinks to the end.
+      const ts = (it: typeof a) => Math.max(
+        latestListTsByMint.get(it.mint) ?? 0,
+        (it.listing && listedAt[it.listing.listingPda]) || 0);
+      return ts(b) - ts(a);
     });
-  }, [merged, filter, query, sortMode, collectionKey, latestListTsByMint]);
+  }, [merged, filter, query, sortMode, collectionKey, latestListTsByMint, listedAt]);
 
   // Deep-link: /labwork?nft=<mint> (e.g. the home boosted-listing "VIEW DETAILS")
   // opens that NFT's detail modal (traits + buy) once it lands in `merged`.
