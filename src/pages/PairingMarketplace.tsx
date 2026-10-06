@@ -1,5 +1,5 @@
 import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
-import { fetchPrice as sharedFetchPrice } from '../lib/prices';
+import { fetchPriceFresh as sharedFetchPrice } from '../lib/prices';
 import SharedCopyButton from '../components/CopyButton';
 import { createPortal } from 'react-dom';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';

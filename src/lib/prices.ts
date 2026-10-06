@@ -128,6 +128,15 @@ async function _fetchPriceUncached(mint: string): Promise<number> {
   }
 }
 
+/** Always asks the network (xDEX, then pool reserves on chain) — never returns a stale
+ *  cached price unless both fail. For places that show a $ estimate next to a trade. */
+export async function fetchPriceFresh(mint: string): Promise<number> {
+  if (_inflight.has(mint)) return _inflight.get(mint)!;
+  const job = _fetchPriceUncached(mint).finally(() => _inflight.delete(mint));
+  _inflight.set(mint, job);
+  return job;
+}
+
 /**
  * Returns the cached price immediately if fresh (< 60s) or stale-but-known
  * (< 24h). Otherwise fires a fetch. Concurrent callers share a single fetch.
