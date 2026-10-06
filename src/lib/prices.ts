@@ -57,6 +57,51 @@ function persist() {
   }, 600);
 }
 
+// ── On-chain fallback (10-06: api.xdex.xyz stopped answering, every price went to $—) ──
+// Prices straight from xDEX pool reserves over the X1 RPC: XNT from the XNT/USDC.X pool,
+// BRAINS and LB from their XNT pools. CP-swap pool layout: token0_vault @72, token1_vault
+// @104, token0_mint @168, token1_mint @200 (vault balances include a few un-swept protocol
+// fees — close enough for a display price).
+const X1_RPC = 'https://rpc.mainnet.x1.xyz';
+const XNT_USDC_POOL = 'CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR';
+const XNT_PAIR_POOL: Record<string, string> = {
+  [BRAINS_MINT]: '7deZorr98nLdZhpmSdUgu8WY4NAjSpeLDGxHzaTAxrUg',
+  [LB_MINT]:     'CKtXmX82rLBqNkfpCBPUoHLmtZhgBdVWpVPW93hHHCCK',
+};
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function b58(bytes: Uint8Array): string {
+  let n = 0n; for (const b of bytes) n = n * 256n + BigInt(b);
+  let s = ''; while (n > 0n) { s = B58[Number(n % 58n)] + s; n /= 58n; }
+  for (const b of bytes) { if (b !== 0) break; s = '1' + s; }
+  return s;
+}
+async function x1rpc(method: string, params: unknown[]): Promise<any> {
+  const r = await fetch(X1_RPC, { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(8_000) });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message);
+  return j.result;
+}
+/** XNT-per-token (or USDC-per-XNT for the USDC pool) from a pool's two vaults. */
+async function poolRatio(pool: string, baseMint: string): Promise<number> {
+  const info = await x1rpc('getAccountInfo', [pool, { encoding: 'base64' }]);
+  const d = Uint8Array.from(atob(info.value.data[0]), c => c.charCodeAt(0));
+  const v0 = b58(d.slice(72, 104)), v1 = b58(d.slice(104, 136)), m0 = b58(d.slice(168, 200));
+  const [a, b] = await Promise.all([x1rpc('getTokenAccountBalance', [v0]), x1rpc('getTokenAccountBalance', [v1])]);
+  const amt0 = Number(a.value.uiAmount), amt1 = Number(b.value.uiAmount);
+  // price of baseMint in the other token
+  return m0 === baseMint ? amt1 / amt0 : amt0 / amt1;
+}
+async function chainPrice(mint: string): Promise<number> {
+  try {
+    const xntUsd = await poolRatio(XNT_USDC_POOL, XNT_MINT);
+    if (mint === XNT_MINT) return xntUsd;
+    const pool = XNT_PAIR_POOL[mint];
+    if (!pool) return 0;
+    return (await poolRatio(pool, mint)) * xntUsd;
+  } catch { return 0; }
+}
+
 async function _fetchPriceUncached(mint: string): Promise<number> {
   try {
     const r = await fetch(
@@ -72,9 +117,13 @@ async function _fetchPriceUncached(mint: string): Promise<number> {
     if (p > 0) {
       cache.set(mint, { price: p, ts: Date.now() });
       persist();
+      return p;
     }
-    return p;
+    throw new Error('no price from xDEX');
   } catch {
+    // xDEX down / slow / empty → read the pool reserves on chain
+    const p = await chainPrice(mint);
+    if (p > 0) { cache.set(mint, { price: p, ts: Date.now() }); persist(); return p; }
     return cache.get(mint)?.price ?? 0;
   }
 }

@@ -1,4 +1,5 @@
 import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
+import { fetchPrice as sharedFetchPrice } from '../lib/prices';
 import SharedCopyButton from '../components/CopyButton';
 import { createPortal } from 'react-dom';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
@@ -3290,25 +3291,25 @@ export const SwapTab: FC<{
     return [net(rawIn, feeIn), net(rawOut, feeOut)];
   }
 
-  // Fetch XNT price
+  // Fetch XNT price — shared lib: xDEX first, pool reserves on chain if xDEX is down (10-06)
   useEffect(() => {
-    fetch(`/api/xdex-price/api/token-price/price?network=X1%20Mainnet&token_address=${WXNT_MINT}`, { signal: AbortSignal.timeout(5000) })
-      .then(r => r.json()).then(j => { if (j.success && j.data?.price) setXntPriceUsd(Number(j.data.price)); }).catch(() => {});
+    sharedFetchPrice(WXNT_MINT).then(p => { if (p > 0) setXntPriceUsd(p); }).catch(() => {});
   }, []);
 
-  // Fetch USD prices for selected tokens whenever they change
+  // Fetch USD prices for selected tokens whenever they change. Cleared first so a price
+  // from the previously selected token can't sit next to the new one (showed ≈ $138 for
+  // ~$80 of XNT when xDEX was down and the old BRAINS price lingered).
   useEffect(() => {
-    const fetchPrice = async (mint: string, setter: (p: number) => void) => {
-      if (mint === WXNT_MINT) { setter(xntPriceUsd); return; }
-      try {
-        const r = await fetch(`/api/xdex-price/api/token-price/price?network=X1%20Mainnet&token_address=${mint}`, { signal: AbortSignal.timeout(5000) });
-        const j = await r.json();
-        if (j.success && j.data?.price) setter(Number(j.data.price));
-        else setter(0);
-      } catch { setter(0); }
+    let alive = true;
+    setTokenInPriceUsd(0); setTokenOutPriceUsd(0);
+    const load = async (mint: string, setter: (p: number) => void) => {
+      if (mint === WXNT_MINT && xntPriceUsd > 0) { setter(xntPriceUsd); return; }
+      const p = await sharedFetchPrice(mint).catch(() => 0);
+      if (alive) setter(p > 0 ? p : 0);
     };
-    fetchPrice(tokenIn.mint,  setTokenInPriceUsd);
-    fetchPrice(tokenOut.mint, setTokenOutPriceUsd);
+    load(tokenIn.mint,  setTokenInPriceUsd);
+    load(tokenOut.mint, setTokenOutPriceUsd);
+    return () => { alive = false; };
   }, [tokenIn.mint, tokenOut.mint, xntPriceUsd]);
 
   const [refreshing, setRefreshing] = useState(false);
@@ -3506,6 +3507,14 @@ export const SwapTab: FC<{
     (async () => {
       try {
         const [m0, m1] = [tokenIn.mint, tokenOut.mint].sort();
+        // xDEX pool PDAs order the mints by their raw 32 BYTES, not by the base58 text —
+        // LB/XNT sorted as text derived the wrong address (10-06: with the xDEX API down,
+        // this PDA fallback is the only thing that can find the pool).
+        const [b0, b1] = [tokenIn.mint, tokenOut.mint].sort((x, y) => {
+          const a = new PublicKey(x).toBytes(), b = new PublicKey(y).toBytes();
+          for (let i = 0; i < 32; i++) if (a[i] !== b[i]) return a[i] - b[i];
+          return 0;
+        });
 
         let foundPool: any = null;
 
@@ -3614,7 +3623,7 @@ export const SwapTab: FC<{
             try {
               const [poolPda] = PublicKey.findProgramAddressSync(
                 [Buffer.from('pool'), new PublicKey(cfg).toBuffer(),
-                 new PublicKey(m0).toBuffer(), new PublicKey(m1).toBuffer()],
+                 new PublicKey(b0).toBuffer(), new PublicKey(b1).toBuffer()],
                 new PublicKey(XDEX_PROGRAM)
               );
               const res = await rpc('getAccountInfo', [poolPda.toBase58(), { encoding: 'base64' }]);
