@@ -3546,6 +3546,38 @@ export const SwapTab: FC<{
           };
         };
 
+        // ── Method 3 (runs FIRST): PDA derivation — try all known AMM configs ───────
+        // Pure chain reads (~0.3 s each). It used to run only after Methods 1–2, which call the
+        // xDEX API sequentially with 6 s timeouts — when that API is slow (10-06) the swap sat
+        // for up to ~36 s before reaching this. The API methods now only run if this misses.
+        if (!foundPool) {
+          const AMM_CONFIGS = [
+            '2eFPWosizV6nSAGeSvi5tRgXLoqhjnSesra23ALA248c',
+            'GVSwm4smQBYcgAJU7qjFHLQBHTc4AdB3F2HbZp6KqKof',
+            'FcRvM5tEfmAKdVLnRmBFdWkACCUXhVmhFwfCDsJ4XDEP',
+            'CQYbhr6amxUER4p5SC44C63R4qw4NFc9Z4Db9vF4tZwG',
+          ];
+          try {
+            // all four candidate PDAs in ONE call; if a pair has pools under more than one
+            // fee config, trade the deepest (most of token0 in its vault)
+            const pdas = AMM_CONFIGS.map(cfg => PublicKey.findProgramAddressSync(
+              [Buffer.from('pool'), new PublicKey(cfg).toBuffer(),
+               new PublicKey(b0).toBuffer(), new PublicKey(b1).toBuffer()],
+              new PublicKey(XDEX_PROGRAM))[0].toBase58());
+            const res = await rpc('getMultipleAccounts', [pdas, { encoding: 'base64' }]);
+            const hits = (res?.value || [])
+              .map((acc: any, i: number) => acc ? parsePoolAccount(new Uint8Array(Buffer.from(acc.data[0], 'base64')), pdas[i]) : null)
+              .filter(Boolean) as any[];
+            if (hits.length === 1) foundPool = hits[0];
+            else if (hits.length > 1) {
+              const depth = await Promise.all(hits.map(h => getVaultBal(h.token0Vault).catch(() => 0n)));
+              let best = 0;
+              depth.forEach((d, i) => { if (d > depth[best]) best = i; });
+              foundPool = hits[best];
+            }
+          } catch {}
+        }
+
         // ── Method 1: XDEX API — covers all pools created through their UI ────────
         // This is the most reliable for XDEX-native pools (like XNT/BRAINS)
         if (!foundPool) {
@@ -3609,30 +3641,6 @@ export const SwapTab: FC<{
               if (foundPool) break;
             }
           } catch {}
-        }
-
-        // ── Method 3: PDA derivation — try all known AMM configs ─────────────────
-        if (!foundPool) {
-          const AMM_CONFIGS = [
-            '2eFPWosizV6nSAGeSvi5tRgXLoqhjnSesra23ALA248c',
-            'GVSwm4smQBYcgAJU7qjFHLQBHTc4AdB3F2HbZp6KqKof',
-            'FcRvM5tEfmAKdVLnRmBFdWkACCUXhVmhFwfCDsJ4XDEP',
-            'CQYbhr6amxUER4p5SC44C63R4qw4NFc9Z4Db9vF4tZwG',
-          ];
-          for (const cfg of AMM_CONFIGS) {
-            try {
-              const [poolPda] = PublicKey.findProgramAddressSync(
-                [Buffer.from('pool'), new PublicKey(cfg).toBuffer(),
-                 new PublicKey(b0).toBuffer(), new PublicKey(b1).toBuffer()],
-                new PublicKey(XDEX_PROGRAM)
-              );
-              const res = await rpc('getAccountInfo', [poolPda.toBase58(), { encoding: 'base64' }]);
-              if (res?.value) {
-                foundPool = parsePoolAccount(new Uint8Array(Buffer.from(res.value.data[0], 'base64')), poolPda.toBase58());
-                break;
-              }
-            } catch {}
-          }
         }
 
         // ── Method 4: Our own PoolRecords (CPI-created pools) ────────────────────

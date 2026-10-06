@@ -53,28 +53,36 @@ export default function Header() {
   const adminRole = roleFor(pk);
   const onAdminPage = pathname === '/admin';
 
-  const [ticks, setTicks] = useState<Tick[]>([
-    { symbol: 'XNT',    price: 0, pct: null },
-    { symbol: 'BRAINS', price: 0, pct: null },
-    { symbol: 'LB',     price: 0, pct: null },
-  ]);
+  // Last 24h badges, remembered for 30 min so a refresh paints them at once instead of
+  // waiting on xDEX's chart API (10-06: 10 s timeouts, and the old Promise.all made the
+  // PRICES wait for it too).
+  const PCT_KEY = 'x1b_header_pct_v1';
+  const cachedPct = (): Record<string, number | null> => {
+    try {
+      const j = JSON.parse(localStorage.getItem(PCT_KEY) || 'null');
+      return j && Date.now() - j.ts < 30 * 60_000 ? j.pct : {};
+    } catch { return {}; }
+  };
+  const [ticks, setTicks] = useState<Tick[]>(() => {
+    const pct = cachedPct();
+    return (['XNT', 'BRAINS', 'LB'] as TokenSymbol[]).map(symbol => ({ symbol, price: 0, pct: pct[symbol] ?? null }));
+  });
 
   useEffect(() => {
     let alive = true;
-    const load = async () => {
-      // Prices + real 24h change derived from on-chain chart history — the SAME
-      // source the landing ecosystem strip uses, so both pillars always agree.
-      const [all, changes] = await Promise.all([
-        fetchAllPrices(),
-        fetch24hChanges(BRAINS_MINT).catch(() => ({ XNT: null, BRAINS: null, LB: null })),
-      ]);
-      if (!alive) return;
-      const next: Tick[] = (['XNT', 'BRAINS', 'LB'] as TokenSymbol[]).map(sym => ({
-        symbol: sym,
-        price: all[sym] || 0,
-        pct: changes[sym],
-      }));
-      setTicks(next);
+    const load = () => {
+      // Prices and badges load INDEPENDENTLY: prices (cached / xDEX / chain) paint as soon as
+      // they arrive; the 24h change (on-chain chart history, same source as the landing
+      // strip) fills in whenever it answers and keeps the last value if it fails.
+      fetchAllPrices().then(all => {
+        if (!alive) return;
+        setTicks(prev => prev.map(t => ({ ...t, price: all[t.symbol] || t.price })));
+      }).catch(() => {});
+      fetch24hChanges(BRAINS_MINT).then(changes => {
+        if (!alive) return;
+        setTicks(prev => prev.map(t => ({ ...t, pct: changes[t.symbol] ?? t.pct })));
+        try { localStorage.setItem(PCT_KEY, JSON.stringify({ ts: Date.now(), pct: changes })); } catch {}
+      }).catch(() => {});
     };
     load();
     const id = setInterval(load, 60_000);

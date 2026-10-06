@@ -82,50 +82,71 @@ async function x1rpc(method: string, params: unknown[]): Promise<any> {
   if (j.error) throw new Error(j.error.message);
   return j.result;
 }
-/** XNT-per-token (or USDC-per-XNT for the USDC pool) from a pool's two vaults. */
-async function poolRatio(pool: string, baseMint: string): Promise<number> {
-  const info = await x1rpc('getAccountInfo', [pool, { encoding: 'base64' }]);
-  const d = Uint8Array.from(atob(info.value.data[0]), c => c.charCodeAt(0));
-  const v0 = b58(d.slice(72, 104)), v1 = b58(d.slice(104, 136)), m0 = b58(d.slice(168, 200));
-  const [a, b] = await Promise.all([x1rpc('getTokenAccountBalance', [v0]), x1rpc('getTokenAccountBalance', [v1])]);
-  const amt0 = Number(a.value.uiAmount), amt1 = Number(b.value.uiAmount);
-  // price of baseMint in the other token
-  return m0 === baseMint ? amt1 / amt0 : amt0 / amt1;
+// All three prices from ONE getMultipleAccounts call (the six vault balances); the pools' vault
+// addresses are read once per session. Shared + memoised for 15 s so the three tokens and the
+// ticker's refresh don't each hit the RPC.
+type PoolVaults = { v0: string; v1: string; m0: string };
+let _vaults: Record<string, PoolVaults> | null = null;
+let _chainMemo: { ts: number; job: Promise<Record<string, number>> } | null = null;
+async function poolVaults(): Promise<Record<string, PoolVaults>> {
+  if (_vaults) return _vaults;
+  const pools = [XNT_USDC_POOL, ...Object.values(XNT_PAIR_POOL)];
+  const res = await x1rpc('getMultipleAccounts', [pools, { encoding: 'base64' }]);
+  const out: Record<string, PoolVaults> = {};
+  res.value.forEach((acc: any, i: number) => {
+    if (!acc) return;
+    const d = Uint8Array.from(atob(acc.data[0]), c => c.charCodeAt(0));
+    out[pools[i]] = { v0: b58(d.slice(72, 104)), v1: b58(d.slice(104, 136)), m0: b58(d.slice(168, 200)) };
+  });
+  return (_vaults = out);
+}
+async function chainPrices(): Promise<Record<string, number>> {
+  if (_chainMemo && Date.now() - _chainMemo.ts < 15_000) return _chainMemo.job;
+  const job = (async () => {
+    const pv = await poolVaults();
+    const order = Object.keys(pv);
+    const vaults = order.flatMap(k => [pv[k].v0, pv[k].v1]);
+    const res = await x1rpc('getMultipleAccounts', [vaults, { encoding: 'jsonParsed' }]);
+    const amt = (i: number) => Number(res.value[i]?.data?.parsed?.info?.tokenAmount?.uiAmount || 0);
+    // price of `base` in the pool's other token
+    const ratio = (pool: string, base: string) => {
+      const i = order.indexOf(pool); if (i < 0) return 0;
+      const a0 = amt(2 * i), a1 = amt(2 * i + 1); if (!a0 || !a1) return 0;
+      return pv[pool].m0 === base ? a1 / a0 : a0 / a1;
+    };
+    const xntUsd = ratio(XNT_USDC_POOL, XNT_MINT);
+    const out: Record<string, number> = { [XNT_MINT]: xntUsd };
+    for (const [mint, pool] of Object.entries(XNT_PAIR_POOL)) out[mint] = xntUsd ? ratio(pool, mint) * xntUsd : 0;
+    return out;
+  })();
+  _chainMemo = { ts: Date.now(), job };
+  job.catch(() => { _chainMemo = null; });
+  return job;
 }
 async function chainPrice(mint: string): Promise<number> {
-  try {
-    const xntUsd = await poolRatio(XNT_USDC_POOL, XNT_MINT);
-    if (mint === XNT_MINT) return xntUsd;
-    const pool = XNT_PAIR_POOL[mint];
-    if (!pool) return 0;
-    return (await poolRatio(pool, mint)) * xntUsd;
-  } catch { return 0; }
+  try { return (await chainPrices())[mint] || 0; } catch { return 0; }
 }
 
 async function _fetchPriceUncached(mint: string): Promise<number> {
-  try {
-    const r = await fetch(
-      // network MUST be %20-encoded, not '+'. A proxied '+' arrives as a literal
-      // %2B → API rejects it ("Invalid network") → we silently fall back to the
-      // stale cached price, which made all three ticker prices lag. %20 matches
-      // the prism/chart endpoints that were always fresh.
-      `${XDEX_BASE}/token-price/price?network=X1%20Mainnet&token_address=${mint}`,
-      { signal: AbortSignal.timeout(6_000) },
-    );
+  // xDEX and the chain race. xDEX wins if it answers within 1.2 s (its price is the one the
+  // site always showed); otherwise the chain's pool-reserve price is used straight away and a
+  // late xDEX answer still refreshes the cache. 10-06: api.xdex.xyz took 10-15 s, the ticker
+  // waited 6 s per token before ever asking the chain.
+  const save = (p: number) => { if (p > 0) { cache.set(mint, { price: p, ts: Date.now() }); persist(); } return p; };
+  const xdex = (async () => {
+    // network MUST be %20-encoded, not '+' (a proxied '+' arrives as %2B → "Invalid network")
+    const r = await fetch(`${XDEX_BASE}/token-price/price?network=X1%20Mainnet&token_address=${mint}`,
+      { signal: AbortSignal.timeout(8_000) });
     const j = await r.json();
-    const p = Number(j?.data?.price) || 0;
-    if (p > 0) {
-      cache.set(mint, { price: p, ts: Date.now() });
-      persist();
-      return p;
-    }
-    throw new Error('no price from xDEX');
-  } catch {
-    // xDEX down / slow / empty → read the pool reserves on chain
-    const p = await chainPrice(mint);
-    if (p > 0) { cache.set(mint, { price: p, ts: Date.now() }); persist(); return p; }
-    return cache.get(mint)?.price ?? 0;
-  }
+    return Number(j?.data?.price) || 0;
+  })().catch(() => 0);
+  const quick = await Promise.race([xdex, new Promise<number>(r => setTimeout(() => r(-1), 1_200))]);
+  if (quick > 0) return save(quick);
+  const chain = await chainPrice(mint);
+  if (chain > 0) { xdex.then(p => { if (p > 0) save(p); }); return save(chain); }
+  const late = await xdex;                    // chain failed too — give xDEX its full timeout
+  if (late > 0) return save(late);
+  return cache.get(mint)?.price ?? 0;
 }
 
 /** Always asks the network (xDEX, then pool reserves on chain) — never returns a stale
