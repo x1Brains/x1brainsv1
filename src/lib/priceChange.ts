@@ -6,6 +6,7 @@
 // single source of truth: derive each token's real 24h change from on-chain
 // chart-history bars, exactly the way the landing strip does.
 
+import { chainChange24h } from './prices';
 import {
   fetchIndexerSnapshot, getCachedIndexerSnapshot,
   fetchChartHistory, pctChange24h,
@@ -36,6 +37,15 @@ function deriveUsdcMintFromPrism(prism: IndexerSnapshot | null): string | null {
 // Compute {XNT, BRAINS, LB} 24h change vs USD. brainsMint is passed in so it
 // stays sourced from ../constants (single canonical value).
 export async function fetch24hChanges(brainsMint: string): Promise<TokenChange> {
+  // Chain first (a few RPC calls, ~1-3 s); xDEX's chart history only if the chain read fails.
+  try {
+    const c = await chainChange24h();
+    if (c.XNT != null || c.BRAINS != null || c.LB != null) return c;
+  } catch { /* fall through to xDEX */ }
+  return fetch24hChangesXdex(brainsMint);
+}
+
+async function fetch24hChangesXdex(brainsMint: string): Promise<TokenChange> {
   let prism = getCachedIndexerSnapshot();
   let usdcMint = deriveUsdcMintFromPrism(prism);
   if (!usdcMint) {

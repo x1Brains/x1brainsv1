@@ -123,6 +123,57 @@ async function chainPrices(): Promise<Record<string, number>> {
   job.catch(() => { _chainMemo = null; });
   return job;
 }
+// ── 24h change from the chain ──────────────────────────────────────────────────
+// Price 24 h ago = the pool's vault balances right after its last swap at/before now−24h
+// (the price can't change without a swap), vs the reserves now. 10-06: xDEX's chart API
+// returns ~190 KB of minute bars per token in 11-16 s (sometimes 30 s) and the site gave up
+// at 10 s, so the up/down badges NEVER showed. This is a few small RPC calls per pool.
+export type Change24h = { XNT: number | null; BRAINS: number | null; LB: number | null };
+let _chgMemo: { ts: number; job: Promise<Change24h> } | null = null;
+async function ratioAt(pv: PoolVaults, base: string, targetSec: number): Promise<number> {
+  let before: string | undefined; let sig: string | null = null;
+  for (let page = 0; page < 8 && !sig; page++) {     // busiest pool ≈ 1-2k swaps/day
+    const s = await x1rpc('getSignaturesForAddress', [pv.v0, { limit: 1000, ...(before ? { before } : {}) }]);
+    if (!s.length) break;
+    const hit = s.find((x: any) => x.blockTime && x.blockTime <= targetSec && !x.err);
+    if (hit) sig = hit.signature;
+    before = s[s.length - 1].signature;
+  }
+  if (!sig) return 0;                                 // pool younger than 24 h
+  const tx = await x1rpc('getTransaction', [sig, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }]);
+  const keys: string[] = tx.transaction.message.accountKeys.map((k: any) => k.pubkey);
+  const bal = (acct: string) => {
+    const r = (tx.meta.postTokenBalances || []).find((x: any) => keys[x.accountIndex] === acct);
+    return r ? Number(r.uiTokenAmount.uiAmount || 0) : 0;
+  };
+  const a0 = bal(pv.v0), a1 = bal(pv.v1);
+  if (!a0 || !a1) return 0;
+  return pv.m0 === base ? a1 / a0 : a0 / a1;
+}
+export async function chainChange24h(): Promise<Change24h> {
+  if (_chgMemo && Date.now() - _chgMemo.ts < 10 * 60_000) return _chgMemo.job;
+  const job = (async () => {
+    const pv = await poolVaults();
+    const target = Math.floor(Date.now() / 1000) - 86_400;
+    const brainsPool = XNT_PAIR_POOL[BRAINS_MINT], lbPool = XNT_PAIR_POOL[LB_MINT];
+    const [now, xAgo, bAgo, lAgo] = await Promise.all([
+      chainPrices(),
+      ratioAt(pv[XNT_USDC_POOL], XNT_MINT, target).catch(() => 0),
+      ratioAt(pv[brainsPool], BRAINS_MINT, target).catch(() => 0),
+      ratioAt(pv[lbPool], LB_MINT, target).catch(() => 0),
+    ]);
+    const pct = (nowUsd: number, agoUsd: number) => (nowUsd > 0 && agoUsd > 0 ? (nowUsd / agoUsd - 1) * 100 : null);
+    return {
+      XNT: pct(now[XNT_MINT], xAgo),
+      BRAINS: pct(now[BRAINS_MINT], bAgo * xAgo),     // token/USD 24 h ago = token/XNT × XNT/USD then
+      LB: pct(now[LB_MINT], lAgo * xAgo),
+    };
+  })();
+  _chgMemo = { ts: Date.now(), job };
+  job.catch(() => { _chgMemo = null; });
+  return job;
+}
+
 async function chainPrice(mint: string): Promise<number> {
   try { return (await chainPrices())[mint] || 0; } catch { return 0; }
 }

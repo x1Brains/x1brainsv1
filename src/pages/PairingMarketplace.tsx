@@ -3419,6 +3419,28 @@ export const SwapTab: FC<{
         }).sort((a, b) => b.balance - a.balance);
         setWalletTokens(quickTokens);
 
+        // Step 3b: BALANCES NOW. The selected You Pay / You Receive balances and native XNT used
+        // to be applied only after Step 4's metadata/logo fetch — 10-06 two Pinata IPFS logo
+        // requests took 5.5 s each and the swap showed no balance for ~6 s after connecting.
+        // Balances come from the chain scan above; logos fill in later.
+        {
+          const xntMeta = _metaCache.get(WXNT_MINT);
+          setTokenIn(prev => prev.mint === WXNT_MINT ? { ...prev, balance: nativeXntBalance, rawBalance: nativeXntRaw } : prev);
+          setTokenOut(prev => prev.mint === WXNT_MINT ? { ...prev, balance: nativeXntBalance, rawBalance: nativeXntRaw } : prev);
+          setWalletTokens(prev => [{
+            mint: WXNT_MINT, symbol: 'XNT', decimals: 9, logo: xntMeta?.logo || XNT_LOGO,
+            balance: nativeXntBalance, rawBalance: nativeXntRaw, program: TOKEN_PROGRAM_ID.toBase58(), pinned: true,
+          }, ...prev.filter(t => t.mint !== WXNT_MINT)]);
+          const quickReconcile = (prev: WalletToken): WalletToken => {
+            if (prev.mint === WXNT_MINT) return prev;
+            const held = raw.find(r => r.mint === prev.mint);
+            if (!held) return { ...prev, balance: 0, rawBalance: 0n };
+            return { ...prev, balance: held.balance, rawBalance: held.rawBalance, decimals: held.decimals, program: held.program };
+          };
+          setTokenIn(quickReconcile);
+          setTokenOut(quickReconcile);
+        }
+
         // Step 4: Batch fetch metadata for all mints in parallel
         const allMints = raw.map(r => r.mint);
         const metaMap = await batchFetchMeta(allMints);
