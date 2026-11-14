@@ -12,6 +12,8 @@ import { fetchXdexPoolState } from '../lib/xdexPoolChart';
 import { fetchFarms } from './LpFarms';
 import { fetchAllListings } from '../components/LBComponents';
 import V2NFTImage from '../components/V2NFTImage';
+import X1InscriptionsPanel from '../components/X1InscriptionsPanel';
+import { x120Mints, x120Balances, x120MintOf, INS_SITE, type X120Balance } from '../lib/x1inscriptions';
 import CopyButton from '../components/CopyButton';
 import {
   getPortfolioSnapshots, upsertPortfolioSnapshot,
@@ -229,7 +231,8 @@ function useIsMobile() {
 }
 
 type Program = 'spl' | 't22';
-type Category = 'core' | 'lp' | 'nft' | 'other';
+/** x120 = X1-20 tokens held AS INSCRIPTIONS inside X1 Inscriptions (no token account; bridge out to get the Token-2022) */
+type Category = 'core' | 'lp' | 'nft' | 'other' | 'x120';
 
 type Holding = {
   symbol: string;
@@ -265,6 +268,8 @@ type Holding = {
   /** Unit price computed by us rather than read from the price feed — LP tokens
    *  have no market price, their value is derived from the pool they represent. */
   unitUsd?: number;
+  /** X1-20 inscription balance: ticker, amount locked in lots for sale, how many times this wallet minted it */
+  x120?: { tick: string; locked: number; mints: number };
 };
 
 type RawEntry = { mint: string; balance: number; program: Program; decimals: number;
@@ -279,10 +284,16 @@ type RawEntry = { mint: string; balance: number; program: Program; decimals: num
    *  the public<->confidential bridge is disabled outright (the program
    *  rejects MintTo/deposit/withdraw with error 0x41). A stronger guarantee
    *  than confidentialTransfer alone, and worth its own badge. */
-  mintFullyPrivate?: boolean };
+  mintFullyPrivate?: boolean;
+  /** total supply of a 0-decimal mint (read on chain): an NFT is a mint whose WHOLE supply is 1 */
+  supply?: number };
 
+// 0 decimals alone doesn't make an NFT: X1-20 tokens bridged to Token-2022 (ICOIN, …) have 0 decimals and
+// thousands of units (owner 10-24: ICOIN showed under NFTs). When the mint's supply is known, an NFT is a mint
+// whose whole supply is 1; if the supply couldn't be read, fall back to the old shape test.
 function isNftLike(r: RawEntry): boolean {
-  return r.decimals === 0 && r.balance > 0 && r.balance < 1_000_000;
+  if (r.decimals !== 0 || r.balance <= 0) return false;
+  return r.supply !== undefined ? r.supply === 1 : r.balance < 1_000_000;
 }
 
 async function fetchTokenBalances(
@@ -361,6 +372,17 @@ async function fetchTokenBalances(
         if (r.balance <= 0 && !r.confidential && !r.mintConfidential) raw.splice(i, 1);
       }
     } catch { /* capability badge is cosmetic — never fail the portfolio for it */ }
+  }
+  // supply of every 0-decimal mint (NFT test above), 100 per call; cosmetic, never fails the portfolio
+  const zeroDec = [...new Set(raw.filter(r => r.decimals === 0).map(r => r.mint))];
+  for (let i = 0; i < zeroDec.length; i += 100) {
+    try {
+      const part = zeroDec.slice(i, i + 100);
+      const infos = await connection.getMultipleParsedAccounts(part.map((m: string) => new PublicKey(m)));
+      const sup = new Map<string, number>();
+      (infos?.value ?? []).forEach((acc: any, j: number) => { const v = acc?.data?.parsed?.info?.supply; if (v !== undefined) sup.set(part[j], Number(v)) });
+      for (const r of raw) if (sup.has(r.mint)) r.supply = sup.get(r.mint);
+    } catch { /* keep the fallback rule */ }
   }
   return { raw };
 }
@@ -781,6 +803,8 @@ function injectPortfolioStyles() {
     .pfx-find-form .pfx-btn{justify-content:center}
   }
 
+  .pfx-send.bridge{white-space:nowrap}
+  .pfx-send.bridge:hover{border-color:#0088ff;color:#0088ff;background:rgba(0,136,255,.07)}
   .pfx-send.enable-private{border-color:rgba(0,201,141,.32);color:var(--g)}
   .pfx-send.enable-private:hover{border-color:var(--g);background:rgba(0,201,141,.08)}
   .pfx-send.enable-private:disabled{opacity:.5;cursor:default}
@@ -1564,6 +1588,12 @@ export default function V2Portfolio() {
   }, [publicKey, isWatching, watchAddress]);
 
   const isReadOnly = isWatching;
+  // X1-20 tokens bridged out of X1 Inscriptions get an "X1-20 INSCRIPTION" badge (owner 10-24)
+  const [x120, setX120] = useState<Map<string, string>>(new Map());
+  useEffect(() => { x120Mints(connection).then(setX120).catch(() => {}) }, [connection]);
+  // the wallet's X1-20 balances held as inscriptions → their own Holdings group, valued at the bridged token's price
+  const [x120Bals, setX120Bals] = useState<X120Balance[]>([]);
+  useEffect(() => { setX120Bals([]); if (activeKey) x120Balances(connection, activeKey).then(setX120Bals).catch(() => {}) }, [connection, activeKey?.toBase58()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleWatchSubmit = () => {
     const addr = watchInput.trim();
@@ -1881,9 +1911,15 @@ export default function V2Portfolio() {
       }
     : null;
 
+  const x120Rows = useMemo<Holding[]>(() => x120Bals.map(b => {
+    const mint = x120MintOf(b.tick), price = prices[mint] || 0, total = b.available + b.locked;
+    return { symbol: b.tick.toUpperCase(), mint, balance: total, usd: total * price, unitUsd: price || undefined,
+      logo: getCachedTokenLogo(mint) ?? undefined, iconClass: 'lb', color: '#0088ff', program: 't22', category: 'x120', decimals: 0,
+      x120: { tick: b.tick, locked: b.locked, mints: b.mints } };
+  }), [x120Bals, prices]);
   const allRows = useMemo(
-    () => (xntHolding ? [xntHolding, ...holdings] : []).sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0)),
-    [xntHolding, holdings],
+    () => (xntHolding ? [xntHolding, ...holdings, ...x120Rows] : []).sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0)),
+    [xntHolding, holdings, x120Rows],
   );
 
   const netWorth   = allRows.reduce((s, h) => s + (h.usd ?? 0), 0);
@@ -1903,7 +1939,7 @@ export default function V2Portfolio() {
   const coreUsd    = allRows.filter(h => h.category === 'core').reduce((s, h) => s + (h.usd ?? 0), 0);
   const lpUsd      = allRows.filter(h => h.category === 'lp').reduce((s, h) => s + (h.usd ?? 0), 0);
   const nftUsd     = allRows.filter(h => h.category === 'nft').reduce((s, h) => s + (h.usd ?? 0), 0);
-  const otherUsd   = allRows.filter(h => h.category === 'other').reduce((s, h) => s + (h.usd ?? 0), 0);
+  const otherUsd   = allRows.filter(h => h.category === 'other' || h.category === 'x120').reduce((s, h) => s + (h.usd ?? 0), 0);
 
   // 24h delta from snapshots
   const snapshotDelta = useMemo(() => {
@@ -1971,6 +2007,7 @@ export default function V2Portfolio() {
       rows: allRows.filter(h => h.category === 'core')
         .sort((a, b) => (a.mint === XNT_MINT ? -1 : b.mint === XNT_MINT ? 1 : byUsd(a, b))) },
     { key: 'other', label: 'SPL · Token-2022 Tokens', rows: allRows.filter(h => h.category === 'other').sort(byUsd), accent: C_GRAY },
+    { key: 'x120',  label: 'X1-20 Inscription Tokens', rows: allRows.filter(h => h.category === 'x120').sort(byUsd), accent: '#0088ff' },
     { key: 'lp',    label: 'LP Tokens',         rows: allRows.filter(h => h.category === 'lp').sort(byUsd),    accent: C_SILVER },
     { key: 'nft',   label: 'NFTs · Collectibles', rows: allRows.filter(h => h.category === 'nft').sort(byNft), accent: C_PURPLE },
   ].filter(g => g.rows.length > 0);
@@ -2036,7 +2073,7 @@ export default function V2Portfolio() {
   const rankRows = [...allRows].sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0));
   const rankMax  = rankRows[0]?.usd || 1;
   const rankTop  = rankRows.slice(0, RANK_LIMIT);
-  const catColor = (c: Category) => c === 'lp' ? C_SILVER : c === 'nft' ? C_PURPLE : c === 'other' ? C_GRAY : C_ORANGE;
+  const catColor = (c: Category) => c === 'lp' ? C_SILVER : c === 'nft' ? C_PURPLE : c === 'other' ? C_GRAY : c === 'x120' ? '#0088ff' : C_ORANGE;
 
   /**
    * NOT gated on `loading`.
@@ -2576,9 +2613,11 @@ export default function V2Portfolio() {
                             ) : null}
                             {h.kind === 'ecosystem' && <span className="pfx-badge b-o">ECOSYSTEM</span>}
                             {h.kind === 'x1native' && <span className="pfx-badge b-o">X1 NATIVE</span>}
+                            {x120.has(h.mint) && h.category !== 'x120' && <span className="pfx-badge" style={{ color: '#0088ff', borderColor: 'rgba(0,136,255,.5)', background: 'rgba(0,136,255,.1)' }}
+                              title="An X1-20 token: minted as inscriptions on X1 Inscriptions, then bridged out as a Token-2022 token">X1-20 INSCRIPTION</span>}
                           </div>
                           <div className="pfx-meta">
-                            <span className="prog">{h.program === 't22' ? 'TOKEN-2022' : 'SPL'}</span>·
+                            <span className="prog">{h.category === 'x120' ? `INSCRIPTION${h.x120?.locked ? ` · ${h.x120.locked.toLocaleString()} in lots` : ''}` : h.program === 't22' ? 'TOKEN-2022' : 'SPL'}</span>·
                             <span className="mint" title={h.mint}>{shortAddr(h.mint, 4, 4)}</span>
                             <CopyButton value={h.mint} title={`Copy ${h.symbol} address`} />
                           </div>
@@ -2645,7 +2684,15 @@ export default function V2Portfolio() {
                                   }}
                                 >{privSendMint === h.mint ? '✕ CLOSE' : '◈ SEND PRIVATELY'}</button>
                               )}
-                              {h.balance > 0 && (
+                              {/* X1-20: inscription balances move on X1 Inscriptions (send / sell as a lot / bridge out);
+                                  bridged ones can come back in as inscriptions there too */}
+                              {(h.category === 'x120' || x120.has(h.mint)) && (
+                                <button type="button" className="pfx-send bridge"
+                                  title={h.category === 'x120' ? 'Bridge out to a Token-2022 token, send, or sell as a lot, on X1 Inscriptions' : 'Bridge back in as an X1-20 inscription balance, on X1 Inscriptions'}
+                                  onClick={() => window.open(`${INS_SITE}/wallet?tab=tokens`, '_blank', 'noopener')}
+                                >{h.category === 'x120' ? 'BRIDGE OUT' : 'BRIDGE IN'}</button>
+                              )}
+                              {h.balance > 0 && h.category !== 'x120' && (
                                 <button type="button" className="pfx-send"
                                   onClick={() => { setActiveSendMint(m => m === h.mint ? null : h.mint); setPrivSendMint(null); }}
                                 >{isActive ? '✕ CLOSE' : 'SEND'}</button>
@@ -2828,6 +2875,9 @@ export default function V2Portfolio() {
               </div>
             ))}
           </div>
+
+          {/* ── X1 INSCRIPTIONS: land + inscriptions are Metaplex Core NFTs (no token accounts) ── */}
+          <X1InscriptionsPanel owner={activeKey} />
 
         </>
       )}

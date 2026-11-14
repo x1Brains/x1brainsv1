@@ -477,28 +477,63 @@ export interface NftMetaRow {
   attributes?:  { trait_type: string; value: string }[] | null;
 }
 
-/** Batch-read cached metadata for many mints. Chunks the IN() list. */
+/**
+ * Batch-resolve metadata for many mints via /api/nft-meta.
+ *
+ * ⛔ This used to read the nft_metadata table directly and return only what a
+ * previous visitor had happened to cache — 170 rows for the whole site. Every
+ * other NFT fell through to V2NFTImage's fetchJsonMulti, which races four
+ * candidates that were ALL measured dead on 2026-11-14: corsproxy.io 403,
+ * api.allorigins.win 522 after 19.6s, /api/nft-meta/<path> 400, and a direct
+ * fetch the browser blocks on CORS. The race returned null, the card fell back
+ * to a guessed URL, and you got the empty-image placeholder.
+ *
+ * The endpoint serves cached rows from one indexed query and resolves the rest
+ * server-side (chain -> metadata URI -> image), where there is no CORS and the
+ * real hosts answer in 0.3-0.6s. Measured: 167/170 live listings resolved in
+ * 19s cold, 12/12 of the resulting image URLs verified loadable.
+ */
 export async function getNftMetadataBatch(mints: string[]): Promise<Map<string, NftMetaRow>> {
   const out = new Map<string, NftMetaRow>();
-  if (!supabase || mints.length === 0) return out;
-  const uniq = Array.from(new Set(mints));
-  const CHUNK = 150;
-  try {
-    for (let i = 0; i < uniq.length; i += CHUNK) {
-      const slice = uniq.slice(i, i + CHUNK);
-      const { data } = await supabase
-        .from('nft_metadata')
-        .select('mint,name,symbol,image,description,external_url,collection,attributes')
-        .in('mint', slice);
-      if (data) for (const d of data as any[]) {
-        out.set(d.mint, {
-          mint: d.mint, name: d.name, symbol: d.symbol, image: d.image,
-          description: d.description, externalUrl: d.external_url,
-          collection: d.collection, attributes: d.attributes,
-        });
+  const uniq = Array.from(new Set(mints.filter(Boolean)));
+  if (uniq.length === 0) return out;
+  const CHUNK = 60;   // matches MAX_MINTS in api/_nftmeta.ts
+
+  for (let i = 0; i < uniq.length; i += CHUNK) {
+    const slice = uniq.slice(i, i + CHUNK);
+    try {
+      const res = await fetch('/api/nft-meta', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ mints: slice }),
+      });
+      const json = await res.json().catch(() => null) as any;
+      if (res.ok && json?.ok && json.meta) {
+        for (const m of Object.values(json.meta) as any[]) out.set(m.mint, m as NftMetaRow);
+        continue;
       }
+      throw new Error(json?.error ?? `HTTP ${res.status}`);
+    } catch (e) {
+      // Endpoint down or not deployed yet: fall back to reading whatever is
+      // already cached, so the page degrades to the old behaviour instead of
+      // showing nothing.
+      console.warn('[nft-meta] falling back to direct cache read:', e);
+      if (!supabase) continue;
+      try {
+        const { data } = await supabase
+          .from('nft_metadata')
+          .select('mint,name,symbol,image,description,external_url,collection,attributes')
+          .in('mint', slice);
+        if (data) for (const d of data as any[]) {
+          out.set(d.mint, {
+            mint: d.mint, name: d.name, symbol: d.symbol, image: d.image,
+            description: d.description, externalUrl: d.external_url,
+            collection: d.collection, attributes: d.attributes,
+          });
+        }
+      } catch {}
     }
-  } catch {}
+  }
   return out;
 }
 
@@ -514,7 +549,11 @@ export async function upsertNftMetadata(rows: NftMetaRow[]): Promise<void> {
       attributes: r.attributes ?? null, updated_at: new Date().toISOString(),
     }));
   if (payload.length === 0) return;
-  try { await supabase.from('nft_metadata').upsert(payload, { onConflict: 'mint' }); } catch {}
+  // ⛔ No longer writes from the browser. /api/nft-meta owns this table now
+  // (service key, after resolving from chain), which is what lets anon write
+  // access be revoked — a poisoned `image` here renders on every visitor's
+  // card. Kept as a no-op so existing call sites stay harmless.
+  void payload;
 }
 
 // ═════════════════════════════════════════════

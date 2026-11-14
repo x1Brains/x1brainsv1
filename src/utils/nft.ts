@@ -21,7 +21,7 @@ export function resolveGateway(u: string): string {
  */
 export function toProxyUrl(url: string): string {
   return url.startsWith('http')
-    ? `/api/nft-meta/${url.replace(/^https?:\/\//, '')}`
+    ? url  // /api/nft-meta/(.*) rewrite removed 2026-11-14
     : url;
 }
 

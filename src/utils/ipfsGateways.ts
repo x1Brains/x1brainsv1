@@ -66,7 +66,10 @@ export function collectionRescues(url: string): string[] {
  */
 function viaSameOriginProxy(url: string): string | null {
   if (!/^https?:\/\//i.test(url)) return null;
-  return `/api/nft-meta/${url.replace(/^https?:\/\//i, '')}`;
+  // ⛔ The /api/nft-meta/(.*) rewrite was removed on 2026-11-14 (it 400'd on
+  // any path, and doubled as an unauthenticated open proxy). Returning the
+  // URL unchanged is strictly better than a known-404.
+  return url;
 }
 
 /**

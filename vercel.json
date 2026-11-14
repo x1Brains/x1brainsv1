@@ -9,10 +9,6 @@
       "destination": "https://mint.xdex.xyz/$1"
     },
     {
-      "source": "/api/nft-meta/(.*)",
-      "destination": "https://$1"
-    },
-    {
       "source": "/api/solaris/(.*)",
       "destination": "https://solarisprime.xyz/api/indexer/$1"
     },

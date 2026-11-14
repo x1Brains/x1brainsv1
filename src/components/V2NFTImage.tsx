@@ -52,12 +52,16 @@ function isImageUrl(u: string): boolean {
 // ~24s (serial 4×6s) down to ~6s (slowest of the parallel four), and the
 // best case to whatever the fastest proxy can return.
 async function fetchJsonMulti(url: string): Promise<any | null> {
-  const candidates = [
-    `https://corsproxy.io/?${encodeURIComponent(url)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-    `/api/nft-meta/${url.replace(/^https?:\/\//, '')}`,
-    url, // direct (in case host serves CORS)
-  ];
+  // ⛔ Was a 4-way race. Measured 2026-11-14, three of the four are dead:
+  //   corsproxy.io         403  (free use blocked)
+  //   api.allorigins.win   522 after 19.6s  — and it held the AbortController
+  //                        for the full 12s budget, so a card that could have
+  //                        painted from `url` sat empty waiting for a corpse
+  //   /api/nft-meta/<path> 400  (the rewrite broke on any path; now removed)
+  // Metadata resolution has moved server-side to POST /api/nft-meta, which has
+  // no CORS problem and caches the result for everyone. This path is now only
+  // the last resort for a URL that arrives without a mint attached.
+  const candidates = [url];
   const ctrl = new AbortController();
   // 12s, not 4s. gateway.pinata.cloud — which hosts a lot of this metadata —
   // measured 3-9s. A 4s abort turned that into a coin flip: the same wallet

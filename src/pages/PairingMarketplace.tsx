@@ -501,12 +501,12 @@ async function fetchMetaJson(uri: string): Promise<any | null> {
     const r = await fetch(direct, { signal: AbortSignal.timeout(9000) });
     if (r.ok) return await r.json();
   } catch { /* fall through to the proxy */ }
-  if (!/^https?:\/\//i.test(direct)) return null;
-  try {
-    const r = await fetch(`/api/nft-meta/${direct.replace(/^https?:\/\//, '')}`,
-      { signal: AbortSignal.timeout(12000) });
-    if (r.ok) return await r.json();
-  } catch { /* give up — caller keeps symbol/name, just no logo */ }
+  // ⛔ The same-origin retry through `/api/nft-meta/<host>/<path>` is gone.
+  // Measured 2026-11-14: that rewrite returned 400 for ANY url with a path, so
+  // this tier had never actually worked — and it doubled as an unauthenticated
+  // open proxy (it would fetch and serve any external host from x1brains.io).
+  // Both are fixed by removing it. This only costs a token logo, which falls
+  // back to a letter tile; NFT art now resolves server-side via /api/nft-meta.
   return null;
 }
 
