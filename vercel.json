@@ -43,6 +43,12 @@
     }
   ],
   "functions": {
+    "api/market-stats.ts": {
+      "maxDuration": 60
+    },
+    "api/nft-meta.ts": {
+      "maxDuration": 60
+    },
     "api/xdex.ts": {
       "maxDuration": 60
     }
