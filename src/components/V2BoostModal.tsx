@@ -102,37 +102,18 @@ export async function loadActiveBoosts(): Promise<BoostRecord[]> {
 // instead of silently celebrating a burn that didn't actually register the
 // boost. (Old behavior: catch {} → modal shows "✅ Boost active" even when
 // the labwork_boosts insert was rejected by RLS / column mismatch / etc.)
-async function saveBoost(b: Omit<BoostRecord, 'id' | 'created_at'>): Promise<{ ok: boolean; error?: string }> {
-  if (!supabase) return { ok: false, error: 'Supabase not configured' };
+async function saveBoostVerified(b: { listing_pda: string; tier: BoostTierId; tx_sig: string }): Promise<{ ok: boolean; error?: string }> {
   try {
-    const { error } = await supabase.from('labwork_boosts').upsert(b, { onConflict: 'listing_pda' });
-    if (error) { console.warn('[boosts] saveBoost rejected:', error); return { ok: false, error: error.message }; }
+    const res  = await fetch('/api/boost', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(b),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json?.ok) return { ok: false, error: json?.error ?? `HTTP ${res.status}` };
     return { ok: true };
   } catch (e: any) {
-    console.warn('[boosts] saveBoost threw:', e);
-    return { ok: false, error: e?.message ?? 'write failed' };
-  }
-}
-
-async function saveLabworkPoints(p: {
-  wallet: string; brains_burned: number; points: number;
-  source: string; tier: string; tx_sig: string;
-}): Promise<{ ok: boolean; error?: string }> {
-  if (!supabase) return { ok: false, error: 'Supabase not configured' };
-  try {
-    const { error } = await supabase.from('labwork_points').upsert({
-      wallet:        p.wallet,
-      brains_burned: p.brains_burned,
-      points:        p.points,
-      source:        p.source,
-      tier:          p.tier,
-      tx_sig:        p.tx_sig,
-      earned_at:     new Date().toISOString(),
-    }, { onConflict: 'tx_sig' });
-    if (error) { console.warn('[boosts] saveLabworkPoints rejected:', error); return { ok: false, error: error.message }; }
-    return { ok: true };
-  } catch (e: any) {
-    console.warn('[boosts] saveLabworkPoints threw:', e);
+    console.warn('[boosts] /api/boost threw:', e);
     return { ok: false, error: e?.message ?? 'write failed' };
   }
 }
@@ -219,8 +200,6 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
   const canAfford  = bal !== null && bal >= amount;
   const slotsAvail = slotsUsed !== null && slotsUsed < BOOST_SLOTS;
   const slotsLoading = slotsUsed === null;
-  // Points are tier-based (same boost regardless of which token paid for it).
-  const labworkPts = Math.round(selected.brains * 1.888 * 100) / 100;
   const priceXnt   = target.priceLamports / 1e9;
 
   const run = async () => {
@@ -266,42 +245,25 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
         if (conf === 'confirmed' || conf === 'finalized') break;
       }
 
-      const expiresAt = new Date(Date.now() + selected.days * 86_400_000).toISOString();
+      // ⛔ The browser no longer writes labwork_boosts / labwork_points. It
+      // hands the signature to /api/boost, which re-reads the burn from chain
+      // (right mint, enough of it, recent, not already spent), re-reads the
+      // listing from the marketplace program, and writes with the service key.
+      // Price, duration, expiry, points, nft_mint and seller are all decided
+      // server-side — nothing here is trusted. See api/_verify.ts for why.
+      setStatus('Verifying burn on chain…');
+      const boostRes = await saveBoostVerified({
+        listing_pda: target.listingPda,
+        tier,
+        tx_sig:      txSig,
+      });
 
-      setStatus('Recording boost in Supabase…');
-      const [boostRes, ptsRes] = await Promise.all([
-        saveBoost({
-          listing_pda:    target.listingPda,
-          nft_mint:       target.nftMint,
-          seller:         publicKey.toBase58(),
-          tier,
-          brains:         selected.brains,
-          labwork_points: labworkPts,
-          tx_sig:         txSig,
-          expires_at:     expiresAt,
-        }),
-        saveLabworkPoints({
-          wallet:        publicKey.toBase58(),
-          brains_burned: selected.brains,
-          points:        labworkPts,
-          source:        isLb ? 'boost-lb' : 'boost',
-          tier,
-          tx_sig:        txSig,
-        }),
-      ]);
-
-      // Surface DB write failures explicitly — the burn already settled
-      // on-chain, but if the boost didn't land in Supabase the landing
-      // carousel won't pick it up. We want the citizen to know.
+      // The burn already settled on-chain, so a rejection here means the
+      // tokens are gone and the slot is not booked. Say so plainly.
       if (!boostRes.ok) {
         setStatus(`⚠️ Burn confirmed, but boost record FAILED: ${boostRes.error}. ${amountLabel} were burned but the listing won't appear in the spotlight. Contact admin.`);
         return;
       }
-      // The labwork_points row is a retired ledger — nothing reads it any more.
-      // It is still written so a retry cannot double-credit if it is ever revived
-      // (tx_sig is UNIQUE there), but a failure is not worth telling the citizen
-      // about: the boost they paid for is live either way.
-      if (!ptsRes.ok) console.warn('[boosts] labwork_points write failed:', ptsRes.error);
 
       setStatus(`✅ Boost active · ${amountLabel} burned · ${selected.days}d featured`);
       setTimeout(() => { onDone(); onClose(); }, 2200);

@@ -122,11 +122,31 @@ begin
   end loop;
 end $$;
 
--- 4. Re-grant UPDATE on exactly the three caches the live app upserts into.
+-- 4a. labwork_boosts + labwork_points are now written ONLY by /api/boost with
+--     the service key, after it verifies the burn on chain. Take anon INSERT
+--     away too — this is what finally makes "the burn is the gate" true.
+--     ⛔ Requires the V2BoostModal -> /api/boost change to be deployed first.
+do $$ declare t text; begin
+  foreach t in array array['labwork_boosts','labwork_points'] loop
+    if to_regclass('public.'||t) is not null then
+      execute format('revoke insert on public.%I from anon, authenticated', t);
+    end if;
+  end loop;
+end $$;
+do $$ declare r record; begin
+  for r in select tablename, policyname from pg_policies
+           where schemaname='public' and tablename in ('labwork_boosts','labwork_points') and cmd='INSERT'
+  loop
+    execute format('drop policy if exists %I on public.%I', r.policyname, r.tablename);
+    raise notice 'dropped INSERT policy % on %', r.policyname, r.tablename;
+  end loop;
+end $$;
+
+-- 4. Re-grant UPDATE on exactly the caches the live app still upserts into.
 do $$
 declare t text;
 begin
-  foreach t in array array['nft_metadata','labwork_boosts','marketplace_stats'] loop
+  foreach t in array array['nft_metadata','marketplace_stats'] loop
     if to_regclass('public.'||t) is not null then
       execute format('grant update on public.%I to anon, authenticated', t);
       execute format('drop policy if exists %I on public.%I', t||'_anon_update', t);
