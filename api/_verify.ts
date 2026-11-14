@@ -77,9 +77,20 @@ export type BurnProof = {
 export async function verifyBoostBurn(txSig: string, tier: string, nowSecs: number): Promise<BurnProof> {
   const spec = BOOST_TIERS[tier];
   if (!spec) return { ok: false, reason: `unknown tier ${tier}` };
-  if (!/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(txSig)) return { ok: false, reason: 'malformed signature' };
+  if (!/^[1-9A-HJ-NP-Za-km-z]{86,88}$/.test(txSig)) return { ok: false, reason: 'malformed signature' };
 
-  const tx = await rpc('getTransaction', [txSig, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }]);
+  // A signature that passes the character check can still be the wrong byte
+  // length once decoded, and the node answers that with "Invalid param:
+  // WrongSize". Don't leak an RPC string to the caller as a 500 — it is just
+  // a malformed signature.
+  let tx: any;
+  try {
+    tx = await rpc('getTransaction', [txSig, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }]);
+  } catch (e: any) {
+    const m = String(e?.message ?? '');
+    if (/WrongSize|Invalid param|invalid signature/i.test(m)) return { ok: false, reason: 'malformed signature' };
+    throw e;
+  }
   if (!tx) return { ok: false, reason: 'transaction not found on chain' };
   if (tx.meta?.err) return { ok: false, reason: 'transaction failed on chain' };
 

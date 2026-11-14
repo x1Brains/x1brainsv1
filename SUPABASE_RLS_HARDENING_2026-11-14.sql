@@ -63,6 +63,12 @@
 -- ║    · a stray FOR ALL policy is REPORTED, not dropped — and the REVOKE    ║
 -- ║      still blocks the write even while that policy exists                ║
 -- ║    · missing tables skipped safely; rollback proven to restore state     ║
+-- ║                                                                           ║
+-- ║  ⛔ DELIBERATELY NOT TOUCHED: desk_articles, desk_builders, desk_projects,║
+-- ║  desk_kv, desk_slides, desk_inbox, story_counter, story_reads,           ║
+-- ║  site_counter, site_visits. Those belong to theemoji.lol, not x1brains,  ║
+-- ║  and were all measured already-protected on 2026-11-14. Locking them     ║
+-- ║  blind could break that site's own writes.                               ║
 -- ╚══════════════════════════════════════════════════════════════════════════╝
 
 do $$
@@ -72,7 +78,11 @@ declare
                  'nft_metadata','portfolio_snapshots','labwork_boosts','marketplace_stats',
                  'burn_events','send_history','saved_addresses','labwork_points',
                  'page_views','site_events','spotlight_images','announcements',
-                 'labwork_trades','nfa_acceptances'
+                 'labwork_trades','nfa_acceptances',
+                 -- found 2026-11-14 in the full 26-table listing; all already
+                 -- UPDATE-protected, included so DELETE is locked too.
+                 'burn_events_backup','labwork_rewards','labwork_submissions',
+                 'weekly_config','challenge_logs'
                ];
   n_dropped   int := 0;
   n_allpol    int := 0;
@@ -89,12 +99,20 @@ begin
   end loop;
 
   -- 2. Drop every anon/public/authenticated UPDATE and DELETE policy.
+  -- ⛔ permissive = 'PERMISSIVE' is load-bearing. Permissive policies OR
+  --    together, so a permissive `using false` does nothing; a RESTRICTIVE one
+  --    ANDs and is what actually blocks. labwork_submissions carries a
+  --    `FOR ALL {public} using true` policy AND `block anon update` /
+  --    `block anon delete` policies -- dropping those blockers would leave the
+  --    ALL policy standing and OPEN write access. So restrictive policies are
+  --    never dropped here.
   for r in
     select tablename, policyname
     from pg_policies
     where schemaname = 'public'
       and tablename = any(tgt)
       and cmd in ('UPDATE','DELETE')
+      and permissive = 'PERMISSIVE'
   loop
     execute format('drop policy if exists %I on public.%I', r.policyname, r.tablename);
     n_dropped := n_dropped + 1;
@@ -113,11 +131,17 @@ begin
     'nft_metadata','portfolio_snapshots','labwork_boosts','marketplace_stats',
     'burn_events','send_history','saved_addresses','labwork_points',
     'page_views','site_events','spotlight_images','announcements',
-    'labwork_trades','nfa_acceptances'
+    'labwork_trades','nfa_acceptances',
+    'burn_events_backup','labwork_rewards','labwork_submissions',
+    'weekly_config','challenge_logs'
   ] loop
     if to_regclass('public.'||t) is not null then
-      execute format('revoke delete on public.%I from anon, authenticated', t);
-      execute format('revoke update on public.%I from anon, authenticated', t);
+      -- `from public` matters: announcements / challenge_logs /
+      -- labwork_submissions carry FOR ALL policies granted to {public}, and a
+      -- revoke from anon alone would leave a PUBLIC grant in place.
+      -- service_role keeps its own explicit grant, so it is unaffected.
+      execute format('revoke delete on public.%I from anon, authenticated, public', t);
+      execute format('revoke update on public.%I from anon, authenticated, public', t);
     end if;
   end loop;
 end $$;
@@ -139,6 +163,20 @@ do $$ declare r record; begin
   loop
     execute format('drop policy if exists %I on public.%I', r.policyname, r.tablename);
     raise notice 'dropped INSERT policy % on %', r.policyname, r.tablename;
+  end loop;
+end $$;
+
+-- 4b. announcements + challenge_logs are written by /api/admin with the
+--     service key. Their `FOR ALL {public}` policy also handed anon INSERT:
+--     an empty announcement row was created and removed during the audit to
+--     prove it. Take INSERT away. ⛔ labwork_submissions INSERT is NOT touched
+--     -- that is the deliberate community submission form and it already has
+--     a validating WITH CHECK.
+do $$ declare t text; begin
+  foreach t in array array['announcements','challenge_logs'] loop
+    if to_regclass('public.'||t) is not null then
+      execute format('revoke insert on public.%I from anon, authenticated, public', t);
+    end if;
   end loop;
 end $$;
 

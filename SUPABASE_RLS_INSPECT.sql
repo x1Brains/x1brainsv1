@@ -1,20 +1,18 @@
 -- ╔══════════════════════════════════════════════════════════════════════════╗
--- ║  STEP 1 — INSPECT (read-only). Run this FIRST, paste the output back.    ║
--- ║  Changes nothing. Shows exactly which policies exist today.              ║
+-- ║  STEP 1 — INSPECT (read-only). ONE query on purpose: the Supabase SQL    ║
+-- ║  editor only renders the LAST result set, so two selects would hide this ║
+-- ║  one. Run it, then send me the output.                                   ║
 -- ╚══════════════════════════════════════════════════════════════════════════╝
 select
   tablename,
-  policyname,
   cmd,
-  roles::text                           as granted_to,
-  coalesce(qual, '(none)')              as using_clause,
-  coalesce(with_check, '(none)')        as with_check_clause
+  policyname,
+  roles::text                    as granted_to,
+  coalesce(qual, '-')            as using_clause,
+  coalesce(with_check, '-')      as with_check_clause
 from pg_policies
 where schemaname = 'public'
-order by tablename, cmd, policyname;
-
--- Any table with RLS OFF entirely (nothing below should be 'f' except views):
-select relname as table_name, relrowsecurity as rls_enabled, relforcerowsecurity as rls_forced
-from pg_class
-where relnamespace = 'public'::regnamespace and relkind = 'r'
-order by relname;
+order by
+  case cmd when 'ALL' then 0 when 'DELETE' then 1 when 'UPDATE' then 2
+           when 'INSERT' then 3 else 4 end,
+  tablename, policyname;
