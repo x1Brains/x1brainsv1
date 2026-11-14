@@ -637,7 +637,15 @@ export async function upsertPortfolioSnapshot(snap: PortfolioSnapshot): Promise<
           total_usd:       snap.total_usd,
           token_breakdown: snap.token_breakdown,
         },
-        { onConflict: 'wallet,snapshot_date', ignoreDuplicates: false }
+        // ⛔ ignoreDuplicates MUST stay true. PostgREST turns `false` into
+        // ON CONFLICT DO UPDATE, which Postgres rejects without UPDATE rights
+        // on the table *at plan time* — so with anon UPDATE revoked (RLS
+        // hardening 2026-11-14) even a brand-new wallet's first insert would
+        // 42501 and no new wallet would ever get a chart. `true` emits
+        // ON CONFLICT DO NOTHING, which needs INSERT only: the browser enrols
+        // a wallet once, and the 02:00 cron (service_role) owns the daily
+        // value from then on — it is the only writer with the price-sanity cap.
+        { onConflict: 'wallet,snapshot_date', ignoreDuplicates: true }
       );
   } catch {}
 }
