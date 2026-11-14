@@ -10,6 +10,63 @@ pub const CANCEL_FEE_NUMERATOR:   u64 = 888;
 pub const CANCEL_FEE_DENOMINATOR: u64 = 100_000;
 pub const MIN_PRICE: u64 = 1_000_000;
 
+/// Brains Elites genesis program. Membership cannot be checked with
+/// `mint == collection_mint`, because each of the 444 Elites has its OWN mint.
+/// The proof is the per-NFT PDA ["mint_record", nft_mint] under this program:
+/// it exists only for genuine Elites and, being a PDA of that program, cannot
+/// be forged. Verified on chain 2026-11-14 — present for Elites #301 and #332,
+/// absent for a non-Elite control.
+pub const GENESIS_PROGRAM: &str = "GQPGh1M6xwwWLdGCmWum2BhPi6gkJaoNFXyyuXpgN59v";
+
+/// Does `holder` hold a Brains Elite RIGHT NOW?
+///
+/// Proof arrives in `remaining_accounts` as exactly two accounts:
+///   [0] a token account for some Elite mint — owner == holder, amount >= 1
+///   [1] that mint's ["mint_record", mint] PDA under GENESIS_PROGRAM
+///
+/// Using remaining_accounts rather than new named accounts keeps every existing
+/// instruction's account list byte-identical, so current clients and the live
+/// IDL keep working untouched.
+///
+/// ⛔ Re-checked at the moment of every fee-bearing action and never cached, so
+/// a holder who sells their Elite loses the perk immediately — that is the
+/// whole point (owner 2026-11-14). ANY Elite qualifies; it need not be the same
+/// one each time.
+///
+/// ⛔ Returns false on anything unexpected, so the fee is charged exactly as it
+/// is today. A missing or malformed proof must never fail a sale or a cancel.
+fn elite_fee_waived(remaining: &[AccountInfo], holder: &Pubkey) -> bool {
+    if remaining.len() < 2 { return false; }
+    let token_acc = &remaining[0];
+    let record    = &remaining[1];
+
+    // Must be a real SPL token account, not a lookalike the caller controls.
+    // Brains Elites are classic SPL (verified on chain: Tokenkeg, decimals 0,
+    // supply 1), so Token-2022 is deliberately not accepted here.
+    if *token_acc.owner != token::ID { return false; }
+
+    let data = match token_acc.try_borrow_data() { Ok(d) => d, Err(_) => return false };
+    if data.len() < 72 { return false; }
+    let mut buf = [0u8; 32];
+    buf.copy_from_slice(&data[0..32]);
+    let elite_mint = Pubkey::from(buf);
+    buf.copy_from_slice(&data[32..64]);
+    let token_owner = Pubkey::from(buf);
+    let mut amt = [0u8; 8];
+    amt.copy_from_slice(&data[64..72]);
+
+    if u64::from_le_bytes(amt) == 0 { return false; }
+    if token_owner != *holder { return false; }
+
+    let genesis: Pubkey = match GENESIS_PROGRAM.parse() { Ok(p) => p, Err(_) => return false };
+    let (expected, _) = Pubkey::find_program_address(&[b"mint_record", elite_mint.as_ref()], &genesis);
+    if *record.key != expected { return false; }
+    // An unused PDA is system-owned and empty; a real mint_record is owned by
+    // the genesis program and has data.
+    if *record.owner != genesis { return false; }
+    record.try_borrow_data().map(|d| !d.is_empty()).unwrap_or(false)
+}
+
 #[program]
 pub mod labwork_marketplace {
     use super::*;
@@ -52,9 +109,16 @@ pub mod labwork_marketplace {
         let seller_key = ctx.accounts.sale.seller;
 
         // Cancel fee via system program CPI (seller is owned by System Program)
-        let cancel_fee = price
+        let mut cancel_fee = price
             .checked_mul(CANCEL_FEE_NUMERATOR).ok_or(MarketplaceError::MathOverflow)?
             .checked_div(CANCEL_FEE_DENOMINATOR).ok_or(MarketplaceError::MathOverflow)?;
+
+        // Brains Elite holders unlist for free. The seller signs this
+        // instruction, so their own client attaches the proof.
+        if cancel_fee > 0 && elite_fee_waived(ctx.remaining_accounts, &ctx.accounts.seller.key()) {
+            msg!("Brains Elite holder - cancel fee waived");
+            cancel_fee = 0;
+        }
 
         if cancel_fee > 0 {
             require!(ctx.accounts.seller.lamports() >= cancel_fee, MarketplaceError::InsufficientFundsForCancelFee);
@@ -113,9 +177,19 @@ pub mod labwork_marketplace {
 
         require!(ctx.accounts.buyer.lamports() >= price, MarketplaceError::InsufficientFunds);
 
-        let platform_fee = price
+        let mut platform_fee = price
             .checked_mul(SALE_FEE_NUMERATOR).ok_or(MarketplaceError::MathOverflow)?
             .checked_div(SALE_FEE_DENOMINATOR).ok_or(MarketplaceError::MathOverflow)?;
+
+        // Brains Elite SELLERS keep the whole sale price. ⛔ The BUYER signs
+        // this instruction, so the proof is about `sale.seller`, and it is the
+        // buyer's client that must attach it. If it is absent the fee is simply
+        // charged as before — the sale never fails over a missing proof.
+        if platform_fee > 0 && elite_fee_waived(ctx.remaining_accounts, &seller_key) {
+            msg!("Brains Elite seller - sale fee waived");
+            platform_fee = 0;
+        }
+
         let seller_proceeds = price.checked_sub(platform_fee).ok_or(MarketplaceError::MathOverflow)?;
 
         // Pay platform fee
