@@ -8,14 +8,20 @@ import { createPortal } from 'react-dom';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
 import V2NFTImage from './V2NFTImage';
+import { INS_PROGRAM, INS_SITE } from '../lib/x1inscriptions';
 
 const CORE_ID = new PublicKey('CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d');
-// The X1 Inscriptions program (testnet today). Its two collections are PDAs of it, so they can't be faked.
-// ⚠ When X1 Inscriptions launches on mainnet with its own program id, update this.
-const INS_PROGRAM = new PublicKey('EXB36ZzVukbEQ2hHRVPDyqKV8eTrkT3fLvi65dZLiTfT');
+// ⛔ Imported, not re-declared. This file used to carry its own copy of the
+// program id and it was the TESTNET one, so both collection PDAs derived to
+// addresses that do not exist on mainnet — every Core NFT fell through to
+// "Other Core NFTs" and neither collection ever matched. Verified 2026-11-14:
+// the mainnet PDAs below exist and are owned by Metaplex Core.
+//   coll_l -> FZL4bTtto88mV6Qqx3uz4o7wcjLrCCKZVVxgX4Y2L6cm
+//   coll_i -> 8AoC9xrB7LchjfJmdUBxMcyCLjHjSQP8ZVnjDDQadDUy
+// They are PDAs of the program, so they cannot be faked.
 const COLL_LAND = PublicKey.findProgramAddressSync([new TextEncoder().encode('coll_l')], INS_PROGRAM)[0].toBase58();
 const COLL_INS  = PublicKey.findProgramAddressSync([new TextEncoder().encode('coll_i')], INS_PROGRAM)[0].toBase58();
-const SITE = 'https://www.x1inscriptions.io';
+const SITE = INS_SITE;
 
 type Kind = 'land' | 'ins' | 'core';
 interface CoreNft { address: string; name: string; uri: string; collection: string | null; kind: Kind;
