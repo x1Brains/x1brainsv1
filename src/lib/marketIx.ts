@@ -19,6 +19,58 @@ import {
 
 type SignFn = ((tx: Transaction) => Promise<Transaction>) | null | undefined;
 
+// ─── Brains Elite fee waiver ──────────────────────────────────────────────
+// The program charges 0 platform fee on a sale and 0 cancel fee on an unlist
+// when the SELLER holds a Brains Elite at that moment. It cannot look inside a
+// wallet, so the proof has to ride along as two extra accounts:
+//   [0] a token account for some Elite mint (owner = seller, amount >= 1)
+//   [1] that mint's ["mint_record", mint] PDA under the genesis program
+// They go on the END of the key list as `remaining_accounts`, which is why no
+// existing account position moved and the on-chain IDL did not change.
+//
+// ⛔ If this returns [] the fee is simply charged as before — never block a
+// sale or a cancel because the proof could not be built.
+const GENESIS_PROGRAM = new PublicKey('GQPGh1M6xwwWLdGCmWum2BhPi6gkJaoNFXyyuXpgN59v');
+
+export async function eliteProofAccounts(connection: any, holder: PublicKey): Promise<
+  { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[]
+> {
+  try {
+    // Every NFT-looking SPL token account the holder owns (decimals 0, amount 1).
+    const res = await connection.getParsedTokenAccountsByOwner(holder, { programId: TOKEN_PROGRAM_ID });
+    const candidates = (res?.value ?? []).filter((a: any) => {
+      const t = a.account?.data?.parsed?.info?.tokenAmount;
+      return t && t.decimals === 0 && Number(t.amount) >= 1;
+    });
+    if (candidates.length === 0) return [];
+
+    // Which of them is a genuine Elite? The mint_record PDA only exists for the
+    // 444, so one batched read answers it for all of them at once.
+    const pairs = candidates.map((a: any) => {
+      const mint = new PublicKey(a.account.data.parsed.info.mint);
+      const [rec] = PublicKey.findProgramAddressSync(
+        [new TextEncoder().encode('mint_record'), mint.toBuffer()], GENESIS_PROGRAM);
+      return { tokenAccount: a.pubkey as PublicKey, rec };
+    });
+    for (let i = 0; i < pairs.length; i += 100) {
+      const slice = pairs.slice(i, i + 100);
+      const infos = await connection.getMultipleAccountsInfo(slice.map((x: any) => x.rec));
+      for (let j = 0; j < slice.length; j++) {
+        const info = infos[j];
+        if (info && info.owner?.equals?.(GENESIS_PROGRAM) && (info.data?.length ?? 0) > 0) {
+          return [
+            { pubkey: slice[j].tokenAccount, isSigner: false, isWritable: false },
+            { pubkey: slice[j].rec,          isSigner: false, isWritable: false },
+          ];
+        }
+      }
+    }
+    return [];
+  } catch { return []; }
+}
+
+
+
 async function confirmSig(connection: any, sig: string): Promise<void> {
   for (let i = 0; i < 40; i++) {
     if (i > 0) await new Promise(r => setTimeout(r, 1500));
@@ -125,6 +177,9 @@ export async function executeBuy(opts: {
       { pubkey: PLATFORM_WALLET,         isSigner: false, isWritable: true  },
       { pubkey: TOKEN_PROGRAM_ID,        isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      // Elite proof for the SELLER — the buyer pays nothing either way, this
+      // just lets an Elite seller keep the full price.
+      ...(await eliteProofAccounts(connection, sellerPk)),
     ],
     data: disc,
   };
@@ -172,6 +227,8 @@ export async function executeCancel(opts: {
       { pubkey: PLATFORM_WALLET,         isSigner: false, isWritable: true  },
       { pubkey: TOKEN_PROGRAM_ID,        isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      // Elite proof for the seller, who is the signer here.
+      ...(await eliteProofAccounts(connection, publicKey)),
     ],
     data: disc,
   };
