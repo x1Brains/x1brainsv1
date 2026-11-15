@@ -430,3 +430,203 @@ pub enum MarketplaceError {
     #[msg("Insufficient funds for fee")]    InsufficientFundsForCancelFee,
     #[msg("Math overflow")]                 MathOverflow,
 }
+// ════════════════════════════════════════════════════════════════════════════
+//  Stress tests for elite_fee_waived — the forgery matrix.
+//
+//  This function decides whether real money changes hands, so every way an
+//  attacker could hand it a lookalike is tested here, not reasoned about.
+//  Run with: cargo test -p labwork_marketplace --lib
+// ════════════════════════════════════════════════════════════════════════════
+#[cfg(test)]
+mod elite_tests {
+    use super::*;
+    use anchor_lang::solana_program::account_info::AccountInfo;
+
+    const REAL_ELITE_MINT: &str = "HDemMuVgvRU3geGka2tZ4bJAPVPj3YgWKpcGw7iKwdXY"; // #082, live
+    const HOLDER:          &str = "x1HpEECT2VHiy6BmPZeXnoHZgHfpPomhk1sho7x5pjR";
+
+    fn genesis() -> Pubkey { GENESIS_PROGRAM.parse().unwrap() }
+
+    /// A 165-byte SPL token account: mint @0, owner @32, amount @64.
+    fn token_data(mint: &Pubkey, owner: &Pubkey, amount: u64) -> Vec<u8> {
+        let mut d = vec![0u8; 165];
+        d[0..32].copy_from_slice(mint.as_ref());
+        d[32..64].copy_from_slice(owner.as_ref());
+        d[64..72].copy_from_slice(&amount.to_le_bytes());
+        d[108] = 1; // state = Initialized
+        d
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn info<'a>(key: &'a Pubkey, owner: &'a Pubkey, lamports: &'a mut u64, data: &'a mut [u8]) -> AccountInfo<'a> {
+        AccountInfo::new(key, false, false, lamports, data, owner, false, 0)
+    }
+
+    /// Build the honest, should-succeed proof pair.
+    fn good_case() -> (Pubkey, Pubkey, Pubkey, Pubkey, Vec<u8>, Vec<u8>) {
+        let elite_mint: Pubkey = REAL_ELITE_MINT.parse().unwrap();
+        let holder:     Pubkey = HOLDER.parse().unwrap();
+        let ta_key = Pubkey::new_unique();
+        let (record_key, _) =
+            Pubkey::find_program_address(&[b"mint_record", elite_mint.as_ref()], &genesis());
+        (elite_mint, holder, ta_key, record_key, token_data(&elite_mint, &holder, 1), vec![7u8; 293])
+    }
+
+    macro_rules! run {
+        ($ta_key:expr, $ta_owner:expr, $ta_data:expr,
+         $rec_key:expr, $rec_owner:expr, $rec_data:expr, $holder:expr) => {{
+            let (mut l1, mut l2) = (1_000_000u64, 1_000_000u64);
+            let (mut d1, mut d2) = ($ta_data.clone(), $rec_data.clone());
+            let (k1, o1, k2, o2) = ($ta_key, $ta_owner, $rec_key, $rec_owner);
+            let a = info(&k1, &o1, &mut l1, &mut d1);
+            let b = info(&k2, &o2, &mut l2, &mut d2);
+            elite_fee_waived(&[a, b], &$holder)
+        }};
+    }
+
+    #[test]
+    fn honest_elite_holder_is_waived() {
+        let (_m, h, tak, rk, td, rd) = good_case();
+        assert!(run!(tak, token::ID, td, rk, genesis(), rd, h),
+                "a real Elite holder must get the waiver");
+    }
+
+    #[test]
+    fn no_proof_attached_charges_the_fee() {
+        let h: Pubkey = HOLDER.parse().unwrap();
+        assert!(!elite_fee_waived(&[], &h), "no remaining accounts -> fee charged");
+    }
+
+    #[test]
+    fn one_account_only_charges_the_fee() {
+        let (_m, h, tak, _rk, td, _rd) = good_case();
+        let (mut l, mut d) = (1u64, td);
+        let o = token::ID;
+        let a = info(&tak, &o, &mut l, &mut d);
+        assert!(!elite_fee_waived(std::slice::from_ref(&a), &h), "a truncated proof -> fee charged");
+    }
+
+    #[test]
+    fn fake_token_program_owner_is_rejected() {
+        // The attacker's own program writes a perfect-looking token account.
+        let (_m, h, tak, rk, td, rd) = good_case();
+        let attacker = Pubkey::new_unique();
+        assert!(!run!(tak, attacker, td, rk, genesis(), rd, h),
+                "a token account not owned by the SPL Token program must be rejected");
+    }
+
+    #[test]
+    fn zero_balance_is_rejected() {
+        let (m, h, tak, rk, _td, rd) = good_case();
+        assert!(!run!(tak, token::ID, token_data(&m, &h, 0), rk, genesis(), rd, h),
+                "holding zero of the Elite must not waive the fee");
+    }
+
+    #[test]
+    fn someone_elses_elite_is_rejected() {
+        // The classic attack: point at a real Elite that belongs to another wallet.
+        let (m, h, tak, rk, _td, rd) = good_case();
+        let other = Pubkey::new_unique();
+        assert!(!run!(tak, token::ID, token_data(&m, &other, 1), rk, genesis(), rd, h),
+                "an Elite held by someone else must not waive MY fee");
+    }
+
+    #[test]
+    fn non_elite_token_with_bogus_record_is_rejected() {
+        // Attacker holds a worthless NFT and passes a PDA they created themselves.
+        let h: Pubkey = HOLDER.parse().unwrap();
+        let junk = Pubkey::new_unique();
+        let (rec, _) = Pubkey::find_program_address(&[b"mint_record", junk.as_ref()], &genesis());
+        // Derivation is right, but no such account exists on chain -> system-owned, empty.
+        assert!(!run!(Pubkey::new_unique(), token::ID, token_data(&junk, &h, 1),
+                      rec, anchor_lang::solana_program::system_program::ID, vec![], h),
+                "an unused mint_record PDA is system-owned and empty -> reject");
+    }
+
+    #[test]
+    fn record_for_a_different_mint_is_rejected() {
+        // Hold junk, but pass the REAL Elite's mint_record.
+        let (m, h, _tak, rk, _td, rd) = good_case();
+        let junk = Pubkey::new_unique();
+        assert_ne!(junk, m);
+        assert!(!run!(Pubkey::new_unique(), token::ID, token_data(&junk, &h, 1),
+                      rk, genesis(), rd, h),
+                "the record must belong to the mint in the token account");
+    }
+
+    #[test]
+    fn record_owned_by_attacker_is_rejected() {
+        // Right address is impossible to fake, but test the owner check anyway.
+        let (_m, h, tak, rk, td, rd) = good_case();
+        let attacker = Pubkey::new_unique();
+        assert!(!run!(tak, token::ID, td, rk, attacker, rd, h),
+                "a record not owned by the genesis program must be rejected");
+    }
+
+    #[test]
+    fn empty_record_account_is_rejected() {
+        let (_m, h, tak, rk, td, _rd) = good_case();
+        assert!(!run!(tak, token::ID, td, rk, genesis(), Vec::<u8>::new(), h),
+                "a zero-length record must be rejected");
+    }
+
+    #[test]
+    fn truncated_token_account_is_rejected() {
+        let (_m, h, tak, rk, _td, rd) = good_case();
+        assert!(!run!(tak, token::ID, vec![0u8; 71], rk, genesis(), rd, h),
+                "a token account too short to hold mint/owner/amount must be rejected");
+    }
+
+    #[test]
+    fn spl_mint_account_masquerading_as_token_account_is_rejected() {
+        // An 82-byte Mint is ALSO owned by token::ID and is >= 72 bytes, so it
+        // reaches the field reads. It must not accidentally satisfy them.
+        let (_m, h, tak, rk, _td, rd) = good_case();
+        assert!(!run!(tak, token::ID, vec![0u8; 82], rk, genesis(), rd, h),
+                "an SPL Mint account must not pass as a token account");
+    }
+
+    #[test]
+    fn listed_elite_in_the_vault_does_not_waive() {
+        // Owner's rule: the Elite must be IN THEIR WALLET. An Elite escrowed in
+        // a marketplace vault is owned by the vault PDA, not the seller.
+        let (m, h, tak, rk, _td, rd) = good_case();
+        let vault = Pubkey::new_unique();
+        assert!(!run!(tak, token::ID, token_data(&m, &vault, 1), rk, genesis(), rd, h),
+                "an Elite sitting in a vault is not 'in their wallet'");
+    }
+
+    #[test]
+    fn any_elite_qualifies_not_a_specific_one() {
+        // Owner's rule: it need not be the same Elite each time.
+        let h: Pubkey = HOLDER.parse().unwrap();
+        for other in ["726BsucBQ1ndnU798KM18eu7P7TiCToFwuGoVDSzX1gY",   // #301, live
+                      "8ME7oPPrUdaZSQyxkrHgyuuTm7fsnrv2L5aAhik4kRGn"] { // #332, live
+            let m: Pubkey = other.parse().unwrap();
+            let (rk, _) = Pubkey::find_program_address(&[b"mint_record", m.as_ref()], &genesis());
+            assert!(run!(Pubkey::new_unique(), token::ID, token_data(&m, &h, 1),
+                         rk, genesis(), vec![7u8; 293], h),
+                    "any genuine Elite must grant the waiver");
+        }
+    }
+
+    #[test]
+    fn large_balance_still_waives() {
+        let (m, h, tak, rk, _td, rd) = good_case();
+        assert!(run!(tak, token::ID, token_data(&m, &h, u64::MAX), rk, genesis(), rd, h));
+    }
+
+    #[test]
+    fn extra_accounts_beyond_the_two_are_ignored() {
+        // A caller may append more accounts; only the first two are the proof.
+        let (_m, h, tak, rk, td, rd) = good_case();
+        let (mut l1, mut l2, mut l3) = (1u64, 1u64, 1u64);
+        let (mut d1, mut d2, mut d3) = (td, rd, vec![0u8; 10]);
+        let (o1, o2, o3) = (token::ID, genesis(), Pubkey::new_unique());
+        let k3 = Pubkey::new_unique();
+        let a = info(&tak, &o1, &mut l1, &mut d1);
+        let b = info(&rk,  &o2, &mut l2, &mut d2);
+        let c = info(&k3,  &o3, &mut l3, &mut d3);
+        assert!(elite_fee_waived(&[a, b, c], &h));
+    }
+}
