@@ -31,19 +31,21 @@ async function getLbLogo(): Promise<string | undefined> {
   if (_lbLogoFetching) return undefined;
   _lbLogoFetching = true;
   try {
-    // ⛔ Was routed through `/api/nft-meta/<host>/<path>`. That Vercel rewrite
-    // was removed on 2026-11-14 (it 400'd on any path and doubled as an open
-    // proxy), so this 404'd on every single page load. Arweave sends
-    // `access-control-allow-origin: *`, so the direct fetch is fine.
-    const res = await fetch(LB_METADATA_URI, { signal: AbortSignal.timeout(5000) });
+    const proxyUrl = `/api/nft-meta/${LB_METADATA_URI.replace(/^https?:\/\//, '')}`;
+    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) throw new Error('fetch failed');
     const ct = res.headers.get('content-type') || '';
     if (ct.includes('image')) {
-      _lbLogoCache = LB_METADATA_URI;
+      _lbLogoCache = proxyUrl;
     } else {
       const json = await res.json();
       const img: string = json?.image || json?.icon || json?.logo || '';
-      if (img) _lbLogoCache = img;
+      if (img) {
+        // If the image is itself an Arweave URL, proxy it too
+        _lbLogoCache = img.startsWith('http')
+          ? `/api/nft-meta/${img.replace(/^https?:\/\//, '')}`
+          : img;
+      }
     }
   } catch {
     // Last resort: use direct arweave URL
