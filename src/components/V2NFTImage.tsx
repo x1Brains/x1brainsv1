@@ -188,8 +188,15 @@ function viaImageCDN(url: string, width: number): string {
   if (url.includes('images.weserv.nl')) return url; // already wrapped
   if (CDN_BYPASS_HOSTS.some(h => url.includes(h))) return url;
   // weserv expects url without protocol
+  return weservUrl(url, width);
+}
+
+/** weserv, built correctly. ⛔ Without the `ssl:` prefix weserv fetches over
+ *  plain HTTP and returns 404 for https-only hosts like arweave.net. */
+function weservUrl(url: string, width: number): string {
   const stripped = url.replace(/^https?:\/\//, '');
-  return `https://images.weserv.nl/?url=${encodeURIComponent(stripped)}&w=${width}&q=82&output=webp`;
+  const target = /^https:/i.test(url) ? `ssl:${stripped}` : stripped;
+  return `https://images.weserv.nl/?url=${encodeURIComponent(target)}&w=${width}&q=82&output=webp`;
 }
 
 export default function V2NFTImage({ src, name, priority = false, width = 600, fit = 'cover' }: Props) {
@@ -345,7 +352,23 @@ export default function V2NFTImage({ src, name, priority = false, width = 600, f
   // Dead-gateway links are moved to a live gateway before the CDN wrap; a collection's
   // own host (X1 Pups thumbs) goes first when one is known.
   const proxied = viaImageCDN(liveGatewayUrl(imgUrl), width);
-  const chain = [...new Set([...collectionRescues(imgUrl), proxied, ...imageCandidates(imgUrl), ...guessed.flatMap(g => imageCandidates(g))])];
+  // ⛔⛔⛔ arweave.net CANNOT TAKE A COLD BURST. Measured 2026-11-15 in a real
+  // browser: a FIRST visit fires ~45 arweave images at once and 26 of them come
+  // back empty (17 Ninjas, 8 Elites, 1 Pepe); the SECOND visit paints 171/171
+  // purely because the browser cache is warm. One at a time, and even a 29-way
+  // burst from node, arweave answers 200 every time — so this only appears on a
+  // real cold page load, which is precisely the case users see.
+  //
+  // Hosts in CDN_BYPASS_HOSTS go direct FIRST because that is fastest when it
+  // works, but they must not be left with a chain of ONE. weserv is appended as
+  // a last resort: its edge absorbs the burst, fetching the origin once instead
+  // of 45 times. Slow on a cold miss, but a slow image beats a blank card.
+  const lastResort = CDN_BYPASS_HOSTS.some(h => imgUrl.includes(h))
+    ? [weservUrl(imgUrl, width)] : [];
+  const chain = [...new Set([...collectionRescues(imgUrl), proxied,
+                             ...imageCandidates(imgUrl),
+                             ...guessed.flatMap(g => imageCandidates(g)),
+                             ...lastResort])];
   chainRef.current = chain;
   return (
     <img
@@ -362,8 +385,12 @@ export default function V2NFTImage({ src, name, priority = false, width = 600, f
         // remembered forever. Whatever the error chain finally landed on is by
         // definition one this browser can load — that is the thing worth keeping.
         const el = e.currentTarget as HTMLImageElement;
-        if (src && el.naturalWidth > 0 && cache.get(src) !== el.src) {
-          cache.set(src, el.src);
+        // ⛔ Pin the LOGICAL image url, never `el.src`. el.src may be a
+        // CDN-wrapped or fallback candidate, and caching that collapses the
+        // whole chain to a single entry on every later visit — one hiccup then
+        // has nowhere to fall back to.
+        if (src && imgUrl && el.naturalWidth > 0 && cache.get(src) !== imgUrl) {
+          cache.set(src, imgUrl);
           persist();
         }
       }}
