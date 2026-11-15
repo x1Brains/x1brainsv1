@@ -96,11 +96,25 @@ solana program deploy "$SO" \
   --url "$RPC"
 
 # 8. verify what actually landed
+#    ⛔ `solana program dump` returns the whole ALLOCATED account, zero-padded to
+#    its size — 323736 bytes after the extend, not the 319640 we built. Comparing
+#    md5 of the raw dump therefore always "differs" and would cry wolf on a
+#    perfectly good deploy. Compare the first $NEWSZ bytes instead, which is the
+#    executable itself.
 solana program dump "$PROGRAM_ID" /tmp/_lw_after.so --url "$RPC" >/dev/null 2>&1
-NEW_LIVE="$(md5sum /tmp/_lw_after.so | cut -d' ' -f1)"
+head -c "$NEWSZ" /tmp/_lw_after.so > /tmp/_lw_after_trim.so
+NEW_LIVE="$(md5sum /tmp/_lw_after_trim.so | cut -d' ' -f1)"
 BUILT="$(md5sum "$SO" | cut -d' ' -f1)"
-echo; say "deployed md5 $NEW_LIVE"; say "built    md5 $BUILT"
-[ "$NEW_LIVE" = "$BUILT" ] && say "VERIFIED: on-chain matches the local build" || say "⚠ on-chain differs from the local build — investigate before announcing"
+DUMPSZ="$(stat -c%s /tmp/_lw_after.so)"
+echo; say "dumped     $DUMPSZ bytes (allocated), comparing first $NEWSZ"
+say "deployed md5 $NEW_LIVE"; say "built    md5 $BUILT"
+if [ "$NEW_LIVE" = "$BUILT" ]; then
+  say "VERIFIED: on-chain executable matches the local build byte for byte"
+  TAILBYTES="$(tail -c +$(( NEWSZ + 1 )) /tmp/_lw_after.so | tr -d '\0' | wc -c)"
+  [ "$TAILBYTES" = "0" ] && say "padding    clean (all zero)" || say "note: $TAILBYTES non-zero bytes past the executable"
+else
+  say "⚠ on-chain differs from the local build — investigate before announcing"
+fi
 
 {
   echo "- $(date -u +%Y-%m-%dT%H:%M:%SZ) | $PROGRAM_ID | md5 $NEW_LIVE | git $(git rev-parse --short HEAD 2>/dev/null)$(git diff --quiet 2>/dev/null || echo ' (dirty: uncommitted changes)')"
