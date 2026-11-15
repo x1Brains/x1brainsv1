@@ -6,8 +6,19 @@ import { useEffect, useRef, useState } from 'react';
 // pin a gateway URL this browser cannot load (nftstorage.link and friends
 // currently answer 429). A v2 row that is wrong is indistinguishable from one
 // that is right, so the key is bumped rather than audited, and v2 is dropped.
-const CACHE_KEY = 'v2_nft_img_cache_v3';
-const OLD_CACHE_KEYS = ['v2_nft_img_cache_v2'];
+// v3 -> v4 (2026-11-15): v3 rows were written OPTIMISTICALLY — the URL was
+// pinned as soon as it was resolved, before anything confirmed a browser could
+// actually paint it. Every dead host this app has passed through (permagate.io,
+// ipfs.io, the removed /api/nft-meta proxy) is therefore still pinned in the
+// browsers that visited during those windows, and a cached entry is returned
+// without ever being re-checked. That is why fixing the server-side URLs did
+// nothing for existing visitors while a fresh browser looked perfect:
+// REPRODUCED by seeding one stale permagate row — that card alone went black
+// with display:none while every other Elite painted.
+// A v3 row that is wrong is indistinguishable from one that is right, so the
+// key is bumped and v3 is dropped wholesale.
+const CACHE_KEY = 'v2_nft_img_cache_v4';
+const OLD_CACHE_KEYS = ['v2_nft_img_cache_v2', 'v2_nft_img_cache_v3'];
 const cache: Map<string, string | null> = (() => {
   const m = new Map<string, string | null>();
   for (const k of OLD_CACHE_KEYS) { try { localStorage.removeItem(k); } catch {} }
@@ -26,8 +37,9 @@ function persist() {
   if (persistTimer) window.clearTimeout(persistTimer);
   persistTimer = window.setTimeout(() => {
     try {
-      const obj: Record<string, string | null> = {};
-      cache.forEach((v, k) => { if (v !== null) obj[k] = v; });
+      const obj: Record<string, string> = {};
+      cache.forEach((v, k) => { if (v) obj[k] = v; });
+      // Written in full, so a cache.delete() really does remove the entry.
       localStorage.setItem(CACHE_KEY, JSON.stringify(obj));
     } catch {}
   }, 800);
@@ -344,12 +356,24 @@ export default function V2NFTImage({ src, name, priority = false, width = 600, f
       // @ts-expect-error — fetchpriority not yet in React's IntrinsicElements types
       fetchpriority={priority ? 'high' : 'auto'}
       decoding="async"
+      onLoad={(e) => {
+        // ⛔ Pin ONLY what actually rendered. The previous code cached the URL
+        // the moment it was resolved, so a URL that never painted was still
+        // remembered forever. Whatever the error chain finally landed on is by
+        // definition one this browser can load — that is the thing worth keeping.
+        const el = e.currentTarget as HTMLImageElement;
+        if (src && el.naturalWidth > 0 && cache.get(src) !== el.src) {
+          cache.set(src, el.src);
+          persist();
+        }
+      }}
       onError={(e) => {
         const el = e.currentTarget as HTMLImageElement;
         if (advance(el)) return;
-        // Every candidate failed — mark and show the placeholder.
-        cache.set(src!, null);
-        persist();
+        // ⛔ Every candidate failed. FORGET this src rather than pinning a
+        // failure — otherwise one bad night gets baked into the browser and
+        // survives every later fix. Next load re-resolves from scratch.
+        if (src) { cache.delete(src); persist(); }
         el.style.display = 'none';
       }}
       style={{
