@@ -73,6 +73,15 @@ async function fetchJsonMulti(url: string): Promise<any | null> {
     const r = await fetch(candidate, { signal: ctrl.signal });
     if (!r.ok) throw new Error('not ok');
     const ct = r.headers.get('content-type') ?? '';
+    // ⛔ A METADATA URI THAT ANSWERS WITH AN IMAGE IS NOT NECESSARILY THIS
+    // NFT'S IMAGE. Measured 2026-11-15: the X1 Ninjas Arweave manifest serves
+    // a PNG for every `<n>.json` path, and it is the SAME PNG for all of them
+    // (md5 9ed3973295be for 0035.json and 0412.json alike) — a generic blue
+    // ninja, not that token's art. Trusting it painted the wrong NFT on any
+    // card that fell back to metaUri. Only accept an image response when the
+    // URI itself looks like an image; otherwise let the caller fall through to
+    // the extension-swap guesses, which hit the real `<n>.png`.
+    if (ct.startsWith('image/') && /\.json(\?|$)/i.test(candidate)) throw new Error('metadata uri served an image');
     // ⛔ THIS RETURNED `url`, THE UNPROXIED ORIGINAL, NOT THE CANDIDATE THAT
     // ACTUALLY SERVED THE BYTES. When the winner was `/api/nft-meta/...` — the
     // same-origin proxy that exists precisely because the direct URL is blocked

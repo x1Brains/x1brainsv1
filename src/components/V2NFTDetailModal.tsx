@@ -305,7 +305,10 @@ const V2NFTDetailModal: FC<Props> = ({
           overflow: 'hidden',
           minHeight: isMobile ? 240 : 440,
         }}>
-          <V2NFTImage src={imgUri} name={nft.name} />
+          {/* ⛔ fit="contain", not the default "cover". This panel is 300x440 —
+              portrait — while the art is square, so "cover" cropped the sides
+              off and showed a zoomed-in strip of the middle on EVERY NFT. */}
+          <V2NFTImage src={imgUri} name={nft.name} fit="contain" />
           {/* NFT pill */}
           <div style={{
             ...mono,

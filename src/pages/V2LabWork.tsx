@@ -542,7 +542,25 @@ export default function V2LabWork() {
             const next = [...prev];
             for (const e of imaged) {
               const idx = next.findIndex(p => p.listingPda === e.listingPda);
-              if (idx >= 0) next[idx] = e;
+              if (idx < 0) continue;
+              // ⛔ `next[idx] = e` REPLACED the state entry. For a mint already
+              // painted from the Supabase cache this loop returns the untouched
+              // `enriched` item, which never carried that image — the cache pass
+              // merged it into STATE, not into `enriched`. So the image was
+              // wiped and the tile fell back to nftData.metaUri, which for the
+              // arweave collections is a `.json` path that serves a GENERIC
+              // placeholder (see V2NFTImage) — i.e. the wrong art, or none.
+              // Merge instead, and never let a resolved image be replaced by
+              // nothing.
+              const cur = next[idx];
+              next[idx] = {
+                ...cur, ...e,
+                nftData: {
+                  ...(e.nftData ?? cur.nftData!),
+                  ...(cur.nftData?.image && !e.nftData?.image ? { image: cur.nftData.image } : {}),
+                  ...(cur.nftData?.collection && !e.nftData?.collection ? { collection: cur.nftData.collection } : {}),
+                },
+              };
             }
             return next;
           });
