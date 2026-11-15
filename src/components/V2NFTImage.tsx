@@ -152,7 +152,8 @@ type Props = {
 //     api.x1app.fyi       0.61s -> 0.15s     (107 of 171 cached rows)
 //     lighthouse.storage  0.98s -> 0.15s, 148KB -> 54KB
 //     x1pups.vercel.app   0.24s -> 0.16s
-const CDN_BYPASS_HOSTS = ['irys.xyz', 'permagate.io', 'arweave.net', 'solarisprime.xyz'];
+const CDN_BYPASS_HOSTS = ['irys.xyz', 'permagate.io', 'arweave.net', 'solarisprime.xyz',
+                          'ipfs.x1forge.xyz'];   // weserv 400 / ORB-blocked; direct 200 in 1.1s
 
 function viaImageCDN(url: string, width: number): string {
   if (!url) return url;
