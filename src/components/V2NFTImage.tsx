@@ -73,15 +73,7 @@ async function fetchJsonMulti(url: string): Promise<any | null> {
     const r = await fetch(candidate, { signal: ctrl.signal });
     if (!r.ok) throw new Error('not ok');
     const ct = r.headers.get('content-type') ?? '';
-    // ⛔ A METADATA URI THAT ANSWERS WITH AN IMAGE IS NOT NECESSARILY THIS
-    // NFT'S IMAGE. Measured 2026-11-15: the X1 Ninjas Arweave manifest serves
-    // a PNG for every `<n>.json` path, and it is the SAME PNG for all of them
-    // (md5 9ed3973295be for 0035.json and 0412.json alike) — a generic blue
-    // ninja, not that token's art. Trusting it painted the wrong NFT on any
-    // card that fell back to metaUri. Only accept an image response when the
-    // URI itself looks like an image; otherwise let the caller fall through to
-    // the extension-swap guesses, which hit the real `<n>.png`.
-    if (ct.startsWith('image/') && /\.json(\?|$)/i.test(candidate)) throw new Error('metadata uri served an image');
+
     // ⛔ THIS RETURNED `url`, THE UNPROXIED ORIGINAL, NOT THE CANDIDATE THAT
     // ACTUALLY SERVED THE BYTES. When the winner was `/api/nft-meta/...` — the
     // same-origin proxy that exists precisely because the direct URL is blocked
@@ -89,7 +81,20 @@ async function fetchJsonMulti(url: string): Promise<any | null> {
     // and then CACHED it (step 2 of the effect writes this straight into
     // localStorage). One rescued fetch became a permanently pinned dead URL.
     // Whichever candidate won is by definition one this browser can load.
-    if (ct.startsWith('image/')) return { image: candidate };
+    // ⛔ A METADATA URI THAT ANSWERS WITH AN IMAGE IS NOT NECESSARILY THIS
+    // NFT'S IMAGE. Measured 2026-11-15: the X1 Ninjas Arweave manifest serves a
+    // PNG for EVERY `<n>.json` path, and it is the SAME PNG for all of them
+    // (md5 9ed3973295be for both 0035.json and 0412.json) — a generic blue
+    // ninja, not that token's art.
+    // ⛔⛔ Flag it WEAK, never reject it. Throwing here would take out any
+    // collection whose metadata endpoint legitimately answers with the image.
+    // The caller tries the extension-swapped siblings first and keeps this as
+    // the last resort, so a wrong-but-real image still beats a blank card.
+    if (ct.startsWith('image/')) {
+      return /\.json(\?|$)/i.test(candidate)
+        ? { image: candidate, _weakImage: true }
+        : { image: candidate };
+    }
     const text = await r.text();
     return JSON.parse(text); // throws if not JSON, which propagates as a rejection
   });
@@ -219,10 +224,19 @@ export default function V2NFTImage({ src, name, priority = false, width = 600, f
       // 2. Fetch as JSON metadata, extract image
       const json = await fetchJsonMulti(resolved);
       const img = extractImage(json);
-      if (img) {
+      if (img && !json?._weakImage) {
         cache.set(src, img);
         persist();
         if (!cancelled) setImgUrl(img);
+        return;
+      }
+      // Weak: try `<n>.png` / `<n>.jpg` first but keep the weak image at the
+      // END of the chain, so the card still paints if no sibling exists.
+      // Deliberately not cached — a guess is not an answer.
+      if (img && json?._weakImage) {
+        const b = resolved.replace(/\.json$/i, '');
+        const alts = ['png', 'jpg', 'jpeg', 'webp', 'gif'].map(e => `${b}.${e}`);
+        if (!cancelled) { setGuesses([...alts, img]); setImgUrl(alts[0]); }
         return;
       }
 
