@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import V2NFTImage from './V2NFTImage';
-import { executeList, executeBuy, executeCancel } from '../lib/marketIx';
+import { executeList, executeBuy, executeCancel, eliteProofAccounts } from '../lib/marketIx';
 import { fmtNum, shortAddr } from '../utils/v2format';
 import { SALE_FEE_NUMERATOR, SALE_FEE_DENOMINATOR } from '../constants';
 
@@ -43,6 +43,26 @@ export default function V2MarketModal({ target, onClose, onDone }: Props) {
   const [pending, setPending] = useState(false);
   const [sig, setSig]         = useState('');
 
+  // ─── Brains Elite ──────────────────────────────────────────────────────
+  // The program waives the sale and unlist fees for Elite holders (live on
+  // mainnet since slot 93340899). The modal has to ASK the chain the same
+  // question the program does, otherwise it quotes a fee that will never be
+  // charged — which is exactly what it did on day one.
+  // null = still checking, so we never flash the wrong number.
+  const [isElite, setIsElite] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    if (!publicKey) { setIsElite(false); return; }
+    setIsElite(null);
+    (async () => {
+      try {
+        const proof = await eliteProofAccounts(connection, publicKey);
+        if (alive) setIsElite(proof.length === 2);
+      } catch { if (alive) setIsElite(false); }   // unsure -> quote the fee
+    })();
+    return () => { alive = false; };
+  }, [publicKey, connection, target?.mint]);
+
   // Reset on target change
   useEffect(() => {
     setPriceInput('');
@@ -69,9 +89,11 @@ export default function V2MarketModal({ target, onClose, onDone }: Props) {
     // round-trip is just wasted gas.
     && (target.action !== 'updatePrice' || Math.abs(listXnt - priceXnt) > 1e-9);
   const feeLamports = (lp: number) => Math.floor(lp * SALE_FEE_NUMERATOR / SALE_FEE_DENOMINATOR);
+  const CANCEL_FEE_PCT = 0.888;   // matches CANCEL_FEE_NUMERATOR in the program
 
+  const feeWaived  = isElite === true;
   const sellerCutXnt = wantsPriceInput && listValid
-    ? (listXnt - feeLamports(listXnt * 1e9) / 1e9)
+    ? (feeWaived ? listXnt : listXnt - feeLamports(listXnt * 1e9) / 1e9)
     : 0;
 
   const run = async () => {
@@ -227,6 +249,32 @@ export default function V2MarketModal({ target, onClose, onDone }: Props) {
           </div>
         )}
 
+        {/* Brains Elite — say WHY the fee is gone, on every fee-bearing action.
+            ⛔ The perk is re-checked on chain at the moment of each action, so
+            the wording promises nothing about later: it states what is true
+            right now, while they hold one. */}
+        {feeWaived && target.action !== 'buy' && (
+          <div style={{
+            marginBottom: 14, padding: '10px 12px',
+            background: 'rgba(0,201,141,0.07)',
+            border: '1px solid rgba(0,201,141,0.35)',
+            borderRadius: 9,
+          }}>
+            <div style={{
+              fontFamily: 'Orbitron,monospace', fontSize: 9, letterSpacing: 1.2,
+              color: '#00c98d', fontWeight: 700, marginBottom: 3,
+            }}>
+              ✓ BRAINS ELITE — FEES WAIVED
+            </div>
+            <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10.5, color: '#9abacf', lineHeight: 1.45 }}>
+              {target.action === 'cancel'
+                ? 'You unlist for free. Normally 0.888%.'
+                : 'What it sells for is what you get. Normally 1.888%.'}
+              {' '}Checked on chain each time — keep an Elite in your wallet.
+            </div>
+          </div>
+        )}
+
         {wantsPriceInput && (
           <div style={{ marginBottom: 14 }}>
             <div style={{
@@ -270,8 +318,14 @@ export default function V2MarketModal({ target, onClose, onDone }: Props) {
                 display: 'flex', justifyContent: 'space-between',
                 fontFamily: 'Orbitron,monospace', fontSize: 9, color: '#9abacf',
               }}>
-                <span>YOU RECEIVE (after {SALE_FEE_NUMERATOR / 1000}% fee)</span>
-                <span style={{ color: A.color, fontWeight: 700 }}>
+                <span>
+                  {isElite === null
+                    ? 'YOU RECEIVE (checking Brains Elite…)'
+                    : feeWaived
+                      ? 'YOU RECEIVE (no fee)'
+                      : `YOU RECEIVE (after ${SALE_FEE_NUMERATOR / 1000}% fee)`}
+                </span>
+                <span style={{ color: feeWaived ? '#00c98d' : A.color, fontWeight: 700 }}>
                   {fmtNum(sellerCutXnt, 4)} XNT
                 </span>
               </div>
@@ -291,6 +345,11 @@ export default function V2MarketModal({ target, onClose, onDone }: Props) {
               color: '#9abacf', letterSpacing: 1.5,
             }}>
               {target.action === 'buy' ? 'PRICE' : 'LISTED AT'}
+              {target.action === 'cancel' && isElite === false && (
+                <span style={{ color: '#9abacf', fontWeight: 400 }}>
+                  {'  ·  '}{CANCEL_FEE_PCT}% UNLIST FEE
+                </span>
+              )}
             </span>
             <span style={{
               fontFamily: 'Orbitron,monospace', fontSize: 14, fontWeight: 900,
