@@ -136,7 +136,23 @@ type Props = {
 // 302s to a per-object CDN subdomain; weserv returns an error image for those,
 // which showed up as FEDS listings rendering a broken tile while the same URL
 // loaded fine when requested directly. Serve these raw.
-const CDN_BYPASS_HOSTS = ['irys.xyz', 'permagate.io'];
+//
+// ⛔⛔ arweave.net and solarisprime.xyz measured 2026-11-15 — between them they
+// host nearly every image on the marketplace, and BOTH were failing at weserv,
+// so almost every card was burning a guaranteed-dead request before it could
+// even start loading the real image:
+//     arweave.net       weserv 404 (90-byte JSON error)   direct 200 in 0.5-2.5s
+//     solarisprime.xyz  weserv 400                        direct 200 in 1.6s
+// The 404 is because weserv defaults to plain HTTP unless the url is prefixed
+// `ssl:`, which we never sent. Adding `ssl:` does fix arweave — but it then
+// cold-fetches in **23 s**, far worse than going direct, and solarisprime stays
+// 400 either way. So both go direct.
+//
+// weserv is KEPT for the hosts where it measurably wins and resizes:
+//     api.x1app.fyi       0.61s -> 0.15s     (107 of 171 cached rows)
+//     lighthouse.storage  0.98s -> 0.15s, 148KB -> 54KB
+//     x1pups.vercel.app   0.24s -> 0.16s
+const CDN_BYPASS_HOSTS = ['irys.xyz', 'permagate.io', 'arweave.net', 'solarisprime.xyz'];
 
 function viaImageCDN(url: string, width: number): string {
   if (!url) return url;
