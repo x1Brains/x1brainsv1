@@ -41,6 +41,15 @@ export const GATEWAYS = ['https://solarisprime.xyz/ipfs/', 'https://gateway.pina
 const DEAD_GATEWAY_HOSTS = ['ipfs.io', 'dweb.link', 'nftstorage.link', 'w3s.link',
                             'cloudflare-ipfs.com', '4everland.io'];
 
+// Arweave gateways measured 2026-11-14 the same way:
+//   arweave.net      200 in 0.8-2.9s          <- the one that works
+//   permagate.io     TLS handshake FAILS      <- cert does not cover the host
+// ⛔ permagate.io still RESOLVES (153.52.255.19) and still ANSWERS on :443, so a
+// reachability ping passes. It is the certificate that is wrong, which no browser
+// will ever accept, so every <img> pointing at it is a guaranteed blank card.
+const DEAD_ARWEAVE_HOSTS = ['permagate.io'];
+const ARWEAVE_HOST = 'https://arweave.net/';
+
 /** Pull the CID out of any ipfs:// or https://<host>/ipfs/<cid> URL. */
 export function ipfsCid(u: string): string | null {
   if (!u) return null;
@@ -60,11 +69,52 @@ export function ipfsCid(u: string): string | null {
 export function resolveUri(u: string): string {
   if (!u) return u;
   if (u.startsWith('ar://')) return `https://arweave.net/${u.slice(5)}`;
+
+  // The open proxy this used to go through is gone (it was an SSRF hole). Rows
+  // cached while it existed still carry `/api/nft-meta/<host>/<path>`, which is
+  // now a hard 404 — unwrap it back to the real https URL.
+  if (u.startsWith('/api/nft-meta/')) u = 'https://' + u.slice('/api/nft-meta/'.length);
+
   const cid = ipfsCid(u);
-  if (!cid) return u;
-  if (u.startsWith('ipfs://')) return GATEWAYS[0] + cid;
-  const host = (u.match(/^https?:\/\/([^/]+)/i) ?? [])[1] ?? '';
-  return DEAD_GATEWAY_HOSTS.includes(host.toLowerCase()) ? GATEWAYS[0] + cid : u;
+  if (cid) {
+    if (u.startsWith('ipfs://')) return GATEWAYS[0] + cid;
+    const h = (u.match(/^https?:\/\/([^/]+)/i) ?? [])[1] ?? '';
+    return DEAD_GATEWAY_HOSTS.includes(h.toLowerCase()) ? GATEWAYS[0] + cid : u;
+  }
+
+  // Same treatment for Arweave: keep the path (these collections address art as
+  // `<txid>/082.png`), swap only the host.
+  const aw = u.match(/^https?:\/\/([^/]+)\/(.+)$/i);
+  if (aw && DEAD_ARWEAVE_HOSTS.includes(aw[1].toLowerCase())) return ARWEAVE_HOST + aw[2];
+
+  return u;
+}
+
+/**
+ * Can a browser actually paint this in an <img src>? A cached row is only as
+ * good as this answer, and `image != null` was never the same question.
+ *
+ * ⛔ This is the bug that made art "sometimes work": api/nft-meta.ts treated any
+ * non-empty `image` as resolved, so a row holding `ipfs://<cid>` or a dead
+ * gateway was served forever and never re-resolved. 32 of 171 live rows were in
+ * that state on 2026-11-14. Run it AFTER resolveUri — anything resolveUri can
+ * repair should be repaired, not discarded.
+ */
+export function isServable(u: string | null | undefined): boolean {
+  if (!u || typeof u !== 'string') return false;
+  const t = u.trim();
+  if (!t) return false;
+  if (t.startsWith('data:image/')) return true;
+  if (!/^https?:\/\//i.test(t)) return false;              // ipfs://, ar://, /api/..., junk
+  const host = (t.match(/^https?:\/\/([^/]+)/i) ?? [])[1]?.toLowerCase() ?? '';
+  return !DEAD_GATEWAY_HOSTS.includes(host) && !DEAD_ARWEAVE_HOSTS.includes(host);
+}
+
+/** Repair a cached image URL. Returns a servable URL, or null if it is beyond saving. */
+export function repairImage(u: string | null | undefined): string | null {
+  if (!u || typeof u !== 'string' || !u.trim()) return null;
+  const fixed = resolveUri(u.trim());
+  return isServable(fixed) ? fixed : null;
 }
 
 
@@ -163,7 +213,10 @@ export async function resolveFromChain(mints: string[]): Promise<Array<{
   });
   const rows = [];
   for (const f of fetched) {
-    if (!f.image) continue;
+    // Same rule as the cache read: never store an image a browser cannot paint.
+    // extractImage already ran it through resolveUri, so anything still failing
+    // here is genuinely unservable and is better left absent than cached as junk.
+    if (!f.image || !isServable(f.image)) continue;
     rows.push({
       mint: f.mint,
       name: f.json?.name ?? f.m.name ?? null,
