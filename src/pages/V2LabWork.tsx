@@ -68,49 +68,35 @@ function resolveUri(u: string): string {
     .replace('ar://', 'https://arweave.net/'));
 }
 
-// Multi-strategy fetch with detailed diagnostic logging. Tries:
-//   1) local /api/nft-meta proxy (vite dev)
-//   2) corsproxy.io
-//   3) api.allorigins.win
-//   4) direct (in case host serves CORS)
+// Fetch a metadata URI. ⛔ DIRECT FIRST — every host this marketplace uses
+// sends CORS headers, verified 2026-11-15:
+//     arweave.net       access-control-allow-origin: *
+//     solarisprime.xyz  access-control-allow-origin: *
+//     x1pups.vercel.app access-control-allow-origin: *
+//     api.x1app.fyi     access-control-allow-origin: https://x1brains.io
+//
+// ⛔⛔ This used to try THREE proxies before the direct fetch, and all three
+// are dead — measured the same day:
+//     /api/nft-meta/<host>/<path>   404  (that Vercel rewrite was removed on
+//                                   2026-11-14; it was also an open proxy)
+//     corsproxy.io                  403  (free use blocked)
+//     api.allorigins.win            522 after 19.7s
+// So every single metadata fetch burned a 404, a 403 and a ~20s hang before
+// reaching the one that works. That is the wall of red in the console, and it
+// is why first paint was slow. The browser only reached `direct` by accident.
 async function fetchMetaUniversal(metaUri: string): Promise<any | null> {
   const url = resolveUri(metaUri);
   if (/\.(png|jpg|jpeg|gif|webp|svg)(\?|$)/i.test(url)) {
     return { image: url };
   }
-
-  const strategies: Array<{ name: string; fn: () => Promise<Response> }> = [
-    {
-      name: 'local',
-      fn: () => fetch(`/api/nft-meta/${url.replace(/^https?:\/\//, '')}`, { signal: AbortSignal.timeout(6000) }),
-    },
-    {
-      name: 'corsproxy',
-      fn: () => fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(6000) }),
-    },
-    {
-      name: 'allorigins',
-      fn: () => fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(6000) }),
-    },
-    {
-      name: 'direct',
-      fn: () => fetch(url, { signal: AbortSignal.timeout(6000) }),
-    },
-  ];
-
-  for (const s of strategies) {
-    try {
-      const r = await s.fn();
-      if (!r.ok) continue;
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (r.ok) {
       const ct = r.headers.get('content-type') ?? '';
-      if (ct.startsWith('image/')) return { image: url, _via: s.name };
-      const text = await r.text();
-      // Some proxies wrap the JSON; try parsing as JSON first
-      try { return { ...JSON.parse(text), _via: s.name }; } catch {}
-    } catch {}
-  }
-  // All strategies failed — log so user can diagnose
-  console.warn('[V2LabWork] metadata fetch failed for', metaUri);
+      if (ct.startsWith('image/')) return { image: url, _via: 'direct' };
+      try { return { ...JSON.parse(await r.text()), _via: 'direct' }; } catch {}
+    }
+  } catch {}
   return null;
 }
 
