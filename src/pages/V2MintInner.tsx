@@ -26,6 +26,19 @@ const TOTAL_LB_SUPPLY = 100_000;
 const INITIAL_BRAINS_SUPPLY = 8_880_000;
 const MIN_COMBO_BONUS = 13;
 
+// ─── Xenblocks amplifier (combo_mint_lb) ─────────────────────────────────
+// Discriminator read from the LIVE on-chain IDL of lb_mint
+// 3B6oAfmL7aGVAbBdu7zW3jqEVWK6o1nwFiufuSuFV6tN, not from a local build.
+const DISC_COMBO_MINT_LB: number[] = [20, 150, 179, 60, 25, 59, 105, 123];
+// Rates are hardcoded in the program and cannot be changed without a redeploy
+// (lb_mint/src/lib.rs: XNM_PER_LB, XUNI_STEP, XUNI_LB_PER_STEP, XBLK_LB_PER_TOKEN).
+const XNM_PER_LB        = 1_000;   // 1,000 XNM -> 1 LB   (must be a multiple)
+const XUNI_STEP         = 500;     //   500 XUNI -> 4 LB   (must be a multiple)
+const XUNI_LB_PER_STEP  = 4;
+const XBLK_LB_PER_TOKEN = 8;       //     1 XBLK -> 8 LB
+// ⛔ The program burns HALF of each Xenblocks amount and sends the other half
+// to the treasury (split_xenblocks). The UI must say so — it is not all burned.
+
 const BRAINS_MINT_PK = new PublicKey(BRAINS_MINT);
 const TOKEN_2022     = TOKEN_2022_PROGRAM_ID;
 
@@ -88,6 +101,12 @@ export default function V2MintInner() {
   const [xuniPrice, setXuniPrice]     = useState(0);
   const [xblkPrice, setXblkPrice]     = useState(0);
 
+  // Xenblocks amplifier
+  const [useAmplifier, setUseAmplifier] = useState(false);
+  const [xnmAmount,  setXnmAmount]  = useState(0);
+  const [xuniAmount, setXuniAmount] = useState(0);
+  const [xblkAmount, setXblkAmount] = useState(0);
+
   const [status, setStatus]   = useState('');
   const [pending, setPending] = useState(false);
   const [lastSig, setLastSig] = useState('');
@@ -95,17 +114,43 @@ export default function V2MintInner() {
   const tierIdx     = Math.min(Math.floor(mintedTotal / TIER_SIZE), 3);
   const currentTier = TIERS[tierIdx];
   const brainsCost  = amount * currentTier.brains;
-  const xntCost     = parseFloat(((amount * currentTier.xntLamports) / LAMPORTS_PER_SOL).toFixed(4));
+
+  // Bonus LB from Xenblocks, mirroring calc_lb_from_* in the program exactly.
+  const xnmLb   = useAmplifier ? Math.floor(xnmAmount / XNM_PER_LB) : 0;
+  const xuniLb  = useAmplifier ? Math.floor(xuniAmount / XUNI_STEP) * XUNI_LB_PER_STEP : 0;
+  const xblkLb  = useAmplifier ? xblkAmount * XBLK_LB_PER_TOKEN : 0;
+  const bonusLb = xnmLb + xuniLb + xblkLb;
+  const lbOut   = amount + bonusLb;
+
+  // ⛔ XNT is charged per TOTAL LB minted, bonus included —
+  // `xnt_total = xnt_lamports_per_lb * total_lb` in combo_mint_lb. Charging
+  // only for the base amount would under-quote and the tx would fail.
+  const xntCost     = parseFloat(((lbOut * currentTier.xntLamports) / LAMPORTS_PER_SOL).toFixed(4));
   const tierProgress = ((mintedTotal % TIER_SIZE) / TIER_SIZE) * 100;
   const tierMintedInSlot = mintedTotal % TIER_SIZE;
   const tierRemainingInSlot = TIER_SIZE - tierMintedInSlot;
 
   const totalCostUsd = brainsCost * brainsPrice + xntCost * xntPrice;
 
+  // The program requires each Xenblocks amount to be an exact multiple, and at
+  // least one of the three to be non-zero when combo_mint_lb is used.
+  const xnmValid  = xnmAmount  % XNM_PER_LB === 0;
+  const xuniValid = xuniAmount % XUNI_STEP  === 0;
+  const amplifierValid = !useAmplifier || (
+    (xnmAmount > 0 || xuniAmount > 0 || xblkAmount > 0)
+    && xnmValid && xuniValid
+    && (xnmAmount  === 0 || (xnmBalance  != null && xnmBalance  >= xnmAmount))
+    && (xuniAmount === 0 || (xuniBalance != null && xuniBalance >= xuniAmount))
+    && (xblkAmount === 0 || (xblkBalance != null && xblkBalance >= xblkAmount))
+  );
+  const supplyOk = mintedTotal + lbOut <= TOTAL_LB_SUPPLY;
+
   const canAfford =
     !paused
     && brainsBalance != null && brainsBalance >= brainsCost
-    && xntBalance    != null && xntBalance    >= xntCost + XNT_RENT_BUFFER;
+    && xntBalance    != null && xntBalance    >= xntCost + XNT_RENT_BUFFER
+    && amplifierValid
+    && supplyOk;
 
   // Load chain state + treasury balances + prices
   useEffect(() => {
@@ -220,25 +265,89 @@ export default function V2MintInner() {
       try { await getAccount(connection, treasuryLbAta, 'confirmed', TOKEN_2022); }
       catch { tx.add(createAssociatedTokenAccountInstruction(publicKey, treasuryLbAta, treasuryPk, lbMintPda, TOKEN_2022)); }
 
-      const data = Buffer.concat([Buffer.from(DISC_MINT_LB), encodeU64LE(brainsCost)]);
+      if (!useAmplifier) {
+        const data = Buffer.concat([Buffer.from(DISC_MINT_LB), encodeU64LE(brainsCost)]);
 
-      tx.add(new TransactionInstruction({
-        programId,
-        keys: [
-          { pubkey: publicKey,               isSigner: true,  isWritable: true  },
-          { pubkey: statePda,                isSigner: false, isWritable: true  },
-          { pubkey: lbMintPda,               isSigner: false, isWritable: true  },
-          { pubkey: mintAuthPda,             isSigner: false, isWritable: false },
-          { pubkey: buyerLbAta,              isSigner: false, isWritable: true  },
-          { pubkey: BRAINS_MINT_PK,          isSigner: false, isWritable: true  },
-          { pubkey: buyerBrainsAta,          isSigner: false, isWritable: true  },
-          { pubkey: treasuryPk,              isSigner: false, isWritable: true  },
-          { pubkey: treasuryLbAta,           isSigner: false, isWritable: true  },
-          { pubkey: TOKEN_2022,              isSigner: false, isWritable: false },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ],
-        data,
-      }));
+        tx.add(new TransactionInstruction({
+          programId,
+          keys: [
+            { pubkey: publicKey,               isSigner: true,  isWritable: true  },
+            { pubkey: statePda,                isSigner: false, isWritable: true  },
+            { pubkey: lbMintPda,               isSigner: false, isWritable: true  },
+            { pubkey: mintAuthPda,             isSigner: false, isWritable: false },
+            { pubkey: buyerLbAta,              isSigner: false, isWritable: true  },
+            { pubkey: BRAINS_MINT_PK,          isSigner: false, isWritable: true  },
+            { pubkey: buyerBrainsAta,          isSigner: false, isWritable: true  },
+            { pubkey: treasuryPk,              isSigner: false, isWritable: true  },
+            { pubkey: treasuryLbAta,           isSigner: false, isWritable: true  },
+            { pubkey: TOKEN_2022,              isSigner: false, isWritable: false },
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          ],
+          data,
+        }));
+      } else {
+        // ── combo_mint_lb ────────────────────────────────────────────────
+        // ⛔ All three Xenblocks mints are Token-2022, and the ACCOUNT ORDER
+        // below must match the ComboMintLb struct exactly (20 accounts). Both
+        // were read off the live on-chain IDL, not a local build.
+        const buyerXnmAta     = getAssociatedTokenAddressSync(XNM_MINT_PK,  publicKey,  false, TOKEN_2022);
+        const buyerXuniAta    = getAssociatedTokenAddressSync(XUNI_MINT_PK, publicKey,  false, TOKEN_2022);
+        const buyerXblkAta    = getAssociatedTokenAddressSync(XBLK_MINT_PK, publicKey,  false, TOKEN_2022);
+        const treasuryXnmAta  = getAssociatedTokenAddressSync(XNM_MINT_PK,  treasuryPk, false, TOKEN_2022);
+        const treasuryXuniAta = getAssociatedTokenAddressSync(XUNI_MINT_PK, treasuryPk, false, TOKEN_2022);
+        const treasuryXblkAta = getAssociatedTokenAddressSync(XBLK_MINT_PK, treasuryPk, false, TOKEN_2022);
+
+        // Every one of the six must exist — the program transfers the treasury
+        // half into them, so a missing treasury ATA fails the whole mint.
+        for (const [mint, ata, owner] of [
+          [XNM_MINT_PK,  buyerXnmAta,     publicKey ],
+          [XUNI_MINT_PK, buyerXuniAta,    publicKey ],
+          [XBLK_MINT_PK, buyerXblkAta,    publicKey ],
+          [XNM_MINT_PK,  treasuryXnmAta,  treasuryPk],
+          [XUNI_MINT_PK, treasuryXuniAta, treasuryPk],
+          [XBLK_MINT_PK, treasuryXblkAta, treasuryPk],
+        ] as [PublicKey, PublicKey, PublicKey][]) {
+          try { await getAccount(connection, ata, 'confirmed', TOKEN_2022); }
+          catch { tx.add(createAssociatedTokenAccountInstruction(publicKey, ata, owner, mint, TOKEN_2022)); }
+        }
+
+        // args: brains, xnm, xuni, xblk — all u64 LE in WHOLE units; the
+        // program multiplies by each mint's decimals itself.
+        const data = Buffer.concat([
+          Buffer.from(DISC_COMBO_MINT_LB),
+          encodeU64LE(brainsCost),
+          encodeU64LE(xnmAmount),
+          encodeU64LE(xuniAmount),
+          encodeU64LE(xblkAmount),
+        ]);
+
+        tx.add(new TransactionInstruction({
+          programId,
+          keys: [
+            { pubkey: publicKey,               isSigner: true,  isWritable: true  }, // 0  buyer
+            { pubkey: statePda,                isSigner: false, isWritable: true  }, // 1  state
+            { pubkey: lbMintPda,               isSigner: false, isWritable: true  }, // 2  lb_mint
+            { pubkey: mintAuthPda,             isSigner: false, isWritable: false }, // 3  lb_mint_authority
+            { pubkey: buyerLbAta,              isSigner: false, isWritable: true  }, // 4  buyer_lb_ata
+            { pubkey: BRAINS_MINT_PK,          isSigner: false, isWritable: true  }, // 5  brains_mint
+            { pubkey: buyerBrainsAta,          isSigner: false, isWritable: true  }, // 6  buyer_brains_ata
+            { pubkey: XNM_MINT_PK,             isSigner: false, isWritable: true  }, // 7  xnm_mint
+            { pubkey: buyerXnmAta,             isSigner: false, isWritable: true  }, // 8  buyer_xnm_ata
+            { pubkey: treasuryXnmAta,          isSigner: false, isWritable: true  }, // 9  treasury_xnm_ata
+            { pubkey: XUNI_MINT_PK,            isSigner: false, isWritable: true  }, // 10 xuni_mint
+            { pubkey: buyerXuniAta,            isSigner: false, isWritable: true  }, // 11 buyer_xuni_ata
+            { pubkey: treasuryXuniAta,         isSigner: false, isWritable: true  }, // 12 treasury_xuni_ata
+            { pubkey: XBLK_MINT_PK,            isSigner: false, isWritable: true  }, // 13 xblk_mint
+            { pubkey: buyerXblkAta,            isSigner: false, isWritable: true  }, // 14 buyer_xblk_ata
+            { pubkey: treasuryXblkAta,         isSigner: false, isWritable: true  }, // 15 treasury_xblk_ata
+            { pubkey: treasuryPk,              isSigner: false, isWritable: true  }, // 16 treasury
+            { pubkey: treasuryLbAta,           isSigner: false, isWritable: true  }, // 17 treasury_lb_ata
+            { pubkey: TOKEN_2022,              isSigner: false, isWritable: false }, // 18 token_2022_program
+            { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // 19 system_program
+          ],
+          data,
+        }));
+      }
 
       setStatus('Awaiting wallet approval…');
       const signed = await signTransaction(tx);
@@ -250,17 +359,23 @@ export default function V2MintInner() {
       setLastSig(sig);
       setStatus('Confirming on-chain…');
       await connection.confirmTransaction(sig, 'confirmed');
-      setStatus(`✓ Minted ${amount} LB`);
+      setStatus(`✓ Minted ${lbOut} LB${bonusLb > 0 ? ` (${amount} base + ${bonusLb} bonus)` : ''}`);
       setBrainsBal(b => (b ?? 0) - brainsCost);
       setXntBal(x => (x ?? 0) - xntCost);
-      setMintedTotal(m => m + amount);
+      setMintedTotal(m => m + lbOut);
+      if (useAmplifier) {
+        setXnmBalance(v  => (v ?? 0) - xnmAmount);
+        setXuniBalance(v => (v ?? 0) - xuniAmount);
+        setXblkBalance(v => (v ?? 0) - xblkAmount);
+      }
     } catch (e: any) {
       console.error('mint failed', e);
       setStatus(`✗ ${e?.message ?? 'Mint failed'}`);
     } finally {
       setPending(false);
     }
-  }, [publicKey, signTransaction, connection, amount, brainsCost, xntCost, canAfford, paused]);
+  }, [publicKey, signTransaction, connection, amount, brainsCost, xntCost, canAfford, paused,
+      useAmplifier, xnmAmount, xuniAmount, xblkAmount, lbOut, bonusLb]);
 
   // ─── HERO STRIP — always shown above tabs ─────────────────────────
   const HeroStrip = (
@@ -402,6 +517,93 @@ export default function V2MintInner() {
             </div>
           </div>
 
+          {/* ── Xenblocks amplifier ───────────────────────────────────── */}
+          <div style={{
+            marginBottom: 14, padding: '12px 14px', borderRadius: 10,
+            background: useAmplifier ? 'rgba(0,201,141,0.05)' : 'rgba(255,255,255,0.02)',
+            border: `1px solid ${useAmplifier ? 'rgba(0,201,141,0.32)' : 'rgba(255,255,255,0.07)'}`,
+          }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={useAmplifier}
+                onChange={e => setUseAmplifier(e.target.checked)}
+                style={{ width: 15, height: 15, accentColor: '#00c98d', cursor: 'pointer' }}
+              />
+              <span style={{ fontFamily: 'Orbitron,monospace', fontSize: 9.5, letterSpacing: 1.4,
+                             color: useAmplifier ? '#00c98d' : '#9abacf', fontWeight: 700 }}>
+                BURN XENBLOCKS FOR BONUS LB
+              </span>
+            </label>
+
+            {!useAmplifier && (
+              <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10.5, color: '#7a9ab8', marginTop: 6, lineHeight: 1.5 }}>
+                Add XNM, XUNI or XBLK to the same mint and get extra LB on top.
+                1,000 XNM = 1 LB · 500 XUNI = 4 LB · 1 XBLK = 8 LB.
+              </div>
+            )}
+
+            {useAmplifier && (
+              <div style={{ marginTop: 12 }}>
+                {([
+                  ['XNM',  xnmAmount,  setXnmAmount,  xnmBalance,  XNM_PER_LB, `${XNM_PER_LB.toLocaleString()} = 1 LB`,  xnmLb,  xnmValid],
+                  ['XUNI', xuniAmount, setXuniAmount, xuniBalance, XUNI_STEP,  `${XUNI_STEP} = ${XUNI_LB_PER_STEP} LB`,  xuniLb, xuniValid],
+                  ['XBLK', xblkAmount, setXblkAmount, xblkBalance, 1,          `1 = ${XBLK_LB_PER_TOKEN} LB`,            xblkLb, true],
+                ] as [string, number, (n: number) => void, number | null, number, string, number, boolean][])
+                  .map(([label, val, setVal, bal, step, rate, lb, valid]) => {
+                    const short = bal != null && val > bal;
+                    return (
+                      <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <div style={{ width: 52, fontFamily: 'Orbitron,monospace', fontSize: 9,
+                                      color: '#cfdfee', letterSpacing: 1 }}>{label}</div>
+                        <input
+                          type="number" min={0} step={step} value={val}
+                          onChange={e => setVal(Math.max(0, parseInt(e.target.value) || 0))}
+                          style={{
+                            flex: 1, minWidth: 0, boxSizing: 'border-box', padding: '7px 9px',
+                            background: 'rgba(6,9,13,0.75)',
+                            border: `1px solid ${short || !valid ? 'rgba(255,68,102,0.5)' : 'rgba(255,255,255,0.1)'}`,
+                            borderRadius: 7, color: '#e8f2fb',
+                            fontFamily: 'Orbitron,monospace', fontSize: 11,
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setVal(bal == null ? 0 : Math.floor(bal / step) * step)}
+                          style={{
+                            padding: '6px 9px', borderRadius: 6, cursor: 'pointer',
+                            background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+                            color: '#9abacf', fontFamily: 'Orbitron,monospace', fontSize: 8, letterSpacing: 1,
+                          }}
+                        >MAX</button>
+                        <div style={{ width: 118, textAlign: 'right', fontFamily: 'Orbitron,monospace', fontSize: 8.5,
+                                      color: lb > 0 ? '#00c98d' : '#6a7a94' }}>
+                          {lb > 0 ? `+${lb} LB` : rate}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10, color: '#7a9ab8',
+                              marginTop: 8, lineHeight: 1.5, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
+                  Half of every Xenblocks amount is burned, half goes to the treasury.
+                  XNM must be a multiple of {XNM_PER_LB.toLocaleString()} and XUNI a multiple of {XUNI_STEP}.
+                  {' '}Bonus LB is charged XNT at the current tier rate.
+                </div>
+
+                {useAmplifier && !amplifierValid && (
+                  <div style={{ fontFamily: 'Sora,sans-serif', fontSize: 10.5, color: '#ff8899', marginTop: 7 }}>
+                    {xnmAmount === 0 && xuniAmount === 0 && xblkAmount === 0
+                      ? 'Enter at least one Xenblocks amount, or switch the amplifier off.'
+                      : !xnmValid  ? `XNM must be a multiple of ${XNM_PER_LB.toLocaleString()}.`
+                      : !xuniValid ? `XUNI must be a multiple of ${XUNI_STEP}.`
+                      : 'Not enough Xenblocks in your wallet for that amount.'}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Cost breakdown */}
           <div className="mint-cost">
             <div className="mint-cost-headline">
@@ -413,7 +615,12 @@ export default function V2MintInner() {
               <div className="mint-cost-arrow">→</div>
               <div style={{ textAlign: 'right' }}>
                 <div className="mint-cost-headline-label">YOU RECEIVE</div>
-                <div className="mint-cost-headline-val accent-orange">{amount} LB</div>
+                <div className="mint-cost-headline-val accent-orange">{lbOut} LB</div>
+                {bonusLb > 0 && (
+                  <div className="mint-cost-headline-usd" style={{ color: '#00c98d' }}>
+                    {amount} base + {bonusLb} bonus
+                  </div>
+                )}
               </div>
             </div>
 
@@ -456,7 +663,7 @@ export default function V2MintInner() {
               pending        ? 'PROCESSING…' :
               paused         ? 'MINTING PAUSED' :
               !canAfford     ? 'INSUFFICIENT BALANCE' :
-                               `MINT ${amount} LB`}
+                               `MINT ${lbOut} LB`}
           </button>
         </>
       )}
