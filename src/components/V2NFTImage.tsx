@@ -393,10 +393,33 @@ export default function V2NFTImage({ src, name, priority = false, width = 600, f
           cache.set(src, imgUrl);
           persist();
         }
+        // it painted — clear the retry counter so a later failure gets its
+        // full allowance again rather than inheriting an exhausted one.
+        delete el.dataset.round;
       }}
       onError={(e) => {
         const el = e.currentTarget as HTMLImageElement;
         if (advance(el)) return;
+        // ⛔⛔⛔ EVERY CANDIDATE FAILED — THAT IS USUALLY TRANSIENT, NOT FATAL.
+        // arweave.net drops requests under a cold burst, and weserv can hiccup
+        // in the same moment. Hiding the image here turned a two-second blip
+        // into a card that stayed blank for the whole session, which is what
+        // the owner kept seeing on 11-15 and again on 11-18 while every URL,
+        // the database and a cold headless run all measured perfect.
+        // Start the chain again, twice, backing off — a slow image beats a
+        // blank one, and a transient failure must never be permanent.
+        const rounds = Number(el.dataset.round ?? '0');
+        if (rounds < 2) {
+          el.dataset.round = String(rounds + 1);
+          const wait = 1200 * (rounds + 1);
+          window.setTimeout(() => {
+            if (!el.isConnected) return;
+            el.dataset.try = '0';
+            el.style.display = '';
+            el.src = chainRef.current[0];
+          }, wait);
+          return;
+        }
         // ⛔ Every candidate failed. FORGET this src rather than pinning a
         // failure — otherwise one bad night gets baked into the browser and
         // survives every later fix. Next load re-resolves from scratch.
