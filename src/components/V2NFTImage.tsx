@@ -26,7 +26,14 @@ const cache: Map<string, string | null> = (() => {
     const raw = localStorage.getItem(CACHE_KEY);
     if (raw) {
       const obj = JSON.parse(raw);
-      for (const [k, v] of Object.entries(obj)) m.set(k, v as string | null);
+      for (const [k, v] of Object.entries(obj)) {
+        // ⛔ Scrub dead hosts on the way IN. A url pinned before permagate died
+        // must never be handed back out, whatever version wrote it.
+        const val = typeof v === 'string'
+          ? v.replace(/^https?:\/\/(?:www\.)?permagate\.io\//i, 'https://arweave.net/')
+          : (v as string | null);
+        m.set(k, val);
+      }
     }
   } catch {}
   return m;
@@ -47,7 +54,25 @@ function persist() {
 
 import { imageCandidates, collectionRescues, liveGatewayUrl } from '../utils/ipfsGateways';
 
+/** ⛔⛔⛔ permagate.io IS DEAD — its TLS cert does not cover the hostname, so
+ *  every request fails `ERR_CERT_COMMON_NAME_INVALID` and NOTHING can rescue
+ *  it. The server rewrote these to arweave.net back on 11-14, but the CLIENT
+ *  never did, so any permagate url still sitting in a visitor's localStorage
+ *  (or arriving from an indexer) was requested forever — and after the 11-18
+ *  retry change it was requested three times per card.
+ *  Observed live in the owner's console 2026-11-18:
+ *     GET https://permagate.io/iE3Yv…/082.png  net::ERR_CERT_COMMON_NAME_INVALID
+ *     GET https://permagate.io/o-Gwb…/0035.png net::ERR_CERT_COMMON_NAME_INVALID
+ *  Same path, same bytes, served fine by arweave.net. Rewriting at the single
+ *  choke point every url passes through makes the dead host unreachable no
+ *  matter which layer it came from — cache, indexer or metadata. */
+function killDeadHosts(u: string): string {
+  if (!u) return u;
+  return u.replace(/^https?:\/\/(?:www\.)?permagate\.io\//i, 'https://arweave.net/');
+}
+
 function resolveGateway(u: string): string {
+  u = killDeadHosts(u);
   // liveGatewayUrl also moves saved https://ipfs.io/... (dead gateway) links to a live one —
   // on-chain metadata URIs use it too (Genesis Stone / Aurora Borealis, 10-05).
   return liveGatewayUrl(u
