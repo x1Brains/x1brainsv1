@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::instruction::AccountMeta;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer, CloseAccount};
 
 declare_id!("CKZHwoUZTJEnGNK4piPxyysrhwLKnnrNoBmEHM9rLaD4");
@@ -65,6 +66,60 @@ fn elite_fee_waived(remaining: &[AccountInfo], holder: &Pubkey) -> bool {
     // the genesis program and has data.
     if *record.owner != genesis { return false; }
     record.try_borrow_data().map(|d| !d.is_empty()).unwrap_or(false)
+}
+
+/// ── Metaplex Core support ────────────────────────────────────────────────
+/// x1 Inscriptions assets (inscriptions, maps, districts, parcels, editions) are
+/// Metaplex Core, not SPL. Core has no token account, so a Core listing escrows
+/// the ASSET ITSELF to the sale PDA, exactly the way the x1ins program does it
+/// (x1-bitmaps program_v0 `list_inscription` -> `core_transfer`).
+///
+/// ⛔ mpl-core's Rust crate pins borsh 0.10 / solana-program 1.x and clashes with
+/// Anchor 0.32, so TransferV1 is hand-built from its generated code — the same
+/// reason and the same shape the x1ins program uses. Discriminator 14, then
+/// Option<CompressionProof> = None, and an ABSENT optional account is passed as
+/// the Core program id.
+pub const CORE_ID: &str = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d";
+
+/// Current holder of a Core asset (AssetV1: key byte 1, owner at 1..33).
+/// Pubkey::default() if it is not a live Core asset — callers compare it with a
+/// signer, so a missing or foreign account can never pass.
+fn core_holder(asset: &AccountInfo) -> Pubkey {
+    let core: Pubkey = match CORE_ID.parse() { Ok(p) => p, Err(_) => return Pubkey::default() };
+    if *asset.owner != core { return Pubkey::default(); }
+    let d = match asset.try_borrow_data() { Ok(d) => d, Err(_) => return Pubkey::default() };
+    if d.len() < 33 || d[0] != 1 { return Pubkey::default(); }
+    let mut b = [0u8; 32];
+    b.copy_from_slice(&d[1..33]);
+    Pubkey::from(b)
+}
+
+/// Move a Core asset. `signers` carries the sale PDA seeds when the escrow pays out.
+fn core_transfer<'info>(
+    core: &AccountInfo<'info>, asset: &AccountInfo<'info>, collection: &AccountInfo<'info>,
+    payer: &AccountInfo<'info>, authority: &AccountInfo<'info>, new_owner: &AccountInfo<'info>,
+    signers: &[&[&[u8]]],
+) -> Result<()> {
+    let core_id: Pubkey = CORE_ID.parse().map_err(|_| error!(MarketplaceError::InvalidMint))?;
+    let ix = anchor_lang::solana_program::instruction::Instruction {
+        program_id: core_id,
+        data: vec![14u8, 0u8],
+        accounts: vec![
+            AccountMeta::new(asset.key(), false),
+            AccountMeta::new_readonly(collection.key(), false),
+            AccountMeta::new(payer.key(), true),
+            AccountMeta::new_readonly(authority.key(), true),
+            AccountMeta::new_readonly(new_owner.key(), false),
+            AccountMeta::new_readonly(core_id, false),
+            AccountMeta::new_readonly(core_id, false),
+        ],
+    };
+    anchor_lang::solana_program::program::invoke_signed(
+        &ix,
+        &[asset.clone(), collection.clone(), payer.clone(), authority.clone(), new_owner.clone(), core.clone()],
+        signers,
+    )?;
+    Ok(())
 }
 
 #[program]
@@ -429,6 +484,10 @@ pub enum MarketplaceError {
     #[msg("Insufficient funds")]            InsufficientFunds,
     #[msg("Insufficient funds for fee")]    InsufficientFundsForCancelFee,
     #[msg("Math overflow")]                 MathOverflow,
+    #[msg("Not the Core asset holder")]     NotAssetHolder,
+    #[msg("Asset is frozen and cannot be listed")] AssetFrozen,
+    #[msg("Not a Metaplex Core asset")]     NotCoreAsset,
+    #[msg("Royalty creator account does not match the asset")] BadRoyaltyCreator,
 }
 // ════════════════════════════════════════════════════════════════════════════
 //  Stress tests for elite_fee_waived — the forgery matrix.
