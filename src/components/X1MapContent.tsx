@@ -1,95 +1,159 @@
-import { useEffect, useRef, useState } from 'react';
-import { readMapBytes, readParcels, layoutMap } from '../lib/x1insContent';
-import { INS_SITE } from '../lib/x1inscriptions';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { readMapBytes, readParcels, readInscriptionTypes, rasterMap, overlayBoxes, contentUrl } from '../lib/x1insContent';
 
 /**
- * An X1MAPS map drawn WITH the content inscribed in its blocks.
+ * An X1MAPS map drawn WITH what is inscribed in its blocks — the same way
+ * x1inscriptions.io draws it (src/components/ParcelsPanel.tsx there).
  *
- * ⛔ A PARCEL IS ONE BLOCK OF A MAP. Drawing a map as flat coloured squares
- * hides whatever its parcels hold — and on mainnet every parcel that exists
- * holds something (37 of 37 on 2026-11-18). So a map with content showed as an
- * empty grid, and a parcel showed as a dot on a dimmed map, both hiding the
- * thing actually being sold.
+ * ⛔ A PARCEL IS ONE BLOCK OF A MAP. On mainnet every parcel that exists holds
+ * something (37 of 37 on 2026-11-18), so a flat grid of coloured squares hides
+ * the thing being sold every single time.
  *
- * The layout comes from the chain (the art rule's packer, ported in
- * x1insContent.layoutMap — parcel n is rects[n-1]); each filled block's content
- * comes from x1inscriptions.io/api/ins/<n>, which serves the inscription's real
- * bytes with its real content type. Images draw into their block. Video and
- * audio can't be drawn, so those blocks keep their map colour and are marked —
- * a still frame would be a lie about what you get.
+ * Copied from theirs, deliberately, including the parts that are not obvious:
+ *  · the map is the canonical raster (centred both ways, 2% frame, the tiny-
+ *    square dot grid, the darker inner ring) — see x1insContent.rasterMap
+ *  · the content sits in an SVG over it in a 1000-unit box, so a thumbnail
+ *    lands exactly on its square at any display size
+ *  · SHOW CONTENTS MEANS ALL OF THEM (their owner, 11-13). No "too small to
+ *    bother" rule: every filled block draws, however small. THUMB_MAX is only
+ *    a runaway guard, biggest-first so it can never hide a big one.
+ *  · video gets a real <video preload="metadata"> in a foreignObject, seeked a
+ *    little way in because FRAME 0 IS OFTEN BLACK, and plays with sound on
+ *    click. Nothing autoplays.
+ *  · audio gets a play tile. A still frame can't represent a song.
  */
-const BLUE: [number, number, number] = [0x00, 0x88, 0xff];
-const GRAY: [number, number, number] = [0x8a, 0x8a, 0x92];
+const THUMB_MAX = 400;
+
+type Thumb = { n: number; x: number; y: number; r: number; ins: number; ct: string };
 
 export default function X1MapContent({
-  height, connection, size = 512, className, style,
+  height, connection, className, style, showContent = true,
 }: {
-  height: number; connection: any; size?: number;
+  height: number; connection: any;
   className?: string; style?: React.CSSProperties;
+  /** off = just the map, the way the block page starts */
+  showContent?: boolean;
 }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
-  const [state, setState] = useState<'loading' | 'done' | 'empty'>('loading');
+  const [bytes, setBytes] = useState<Uint8Array | null>(null);
+  const [thumbs, setThumbs] = useState<Thumb[]>([]);
+  const [playing, setPlaying] = useState<number | null>(null);
 
   useEffect(() => {
     let alive = true;
     (async () => {
-      const bytes = await readMapBytes(connection, height);
+      const b = await readMapBytes(connection, height);
+      if (!alive || !b) return;
+      setBytes(b);
+
+      const parcels = await readParcels(connection, height, b.length);
       if (!alive) return;
-      if (!bytes) { setState('empty'); return; }
-
-      const lay = layoutMap(bytes);
-      const cv = ref.current;
-      if (!cv) return;
-      cv.width = size; cv.height = size;
-      const ctx = cv.getContext('2d');
-      if (!ctx) return;
-
-      // the map itself, same colours the art rule uses
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, size, size);
-      const frame = Math.round(size * 0.02), inner = size - 2 * frame, g = inner / lay.W;
-      const pad = g >= 4 ? g / 4 : g * 0.12;
-      const box = (i: number) => {
-        const r = lay.rects[i];
-        return { L: frame + r.x * g + pad, T: frame + r.y * g + pad, W: r.s * g - 2 * pad, H: r.s * g - 2 * pad };
-      };
-      for (let i = 0; i < lay.rects.length; i++) {
-        const shade = bytes[i] >> 5, base = (bytes[i] >> 4) & 1 ? GRAY : BLUE, f = 1 - 0.05 * shade;
-        const b = box(i);
-        ctx.fillStyle = `rgb(${base[0] * f},${base[1] * f},${base[2] * f})`;
-        ctx.fillRect(b.L, b.T, b.W, b.H);
-      }
-      setState('done');
-
-      // then the content, block by block, as each one arrives
-      const parcels = await readParcels(connection, height, bytes.length);
+      const filled = [...parcels.values()].filter(p => p.filled && p.content != null);
+      if (!filled.length) return;
+      const types = await readInscriptionTypes(connection, filled.map(p => p.content!));
       if (!alive) return;
-      for (const p of parcels.values()) {
-        if (!p.filled || p.content == null) continue;
-        const b = box(p.n - 1);
-        if (!b || !isFinite(b.L)) continue;
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => {
-          if (!alive) return;
-          // cover the block, cropping the overflow — the block is square and
-          // the art usually isn't
-          const k = Math.max(b.W / img.width, b.H / img.height);
-          const w = img.width * k, h = img.height * k;
-          ctx.save();
-          ctx.beginPath(); ctx.rect(b.L, b.T, b.W, b.H); ctx.clip();
-          ctx.drawImage(img, b.L + (b.W - w) / 2, b.T + (b.H - h) / 2, w, h);
-          ctx.restore();
-        };
-        // ⛔ Only images. A video or audio inscription has no frame to draw, and
-        // faking one would misrepresent what the buyer gets.
-        img.onerror = () => { /* not an image: the block keeps its map colour */ };
-        img.src = `${INS_SITE}/api/ins/${p.content}`;
+      const boxes = new Map(overlayBoxes(b).map(x => [x.n, x]));
+      const list: Thumb[] = [];
+      for (const p of filled) {
+        const box = boxes.get(p.n);
+        if (!box) continue;
+        list.push({ ...box, ins: p.content!, ct: types.get(p.content!) ?? '' });
       }
+      // biggest first, so the runaway guard never drops a big square
+      list.sort((a, b2) => b2.r - a.r);
+      setThumbs(list.slice(0, THUMB_MAX));
     })();
     return () => { alive = false; };
-  }, [height, connection, size]);
+  }, [height, connection]);
 
-  if (state === 'empty') return null;
-  return <canvas ref={ref} className={className} style={{ width: '100%', height: '100%', display: 'block', ...style }} />;
+  // the map itself
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv || !bytes) return;
+    const S = 720;
+    cv.width = S; cv.height = S;
+    const img = rasterMap(bytes, S);
+    if (img) cv.getContext('2d')?.putImageData(img, 0, 0);
+  }, [bytes]);
+
+  const shown = useMemo(() => (showContent ? thumbs : []), [showContent, thumbs]);
+  if (!bytes) return null;
+
+  return (
+    <div className={className} style={{ position: 'relative', width: '100%', height: '100%', ...style }}>
+      <canvas ref={ref} style={{ width: '100%', height: '100%', display: 'block' }} />
+      {!!shown.length && (
+        <svg viewBox="0 0 1000 1000" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
+          {shown.map(t => {
+            const sw = Math.min(6, Math.max(1.5, t.r * 0.06));
+            const X = t.x + sw, Y = t.y + sw, W = t.r - 2 * sw;
+            const src = contentUrl(t.ins);
+            if (t.ct.startsWith('image/')) return (
+              <image key={t.n} href={src} x={X} y={Y} width={W} height={W}
+                preserveAspectRatio="xMidYMid slice" style={{ pointerEvents: 'none' }} />
+            );
+            if (t.ct.startsWith('video/')) return (
+              <foreignObject key={t.n} x={X} y={Y} width={W} height={W}>
+                {/* ⛔ FRAME 0 IS OFTEN BLACK — a clip that fades up shows a dead
+                    square. Seek a little way in for the poster instead; clicking
+                    still plays from the start, with sound. */}
+                <video src={src} preload="metadata" muted playsInline
+                  style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', background: '#000', cursor: 'pointer' }}
+                  onLoadedMetadata={e => {
+                    const v = e.currentTarget;
+                    if (v.dataset.seen) return;
+                    const at = Math.min((v.duration || 0) * 0.1, 5);
+                    if (at > 0.05) { v.dataset.poster = '1'; try { v.currentTime = at; } catch { /* not seekable */ } }
+                  }}
+                  onClick={e => {
+                    const v = e.currentTarget;
+                    if (!v.paused) { v.pause(); return; }
+                    if (v.dataset.poster && !v.dataset.seen) {
+                      v.dataset.seen = '1'; delete v.dataset.poster;
+                      try { v.currentTime = 0; } catch { /* not seekable */ }
+                    }
+                    // a click IS the permission for sound, and everything else
+                    // playing on this map stops first
+                    document.querySelectorAll('video,audio').forEach(el => {
+                      if (el !== v) (el as HTMLMediaElement).pause();
+                    });
+                    v.muted = false;
+                    v.play().catch(() => {});
+                  }} />
+              </foreignObject>
+            );
+            if (t.ct.startsWith('audio/')) return (
+              <foreignObject key={t.n} x={X} y={Y} width={W} height={W}>
+                {/* a song has no frame. A play tile says what it is and plays on
+                    click; preload="none" keeps a map full of songs from
+                    downloading all of them. */}
+                <div
+                  style={{
+                    width: '100%', height: '100%', display: 'grid', placeItems: 'center',
+                    background: 'linear-gradient(135deg,#1a1033,#0d0820)', cursor: 'pointer',
+                    color: '#bf5af2', fontSize: Math.max(10, W * 0.4),
+                  }}
+                  onClick={e => {
+                    const host = e.currentTarget;
+                    let a = host.querySelector('audio') as HTMLAudioElement | null;
+                    if (!a) {
+                      a = document.createElement('audio');
+                      a.src = src; a.preload = 'none';
+                      host.appendChild(a);
+                    }
+                    document.querySelectorAll('video,audio').forEach(el => {
+                      if (el !== a) (el as HTMLMediaElement).pause();
+                    });
+                    if (a.paused) { setPlaying(t.n); a.play().catch(() => {}); }
+                    else { a.pause(); setPlaying(null); }
+                  }}
+                >{playing === t.n ? '❚❚' : '▶'}</div>
+              </foreignObject>
+            );
+            return null;   // a website or a file: the block keeps its map colour
+          })}
+        </svg>
+      )}
+    </div>
+  );
 }

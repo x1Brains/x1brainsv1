@@ -134,7 +134,8 @@ export function layoutMap(bytes: Uint8Array): MapLayout {
   let area = 0;
   for (const t of txs) area += t * t;
   const W = Math.max(1, Math.ceil(Math.sqrt(area)));
-  let H = W + 16, occ = new Uint8Array(W * H), ff = new Int32Array(H), minRow = 0, k = 0;
+  let H = W + 16, occ = new Uint8Array(W * H), ff = new Int32Array(H);
+  let minRow = 0, k = 0, maxY = 0;
   const sq = new Int32Array(txs.length * 3);
   for (const r of txs) {
     let placed = false;
@@ -147,47 +148,91 @@ export function layoutMap(bytes: Uint8Array): MapLayout {
         if (hit < 0) {
           for (let yy = y; yy < y + r; yy++) occ.fill(1, yy * W + x, yy * W + x + r);
           sq[k++] = x; sq[k++] = y; sq[k++] = r;
-          placed = true;
-          break;
+          if (y + r > maxY) maxY = y + r;
+          // advance each occupied row's free front past what we just filled
+          for (let yy = y; yy < y + r; yy++) if (ff[yy] === x) { let z = x + r; const b = yy * W; while (z < W && occ[b + z]) z++; ff[yy] = z; }
+          placed = true; break;
         }
         x = hit + 1;
       }
-      if (!placed) ff[y] = W;
-      while (ff[minRow] >= W) minRow++;
     }
+    // then pull minRow up past any row that is now full
+    for (;;) { const b = minRow * W; let x = ff[minRow]; while (x < W && occ[b + x]) x++; ff[minRow] = x; if (x >= W) minRow++; else break; }
   }
   const rects: Rect[] = [];
-  for (let i = 0; i < sq.length; i += 3) rects.push({ x: sq[i], y: sq[i + 1], s: sq[i + 2] });
-  return { W, rects };
+  for (let i = 0; i < k; i += 3) rects.push({ x: sq[i], y: sq[i + 1], s: sq[i + 2] });
+  // ⛔ W is max(W, maxY), NOT W. `raster` divides by this to get the grid step,
+  // so getting it wrong misplaces and misscales every square.
+  return { W: Math.max(W, maxY), rects };
 }
 
-/** `…/api/nft/parcel/<height>/<n>.json` → the block it is. */
-export function parcelOfUri(uri: string): { height: number; n: number } | null {
-  const m = /\/parcel\/(\d+)\/(\d+)\.json$/.exec(uri || '');
-  return m ? { height: Number(m[1]), n: Number(m[2]) } : null;
-}
-/** `…/api/nft/block/<height>.json` → the map it is. */
-export function mapOfUri(uri: string): number | null {
-  const m = /\/block\/(\d+)\.json$/.exec(uri || '');
-  return m ? Number(m[1]) : null;
+/** Content type of several inscriptions at once — one batched read, so a map
+ *  full of parcels costs a single RPC call rather than one per block. */
+export async function readInscriptionTypes(conn: any, numbers: number[]): Promise<Map<number, string>> {
+  const out = new Map<number, string>();
+  const CHUNK = 100;
+  for (let i = 0; i < numbers.length; i += CHUNK) {
+    const slice = numbers.slice(i, i + CHUNK);
+    let infos: any[];
+    try { infos = await conn.getMultipleAccountsInfo(slice.map(insPda), { encoding: 'base64' }); }
+    catch { continue; }
+    infos.forEach((info, k) => {
+      const d = bytesOf(info?.data);
+      if (!d || d.length < 161) return;
+      const ct = new TextDecoder().decode(d.slice(96, 96 + d[160])).split(';')[0].trim();
+      if (ct) out.set(slice[k], ct);
+    });
+  }
+  return out;
 }
 
-/** The inscription a parcel holds, served with its real content type.
- *  This is the same thing x1inscriptions.io puts in the parcel's
- *  `animation_url` — the content, not the spotlight picture of the block. */
-export const contentUrl = (insNumber: number) => `https://www.x1inscriptions.io/api/ins/${insNumber}`;
+/** The canonical map raster, ported from x1maps-web src/lib/bitmap.ts `raster()`.
+ *  ⛔ KEEP IN STEP WITH THAT FILE. My first attempt at this left out the
+ *  centring shift and used the wrong pad and shade factors, which puts every
+ *  square — and so every piece of content drawn into one — in the wrong place. */
+export function rasterMap(bytes: Uint8Array, S: number): ImageData | null {
+  const lay = layoutMap(bytes);
+  if (!lay.rects.length) return null;
+  const px = new Uint8ClampedArray(S * S * 4);
+  for (let i = 3; i < px.length; i += 4) px[i] = 255;
+  const frame = Math.round(S * 0.02), inner = S - 2 * frame, g = inner / lay.W;
+  const BLUE: [number, number, number] = [0x00, 0x88, 0xff];
+  const GRAY: [number, number, number] = [0x8a, 0x8a, 0x92];
+  const shaded = (c: [number, number, number], dark: number): [number, number, number] => {
+    const f = 1 - 0.095 * Math.min(4, dark); return [c[0] * f, c[1] * f, c[2] * f];
+  };
+  // centre the drawing both ways — maps sit in the middle, not stuck to the left/top
+  let usedW = 0, usedH = 0;
+  for (const r of lay.rects) { usedW = Math.max(usedW, r.x + r.s); usedH = Math.max(usedH, r.y + r.s); }
+  const shift = (lay.W - usedW) / 2, shiftY = (lay.W - usedH) / 2;
+  const pad = g >= 4 ? g / 4 : 0;
+  lay.rects.forEach((r, k) => {
+    const c = shaded((bytes[k] >> 4) & 1 ? GRAY : BLUE, bytes[k] >> 5);
+    const L = frame + Math.round((r.x + shift) * g + pad), T = frame + Math.round((r.y + shiftY) * g + pad);
+    let R = frame + Math.round((r.x + shift + r.s) * g - pad), B = frame + Math.round((r.y + shiftY + r.s) * g - pad);
+    if (!pad && R - L >= 3) { R--; B--; }
+    // tiny squares draw as an even dot grid: thousands of touching 1-2px squares
+    // read as one smear, and a gap each made stripes
+    if (!pad && R - L <= 2) {
+      for (let y = T; y < Math.min(B, S); y++) { if ((y - frame) & 1) continue; for (let x = L; x < Math.min(R, S); x++) { if ((x - frame) & 1) continue; const o = (y * S + x) * 4; px[o] = c[0]; px[o + 1] = c[1]; px[o + 2] = c[2]; } }
+      return;
+    }
+    const ring = R - L >= 8 ? 1 : 0;   // one crisp darker inner edge
+    for (let y = T; y < Math.min(B, S); y++) for (let x = L, o = (y * S + L) * 4; x < Math.min(R, S); x++, o += 4) {
+      const d = Math.min(x - L, R - 1 - x, y - T, B - 1 - y), f = d >= ring ? 1 : 0.7;
+      px[o] = c[0] * f; px[o + 1] = c[1] * f; px[o + 2] = c[2] * f;
+    }
+  });
+  return new ImageData(px, S, S);
+}
 
-/** For a listed parcel: the URL of whatever is inscribed in it, or null when the
- *  block is empty. ⛔ Every parcel on mainnet is filled (37 of 37), so the null
- *  branch is the rare one, not the common one. */
-export async function parcelContentUrl(conn: any, uri: string): Promise<string | null> {
-  const p = parcelOfUri(uri);
-  if (!p) return null;
-  try {
-    const info = await conn.getAccountInfo(parcelPda(p.height, p.n));
-    const d = bytesOf(info?.data);
-    if (!d || d.length < 61 || d[52] !== 1) return null;
-    const n = Number(new DataView(d.buffer, d.byteOffset, d.byteLength).getBigUint64(53, true));
-    return contentUrl(n);
-  } catch { return null; }
+/** Where each square sits in the 1000-unit box the overlay uses — the same
+ *  geometry `rasterMap` draws, so a thumbnail lands exactly on its square at
+ *  any display size. frame 20 + g 960/W, matching bitmap.ts's 2% frame. */
+export function overlayBoxes(bytes: Uint8Array): { n: number; x: number; y: number; r: number }[] {
+  const lay = layoutMap(bytes);
+  let usedW = 0, usedH = 0;
+  for (const r of lay.rects) { usedW = Math.max(usedW, r.x + r.s); usedH = Math.max(usedH, r.y + r.s); }
+  const frame = 20, g = 960 / lay.W, ox = (lay.W - usedW) / 2, oy = (lay.W - usedH) / 2;
+  return lay.rects.map((r, i) => ({ n: i + 1, x: frame + (r.x + ox) * g, y: frame + (r.y + oy) * g, r: r.s * g }));
 }

@@ -1732,7 +1732,7 @@ export default function V2LabWork() {
                           border: '1px solid rgba(242,144,48,.4)',
                         }}>
                           {mapOfUri(it.metaUri ?? '') != null
-                            ? <X1MapContent height={mapOfUri(it.metaUri!)!} connection={connection} size={160} />
+                            ? <X1MapContent height={mapOfUri(it.metaUri!)!} connection={connection} />
                             : (it.image || it.metaUri)
                             ? <V2NFTImage src={it.image || it.metaUri!} name={it.name} />
                             : <div style={{
@@ -1894,7 +1894,13 @@ export default function V2LabWork() {
                             position: 'relative', paddingBottom: '100%',
                             background: '#06090d',
                           }}>
-                            {(n.image || n.metaUri)
+                            {/* a map you own draws with the content inscribed in
+                                its blocks, same as the marketplace tiles */}
+                            {mapOfUri(n.metaUri ?? '') != null
+                              ? <div style={{ position: 'absolute', inset: 0 }}>
+                                  <X1MapContent height={mapOfUri(n.metaUri!)!} connection={connection} />
+                                </div>
+                              : (n.image || n.metaUri)
                               ? <div style={{ position: 'absolute', inset: 0 }}>
                                   <V2NFTImage src={n.image || n.metaUri!} name={n.name} />
                                 </div>
@@ -2370,7 +2376,7 @@ export default function V2LabWork() {
               inscriptions — so the flat map picture hides the content. Draw the
               map WITH whatever is inscribed in its blocks. */}
           {mapOfUri(it.metaUri ?? '') != null ? (
-            <X1MapContent height={mapOfUri(it.metaUri!)!} connection={connection} size={512} />
+            <X1MapContent height={mapOfUri(it.metaUri!)!} connection={connection} />
           ) : (it.image || it.metaUri) ? (
             <V2NFTImage src={it.image || it.metaUri} name={it.name} />
           ) : (

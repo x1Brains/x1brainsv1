@@ -618,12 +618,24 @@ async function fetchWalletNFTs(connection: any, publicKey: PublicKey): Promise<N
   });
   // Core assets carry their own name and uri in the account, so they need no
   // metadata PDA lookup at all.
-  const coreNfts: NFTData[] = (coreR.status === 'fulfilled' ? coreR.value : []).map(c => ({
+  // ⛔ A PARCEL IS ONE BLOCK OF A MAP and every parcel on mainnet holds
+  // something, so its spotlight picture — the map dimmed with one square lit —
+  // hides the thing being sold. Resolve what is inscribed in each one. This is
+  // the SELL tab's path; the listing path does the same in enrichNFTFromMint,
+  // and missing it here is why a parcel you own still showed as a lit square.
+  const coreRaw = coreR.status === 'fulfilled' ? coreR.value : [];
+  const parcelImgs = new Map<string, string>();
+  await Promise.all(coreRaw.map(async c => {
+    const u = await parcelContentUrl(connection, c.uri).catch(() => null);
+    if (u) parcelImgs.set(c.address, u);
+  }));
+  const coreNfts: NFTData[] = coreRaw.map(c => ({
     mint: c.address, name: c.name || `Asset ${c.address.slice(0, 6)}\u2026`, symbol: 'CORE',
     balance: 1, decimals: 0, isToken2022: false,
     metaUri: c.uri, metaSource: 'core',
     isCore: true, coreCollection: c.collection, collectionKey: c.collection,
     royaltyBps: c.royaltyBps, royaltyCreator: c.royaltyCreator, frozen: c.frozen,
+    ...(parcelImgs.has(c.address) ? { image: parcelImgs.get(c.address) } : {}),
   }));
   const merged = [...nfts, ...coreNfts];
   merged.sort((a, b) => a.name.localeCompare(b.name));
