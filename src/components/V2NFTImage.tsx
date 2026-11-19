@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { useConnection } from '@solana/wallet-adapter-react';
+import X1MapContent from './X1MapContent';
 
 // Persistent localStorage cache for resolved image URLs.
 // v2 -> v3: v2 rows were written by a fetchJsonMulti that reported the
@@ -224,7 +226,26 @@ function weservUrl(url: string, width: number): string {
   return `https://images.weserv.nl/?url=${encodeURIComponent(target)}&w=${width}&q=82&output=webp`;
 }
 
+/** An X1MAPS map, from either the metadata URI or the map picture it resolves
+ *  to. ⛔ `?p=<n>` is a PARCEL spotlight, not a map — a parcel carries its own
+ *  inscribed content as its image, so it must never be swapped for its map. */
+function mapHeightOf(src: string | null | undefined): number | null {
+  if (!src || /[?&]p=/.test(src)) return null;
+  const m = /\/(?:block\/(\d+)\.json|nft\/image\/(\d+)\.png)(?:\?|$)/.exec(src);
+  const h = m?.[1] ?? m?.[2];
+  return h ? Number(h) : null;
+}
+
 export default function V2NFTImage({ src, name, priority = false, width = 600, fit = 'cover' }: Props) {
+  // ⛔⛔ A MAP IS DRAWN, NOT FETCHED. Its blocks are parcels and those hold
+  // inscriptions, so the flat map picture hides the content every time — and
+  // on mainnet every parcel that exists is filled. Handling it HERE rather than
+  // at each call site is deliberate: the marketplace grid, the sell tab, the
+  // home page hero, the detail modal, the list/boost panels and the portfolio
+  // all render through this one component. Wiring them one at a time is how the
+  // boosted 24420.x1map still showed as a plain map after two rounds of fixes.
+  const mapHeight = mapHeightOf(src);
+  const { connection: mapConn } = useConnection();
   /** Extension/path guesses for metadata that would not resolve. Tried in the
    *  <img> error chain; never cached, because a guess is not an answer. */
   const [guessed, setGuesses] = useState<string[]>([]);
@@ -335,6 +356,17 @@ export default function V2NFTImage({ src, name, priority = false, width = 600, f
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imgUrl]);
+
+  // ⛔ After every hook — this is an early return, and hooks must run
+  // unconditionally. A map is drawn from chain, so none of the gateway/cache
+  // machinery below applies to it.
+  if (mapHeight != null) {
+    return (
+      <div style={{ position: 'absolute', inset: 0 }}>
+        <X1MapContent height={mapHeight} connection={mapConn} />
+      </div>
+    );
+  }
 
   if (imgUrl === undefined) {
     return (
