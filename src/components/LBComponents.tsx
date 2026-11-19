@@ -1,4 +1,5 @@
 import { fetchCoreAssets, parseCoreAsset, CORE_PROGRAM_ID } from '../lib/coreAssets';
+import { parcelContentUrl } from '../lib/x1insContent';
 
 import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -455,10 +456,17 @@ async function enrichNFTFromMint(connection: any, mintAddr: string): Promise<NFT
           const raw = decodeAccountData(info.data);
           const core = raw ? parseCoreAsset(mintAddr, raw) : null;
           if (core) {
+            // ⛔ A PARCEL IS ONE BLOCK OF A MAP, and on mainnet every parcel
+            // that exists holds an inscription. Showing the spotlight picture —
+            // the map dimmed with one square lit — hides the thing being sold
+            // every single time. Show what is inscribed in the block instead,
+            // which is exactly what x1inscriptions.io puts in its animation_url.
+            const parcelImg = await parcelContentUrl(connection, core.uri).catch(() => null);
             const withMeta: NFTData = {
               ...base, name: core.name || base.name, symbol: 'CORE', metaUri: core.uri,
               metaSource: 'core', isCore: true, coreCollection: core.collection,
               collectionKey: core.collection,
+              ...(parcelImg ? { image: parcelImg } : {}),
               royaltyBps: core.royaltyBps, royaltyCreator: core.royaltyCreator, frozen: core.frozen,
             };
             const enriched = await enrichNFT(withMeta);

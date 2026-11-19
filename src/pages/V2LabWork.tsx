@@ -16,6 +16,8 @@ import {
 } from '../components/LBComponents';
 import V2NFTDetailModal from '../components/V2NFTDetailModal';
 import V2NFTImage from '../components/V2NFTImage';
+import X1MapContent from '../components/X1MapContent';
+import { mapOfUri } from '../lib/x1insContent';
 import { imageCandidates, liveGatewayUrl } from '../utils/ipfsGateways';
 import V2MarketModal, { type MarketTarget } from '../components/V2MarketModal';
 import V2BoostModal, { type BoostTarget } from '../components/V2BoostModal';
@@ -1729,7 +1731,9 @@ export default function V2LabWork() {
                           background: '#06090d',
                           border: '1px solid rgba(242,144,48,.4)',
                         }}>
-                          {(it.image || it.metaUri)
+                          {mapOfUri(it.metaUri ?? '') != null
+                            ? <X1MapContent height={mapOfUri(it.metaUri!)!} connection={connection} size={160} />
+                            : (it.image || it.metaUri)
                             ? <V2NFTImage src={it.image || it.metaUri!} name={it.name} />
                             : <div style={{
                                 position: 'absolute', inset: 0,
@@ -2362,7 +2366,12 @@ export default function V2LabWork() {
           onClick={() => openDetail(it)}
           title="View details"
         >
-          {(it.image || it.metaUri) ? (
+          {/* ⛔ An X1MAPS map is drawn from its blocks, and its parcels hold
+              inscriptions — so the flat map picture hides the content. Draw the
+              map WITH whatever is inscribed in its blocks. */}
+          {mapOfUri(it.metaUri ?? '') != null ? (
+            <X1MapContent height={mapOfUri(it.metaUri!)!} connection={connection} size={512} />
+          ) : (it.image || it.metaUri) ? (
             <V2NFTImage src={it.image || it.metaUri} name={it.name} />
           ) : (
             <span className="market-tile-num">#{it.mint.slice(0, 4)}</span>
