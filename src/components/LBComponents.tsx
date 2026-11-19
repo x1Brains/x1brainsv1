@@ -828,6 +828,39 @@ async function batchEnrichListings(connection: any, listings: Listing[]): Promis
       });
       persistSessionMeta();
     } catch { /* batch failed — listings render without metadata */ }
+
+    // ── Metaplex Core fallback ────────────────────────────────────────────
+    // ⛔ A Core asset (x1 Inscriptions map, inscription, parcel, edition) has
+    // NO metadata PDA, so every mint above missed and the listing came back
+    // with no uri and no collection key — which is why a listed x1map sat in
+    // UNCATEGORISED even after the registry knew about it. The asset account
+    // carries its own name, uri and collection, so read it directly.
+    const missed = chunk.filter(l => !lwPdaCache.has(l.nftMint));
+    if (missed.length) {
+      try {
+        const assetInfos = await connection.getMultipleAccountsInfo(
+          missed.map(l => new PublicKey(l.nftMint)), { encoding: 'base64' },
+        );
+        assetInfos.forEach((info: any, idx: number) => {
+          if (!info?.data) return;
+          if (!new PublicKey(info.owner).equals(CORE_PROGRAM_ID)) return;
+          const raw = decodeAccountData(info.data);
+          if (!raw) return;
+          const core = parseCoreAsset(missed[idx].nftMint, raw);
+          if (!core) return;
+          const entry = {
+            name: core.name,
+            symbol: 'CORE',
+            uri: core.uri,
+            collectionKey: core.collection,
+            creatorKey: core.royaltyCreator,
+          } as any;
+          lwPdaCache.set(missed[idx].nftMint, entry);
+          lwSessionMetaCache.set(missed[idx].nftMint, entry);
+        });
+        persistSessionMeta();
+      } catch { /* a Core miss just renders without metadata, as before */ }
+    }
   }
 
   // Now enrich all listings from cache (no more RPC calls)
