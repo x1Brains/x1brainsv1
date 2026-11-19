@@ -202,6 +202,21 @@ fn core_royalty(asset: &AccountInfo) -> Option<(Pubkey, u64)> {
 /// Royalty basis points are out of 10_000.
 pub const BPS_DENOMINATOR: u64 = 10_000;
 
+/// How one Core sale divides: (royalty, platform_fee, seller_proceeds).
+/// Pulled out of the handler so the arithmetic can be tested directly —
+/// this is where real money is split and it must never silently round a
+/// seller's proceeds away or overflow.
+fn split_core_sale(price: u64, royalty_bps: u64, fee_waived: bool) -> Option<(u64, u64, u64)> {
+    let royalty = price.checked_mul(royalty_bps)?.checked_div(BPS_DENOMINATOR)?;
+    let fee = if fee_waived {
+        0
+    } else {
+        price.checked_mul(SALE_FEE_NUMERATOR)?.checked_div(SALE_FEE_DENOMINATOR)?
+    };
+    let seller = price.checked_sub(royalty)?.checked_sub(fee)?;
+    Some((royalty, fee, seller))
+}
+
 #[program]
 pub mod labwork_marketplace {
     use super::*;
@@ -304,6 +319,155 @@ pub mod labwork_marketplace {
     }
 
     /// Buy an NFT — buyer pays price, seller gets proceeds, platform gets fee.
+    // ── Metaplex Core listings ──────────────────────────────────────────
+    // x1 Inscriptions assets (inscriptions, maps, districts, parcels, editions)
+    // are Core, which has no token account, so the SALE PDA ITSELF holds the
+    // asset while it is listed — the same escrow shape the x1ins program uses.
+    // Fees are identical to the SPL path (1.888% sale, 0.888% unlist, both
+    // waived for Brains Elite holders) and the asset's advertised creator
+    // royalty is paid on top, read off the asset by `core_royalty`.
+
+    /// List a Core asset. The asset moves from the seller to the sale PDA.
+    pub fn list_nft_core(ctx: Context<ListNftCore>, price: u64) -> Result<()> {
+        require!(price >= MIN_PRICE, MarketplaceError::PriceTooLow);
+        // The seller must actually hold it RIGHT NOW. core_holder returns the
+        // default key for anything that is not a live Core asset, so a foreign
+        // or missing account can never pass this.
+        require_keys_eq!(
+            core_holder(&ctx.accounts.asset),
+            ctx.accounts.seller.key(),
+            MarketplaceError::NotAssetHolder
+        );
+
+        let seller_ai = ctx.accounts.seller.to_account_info();
+        let sale_ai   = ctx.accounts.sale.to_account_info();
+        // ⛔ A permanently frozen asset (release masters, soulbound items) and an
+        // unsealed inscription cannot move. Core rejects the transfer, which
+        // fails the whole instruction — nothing is half-listed.
+        core_transfer(
+            &ctx.accounts.core_program, &ctx.accounts.asset, &ctx.accounts.collection,
+            &seller_ai, &seller_ai, &sale_ai, &[],
+        )?;
+
+        let sale = &mut ctx.accounts.sale;
+        sale.seller     = ctx.accounts.seller.key();
+        sale.nft_mint   = ctx.accounts.asset.key();   // the Core asset address
+        sale.price      = price;
+        sale.bump       = ctx.bumps.sale;
+        sale.vault_bump = 0;                          // Core has no vault account
+        sale.created_at = Clock::get()?.unix_timestamp;
+
+        msg!("list_nft_core: {} @ {} lamports", sale.nft_mint, price);
+        Ok(())
+    }
+
+    /// Buy a listed Core asset: creator royalty, then the platform fee, then the
+    /// seller, then the asset itself moves from the sale PDA to the buyer.
+    pub fn buy_nft_core(ctx: Context<BuyNftCore>) -> Result<()> {
+        let price      = ctx.accounts.sale.price;
+        let seller_key = ctx.accounts.sale.seller;
+        let asset_key  = ctx.accounts.sale.nft_mint;
+        require!(price > 0, MarketplaceError::PriceTooLow);
+        require_keys_neq!(ctx.accounts.buyer.key(), seller_key, MarketplaceError::InvalidSeller);
+        require!(ctx.accounts.buyer.lamports() >= price, MarketplaceError::InsufficientFunds);
+
+        // ⛔ The royalty is read from the ASSET, never from the account the
+        // client passed. Whatever `core_royalty` returns is what gets paid, and
+        // the supplied creator account must match it — otherwise a buyer could
+        // name themselves and pocket the 5%.
+        let royalty_bps = match core_royalty(&ctx.accounts.asset) {
+            Some((creator, bps)) => {
+                require_keys_eq!(
+                    ctx.accounts.creator.key(), creator,
+                    MarketplaceError::BadRoyaltyCreator
+                );
+                bps
+            }
+            // No Royalties plugin (the owner's .mp4 inscriptions): pay nothing.
+            // The creator account is still required by the struct, so pass the
+            // seller; it simply receives 0.
+            None => 0,
+        };
+
+        let waived = elite_fee_waived(ctx.remaining_accounts, &seller_key);
+        if waived { msg!("Brains Elite seller - sale fee waived"); }
+        let (royalty, platform_fee, seller_proceeds) =
+            split_core_sale(price, royalty_bps, waived).ok_or(MarketplaceError::MathOverflow)?;
+
+        let sys = ctx.accounts.system_program.to_account_info();
+        if royalty > 0 {
+            anchor_lang::system_program::transfer(
+                CpiContext::new(sys.clone(), anchor_lang::system_program::Transfer {
+                    from: ctx.accounts.buyer.to_account_info(),
+                    to:   ctx.accounts.creator.to_account_info(),
+                }), royalty)?;
+        }
+        if platform_fee > 0 {
+            anchor_lang::system_program::transfer(
+                CpiContext::new(sys.clone(), anchor_lang::system_program::Transfer {
+                    from: ctx.accounts.buyer.to_account_info(),
+                    to:   ctx.accounts.platform_wallet.to_account_info(),
+                }), platform_fee)?;
+        }
+        if seller_proceeds > 0 {
+            anchor_lang::system_program::transfer(
+                CpiContext::new(sys, anchor_lang::system_program::Transfer {
+                    from: ctx.accounts.buyer.to_account_info(),
+                    to:   ctx.accounts.seller_wallet.to_account_info(),
+                }), seller_proceeds)?;
+        }
+
+        // Escrow out: the sale PDA signs its own transfer.
+        let bump = ctx.accounts.sale.bump;
+        let seeds: &[&[u8]] = &[b"sale", asset_key.as_ref(), seller_key.as_ref(), &[bump]];
+        let buyer_ai = ctx.accounts.buyer.to_account_info();
+        core_transfer(
+            &ctx.accounts.core_program, &ctx.accounts.asset, &ctx.accounts.collection,
+            &buyer_ai, &ctx.accounts.sale.to_account_info(), &buyer_ai, &[seeds],
+        )?;
+
+        msg!("buy_nft_core: {} | price {} | royalty {} | fee {} | seller {}",
+             asset_key, price, royalty, platform_fee, seller_proceeds);
+        Ok(())
+    }
+
+    /// Unlist a Core asset. It goes back to the seller; the 0.888% cancel fee
+    /// applies exactly as on the SPL path, and is waived for Elite holders.
+    pub fn cancel_listing_core(ctx: Context<CancelListingCore>) -> Result<()> {
+        let price      = ctx.accounts.sale.price;
+        let seller_key = ctx.accounts.sale.seller;
+        let asset_key  = ctx.accounts.sale.nft_mint;
+
+        let mut cancel_fee = price
+            .checked_mul(CANCEL_FEE_NUMERATOR).ok_or(MarketplaceError::MathOverflow)?
+            .checked_div(CANCEL_FEE_DENOMINATOR).ok_or(MarketplaceError::MathOverflow)?;
+        if cancel_fee > 0 && elite_fee_waived(ctx.remaining_accounts, &ctx.accounts.seller.key()) {
+            msg!("Brains Elite holder - cancel fee waived");
+            cancel_fee = 0;
+        }
+        if cancel_fee > 0 {
+            require!(ctx.accounts.seller.lamports() >= cancel_fee,
+                     MarketplaceError::InsufficientFundsForCancelFee);
+            anchor_lang::system_program::transfer(
+                CpiContext::new(ctx.accounts.system_program.to_account_info(),
+                    anchor_lang::system_program::Transfer {
+                        from: ctx.accounts.seller.to_account_info(),
+                        to:   ctx.accounts.platform_wallet.to_account_info(),
+                    }), cancel_fee)?;
+        }
+
+        let bump = ctx.accounts.sale.bump;
+        let seeds: &[&[u8]] = &[b"sale", asset_key.as_ref(), seller_key.as_ref(), &[bump]];
+        let seller_ai = ctx.accounts.seller.to_account_info();
+        core_transfer(
+            &ctx.accounts.core_program, &ctx.accounts.asset, &ctx.accounts.collection,
+            &seller_ai, &ctx.accounts.sale.to_account_info(), &seller_ai, &[seeds],
+        )?;
+
+        msg!("cancel_listing_core: {} | fee {}", asset_key, cancel_fee);
+        Ok(())
+    }
+
     pub fn buy_nft(ctx: Context<BuyNft>) -> Result<()> {
         let price      = ctx.accounts.sale.price;
         let vault_bump = ctx.accounts.sale.vault_bump;
@@ -496,6 +660,103 @@ pub struct CancelListing<'info> {
 }
 
 #[derive(Accounts)]
+pub struct ListNftCore<'info> {
+    #[account(mut)]
+    pub seller: Signer<'info>,
+
+    /// CHECK: a Metaplex Core asset. Ownership is proved by `core_holder` in the
+    /// handler, which reads the asset's own owner field, so no constraint here
+    /// could be stronger.
+    #[account(mut)]
+    pub asset: AccountInfo<'info>,
+
+    /// CHECK: the asset's collection, passed through to Core unvalidated —
+    /// exactly as the x1ins program does. Core itself rejects a mismatch.
+    pub collection: AccountInfo<'info>,
+
+    /// The sale PDA both records the listing AND holds the asset while listed.
+    #[account(
+        init,
+        payer = seller,
+        space = SaleAccount::LEN,
+        seeds = [b"sale", asset.key().as_ref(), seller.key().as_ref()],
+        bump,
+    )]
+    pub sale: Account<'info, SaleAccount>,
+
+    /// CHECK: the Metaplex Core program, checked against CORE_ID in core_transfer
+    pub core_program: AccountInfo<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct BuyNftCore<'info> {
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+
+    /// CHECK: must be the asset this listing is for
+    #[account(mut, constraint = asset.key() == sale.nft_mint @ MarketplaceError::InvalidMint)]
+    pub asset: AccountInfo<'info>,
+
+    /// CHECK: passed through to Core, which validates it against the asset
+    pub collection: AccountInfo<'info>,
+
+    #[account(
+        mut,
+        close = seller_wallet,
+        seeds = [b"sale", sale.nft_mint.as_ref(), sale.seller.as_ref()],
+        bump  = sale.bump,
+    )]
+    pub sale: Account<'info, SaleAccount>,
+
+    /// CHECK: validated against sale.seller
+    #[account(mut, constraint = seller_wallet.key() == sale.seller @ MarketplaceError::InvalidSeller)]
+    pub seller_wallet: AccountInfo<'info>,
+
+    /// CHECK: the royalty recipient. ⛔ Validated in the handler against the
+    /// creator stored in the ASSET — passing someone else fails the transaction.
+    #[account(mut)]
+    pub creator: AccountInfo<'info>,
+
+    /// CHECK: validated against the hardcoded platform wallet
+    #[account(mut, constraint = platform_wallet.key().to_string() == PLATFORM_WALLET @ MarketplaceError::InvalidPlatformWallet)]
+    pub platform_wallet: AccountInfo<'info>,
+
+    /// CHECK: the Metaplex Core program, checked against CORE_ID in core_transfer
+    pub core_program: AccountInfo<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CancelListingCore<'info> {
+    #[account(mut, constraint = seller.key() == sale.seller @ MarketplaceError::InvalidSeller)]
+    pub seller: Signer<'info>,
+
+    /// CHECK: must be the asset this listing is for
+    #[account(mut, constraint = asset.key() == sale.nft_mint @ MarketplaceError::InvalidMint)]
+    pub asset: AccountInfo<'info>,
+
+    /// CHECK: passed through to Core, which validates it against the asset
+    pub collection: AccountInfo<'info>,
+
+    #[account(
+        mut,
+        close = seller,
+        seeds = [b"sale", sale.nft_mint.as_ref(), sale.seller.as_ref()],
+        bump  = sale.bump,
+    )]
+    pub sale: Account<'info, SaleAccount>,
+
+    /// CHECK: validated against the hardcoded platform wallet
+    #[account(mut, constraint = platform_wallet.key().to_string() == PLATFORM_WALLET @ MarketplaceError::InvalidPlatformWallet)]
+    pub platform_wallet: AccountInfo<'info>,
+
+    /// CHECK: the Metaplex Core program, checked against CORE_ID in core_transfer
+    pub core_program: AccountInfo<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct BuyNft<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
@@ -576,6 +837,83 @@ pub enum MarketplaceError {
 //  attacker could hand it a lookalike is tested here, not reasoned about.
 //  Run with: cargo test -p labwork_marketplace --lib
 // ════════════════════════════════════════════════════════════════════════════
+#[cfg(test)]
+mod split_tests {
+    use super::*;
+
+    const XNT: u64 = 1_000_000_000;
+
+    #[test]
+    fn a_100_xnt_sale_splits_the_way_the_site_promises() {
+        let (roy, fee, seller) = split_core_sale(100 * XNT, 500, false).unwrap();
+        assert_eq!(roy,    5 * XNT,            "5% creator royalty");
+        assert_eq!(fee,    1_888_000_000,      "1.888% platform fee");
+        assert_eq!(seller, 93_112_000_000,     "the rest to the seller");
+        assert_eq!(roy + fee + seller, 100 * XNT, "nothing may vanish");
+    }
+
+    #[test]
+    fn elite_waiver_gives_the_seller_the_fee_not_the_creator() {
+        let (roy, fee, seller) = split_core_sale(100 * XNT, 500, true).unwrap();
+        assert_eq!(fee, 0, "Elite seller pays no platform fee");
+        assert_eq!(roy, 5 * XNT, "⛔ the creator royalty is NOT waived - it is not ours to waive");
+        assert_eq!(seller, 95 * XNT);
+        assert_eq!(roy + fee + seller, 100 * XNT);
+    }
+
+    #[test]
+    fn parcels_at_two_and_a_half_percent() {
+        // x1ins writes PARCEL_CREATOR_BPS = 250. The parser reads whatever the
+        // asset says, so this path must work for any bps the collection chose.
+        let (roy, _, seller) = split_core_sale(100 * XNT, 250, true).unwrap();
+        assert_eq!(roy, 2_500_000_000);
+        assert_eq!(seller, 97_500_000_000);
+    }
+
+    #[test]
+    fn no_royalty_plugin_pays_only_the_platform_fee() {
+        let (roy, fee, seller) = split_core_sale(100 * XNT, 0, false).unwrap();
+        assert_eq!(roy, 0);
+        assert_eq!(fee, 1_888_000_000);
+        assert_eq!(seller, 98_112_000_000);
+    }
+
+    #[test]
+    fn every_split_conserves_the_price() {
+        // the invariant that actually matters: a sale can never create or
+        // destroy lamports, at any price or any advertised royalty
+        for price in [MIN_PRICE, 1_000_000_007, XNT, 777 * XNT, 1_000_000 * XNT] {
+            for bps in [0u64, 1, 250, 500, 1000, 9999, 10_000] {
+                for waived in [false, true] {
+                    // Either it refuses (royalty + fee would exceed the price,
+                    // or the multiply overflows) or it conserves the price
+                    // exactly. There is no third outcome.
+                    if let Some((r, f, s)) = split_core_sale(price, bps, waived) {
+                        assert_eq!(r + f + s, price, "price {price} bps {bps} waived {waived}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn absurd_price_overflows_to_none_instead_of_wrapping() {
+        assert!(split_core_sale(u64::MAX, 500, false).is_none(),
+                "⛔ must refuse, never wrap into a tiny royalty");
+    }
+
+    #[test]
+    fn a_royalty_that_would_eat_the_whole_sale_is_refused() {
+        // 100% royalty + the platform fee exceeds the price: checked_sub must
+        // return None so the transaction fails instead of underflowing into a
+        // gigantic payout to the seller.
+        assert!(split_core_sale(100 * XNT, 10_000, false).is_none());
+        // with the fee waived a full-royalty sale is exactly survivable
+        let (r, f, s) = split_core_sale(100 * XNT, 10_000, true).unwrap();
+        assert_eq!((r, f, s), (100 * XNT, 0, 0));
+    }
+}
+
 #[cfg(test)]
 mod royalty_tests {
     use super::*;
