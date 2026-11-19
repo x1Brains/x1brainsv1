@@ -236,3 +236,33 @@ export function overlayBoxes(bytes: Uint8Array): { n: number; x: number; y: numb
   const frame = 20, g = 960 / lay.W, ox = (lay.W - usedW) / 2, oy = (lay.W - usedH) / 2;
   return lay.rects.map((r, i) => ({ n: i + 1, x: frame + (r.x + ox) * g, y: frame + (r.y + oy) * g, r: r.s * g }));
 }
+
+/** `…/api/nft/parcel/<height>/<n>.json` → the block it is. */
+export function parcelOfUri(uri: string): { height: number; n: number } | null {
+  const m = /\/parcel\/(\d+)\/(\d+)\.json$/.exec(uri || '');
+  return m ? { height: Number(m[1]), n: Number(m[2]) } : null;
+}
+/** `…/api/nft/block/<height>.json` → the map it is. */
+export function mapOfUri(uri: string): number | null {
+  const m = /\/block\/(\d+)\.json$/.exec(uri || '');
+  return m ? Number(m[1]) : null;
+}
+
+/** The inscription a parcel holds, served with its real content type — the same
+ *  thing x1inscriptions.io serves at /content/<n> (a rewrite of /api/ins/<n>). */
+export const contentUrl = (insNumber: number) => `https://www.x1inscriptions.io/api/ins/${insNumber}`;
+
+/** For a parcel: the URL of whatever is inscribed in it, or null when the block
+ *  is empty. ⛔ Every parcel on mainnet is filled (37 of 37), so the null branch
+ *  is the rare one. */
+export async function parcelContentUrl(conn: any, uri: string): Promise<string | null> {
+  const p = parcelOfUri(uri);
+  if (!p) return null;
+  try {
+    const info = await conn.getAccountInfo(parcelPda(p.height, p.n));
+    const d = bytesOf(info?.data);
+    if (!d || d.length < 61 || d[52] !== 1) return null;
+    const n = Number(new DataView(d.buffer, d.byteOffset, d.byteLength).getBigUint64(53, true));
+    return contentUrl(n);
+  } catch { return null; }
+}
