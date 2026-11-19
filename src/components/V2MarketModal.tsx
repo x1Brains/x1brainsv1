@@ -42,6 +42,9 @@ export default function V2MarketModal({ target, onClose, onDone }: Props) {
   const [status, setStatus]   = useState('');
   const [pending, setPending] = useState(false);
   const [sig, setSig]         = useState('');
+  // set once a transaction has confirmed: the panel then stays up and shows
+  // the explorer link until the person dismisses it themselves
+  const [done, setDone]       = useState(false);
 
   // ─── Brains Elite ──────────────────────────────────────────────────────
   // The program waives the sale and unlist fees for Elite holders (live on
@@ -144,7 +147,11 @@ export default function V2MarketModal({ target, onClose, onDone }: Props) {
       }
       setSig(res!.sig);
       setStatus(`✅ ${A.verb} confirmed`);
-      setTimeout(() => { onDone(); onClose(); }, 1800);
+      // ⛔ Do NOT auto-close. This panel holds the only link to the transaction,
+      // and a timer used to pull it away after 1.8s before it could be clicked.
+      // Refresh the data behind the modal instead and let the person close it.
+      setDone(true);
+      onDone();
     } catch (e: any) {
       setStatus(`❌ ${e?.message?.slice(0, 140) ?? 'Transaction failed'}`);
     } finally { setPending(false); }
@@ -370,19 +377,59 @@ export default function V2MarketModal({ target, onClose, onDone }: Props) {
           }}>
             {status}
             {sig && (
-              <div style={{ marginTop: 4 }}>
+              <div style={{ marginTop: 8 }}>
                 <a
                   href={`https://explorer.mainnet.x1.xyz/tx/${sig}`}
                   target="_blank" rel="noopener noreferrer"
-                  style={{ color: A.color, fontSize: 10 }}
+                  style={{
+                    display: 'inline-block',
+                    padding: done ? '7px 12px' : 0,
+                    background: done ? `${A.color}1a` : 'transparent',
+                    border: done ? `1px solid ${A.color}66` : 'none',
+                    borderRadius: 7,
+                    color: A.color,
+                    fontFamily: 'Orbitron,monospace',
+                    fontSize: done ? 9 : 10,
+                    fontWeight: done ? 700 : 400,
+                    letterSpacing: done ? 1.2 : 0,
+                    textDecoration: 'none',
+                  }}
                 >
-                  View tx ↗
+                  VIEW TRANSACTION ↗
                 </a>
+                {done && (
+                  <div style={{
+                    marginTop: 7, fontFamily: 'Sora,sans-serif', fontSize: 10,
+                    color: '#7f93a6', wordBreak: 'break-all', lineHeight: 1.5,
+                  }}>
+                    {sig}
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
 
+        {/* Once the transaction has confirmed there is nothing left to run, so
+            the footer becomes a single CLOSE. The panel stays up until it is
+            pressed (or the backdrop is clicked) so the explorer link above can
+            actually be used. */}
+        {done ? (
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              width: '100%', padding: '11px 0',
+              background: `linear-gradient(135deg, ${A.color}33, ${A.color}11)`,
+              border: `1px solid ${A.color}80`,
+              borderRadius: 8, cursor: 'pointer',
+              fontFamily: 'Orbitron,monospace',
+              fontSize: 9, fontWeight: 700, color: A.color, letterSpacing: 1.5,
+            }}
+          >
+            CLOSE
+          </button>
+        ) : (
         <div style={{ display: 'flex', gap: 10 }}>
           <button
             type="button"
@@ -431,6 +478,7 @@ export default function V2MarketModal({ target, onClose, onDone }: Props) {
             {pending ? 'WORKING…' : A.cta}
           </button>
         </div>
+        )}
       </div>
     </div>,
     document.body,

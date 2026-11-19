@@ -1026,7 +1026,9 @@ export const WithdrawModal: FC<{
           setStatus(`✅ Withdrawn!`);
           invalidateWalletCache(publicKey.toBase58());
           setTxSig(sig);
-          setTimeout(() => { onDone(); onClose(); }, 3000);
+          // ⛔ Do NOT auto-close: this panel holds the only link to the
+          // transaction. Refresh behind it and let the person close it.
+          onDone();
           return;
         }
       }
@@ -1117,7 +1119,7 @@ export const WithdrawModal: FC<{
             🔍 VIEW ON EXPLORER · {txSig.slice(0,8)}…{txSig.slice(-6)}
           </a>
         )}
-        <button onClick={handleWithdraw} disabled={pending || lpToRemove === 0n} style={{
+        <button onClick={txSig ? onClose : handleWithdraw} disabled={!txSig && (pending || lpToRemove === 0n)} style={{
           width: '100%', padding: '14px 0', borderRadius: 12,
           cursor: pending ? 'not-allowed' : 'pointer',
           background: pending ? 'rgba(255,255,255,.04)' : 'linear-gradient(135deg,rgba(242,144,48,.2),rgba(242,144,48,.06))',
@@ -1125,7 +1127,7 @@ export const WithdrawModal: FC<{
           fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
           color: pending ? '#5a6a82' : '#f29030',
         }}>
-          {pending ? 'PROCESSING…' : `WITHDRAW ${pct}% LP`}
+          {txSig ? 'CLOSE' : pending ? 'PROCESSING…' : `WITHDRAW ${pct}% LP`}
         </button>
       </div>
     </div>,
@@ -1405,7 +1407,9 @@ export const DepositModal: FC<{
           setStatus(`✅ Deposited! You received LP tokens.`);
           invalidateWalletCache(publicKey.toBase58());
           setTxSig(sig);
-          setTimeout(() => { onDone(); onClose(); }, 3000);
+          // ⛔ Do NOT auto-close: this panel holds the only link to the
+          // transaction. Refresh behind it and let the person close it.
+          onDone();
           return;
         }
       }
@@ -1502,7 +1506,7 @@ export const DepositModal: FC<{
             🔍 VIEW ON EXPLORER · {txSig.slice(0,8)}…{txSig.slice(-6)}
           </a>
         )}
-        <button onClick={handleDeposit} disabled={pending || !amt0 || !amt1} style={{
+        <button onClick={txSig ? onClose : handleDeposit} disabled={!txSig && (pending || !amt0 || !amt1)} style={{
           width: '100%', padding: '14px 0', borderRadius: 12,
           cursor: pending ? 'not-allowed' : 'pointer',
           background: pending ? 'rgba(255,255,255,.04)' : 'linear-gradient(135deg,rgba(0,201,141,.2),rgba(0,201,141,.06))',
@@ -1510,7 +1514,7 @@ export const DepositModal: FC<{
           fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
           color: pending ? '#5a6a82' : '#00c98d',
         }}>
-          {pending ? 'PROCESSING…' : 'ADD LIQUIDITY'}
+          {txSig ? 'CLOSE' : pending ? 'PROCESSING…' : 'ADD LIQUIDITY'}
         </button>
       </div>
     </div>,
@@ -1815,7 +1819,9 @@ export const SwapModal: FC<{
           setStatus(`✅ Swapped!`);
           invalidateWalletCache(publicKey.toBase58());
           setTxSig(sig);
-          setTimeout(() => { onDone(); onClose(); }, 3000);
+          // ⛔ Do NOT auto-close: this panel holds the only link to the
+          // transaction. Refresh behind it and let the person close it.
+          onDone();
           return;
         }
       }
@@ -1946,7 +1952,7 @@ export const SwapModal: FC<{
             🔍 VIEW ON EXPLORER · {txSig.slice(0,8)}…{txSig.slice(-6)}
           </a>
         )}
-        <button onClick={handleSwap} disabled={pending || rawIn === 0n || parsedIn > balIn} style={{
+        <button onClick={txSig ? onClose : handleSwap} disabled={!txSig && (pending || rawIn === 0n || parsedIn > balIn)} style={{
           width: '100%', padding: '14px 0', borderRadius: 12,
           cursor: (pending || rawIn === 0n) ? 'not-allowed' : 'pointer',
           background: pending ? 'rgba(255,255,255,.04)' : parsedIn > balIn
@@ -1955,7 +1961,8 @@ export const SwapModal: FC<{
           fontFamily: 'Orbitron,monospace', fontSize: 12, fontWeight: 900,
           color: pending ? '#5a6a82' : parsedIn > balIn ? '#f29030' : '#bf5af2',
         }}>
-          {pending ? 'SWAPPING…'
+          {txSig ? 'CLOSE'
+            : pending ? 'SWAPPING…'
             : parsedIn > balIn ? 'INSUFFICIENT BALANCE'
             : `SWAP ${symIn} → ${symOut}`}
         </button>

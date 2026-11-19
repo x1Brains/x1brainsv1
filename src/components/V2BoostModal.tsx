@@ -147,6 +147,8 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
   const [status,    setStatus]    = useState('');
   const [pending,   setPending]   = useState(false);
   const [sig,       setSig]       = useState('');
+  // true once a transaction confirmed — keeps the panel up with its tx link
+  const [done,      setDone]      = useState(false);
   const [balance,   setBalance]   = useState<number | null>(null);   // BRAINS
   const [lbBalance, setLbBalance] = useState<number | null>(null);   // LB
   const [slotsUsed, setSlotsUsed] = useState<number | null>(null);
@@ -266,7 +268,10 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
       }
 
       setStatus(`✅ Boost active · ${amountLabel} burned · ${selected.days}d featured`);
-      setTimeout(() => { onDone(); onClose(); }, 2200);
+      // ⛔ Do NOT auto-close: this panel holds the only link to the
+      // transaction. Refresh behind it and let the person close it.
+      setDone(true);
+      onDone();
     } catch (e: any) {
       setStatus(`❌ ${e?.message?.slice(0, 140) ?? 'Boost failed'}`);
     } finally { setPending(false); }
@@ -462,11 +467,11 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
               color: '#9abacf', letterSpacing: 1.5,
             }}
           >
-            CANCEL
+            {done ? 'CLOSE' : 'CANCEL'}
           </button>
           <button
             type="button" onClick={run}
-            disabled={pending || !canAfford || !slotsAvail || !publicKey}
+            disabled={done || pending || !canAfford || !slotsAvail || !publicKey}
             style={{
               flex: 2, padding: '11px 0',
               background: pending

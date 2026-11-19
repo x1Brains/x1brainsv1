@@ -45,6 +45,8 @@ export default function V2FarmModal({ farm, action, position, onClose, onDone }:
   const [status, setStatus]   = useState('');
   const [pending, setPending] = useState(false);
   const [sig, setSig]         = useState('');
+  // true once a transaction confirmed — keeps the panel up with its tx link
+  const [done, setDone]       = useState(false);
 
   useEffect(() => {
     setAmount('');
@@ -125,7 +127,10 @@ export default function V2FarmModal({ farm, action, position, onClose, onDone }:
       }
       setSig(res.sig);
       setStatus(`✅ ${A.verb} confirmed`);
-      setTimeout(() => { onDone(); onClose(); }, 1800);
+      // ⛔ Do NOT auto-close: this panel holds the only link to the
+      // transaction. Refresh behind it and let the person close it.
+      setDone(true);
+      onDone();
     } catch (e: any) {
       setStatus(`❌ ${e?.message?.slice(0, 140) ?? 'Transaction failed'}`);
     } finally { setPending(false); }
@@ -378,11 +383,11 @@ export default function V2FarmModal({ farm, action, position, onClose, onDone }:
               fontFamily: 'Orbitron,monospace',
               fontSize: 9, fontWeight: 700, color: '#9abacf', letterSpacing: 1.5,
             }}
-          >CANCEL</button>
+          >{done ? 'CLOSE' : 'CANCEL'}</button>
           <button
             type="button"
             onClick={run}
-            disabled={pending || !valid || !publicKey || !signTransaction}
+            disabled={done || pending || !valid || !publicKey || !signTransaction}
             style={{
               flex: 2, padding: '11px 0',
               background: pending
