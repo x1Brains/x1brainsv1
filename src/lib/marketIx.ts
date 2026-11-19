@@ -11,8 +11,10 @@ import {
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountInstruction,
 } from '@solana/spl-token';
+import { parseCoreAsset } from './coreAssets';
 import {
   DISC_LIST_NFT, DISC_BUY_NFT, DISC_CANCEL,
+  DISC_LIST_NFT_CORE, DISC_BUY_NFT_CORE, DISC_CANCEL_CORE,
   getSalePda, getVaultPda, getMarketplaceProgramId,
   PLATFORM_WALLET, sendTx, saveTrade,
 } from '../components/LBComponents';
@@ -231,6 +233,195 @@ export async function executeCancel(opts: {
       ...(await eliteProofAccounts(connection, publicKey)),
     ],
     data: disc,
+  };
+  const tx = new Transaction().add(ix as any);
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = publicKey;
+
+  status('Awaiting wallet approval…');
+  const sig = await sendTx(tx, connection, sendTransaction, signTransaction, false);
+  status(`Confirming ${sig.slice(0, 12)}…`);
+  await confirmSig(connection, sig);
+  saveTrade({ sig, type: 'delist', nftMint, price: priceLamports, seller: publicKey.toBase58(), timestamp: Math.floor(Date.now() / 1000) });
+  return { sig };
+}
+
+// ─── Metaplex Core listings ───────────────────────────────────────────────
+// x1 Inscriptions assets — inscriptions, maps, districts, parcels, editions —
+// are Core, which has no token account. So there is no ATA and no vault: the
+// SALE PDA ITSELF holds the asset while it is listed.
+//
+// Fees match the SPL path exactly (1.888% sale, 0.888% unlist, both waived for
+// Brains Elite holders). On top of that the asset's own advertised creator
+// royalty is paid on a sale — read off the asset by the program, which is why
+// the creator account below must be the real one or the transaction fails.
+
+const CORE_PROGRAM_ID = new PublicKey('CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d');
+
+/** Core sale PDA — ["sale", asset, seller]. Same seeds as the SPL path, with
+ *  the asset address standing in for the mint, so getSalePda is reused. */
+function coreSalePda(asset: PublicKey, seller: PublicKey) {
+  return getSalePda(asset, seller);
+}
+
+/** The collection and royalty creator an instruction needs, read from the asset
+ *  itself rather than passed in by a caller. */
+async function coreAssetAccounts(connection: any, asset: PublicKey): Promise<{
+  collection: PublicKey; creator: PublicKey | null; frozen: boolean; name: string;
+}> {
+  const info = await connection.getAccountInfo(asset);
+  if (!info?.data) throw new Error('Core asset not found on chain');
+  const raw = info.data;
+  const d: Uint8Array = raw instanceof Uint8Array ? raw
+          : typeof raw === 'string' ? Uint8Array.from(atob(raw), c => c.charCodeAt(0))
+          : Uint8Array.from(raw);
+  const parsed = parseCoreAsset(asset.toBase58(), d);
+  if (!parsed) throw new Error('Not a Metaplex Core asset');
+  return {
+    // Core validates the collection against the asset, so a wrong one simply fails
+    collection: parsed.collection ? new PublicKey(parsed.collection) : CORE_PROGRAM_ID,
+    creator:    parsed.royaltyCreator ? new PublicKey(parsed.royaltyCreator) : null,
+    frozen:     parsed.frozen,
+    name:       parsed.name,
+  };
+}
+
+export async function executeListCore(opts: {
+  connection: any;
+  publicKey: PublicKey;
+  sendTransaction: any;
+  signTransaction: SignFn;
+  /** the Core asset address */
+  nftMint: string;
+  priceXnt: number;
+  onStatus?: (msg: string) => void;
+}): Promise<ExecResult> {
+  const { connection, publicKey, sendTransaction, signTransaction, nftMint, priceXnt, onStatus } = opts;
+  const status = (m: string) => onStatus?.(m);
+
+  const lamports = Math.round(priceXnt * LAMPORTS_PER_SOL);
+  if (!isFinite(lamports) || lamports <= 0) throw new Error('Invalid price');
+
+  status('Reading the asset…');
+  const assetPk = new PublicKey(nftMint);
+  const { collection, frozen } = await coreAssetAccounts(connection, assetPk);
+  // ⛔ Say why up front instead of letting the wallet throw a Core error: a
+  // permanently frozen asset (release master, soulbound) or an inscription that
+  // has not been sealed yet simply cannot be escrowed by anyone.
+  if (frozen) throw new Error('This asset is frozen and cannot be listed. Release masters and unsealed inscriptions can never be transferred.');
+
+  const [salePda] = coreSalePda(assetPk, publicKey);
+  const priceData = Buffer.alloc(8);
+  priceData.writeBigUInt64LE(BigInt(lamports));
+  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+
+  const ix = {
+    programId: getMarketplaceProgramId(),
+    keys: [
+      { pubkey: publicKey,               isSigner: true,  isWritable: true  },
+      { pubkey: assetPk,                 isSigner: false, isWritable: true  },
+      { pubkey: collection,              isSigner: false, isWritable: false },
+      { pubkey: salePda,                 isSigner: false, isWritable: true  },
+      { pubkey: CORE_PROGRAM_ID,         isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([Buffer.from(DISC_LIST_NFT_CORE, 'hex'), priceData]),
+  };
+  const tx = new Transaction().add(ix as any);
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = publicKey;
+
+  status('Awaiting wallet approval…');
+  const sig = await sendTx(tx, connection, sendTransaction, signTransaction);
+  status(`Confirming ${sig.slice(0, 12)}…`);
+  await confirmSig(connection, sig);
+  saveTrade({ sig, type: 'list', nftMint, price: lamports, seller: publicKey.toBase58(), timestamp: Math.floor(Date.now() / 1000) });
+  return { sig };
+}
+
+export async function executeBuyCore(opts: {
+  connection: any;
+  publicKey: PublicKey;
+  sendTransaction: any;
+  signTransaction: SignFn;
+  nftMint: string;
+  seller: string;
+  priceLamports: number;
+  onStatus?: (msg: string) => void;
+}): Promise<ExecResult> {
+  const { connection, publicKey, sendTransaction, signTransaction, nftMint, seller, priceLamports, onStatus } = opts;
+  const status = (m: string) => onStatus?.(m);
+
+  status('Reading the asset…');
+  const assetPk  = new PublicKey(nftMint);
+  const sellerPk = new PublicKey(seller);
+  const { collection, creator } = await coreAssetAccounts(connection, assetPk);
+  const [salePda] = coreSalePda(assetPk, sellerPk);
+  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+
+  const ix = {
+    programId: getMarketplaceProgramId(),
+    keys: [
+      { pubkey: publicKey,               isSigner: true,  isWritable: true  },
+      { pubkey: assetPk,                 isSigner: false, isWritable: true  },
+      { pubkey: collection,              isSigner: false, isWritable: false },
+      { pubkey: salePda,                 isSigner: false, isWritable: true  },
+      { pubkey: sellerPk,                isSigner: false, isWritable: true  },
+      // The royalty recipient. The program checks this against the creator
+      // stored in the asset, so it cannot be redirected. When the asset
+      // advertises no royalty, the seller stands in and receives 0.
+      { pubkey: creator ?? sellerPk,     isSigner: false, isWritable: true  },
+      { pubkey: PLATFORM_WALLET,         isSigner: false, isWritable: true  },
+      { pubkey: CORE_PROGRAM_ID,         isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      // Elite proof for the SELLER — the waiver follows whoever is selling.
+      ...(await eliteProofAccounts(connection, sellerPk)),
+    ],
+    data: Buffer.from(DISC_BUY_NFT_CORE, 'hex'),
+  };
+  const tx = new Transaction().add(ix as any);
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = publicKey;
+
+  status('Awaiting wallet approval…');
+  const sig = await sendTx(tx, connection, sendTransaction, signTransaction);
+  status(`Confirming ${sig.slice(0, 12)}…`);
+  await confirmSig(connection, sig);
+  saveTrade({ sig, type: 'buy', nftMint, price: priceLamports, seller, buyer: publicKey.toBase58(), timestamp: Math.floor(Date.now() / 1000) });
+  return { sig };
+}
+
+export async function executeCancelCore(opts: {
+  connection: any;
+  publicKey: PublicKey;
+  sendTransaction: any;
+  signTransaction: SignFn;
+  nftMint: string;
+  priceLamports: number;
+  onStatus?: (msg: string) => void;
+}): Promise<ExecResult> {
+  const { connection, publicKey, sendTransaction, signTransaction, nftMint, priceLamports, onStatus } = opts;
+  const status = (m: string) => onStatus?.(m);
+
+  status('Reading the asset…');
+  const assetPk = new PublicKey(nftMint);
+  const { collection } = await coreAssetAccounts(connection, assetPk);
+  const [salePda] = coreSalePda(assetPk, publicKey);
+  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+
+  const ix = {
+    programId: getMarketplaceProgramId(),
+    keys: [
+      { pubkey: publicKey,               isSigner: true,  isWritable: true  },
+      { pubkey: assetPk,                 isSigner: false, isWritable: true  },
+      { pubkey: collection,              isSigner: false, isWritable: false },
+      { pubkey: salePda,                 isSigner: false, isWritable: true  },
+      { pubkey: PLATFORM_WALLET,         isSigner: false, isWritable: true  },
+      { pubkey: CORE_PROGRAM_ID,         isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ...(await eliteProofAccounts(connection, publicKey)),
+    ],
+    data: Buffer.from(DISC_CANCEL_CORE, 'hex'),
   };
   const tx = new Transaction().add(ix as any);
   tx.recentBlockhash = blockhash;

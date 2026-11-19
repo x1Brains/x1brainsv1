@@ -1,3 +1,5 @@
+import { fetchCoreAssets } from '../lib/coreAssets';
+
 import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -125,6 +127,11 @@ async function fetchNFTMeta(metaUri: string): Promise<any | null> {
 const DISC_LIST_NFT     = '58dd5da63fdc6ae8';
 const DISC_BUY_NFT      = '60001cbe316b53de';
 const DISC_CANCEL       = '29b732e8e6e99d46';
+// Core listing discriminators — sha256("global:<name>")[0..8], read out of the
+// built IDL rather than typed by hand.
+const DISC_LIST_NFT_CORE = 'e43e5275537f97cd';
+const DISC_BUY_NFT_CORE  = 'a3663a6bb804a979';
+const DISC_CANCEL_CORE   = '791348f349275bdb';
 const DISC_UPDATE_PRICE = '3d22759b4b227bd0';
 const DISC_SALE_ACCOUNT = 'd51257e4dae6cfb6';
 // Base58 of d5 12 57 e4 da e6 cf b6 — for getProgramAccounts memcmp
@@ -275,6 +282,16 @@ export interface NFTData {
   /** First verified Metaplex creator — collection fallback for NFTs with no collection field (iNFT). */
   creatorKey?: string;
   image?:       string;
+  /** Metaplex Core asset (x1 Inscriptions: inscriptions, maps, districts, parcels,
+   *  editions). Core has no token account, so these list through the *_core
+   *  instructions and `mint` is the asset address. */
+  isCore?:      boolean;
+  coreCollection?: string;
+  /** royalty the asset itself advertises — shown to the seller before listing */
+  royaltyBps?:     number;
+  royaltyCreator?: string;
+  /** a frozen asset can never be escrowed (release masters, unsealed inscriptions) */
+  frozen?:      boolean;
 }
 export interface Listing {
   listingPda: string;
@@ -498,9 +515,13 @@ async function enrichNFT(nft: NFTData): Promise<NFTData> {
 //  for every NFT (decimals=0, balance=1) in the connected wallet.
 // ─────────────────────────────────────────────────────────────────
 async function fetchWalletNFTs(connection: any, publicKey: PublicKey): Promise<NFTData[]> {
-  const [splR, t22R] = await Promise.allSettled([
+  const [splR, t22R, coreR] = await Promise.allSettled([
     connection.getParsedTokenAccountsByOwner(publicKey, { programId: TOKEN_PROGRAM_ID }),
     connection.getParsedTokenAccountsByOwner(publicKey, { programId: TOKEN_2022_PROGRAM_ID }),
+    // Metaplex Core — x1 Inscriptions maps/inscriptions/parcels have NO token
+    // account, so they are invisible to the two scans above. This is why the
+    // owner could not see his maps here.
+    fetchCoreAssets(connection, publicKey),
   ]);
   const all = [
     ...(splR.status === 'fulfilled' ? splR.value.value : []).map((a: any) => ({ ...a, is2022: false })),
@@ -563,8 +584,18 @@ async function fetchWalletNFTs(connection: any, publicKey: PublicKey): Promise<N
       metaUri: pda?.uri, metaSource: pda ? 'metaplex' : 'unknown',
     };
   });
-  nfts.sort((a, b) => a.name.localeCompare(b.name));
-  return nfts;
+  // Core assets carry their own name and uri in the account, so they need no
+  // metadata PDA lookup at all.
+  const coreNfts: NFTData[] = (coreR.status === 'fulfilled' ? coreR.value : []).map(c => ({
+    mint: c.address, name: c.name || `Asset ${c.address.slice(0, 6)}\u2026`, symbol: 'CORE',
+    balance: 1, decimals: 0, isToken2022: false,
+    metaUri: c.uri, metaSource: 'core',
+    isCore: true, coreCollection: c.collection,
+    royaltyBps: c.royaltyBps, royaltyCreator: c.royaltyCreator, frozen: c.frozen,
+  }));
+  const merged = [...nfts, ...coreNfts];
+  merged.sort((a, b) => a.name.localeCompare(b.name));
+  return merged;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -2081,6 +2112,7 @@ export {
   persistLwCache, fetchNFTMeta,
   // Discriminators
   DISC_LIST_NFT, DISC_BUY_NFT, DISC_CANCEL, DISC_UPDATE_PRICE,
+  DISC_LIST_NFT_CORE, DISC_BUY_NFT_CORE, DISC_CANCEL_CORE,
   DISC_SALE_ACCOUNT, DISC_SALE_B58,
   // Constants
   METADATA_PROGRAM_ID, PLATFORM_WALLET, MARKETPLACE_DEPLOYED,
