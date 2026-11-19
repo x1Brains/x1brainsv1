@@ -1226,6 +1226,27 @@ export default function V2LabWork() {
   // the moment we have stable counts.
   const [snapshot, setSnapshot] = useState<Snapshot>(liveSnapshot);
   const [snapshotLocked, setSnapshotLocked] = useState(false);
+
+  // ⛔ The lock above assumed enrichment "only adds URLs and doesn't change
+  // counts". That stopped being true once Metaplex Core assets were listable:
+  // a Core asset has no metadata PDA, so its name and collection key arrive in
+  // the Core pass of batchEnrichListings — AFTER this snapshot locks. The
+  // result was a listed x1map that stayed in UNCATEGORISED and never earned a
+  // tile in BROWSE BY COLLECTION, however correct the registry was.
+  //
+  // So: still lock for stability, but re-commit whenever the set of verified
+  // collections or the uncategorised count actually changes. Both are derived
+  // from identifyCollection, so this tracks exactly the thing late enrichment
+  // can move, and nothing else.
+  const collSig = liveCollectionStats.map(c => `${c.key}:${c.listed}`).join('|')
+                + `#${liveUncategorizedCount}`;
+  useEffect(() => {
+    if (loading) return;
+    if (!snapshotLocked) return;
+    setSnapshot(liveSnapshot);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collSig]);
+
   useEffect(() => {
     if (snapshotLocked) return;
     if (loading) return;
