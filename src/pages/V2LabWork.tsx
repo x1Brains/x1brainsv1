@@ -1179,7 +1179,14 @@ export default function V2LabWork() {
         // resolveUri is mandatory on the way out: Solaris hands back bare
         // `ipfs://` URIs for some collections (X1Cats), and the rail renders a
         // plain <img>, which can't load those.
-        const raw = c.image ?? collectionImageFor(c.key) ?? solByName.get(c.name.toLowerCase());
+        // ⛔ The REGISTRY portrait wins when there is one. It used to come
+        // second, behind the first listing's own art — which does not exist
+        // until enrichment finishes, so a circle showed initials for seconds
+        // and then SWAPPED to one member's picture. A collection circle should
+        // show the collection anyway, not whichever item happens to be first.
+        // Only the four x1 Inscriptions entries declare a portrait, so every
+        // other collection falls through to exactly what it used before.
+        const raw = collectionImageFor(c.key) ?? c.image ?? solByName.get(c.name.toLowerCase());
         return { ...c, image: raw ? resolveUri(raw) : undefined };
       })
       // Brains Elites is always pinned first; everything else by listing count.

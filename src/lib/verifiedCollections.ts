@@ -50,6 +50,13 @@ export const VERIFIED_COLLECTIONS: VerifiedCollection[] = [
     hosts: ['x1inscriptions.io/api/nft/block', 'x1inscriptions.io/api/nft/collection/land'],
     namePrefixes: [],
     collectionKeys: ['FZL4bTtto88mV6Qqx3uz4o7wcjLrCCKZVVxgX4Y2L6cm'],
+    // ⛔ Without a portrait here the rail circle falls through to the FIRST
+    // LISTING'S art, which does not exist until listings have been enriched —
+    // so X1MAPS sat as a bare "X" for seconds every load. This is the portrait
+    // the collection itself declares on chain (collection/<k>.json), so it is
+    // the collection's own image rather than one member's, and it needs no
+    // enrichment at all.
+    image: 'https://www.x1inscriptions.io/logo-mark.png',
     color: C_CYAN,
   },
   {
@@ -57,6 +64,7 @@ export const VERIFIED_COLLECTIONS: VerifiedCollection[] = [
     hosts: ['x1inscriptions.io/api/nft/ins', 'x1inscriptions.io/api/nft/collection/ins'],
     namePrefixes: [],
     collectionKeys: ['8AoC9xrB7LchjfJmdUBxMcyCLjHjSQP8ZVnjDDQadDUy'],
+    image: 'https://www.x1inscriptions.io/logo-mark.png',
     color: C_ORANGE,
   },
   {
@@ -64,6 +72,7 @@ export const VERIFIED_COLLECTIONS: VerifiedCollection[] = [
     hosts: ['x1inscriptions.io/api/nft/parcel', 'x1inscriptions.io/api/nft/collection/parcel'],
     namePrefixes: [],
     collectionKeys: ['3bNMrtQ3GW8qZmcb92z6wGRfjHprzH1VBWkvzFqsaFUV'],
+    image: 'https://www.x1inscriptions.io/logo-mark.png',
     color: C_GREEN,
   },
   {
@@ -71,6 +80,7 @@ export const VERIFIED_COLLECTIONS: VerifiedCollection[] = [
     hosts: ['x1inscriptions.io/api/nft/edition', 'x1inscriptions.io/api/nft/collection/edition'],
     namePrefixes: [],
     collectionKeys: ['3cnqfqQJQ7kx2FRPtuHwCggHVbD7wVsa16fNHYajo596'],
+    image: 'https://www.x1inscriptions.io/logo-mark.png',
     color: C_PURPLE,
   },
   // ─── X1 Native (legacy / OG) ───────────────────────────────────────────
