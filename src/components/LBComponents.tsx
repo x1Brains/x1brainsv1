@@ -1,4 +1,4 @@
-import { fetchCoreAssets } from '../lib/coreAssets';
+import { fetchCoreAssets, parseCoreAsset, CORE_PROGRAM_ID } from '../lib/coreAssets';
 
 import React, { FC, useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -444,6 +444,29 @@ async function enrichNFTFromMint(connection: any, mintAddr: string): Promise<NFT
 
   const promise = (async (): Promise<NFTData> => {
     try {
+      // ── Metaplex Core first ──────────────────────────────────────────────
+      // A Core asset (x1 Inscriptions map, inscription, parcel, edition) has NO
+      // metadata PDA — it carries its name and uri in the account itself. Without
+      // this branch a listed map renders as a truncated address with no image,
+      // because the PDA lookup below finds nothing and falls through to `base`.
+      try {
+        const info = await connection.getAccountInfo(new PublicKey(mintAddr), { encoding: 'base64' });
+        if (info?.data && new PublicKey(info.owner).equals(CORE_PROGRAM_ID)) {
+          const raw = decodeAccountData(info.data);
+          const core = raw ? parseCoreAsset(mintAddr, raw) : null;
+          if (core) {
+            const withMeta: NFTData = {
+              ...base, name: core.name || base.name, symbol: 'CORE', metaUri: core.uri,
+              metaSource: 'core', isCore: true, coreCollection: core.collection,
+              royaltyBps: core.royaltyBps, royaltyCreator: core.royaltyCreator, frozen: core.frozen,
+            };
+            const enriched = await enrichNFT(withMeta);
+            lwNFTDataCache.set(mintAddr, enriched);
+            return enriched;
+          }
+        }
+      } catch {}
+
       // PDA cache hit — skip RPC entirely
       let parsed = lwPdaCache.get(mintAddr);
       if (!parsed) {

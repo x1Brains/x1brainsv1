@@ -96,6 +96,9 @@ export async function executeList(opts: {
   priceXnt: number;
   onStatus?: (msg: string) => void;
 }): Promise<ExecResult> {
+  // Route Core assets (x1 Inscriptions maps, inscriptions, parcels, editions)
+  // to the *_core instructions. Checked against the chain, not a UI flag.
+  if (await isCoreAsset(opts.connection, opts.nftMint)) return executeListCore(opts);
   const { connection, publicKey, sendTransaction, signTransaction, nftMint, priceXnt, onStatus } = opts;
   const status = (m: string) => onStatus?.(m);
 
@@ -149,6 +152,9 @@ export async function executeBuy(opts: {
   priceLamports: number;
   onStatus?: (msg: string) => void;
 }): Promise<ExecResult> {
+  // Route Core assets (x1 Inscriptions maps, inscriptions, parcels, editions)
+  // to the *_core instructions. Checked against the chain, not a UI flag.
+  if (await isCoreAsset(opts.connection, opts.nftMint)) return executeBuyCore(opts);
   const { connection, publicKey, sendTransaction, signTransaction, nftMint, seller, priceLamports, onStatus } = opts;
   const status = (m: string) => onStatus?.(m);
   if (!PLATFORM_WALLET) throw new Error('Platform wallet not configured');
@@ -206,6 +212,9 @@ export async function executeCancel(opts: {
   priceLamports: number;
   onStatus?: (msg: string) => void;
 }): Promise<ExecResult> {
+  // Route Core assets (x1 Inscriptions maps, inscriptions, parcels, editions)
+  // to the *_core instructions. Checked against the chain, not a UI flag.
+  if (await isCoreAsset(opts.connection, opts.nftMint)) return executeCancelCore(opts);
   const { connection, publicKey, sendTransaction, signTransaction, nftMint, priceLamports, onStatus } = opts;
   const status = (m: string) => onStatus?.(m);
   if (!PLATFORM_WALLET) throw new Error('Platform wallet not configured');
@@ -257,6 +266,17 @@ export async function executeCancel(opts: {
 // the creator account below must be the real one or the transaction fails.
 
 const CORE_PROGRAM_ID = new PublicKey('CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d');
+
+/** True when this address is a live Metaplex Core asset rather than an SPL mint.
+ *  Asked of the chain at the moment of the action, so no stale UI flag can send
+ *  a Core asset down the SPL path or the other way round. */
+async function isCoreAsset(connection: any, mint: string): Promise<boolean> {
+  try {
+    const info = await connection.getAccountInfo(new PublicKey(mint));
+    return !!info && new PublicKey(info.owner).equals(CORE_PROGRAM_ID);
+  } catch { return false; }
+}
+
 
 /** Core sale PDA — ["sale", asset, seller]. Same seeds as the SPL path, with
  *  the asset address standing in for the mint, so getSalePda is reused. */
