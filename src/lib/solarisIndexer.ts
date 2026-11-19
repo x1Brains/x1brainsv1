@@ -41,7 +41,17 @@ const COLLECTIONS_TTL = 5 * 60_000;
 // Persist NFT cache to localStorage so refreshes are instant.
 // v2 key: entries now also carry `attributes`; old v1 entries were cached
 // without them and would mask traits in the NFT detail modal.
-const STORAGE_KEY = 'v2_solaris_nft_cache_v2';
+//
+// ⛔⛔⛔ v3 (11-18): every v2 row is DROPPED. Until this file stopped doing it,
+// an NFT with no per-NFT image inherited `collection.image` — and that record
+// was persisted here. The FEDS cover is an office computer with a "?" sticky
+// note, so a cached FEDS wore it and looked like unrevealed art, in that
+// visitor's browser, forever. Removing the fallback only fixed FRESH fetches;
+// a row already written is indistinguishable from a good one, so the whole set
+// has to go. Same reasoning as V2NFTImage's v4 bump.
+const STORAGE_KEY = 'v2_solaris_nft_cache_v3';
+const OLD_STORAGE_KEYS = ['v2_solaris_nft_cache', 'v2_solaris_nft_cache_v2'];
+try { for (const k of OLD_STORAGE_KEYS) localStorage.removeItem(k); } catch { /* private mode */ }
 try {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw) {
