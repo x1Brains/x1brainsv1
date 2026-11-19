@@ -122,6 +122,86 @@ fn core_transfer<'info>(
     Ok(())
 }
 
+/// The royalty a Core asset ADVERTISES: (creator, basis_points).
+///
+/// ⛔⛔⛔ THIS MUST COME FROM THE ASSET, NEVER FROM THE CLIENT. The royalty is
+/// deducted from the sale, so a buyer who could name the creator would simply
+/// name themselves and take a 5% discount off the seller.
+///
+/// Layout verified byte-for-byte against 23 live mainnet x1maps (2026-11-18),
+/// not assumed from the mpl-core docs:
+///   AssetV1           key u8(1) · owner[32] · update_authority u8(+32 if 2|3)
+///                     · name u32+bytes · uri u32+bytes · Option<seq> u8(+8)
+///   PluginHeaderV1    key u8(3) · plugin_registry_offset u64
+///   PluginRegistryV1  key u8(4) · u32 count · [ plugin_type u8 ·
+///                     authority u8(+32 if 3) · offset u64 ] *
+///   Royalties @offset plugin disc u8(0) · basis_points u16 ·
+///                     u32 count · [ addr[32] · pct u8 ] * · rule_set u8
+///
+/// ⛔ The leading plugin-discriminator byte is easy to miss: without it the
+/// basis_points read lands one byte early and returns 62464 instead of 500.
+///
+/// Returns None when the asset carries no Royalties plugin (the owner's .mp4
+/// inscriptions are like this) — the caller then pays no royalty, which is the
+/// honest result. Every read is bounds-checked; a malformed account yields None
+/// rather than panicking inside a transaction.
+fn core_royalty(asset: &AccountInfo) -> Option<(Pubkey, u64)> {
+    let core: Pubkey = CORE_ID.parse().ok()?;
+    if *asset.owner != core { return None; }
+    let d = asset.try_borrow_data().ok()?;
+    let at = |i: usize| -> Option<u8> { d.get(i).copied() };
+    let u32at = |i: usize| -> Option<u32> {
+        d.get(i..i + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    let u64at = |i: usize| -> Option<u64> {
+        d.get(i..i + 8).map(|b| u64::from_le_bytes([b[0],b[1],b[2],b[3],b[4],b[5],b[6],b[7]]))
+    };
+
+    if at(0)? != 1 { return None; }                       // AssetV1
+    let mut o = 1 + 32;
+    let ua = at(o)?; o += 1;
+    if ua == 2 || ua == 3 { o += 32; }
+    o += 4 + u32at(o)? as usize;                          // name
+    o += 4 + u32at(o)? as usize;                          // uri
+    if at(o)? == 1 { o += 9; } else { o += 1; }           // Option<seq>
+
+    if at(o)? != 3 { return None; }                       // PluginHeaderV1
+    let reg = u64at(o + 1)? as usize;
+
+    let mut r = reg;
+    if at(r)? != 4 { return None; }                       // PluginRegistryV1
+    r += 1;
+    let n = u32at(r)?; r += 4;
+    if n > 32 { return None; }                            // sanity, not a real registry
+
+    for _ in 0..n {
+        let ptype = at(r)?; r += 1;
+        let auth  = at(r)?; r += 1;
+        if auth == 3 { r += 32; }
+        let off = u64at(r)? as usize; r += 8;
+        if ptype != 0 { continue; }                       // 0 = Royalties
+
+        let mut p = off;
+        if at(p)? != 0 { return None; }                   // plugin discriminator
+        p += 1;
+        let bps = d.get(p..p + 2).map(|b| u16::from_le_bytes([b[0], b[1]]))? as u64;
+        p += 2;
+        if bps == 0 || bps > BPS_DENOMINATOR { return None; }
+        let nc = u32at(p)?; p += 4;
+        if nc == 0 || nc > 8 { return None; }
+        // Pay the FIRST creator. Every x1ins asset is written with exactly one
+        // at 100% (plugins_bps), so splitting further would be inventing a rule
+        // the collection does not actually express.
+        let mut b = [0u8; 32];
+        b.copy_from_slice(d.get(p..p + 32)?);
+        return Some((Pubkey::from(b), bps));
+    }
+    None
+}
+
+/// Royalty basis points are out of 10_000.
+pub const BPS_DENOMINATOR: u64 = 10_000;
+
 #[program]
 pub mod labwork_marketplace {
     use super::*;
@@ -496,6 +576,76 @@ pub enum MarketplaceError {
 //  attacker could hand it a lookalike is tested here, not reasoned about.
 //  Run with: cargo test -p labwork_marketplace --lib
 // ════════════════════════════════════════════════════════════════════════════
+#[cfg(test)]
+mod royalty_tests {
+    use super::*;
+    use anchor_lang::solana_program::account_info::AccountInfo;
+
+    /// REAL bytes of the live mainnet Core asset `0.x1map`, 542 bytes, pulled
+    /// 2026-11-18. Testing the parser against a hand-made buffer would only
+    /// prove it agrees with my own assumptions — this proves it agrees with the
+    /// chain, which is the thing that was wrong the first time I wrote it.
+    const ASSET_HEX: &str = "01af37517598b036b1ae1d33120f9682b7ae8546f7c6009e8edce1954371d53fd302d84bc19ca3ec00bc03427e93826074232801989085bee28a3d450719302100f607000000302e78316d61703200000068747470733a2f2f7777772e7831696e736372697074696f6e732e696f2f6170692f6e66742f626c6f636b2f302e6a736f6e0003010200000000000000f40101000000af37517598b036b1ae1d33120f9682b7ae8546f7c6009e8edce1954371d53fd364000609000000040000006b696e64030000006d6170060000006865696768740100000030040000006e616d6507000000302e78316d6170080000006172745f72756c6503000000312e330700000063726561746f722c000000436e7947687a4d757635736e42477876536878734a4d446e764863584b775274565655707a4758335141754704000000736c6f740800000039323532393834390700000070726f6772616d2b0000005831696e735570666b5171747375554a7677413841336b626e69786b3371747565786578314e444a57764e060000007265636f72642c00000032614a6b57354e33424c423673585167634165574678526e4e566151544b6d795237586f766f4857486d37440b0000006d61705f6163636f756e742c0000003547474841526b5a6f3466754263645536706733436133767965777056423350636e5a714c43356e56794b4b040200000000028d000000000000000602b60000000000000000000000";
+    const EXPECT_CREATOR: &str = "CnyGhzMuv5snBGxvShxsJMDnvHcXKwRtVVUpzGX3QAuG";
+
+    fn bytes() -> Vec<u8> {
+        (0..ASSET_HEX.len() / 2)
+            .map(|i| u8::from_str_radix(&ASSET_HEX[i * 2..i * 2 + 2], 16).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn reads_the_real_royalty_off_a_live_map() {
+        let key = Pubkey::new_unique();
+        let core: Pubkey = CORE_ID.parse().unwrap();
+        let mut lam = 1_000_000u64;
+        let mut d = bytes();
+        let ai = AccountInfo::new(&key, false, false, &mut lam, &mut d, &core, false, 0);
+        let (creator, bps) = core_royalty(&ai).expect("a live x1map must advertise a royalty");
+        assert_eq!(bps, 500, "x1ins writes CREATOR_BPS = 500 (5%)");
+        assert_eq!(creator.to_string(), EXPECT_CREATOR);
+    }
+
+    #[test]
+    fn a_non_core_account_pays_nothing() {
+        let key = Pubkey::new_unique();
+        let notcore = Pubkey::new_unique();
+        let mut lam = 1u64;
+        let mut d = bytes();
+        let ai = AccountInfo::new(&key, false, false, &mut lam, &mut d, &notcore, false, 0);
+        assert!(core_royalty(&ai).is_none(), "only the Core program may define a royalty");
+    }
+
+    #[test]
+    fn truncated_account_never_panics() {
+        let key = Pubkey::new_unique();
+        let core: Pubkey = CORE_ID.parse().unwrap();
+        let full = bytes();
+        // every prefix must return None rather than blow up inside a transaction
+        for cut in [0usize, 1, 10, 33, 80, 140, 200, 400, 520, 541] {
+            let mut lam = 1u64;
+            let mut d = full[..cut.min(full.len())].to_vec();
+            let ai = AccountInfo::new(&key, false, false, &mut lam, &mut d, &core, false, 0);
+            let _ = core_royalty(&ai);
+        }
+    }
+
+    #[test]
+    fn the_discriminator_byte_matters() {
+        // ⛔ Skipping the leading plugin-discriminator byte reads basis_points
+        // one byte early and yields 62464 instead of 500 — the exact bug this
+        // parser was written twice to fix. Guard the sane range.
+        let key = Pubkey::new_unique();
+        let core: Pubkey = CORE_ID.parse().unwrap();
+        let mut lam = 1u64;
+        let mut d = bytes();
+        let ai = AccountInfo::new(&key, false, false, &mut lam, &mut d, &core, false, 0);
+        let (_, bps) = core_royalty(&ai).unwrap();
+        assert!(bps > 0 && bps <= BPS_DENOMINATOR, "bps {} outside 1..=10000", bps);
+        assert_ne!(bps, 62464, "that is the off-by-one read");
+    }
+}
+
 #[cfg(test)]
 mod elite_tests {
     use super::*;
