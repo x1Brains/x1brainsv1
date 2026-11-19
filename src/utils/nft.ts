@@ -1,3 +1,4 @@
+import { liveGatewayUrl } from './ipfsGateways';
 // src/utils/nft.ts
 // ─────────────────────────────────────────────────────────────────
 // Shared NFT utility functions — single source of truth.
@@ -10,9 +11,16 @@
  * Uses nftstorage.link as the default IPFS gateway (fast, no rate limit).
  */
 export function resolveGateway(u: string): string {
-  return u
+  const rewritten = u
     .replace('ipfs://', 'https://solarisprime.xyz/ipfs/')
     .replace('ar://', 'https://arweave.net/');
+  // ⛔ A url that is ALREADY http can still point at a dead gateway. ipfs.io,
+  // dweb.link and nftstorage.link now answer with 429 and a plain-text notice
+  // ("This IPFS gateway is switching to a service worker gateway only"), which
+  // is not JSON and not an image — so a metadata URI hosted there fails to
+  // parse and the card renders nothing. Measured on 3 live listings
+  // (Genesis Stone #1001, Aurora Borealis #0999, Alpha Leak).
+  return liveGatewayUrl(rewritten);
 }
 
 /**

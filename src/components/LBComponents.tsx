@@ -458,6 +458,7 @@ async function enrichNFTFromMint(connection: any, mintAddr: string): Promise<NFT
             const withMeta: NFTData = {
               ...base, name: core.name || base.name, symbol: 'CORE', metaUri: core.uri,
               metaSource: 'core', isCore: true, coreCollection: core.collection,
+              collectionKey: core.collection,
               royaltyBps: core.royaltyBps, royaltyCreator: core.royaltyCreator, frozen: core.frozen,
             };
             const enriched = await enrichNFT(withMeta);
@@ -613,7 +614,7 @@ async function fetchWalletNFTs(connection: any, publicKey: PublicKey): Promise<N
     mint: c.address, name: c.name || `Asset ${c.address.slice(0, 6)}\u2026`, symbol: 'CORE',
     balance: 1, decimals: 0, isToken2022: false,
     metaUri: c.uri, metaSource: 'core',
-    isCore: true, coreCollection: c.collection,
+    isCore: true, coreCollection: c.collection, collectionKey: c.collection,
     royaltyBps: c.royaltyBps, royaltyCreator: c.royaltyCreator, frozen: c.frozen,
   }));
   const merged = [...nfts, ...coreNfts];

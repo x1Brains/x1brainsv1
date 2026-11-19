@@ -12,6 +12,10 @@ export type VerifiedCollection = {
   hosts: string[];
   namePrefixes: string[];
   mints?: string[];        // collection root / master mint(s)
+  /** Metaplex Core collection addresses. A Core asset's own `mint` is unique to
+   *  the asset, so `mints` can never match one — the collection it points at is
+   *  the exact signal, and it comes from the asset itself. */
+  collectionKeys?: string[];
   color: string;
   /** Collection portrait, when the source registry supplies one. */
   image?: string;
@@ -30,6 +34,45 @@ const C_YELLOW = '#ffb700';
 const C_PINK   = '#ec4899';
 
 export const VERIFIED_COLLECTIONS: VerifiedCollection[] = [
+  // ─── X1 Inscriptions (Metaplex Core) ──────────────────────────────────
+  // ⛔ These are CORE assets: each one's `mint` is its own asset address, so
+  // only `collectionKeys` or the metadata host can match them. The keys are the
+  // program's own collection PDAs, read off mainnet 2026-11-18:
+  //   ["coll_i"] 8AoC9xrB…  "X1 Inscriptions"
+  //   ["coll_l"] FZL4bTtt…  "X1MAPS"
+  //   ["coll_p"] 3bNMrtQ3…  "X1MAPS Parcels"
+  //   ["coll_e"] 3cnqfqQJ…  "X1 Editions"
+  // Without them a listed map fell into UNCATEGORIZED — its name is
+  // "43606.x1map", which no namePrefix can match because the collection is a
+  // SUFFIX there.
+  {
+    id: 'x1maps', name: 'X1MAPS',
+    hosts: ['x1inscriptions.io/api/nft/block', 'x1inscriptions.io/api/nft/collection/land'],
+    namePrefixes: [],
+    collectionKeys: ['FZL4bTtto88mV6Qqx3uz4o7wcjLrCCKZVVxgX4Y2L6cm'],
+    color: C_CYAN,
+  },
+  {
+    id: 'x1inscriptions', name: 'X1 Inscriptions',
+    hosts: ['x1inscriptions.io/api/nft/ins', 'x1inscriptions.io/api/nft/collection/ins'],
+    namePrefixes: [],
+    collectionKeys: ['8AoC9xrB7LchjfJmdUBxMcyCLjHjSQP8ZVnjDDQadDUy'],
+    color: C_ORANGE,
+  },
+  {
+    id: 'x1maps_parcels', name: 'X1MAPS Parcels',
+    hosts: ['x1inscriptions.io/api/nft/parcel', 'x1inscriptions.io/api/nft/collection/parcel'],
+    namePrefixes: [],
+    collectionKeys: ['3bNMrtQ3GW8qZmcb92z6wGRfjHprzH1VBWkvzFqsaFUV'],
+    color: C_GREEN,
+  },
+  {
+    id: 'x1editions', name: 'X1 Editions',
+    hosts: ['x1inscriptions.io/api/nft/edition', 'x1inscriptions.io/api/nft/collection/edition'],
+    namePrefixes: [],
+    collectionKeys: ['3cnqfqQJQ7kx2FRPtuHwCggHVbD7wVsa16fNHYajo596'],
+    color: C_PURPLE,
+  },
   // ─── X1 Native (legacy / OG) ───────────────────────────────────────────
   {
     id: 'x1punks', name: 'X1 Punks',
@@ -433,6 +476,7 @@ export function identifyCollection(opts: {
   //    the rest of the UI hardcodes (hero banner keys off `brains_elites`).
   for (const c of VERIFIED_COLLECTIONS) {
     if (mint && c.mints?.includes(mint)) return c;
+    if (opts.collectionKey && c.collectionKeys?.includes(opts.collectionKey)) return c;
     if (host && c.hosts.some(h => host.includes(h) || url.includes(h.toLowerCase()))) return c;
     if (name && c.namePrefixes.some(p => name.startsWith(p))) return c;
   }

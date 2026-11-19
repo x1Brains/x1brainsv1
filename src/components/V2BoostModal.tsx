@@ -149,6 +149,8 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
   const [sig,       setSig]       = useState('');
   // true once a transaction confirmed — keeps the panel up with its tx link
   const [done,      setDone]      = useState(false);
+  // a burn whose boost record did not save — re-submittable, never re-burned
+  const [unclaimed, setUnclaimed] = useState('');
   const [balance,   setBalance]   = useState<number | null>(null);   // BRAINS
   const [lbBalance, setLbBalance] = useState<number | null>(null);   // LB
   const [slotsUsed, setSlotsUsed] = useState<number | null>(null);
@@ -263,9 +265,16 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
       // The burn already settled on-chain, so a rejection here means the
       // tokens are gone and the slot is not booked. Say so plainly.
       if (!boostRes.ok) {
-        setStatus(`⚠️ Burn confirmed, but boost record FAILED: ${boostRes.error}. ${amountLabel} were burned but the listing won't appear in the spotlight. Contact admin.`);
+        // ⛔ The burn already settled, so the tokens are gone either way. Keep
+        // the signature so the SAME burn can be re-submitted — /api/boost
+        // re-reads it from chain and refuses to let one signature buy two
+        // boosts, so retrying is safe and never burns again. Without this the
+        // only options were "contact admin" or burn a second time.
+        setUnclaimed(txSig);
+        setStatus(`⚠️ ${amountLabel} burned, but the spotlight slot was not recorded: ${boostRes.error}. Your burn is still valid — press RETRY RECORDING. It will NOT burn again.`);
         return;
       }
+      setUnclaimed('');
 
       setStatus(`✅ Boost active · ${amountLabel} burned · ${selected.days}d featured`);
       // ⛔ Do NOT auto-close: this panel holds the only link to the
@@ -274,6 +283,30 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
       onDone();
     } catch (e: any) {
       setStatus(`❌ ${e?.message?.slice(0, 140) ?? 'Boost failed'}`);
+    } finally { setPending(false); }
+  };
+
+  /** Re-send a burn that already happened. No wallet, no second burn. */
+  const retryRecording = async () => {
+    if (!unclaimed) return;
+    setPending(true);
+    try {
+      setStatus('Re-submitting the burn…');
+      const res = await saveBoostVerified({
+        listing_pda: target.listingPda,
+        tier,
+        tx_sig:      unclaimed,
+      });
+      if (!res.ok) {
+        setStatus(`⚠️ Still not recorded: ${res.error}. Your burn stays valid — you can press RETRY RECORDING again.`);
+        return;
+      }
+      setUnclaimed('');
+      setStatus(`✅ Boost active · ${amountLabel} burned · ${selected.days}d featured`);
+      setDone(true);
+      onDone();
+    } catch (e: any) {
+      setStatus(`⚠️ ${e?.message?.slice(0, 120) ?? 'Retry failed'} — your burn stays valid, try again.`);
     } finally { setPending(false); }
   };
 
@@ -470,8 +503,11 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
             {done ? 'CLOSE' : 'CANCEL'}
           </button>
           <button
-            type="button" onClick={run}
-            disabled={done || pending || !canAfford || !slotsAvail || !publicKey}
+            type="button" onClick={unclaimed ? retryRecording : run}
+            // ⛔ With a burn already settled, this button must NEVER be a second
+            // burn — it re-submits the signature we already have. The affordance
+            // checks are irrelevant then: the tokens are spent.
+            disabled={unclaimed ? pending : (done || pending || !canAfford || !slotsAvail || !publicKey)}
             style={{
               flex: 2, padding: '11px 0',
               background: pending
@@ -493,7 +529,7 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
                 animation: 'spin 0.8s linear infinite',
               }} />
             )}
-            {pending ? 'WORKING…' : `BURN ${amountLabel}`}
+            {pending ? 'WORKING…' : unclaimed ? 'RETRY RECORDING (NO NEW BURN)' : `BURN ${amountLabel}`}
           </button>
         </div>
       </div>

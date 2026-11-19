@@ -112,14 +112,23 @@ export async function fetchSolarisNft(mint: string): Promise<SolarisNFT | null> 
       mint,
       name:           m.name,
       symbol:         m.symbol,
-      image:          m.image || (c?.image && j.data.listing == null ? undefined : c?.image),
+      // ⛔⛔⛔ AN NFT NEVER WEARS ITS COLLECTION'S COVER. This used to fall back
+      // to `collection.image`, which paints every NFT lacking a per-NFT image
+      // with the collection art and makes it look like the wrong token — the
+      // FEDS cover is an office computer with a "?" sticky note, so a FEDS
+      // that fell through showed that instead of its portrait. An NFT with no
+      // image of its own must resolve from its on-chain metadata URI instead,
+      // which is correct for 165 of the 172 live listings and recoverable for
+      // the rest. Undefined here means "ask the chain", not "use the cover".
+      image:          m.image || undefined,
       collectionKey:  c.collection_key,
       collectionName: c.name,
       attributes:     attributes.length ? attributes : undefined,
     };
-    // If per-NFT image isn't set, try inheriting collection image (rare; mostly
-    // catches one-of-one collection masters).
-    if (!out.image && c.image) out.image = c.image;
+    // ⛔ The collection-image inheritance that used to live here is gone, for
+    // the reason above. It was measured as mis-painting a live listing
+    // (X1 Pups "Alpha Leak", whose metadata is genuinely dead) and it is the
+    // only path by which a card can show art belonging to another token.
     nftCache.set(mint, out);
     persist();
     inFlight.delete(mint);

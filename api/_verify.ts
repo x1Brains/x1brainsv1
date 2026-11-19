@@ -83,15 +83,34 @@ export async function verifyBoostBurn(txSig: string, tier: string, nowSecs: numb
   // length once decoded, and the node answers that with "Invalid param:
   // WrongSize". Don't leak an RPC string to the caller as a 500 — it is just
   // a malformed signature.
+  // ⛔⛔⛔ getTransaction ONLY ANSWERS FOR FINALIZED TRANSACTIONS unless asked
+  // otherwise, and the client calls us the moment it has `confirmed` — which is
+  // ~13s earlier. On 2026-11-18 that race ate a real 0.5 LB burn: the tokens
+  // were gone, the tx was valid and finalized moments later, and this function
+  // said "transaction not found on chain" and refused the boost.
+  //
+  // So: ask at `confirmed`, and when the node still has not indexed it, retry
+  // for ~15s before giving up. A burn is irreversible — being slow here is
+  // always cheaper than telling someone their tokens bought nothing.
   let tx: any;
-  try {
-    tx = await rpc('getTransaction', [txSig, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }]);
-  } catch (e: any) {
-    const m = String(e?.message ?? '');
-    if (/WrongSize|Invalid param|invalid signature/i.test(m)) return { ok: false, reason: 'malformed signature' };
-    throw e;
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    try {
+      tx = await rpc('getTransaction', [txSig, {
+        encoding: 'jsonParsed',
+        maxSupportedTransactionVersion: 0,
+        commitment: 'confirmed',
+      }]);
+    } catch (e: any) {
+      const m = String(e?.message ?? '');
+      if (/WrongSize|Invalid param|invalid signature/i.test(m)) return { ok: false, reason: 'malformed signature' };
+      throw e;
+    }
+    if (tx) break;
+    if (Date.now() >= deadline) break;
+    await new Promise(r => setTimeout(r, 1500));
   }
-  if (!tx) return { ok: false, reason: 'transaction not found on chain' };
+  if (!tx) return { ok: false, reason: 'transaction not found on chain yet — it may still be confirming, retry in a moment' };
   if (tx.meta?.err) return { ok: false, reason: 'transaction failed on chain' };
 
   const blockTime: number = tx.blockTime ?? 0;
