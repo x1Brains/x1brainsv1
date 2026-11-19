@@ -53,6 +53,9 @@ export default function V2FarmModal({ farm, action, position, onClose, onDone }:
     setStatus('');
     setSig('');
     setPending(false);
+    // ⛔ per-action state must ALL reset, `done` included — otherwise the panel
+    // reopens already finished and its action button is gone.
+    setDone(false);
   }, [farm?.pubkey, action, position?.pubkey]);
 
   // Fetch balance of relevant token (LP for stake, reward for donate). Not

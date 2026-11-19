@@ -158,6 +158,9 @@ export default function V2BoostModal({ target, onClose, onDone }: Props) {
   // Reset whenever target changes (so reopening a different listing is clean)
   useEffect(() => {
     setTier('spark'); setCur('BRAINS'); setStatus(''); setPending(false); setSig('');
+    // ⛔ `done` and `unclaimed` are per-action too — leaving them set made the
+    // panel reopen already finished, with no way to act.
+    setDone(false); setUnclaimed('');
     setBalance(null); setLbBalance(null); setSlotsUsed(null);
   }, [target?.listingPda]);
 

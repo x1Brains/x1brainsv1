@@ -67,11 +67,16 @@ export default function V2MarketModal({ target, onClose, onDone }: Props) {
   }, [publicKey, connection, target?.mint]);
 
   // Reset on target change
+  // ⛔ EVERY piece of per-action state must be listed here. `done` was added for
+  // the stay-open confirmation panel and left out of this reset, so after one
+  // successful action the modal reopened for the NEXT NFT already "done": the
+  // footer had collapsed to a single CLOSE and there was no way to list at all.
   useEffect(() => {
     setPriceInput('');
     setStatus('');
     setPending(false);
     setSig('');
+    setDone(false);
   }, [target?.mint, target?.action]);
 
   // Esc closes when idle
