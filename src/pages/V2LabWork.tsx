@@ -1395,12 +1395,22 @@ export default function V2LabWork() {
   // Four tiles, not three.
   const otherCollections = (() => {
     const rest   = collectionStats.filter(c => c.key !== 'brains_elites');
-    // Pinned right after Brains Elites: FEDS, then X1 Ninjas (owner, 10-05); rest by listing count.
-    const pin = (c: { name: string }) => {
+    // Pinned right after Brains Elites: FEDS, then X1 Ninjas (owner, 10-05),
+    // then X1MAPS (owner, 11-18) — it is the house collection and brand new, so
+    // it would never win a slot on listing count against X1 Cats' 129.
+    const pin = (c: { name: string; key: string }) => {
       const n = c.name.trim().toLowerCase();
-      return n === 'feds' ? 0 : n.includes('ninja') ? 1 : 2;
+      if (n === 'feds') return 0;
+      if (n.includes('ninja')) return 1;
+      if (c.key === 'x1maps' || n === 'x1maps') return 2;
+      return 3;
     };
-    return [...rest].sort((a, b) => pin(a) - pin(b)).slice(0, 4);
+    // ⛔ The old comment claimed "rest by listing count" but the sort only ever
+    // compared pin rank, so everything below the pins came out in whatever
+    // order collectionStats happened to be in. Now it really does sort by it.
+    return [...rest]
+      .sort((a, b) => pin(a) - pin(b) || b.listed - a.listed)
+      .slice(0, 5);
   })();
   // Unique seller wallets across active listings — a real "holders in market"
   // count (the marketplace program has no holder index, so this is what's true).

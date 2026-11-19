@@ -1735,7 +1735,7 @@
   font-family: 'Orbitron', monospace; font-size: 8px; letter-spacing: 1.6px;
   text-transform: uppercase; color: var(--text-dim); font-weight: 700; white-space: nowrap;
 }
-.v2lw-v3 .lw-hero-browse-circles { display: flex; gap: 12px; }
+.v2lw-v3 .lw-hero-browse-circles { display: flex; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
 /* compact circles in the banner (reuse .lw-bc-* but smaller) */
 .v2lw-v3 .lw-hero-browse .lw-bc-item { width: 56px; gap: 5px; }
 .v2lw-v3 .lw-hero-browse .lw-bc-ring { padding: 2.5px; border-width: 2px; }
