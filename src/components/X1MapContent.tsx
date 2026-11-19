@@ -81,9 +81,18 @@ export default function X1MapContent({
 
   return (
     <div className={className} style={{ position: 'relative', width: '100%', height: '100%', ...style }}>
-      <canvas ref={ref} style={{ width: '100%', height: '100%', display: 'block' }} />
+      {/* ⛔ A MAP IS SQUARE. These containers are not — the home page hero is
+          wide, the detail modal is tall — so width/height 100% stretched the
+          map out of shape. Worse, the SVG overlay letterboxes its viewBox by
+          default while the canvas was stretching, so the two layers disagreed
+          and every piece of content sat off its block.
+          `object-fit: contain` on the canvas and the default `xMidYMid meet`
+          on the SVG letterbox identically, so the content lands exactly on its
+          square whatever shape the container is. */}
+      <canvas ref={ref} style={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain' }} />
       {!!shown.length && (
-        <svg viewBox="0 0 1000 1000" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
+        <svg viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet"
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
           {shown.map(t => {
             const sw = Math.min(6, Math.max(1.5, t.r * 0.06));
             const X = t.x + sw, Y = t.y + sw, W = t.r - 2 * sw;
