@@ -32,9 +32,21 @@ lb_mint             = "3B6oAfmL7aGVAbBdu7zW3jqEVWK6o1nwFiufuSuFV6tN"
 [registry]
 url = "https://api.apr.dev"
 
+# ⛔⛔⛔ LOCALNET BY DEFAULT, DELIBERATELY. `anchor test` BUILDS AND DEPLOYS before it runs tests,
+#   so with a mainnet cluster here, typing `anchor test` UPGRADES THE LIVE MAINNET PROGRAMS with
+#   whatever happens to be in the working tree. Found 2026-11-23: it actually tried, and only
+#   failed because the wallet was short on SOL - that wallet IS the upgrade authority.
+#   To touch mainnet, say so out loud:
+#     anchor deploy --provider.cluster https://rpc.mainnet.x1.xyz
+#     solana -u https://rpc.mainnet.x1.xyz program deploy target/deploy/<prog>.so --program-id <kp>
 [provider]
-cluster = "https://rpc.mainnet.x1.xyz"
-wallet  = "~/.config/solana/id.json"
+cluster = "localnet"
+# ⛔⛔⛔ A THROWAWAY, NEVER AN ADMIN WALLET. This was `~/.config/solana/id.json`, which is the
+#   DEPLOYER and the UPGRADE AUTHORITY on live mainnet programs - owner 2026-11-23: "no never use
+#   this wallet on these tests, these are only deployer or admin wallet". A test wallet should be
+#   worth nothing and be able to do nothing. Airdrop it on localnet; that is all it is for.
+#   A test that genuinely needs admin rights passes ANCHOR_WALLET explicitly, out loud.
+wallet  = "~/.config/solana/x1-localtest.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"

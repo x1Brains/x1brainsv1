@@ -68,3 +68,10 @@
 - **Binary size:** 531760 bytes (was 531736)
 - **Git:**       `main @ df077ae` (dirty: uncommitted changes)
 - **Authority:** `CCcJuC3B7EwAq47VCPfgbvHvjf2xkuCj6wAKxNZ7vcY2`
+
+---
+
+> **Emission RATE changes are not deploys and are not logged here.**
+> They live in `~/bt/farm-rate-cut/STATUS.md` (outside this repo, with the signed script),
+> and are summarised in `PROJECT.md` §21. As of 2026-11-23 both farms run at **18.75%** of
+> their pre-October rate — LB 2.5685/day, BRAINS 228.0822/day, runway ~877 d.

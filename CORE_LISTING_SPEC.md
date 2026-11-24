@@ -1,7 +1,10 @@
 # Listing Metaplex Core NFTs on the LabWork marketplace
 
-Status: **groundwork landed, instructions NOT written.** Owner approved the upgrade
-(2026-11-18) and the upgrade key is on the D: drive.
+> ## ✅ SHIPPED 2026-11-18 — this file is the design record, not a to-do list.
+> The program upgrade is live on mainnet (sig `2yK3Q2aP…`, md5 `cb15cf88…`), the client
+> is deployed, and maps/parcels draw their inscribed content. **PROJECT.md §20 is the
+> current account** — read that first; everything below is how it was planned, kept for
+> the reasoning. The "TO DO" list near the end is DONE and is left only for the record.
 
 ## Why this is needed
 x1 Inscriptions assets — inscriptions, maps, districts, parcels, editions — are

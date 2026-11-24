@@ -251,6 +251,54 @@ Two `:root` vars in `src/index.css` drive every panel's "dual-top glow" (faint o
 
 ## 5. Bugs encountered · don't reintroduce
 
+### The build is the only proof — `tsc` is not, and never grep for "error"
+
+```bash
+npm run build 2>&1 | grep -E "error|✓ built" && git push    # ⛔ PUSHED A BROKEN SITE
+npm run build >/dev/null 2>&1; echo "exit: $?"              # ✅
+```
+`grep` **matched the word "error"**, exited 0, and the push ran. Grepping for the failure
+word makes failure look like success. And `tsc` passed twice on 2026-11-18 on trees that
+would not build — an unbalanced `</div>`, and a missing export after a scripted replacement
+sliced four functions out of a module. See §20.6.
+
+### `getTransaction` only answers for FINALIZED transactions
+
+Unless you pass `commitment: 'confirmed'`. A client that confirms at `confirmed` and calls a
+server immediately is ~13s ahead of it. This destroyed a real 0.5 LB boost burn on
+2026-11-18: the tokens were gone, the burn was valid, and the server said "transaction not
+found on chain". Ask at `confirmed` AND retry before giving up — a burn is irreversible.
+Any flow that spends a token before recording something needs a retry path that re-submits
+the SAME signature. See §20.3.
+
+### An NFT must never display its collection's image
+
+`solarisIndexer` fell back to `collection.image` when an NFT had no per-NFT image, so the
+FEDS cover (an office computer with a "?" sticky note) was painted as individual NFTs and
+read as unrevealed art. Showing another image in place of the real one is indistinguishable
+from showing the wrong token. See §20.4.
+
+### Deleting the code that writes bad data does not delete the data
+
+`solarisIndexer` persists every record to `localStorage`, so the FEDS covers survived the
+code fix and only misbehaved on the machines that already had them — which is why it looked
+random. A persisted cache is part of the bug surface: bump the key and drop the old rows,
+because a row written by the broken code is indistinguishable from a good one. Same reasoning
+as `V2NFTImage`'s v4 bump. See §20.4.
+
+### Per-action modal state must be in the reset effect
+
+These modals are never unmounted — they are re-pointed at a new target. `done` was added for
+the stay-open confirmation panels and left out of the reset, so after one successful action
+the next NFT opened already "finished", with its action button gone. That blocked listing
+entirely. See §20.5.
+
+### Fix the layer, not the call site
+
+Map content was reported missing from three surfaces in a row because it was wired one call
+site at a time. Every NFT picture on the site renders through **`V2NFTImage`**. See §20.6.
+
+
 ### Silent catch blocks hide everything
 
 ```ts
@@ -1861,3 +1909,209 @@ is proven and the code path was read; the render was not observed.
   `PROJECT.md`-style block replacement failed on a two-space indent difference; the
   assertion refused before writing anything, instead of silently no-opping and
   leaving a commit that claimed a change it had not made.
+
+---
+
+## 20. Session log — 2026-11-18 · Metaplex Core listings, and the six bugs behind them
+
+> ⚠️ **§19 was the last entry, so 2026-09-19 → 2026-11-17 is an undocumented gap here** —
+> the Brains Elite free-fee upgrade (live mainnet 11-15, slot 93340899), the NFT-art
+> settlement of 11-14/15 and the XenBlocks mint restore all landed in that window with no
+> session log.
+
+Ten commits, all pushed: `366e2e1` · `f6a294d` · `087f7b7` · `8149541` · `5a3b3b5` ·
+`327e7f8` · `8b3e5fa` · `da4257f` · `cb6aea1` · `5420904`, then `121efd7` · `cb99828` ·
+`3a46aa2` · `b0b64ea` · `c1e39ba` · `95cf1c7` · `341edcc` · `ec5ee55` · `92e23b2`.
+
+### 20.1 What shipped — Core NFTs are listable on LabWork
+
+The marketplace program `CKZHwoUZTJEnGNK4piPxyysrhwLKnnrNoBmEHM9rLaD4` gained three
+instructions: `list_nft_core` / `buy_nft_core` / `cancel_listing_core` (discriminators
+`e43e5275537f97cd`, `a3663a6bb804a979`, `791348f349275bdb`).
+
+Deployed with sig `2yK3Q2aPFuRgsqgTUMM3DRyNfzFFki8nfp4Nmph6FWvgw9JiLWPirX6iPsx88SssTVgLBpDzoQvLMPQuaa5D22yE`,
+md5 `cb15cf88e4cd5493de83ed5a4caafc8d` matching the local build byte for byte. The program
+account was extended by 68,408 bytes first (0.476 XNT, not undoable). On-chain IDL upgraded
+to 7 instructions.
+
+**Escrow:** a Core asset has no token account, so the **sale PDA itself holds the asset**
+and signs its own transfer back out with `["sale", asset, seller, bump]`. `vault_bump` is
+set to 0 and unused. `SaleAccount` stays **90 bytes**, so SPL and Core listings share one
+reader.
+
+**The split on a sale:** creator royalty read off the asset (5%, 2.5% on parcels) → platform
+1.888% (waived for Brains Elite) → remainder to the seller.
+⛔ **The Elite waiver does NOT touch the royalty.** The fee is ours to waive; the creator's
+5% is not.
+
+⛔⛔⛔ **The royalty creator MUST be parsed from the asset, never taken from the client.**
+The royalty comes out of the sale, so a buyer who could name the creator would name himself
+and take 5% off the seller. Guarded by `BadRoyaltyCreator`; the attack is in the test suite.
+
+**Proof before mainnet** — a local validator holding the REAL Core program, a REAL map
+(`0.x1map`, cloned with its owner repointed) and a REAL Brains Elite with its genuine
+`["mint_record"]` PDA: 14 end-to-end, 8 adversarial (all rejected), 7 Elite-waiver with a
+control, 28 unit. The existing marketplace was proven untouched three ways — 547 insertions
+and 0 deletions, the 4 old instructions byte-identical in the IDL, and all 172 live sale
+accounts still decoding afterwards.
+
+### 20.2 Maps and parcels draw their inscribed content
+
+⛔ **A PARCEL IS ONE BLOCK OF A MAP.** Parcel `n` is `rects[n-1]` of the packed layout. On
+mainnet **every parcel that exists is filled** (37 of 37: 30 webp, 5 mp4, 1 png, 1 m4a), so
+the flat map picture hid the thing being sold 100% of the time.
+
+- `src/lib/x1insContent.ts` — chain reads plus `layoutMap` / `rasterMap` / `overlayBoxes`
+- `src/components/X1MapContent.tsx` — canvas + SVG overlay
+
+⛔⛔⛔ **`layoutMap` and `rasterMap` are EXACT TRANSCRIPTIONS of x1maps-web
+`src/lib/bitmap.ts` (`pack` + `raster`). Keep them in step.** Proven by rendering at 768 and
+diffing channel-by-channel against the site's own `/api/nft/image/<h>.png`: maps 24420,
+37982, 43619, 43621 — **589,824 px, 0 differing, max channel diff 0** on each. Re-run that
+check after any change.
+
+⛔ A map is SQUARE and the containers are not: `object-fit: contain` on the canvas AND
+`preserveAspectRatio="xMidYMid meet"` on the SVG, or one stretches while the other
+letterboxes and every piece of content sits off its block.
+
+### 20.3 The boost burn that bought nothing
+
+A real **0.5 LB** burn was destroyed (`3FgErRPr…`): the burn finalized, but `api/_verify.ts`
+asked the RPC a moment later and got nothing, so it answered *"transaction not found on
+chain"* and refused the boost.
+
+⛔⛔⛔ **`getTransaction` only answers for FINALIZED transactions** unless passed
+`commitment: 'confirmed'` — and the client calls us as soon as it has `confirmed`, ~13s
+earlier. It now asks at `confirmed` AND retries for ~15s. A burn is irreversible; being slow
+is always cheaper than telling someone their tokens bought nothing.
+
+`V2BoostModal` also keeps the signature on a failed record and offers
+**RETRY RECORDING (NO NEW BURN)** — `/api/boost` re-reads the burn from chain and refuses to
+let one signature buy two boosts, so retrying is safe. Confirmed working the same evening on
+an identical incinerator burn (`4SBrm2bp…`).
+
+### 20.4 "FEDS showing the reveal image" was the collection cover
+
+Not a reveal. `src/lib/solarisIndexer.ts` fell back to `collection.image` whenever an NFT
+had no per-NFT image, and the FEDS cover is an office computer with a "?" sticky note.
+⛔ **An NFT must NEVER display its collection's image** — it is indistinguishable from
+showing the wrong token. Removed.
+
+⛔ And the big public IPFS gateways are dead for direct fetches: `ipfs.io`, `dweb.link` and
+`nftstorage.link` now answer **429** with the plain-text notice *"This IPFS gateway is
+switching to a service worker gateway only"*. Not JSON, not an image. `resolveGateway`
+rewrote `ipfs://` but not an already-http dead gateway, so three listings whose METADATA URI
+lived there failed to parse. Now routed through `liveGatewayUrl`. `solarisprime.xyz/ipfs/`
+and `gateway.pinata.cloud/ipfs/` both serve at 200.
+
+⛔⛔ **Removing the bad code does not remove the bad data.** The owner came back with *"some
+feds are showing their actual nfts and others are showing the reveil"* AFTER the fallback was
+deleted, because `solarisIndexer` **persists every record to localStorage**. Fixed by
+bumping `v2_solaris_nft_cache_v2` → **v3** and dropping every v2 row — a row written by the
+old code is indistinguishable from a good one. Same reasoning as `V2NFTImage`'s v4 bump.
+**A persisted cache is part of the bug surface.**
+
+### 20.5 Confirmation panels no longer close themselves
+
+All six auto-closed on a timer while holding the only link to the transaction —
+`V2MarketModal` (1.8s), `V2FarmModal` (1.8s), `V2BoostModal` (2.2s) and PoolsTab's
+withdraw/deposit/swap (3s each). They now refresh behind themselves and stay until dismissed.
+
+⛔ The timer was hiding that **the action button stayed armed after success** — on the pool
+panels a live SWAP / ADD LIQUIDITY / WITHDRAW. Those become CLOSE.
+
+⛔ **Every piece of per-action state must be in the modal's reset effect.** These modals are
+never unmounted, they are re-pointed at a new target. `done` was added and left out of the
+reset, so after one successful action the next NFT opened already "finished" with no action
+button — which blocked listing entirely until `cb99828`.
+
+### 20.6 Lessons that cost the most time
+
+- ⛔⛔⛔ **Fix the LAYER, not the call site.** Told three times that map content was missing
+  from a surface — grid, then sell tab, then home-page hero — because the component was
+  wired one call site at a time. All 10+ NFT pictures render through **`V2NFTImage`**;
+  putting the map branch there fixed every surface at once. `?p=<n>` is a PARCEL spotlight,
+  not a map, and must never be swapped for a picture of its map.
+- ⛔⛔⛔ **Never port a function you have only partly read.** `pack()` was transcribed from a
+  partial read with the tail guessed: four errors, each of which moves every square.
+- ⛔⛔⛔ **The build is the only proof.** `npm run build | grep -E "error|✓ built" && git push`
+  **pushed a broken site** — grep MATCHED the word "error", exited 0, and the push ran. Check
+  the exit status. And `tsc` passed twice the same day on trees that would not build (an
+  unbalanced `</div>`; a missing export after a text replacement sliced four functions out).
+- ⛔ **Verify through the real path, not a synthetic call.** The x1 Inscriptions collections
+  were added to the registry and checked with a hand-made `identifyCollection` call that
+  passed — while the live page stayed broken, because nothing in the listing path produced a
+  collection key for a Core asset at all.
+
+### 20.7 Collection registry · the BROWSE BY COLLECTION rail
+
+The four x1 Inscriptions collections are now in `verifiedCollections.ts`, matched by a new
+`collectionKeys` field (read off the program's own PDAs):
+
+| seed | address | name |
+|---|---|---|
+| `["coll_i"]` | `8AoC9xrB7LchjfJmdUBxMcyCLjHjSQP8ZVnjDDQadDUy` | X1 Inscriptions |
+| `["coll_l"]` | `FZL4bTtto88mV6Qqx3uz4o7wcjLrCCKZVVxgX4Y2L6cm` | X1MAPS |
+| `["coll_p"]` | `3bNMrtQ3GW8qZmcb92z6wGRfjHprzH1VBWkvzFqsaFUV` | X1MAPS Parcels |
+| `["coll_e"]` | `3cnqfqQJQ7kx2FRPtuHwCggHVbD7wVsa16fNHYajo596` | X1 Editions |
+
+⛔ **A Core asset's `mint` is its own unique address**, so matching a collection by known
+mints can never work — and its name is a SUFFIX (`43606.x1map`), so `namePrefixes` cannot
+either. `collectionKeys` is the only exact signal.
+
+Three separate things had to be fixed before X1MAPS could appear in the rail: the hard cap of
+four circles (X1MAPS is now pinned after FEDS and Ninjas, cap raised to 5, row wraps); the
+**snapshot lock**, which froze counts on the premise that "enrichment only adds URLs" — false
+once Core assets became listable, since their name and collection key arrive in a later pass;
+and the portrait chain, which started with the first listing's art and so showed initials
+until enrichment finished. The registry portrait now wins.
+
+---
+
+## 21. Session log — 2026-11-23 · LP farm emissions cut to 18.75%
+
+Farm program `Ci1qDtdoSh8mCtJTVoX1tArbnLydQUZYu9RiqukRFJpg`, admin
+`CCcJuC3B7EwAq47VCPfgbvHvjf2xkuCj6wAKxNZ7vcY2`. Tooling lives OUTSIDE this repo at
+`~/bt/farm-rate-cut/` (`cut_rate.cjs`, `repin.cjs`, `pinned_rates.json`, `STATUS.md`).
+
+Two −50% cuts sent on both farms, each verified by reading the rate back:
+
+| farm | before | cut 1 | cut 2 | % of pre-October |
+|---|---|---|---|---|
+| XNT/LB (pays LB) | 10.2740/day | 5.1370 | **2.5685/day** | 18.75% |
+| XNT/BRAINS (pays BRAINS) | 912.3288/day | 456.1644 | **228.0822/day** | 18.75% |
+
+    cut 1  LB      hWe6ph2WZkbeoXSDaW6kAWchc5t7hvG1q2CgVST2BsPiWSQw8ECtt1YXJDggF81Nu2VSAkF1zzwFKrmD5XpbcKE
+           BRAINS  2rkuo32r8h5XNUzgWiMYaNcVopjm7rKuYExjfcAVJRpqooEC9tQhXMYtK2Ak7V8bFc1z1DXp9C8r5z1bD95fBKcT
+    cut 2  LB      5mX1oj8UiQo3QZLMrLNJLRQbQPbFFYekLtoaBFmX55uFLtPtNjYcssD6NfKfMxUF7sJaX7WrAKgjSySjy7rD2H4L
+           BRAINS  4UjXUnj3u5wVAF2SuWeNmNWe5yJBc4iH3KELfQkMLjQCauVJBURSCtegh39RegDT5eM7KjPkEHVqvLQnKQV7BgV9
+
+Exactly `0.75 × 0.5 × 0.5` of the pre-October rate (the −25% of 10-04 came first). Runway
+~**877 days**, both farms empty around **2029-04-17 / 04-20**.
+
+`update_rate` accepts **½× … 2× per call** and settles earned rewards at the OLD rate before
+switching. Admin-only.
+
+### 21.1 ⛔ Never compare two farms' runways across an unsettled `pending`
+
+The farms were reported as having "drifted 45 days apart" (LB 270 d vs BRAINS 225 d) and a
+third transaction was planned to realign them. **That gap did not exist.** Because
+`update_rate` settles before switching, the on-chain `pending` is stale until it runs — so
+`free = vault − pending` reads high, by a different amount on each farm.
+
+Once cut 1 settled both, they read **437.8 d and 439.0 d** — 1.2 days apart. They were always
+aligned (same seed and duration by design). The realigning multiplier recomputed to
+**×1.0027**, i.e. noise, and was not sent.
+
+Settle first, or compare only numbers taken after the same settle. This is the same trap that
+overstated the runway on 2026-10-02; it has now been hit twice.
+
+### 21.2 Operating notes
+
+- `pinned_rates.json` holds the rates the script expects to find live; it **refuses any farm
+  whose live rate ≠ its pin**. Run `node repin.cjs` between every send.
+- `cut_rate.cjs` takes PER-FARM multipliers via `STEP=n`. Add a new STEP; never edit an old
+  one — the old ones are the record of what was sent.
+- ⛔ Announce before cutting: locked-365 stakers cannot leave without a penalty.
+- The admin key **is** on this machine at `~/.x1brains-keys/id.json`. An older note claiming
+  otherwise was stale and cost a round-trip asking for a key already in hand.
